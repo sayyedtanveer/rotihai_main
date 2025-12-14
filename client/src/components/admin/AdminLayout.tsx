@@ -38,7 +38,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   const [location, setLocation] = useLocation();
   const { toast } = useToast();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const { unreadCount, wsConnected, requestNotificationPermission, clearUnreadCount } = useAdminNotifications();
+  const { unreadCount, wsConnected, requestNotificationPermission, clearUnreadCount, lastNotificationType } = useAdminNotifications();
 
   const adminUser = JSON.parse(localStorage.getItem("adminUser") || "{}");
 
@@ -47,7 +47,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   }, []);
 
   useEffect(() => {
-    if (location === "/admin/payments") {
+    if (location === "/admin/payments" || location === "/admin/subscriptions") {
       clearUnreadCount();
     }
   }, [location]);
@@ -234,7 +234,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                 {wsConnected && (
                   <div className="h-2 w-2 bg-green-500 rounded-full animate-pulse" title="Connected"></div>
                 )}
-                <Link href="/admin/payments">
+                <Link href={lastNotificationType === "subscription" ? "/admin/subscriptions" : "/admin/payments"}>
                   <Button
                     variant="ghost"
                     size="icon"

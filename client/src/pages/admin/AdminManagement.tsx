@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import type { AdminUser, InsertAdminUser } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Plus, ShieldCheck, Pencil, Trash2 } from "lucide-react";
+import { Plus, ShieldCheck, Pencil, Trash2, Lock, Copy } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertAdminUserSchema } from "@shared/schema";
@@ -24,8 +24,10 @@ export default function AdminManagement() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingAdmin, setEditingAdmin] = useState<AdminUser | null>(null);
   const [deletingAdmin, setDeletingAdmin] = useState<AdminUser | null>(null);
+  const [resetPasswordAdmin, setResetPasswordAdmin] = useState<AdminUser | null>(null);
   const [editRole, setEditRole] = useState("");
   const [createdAdmin, setCreatedAdmin] = useState<{ username: string; email: string; password: string } | null>(null);
+  const [resetPasswordResult, setResetPasswordResult] = useState<{ adminUsername: string; tempPassword: string; emailSent: boolean } | null>(null);
 
   const currentAdminUser = JSON.parse(localStorage.getItem("adminUser") || "{}");
 
@@ -43,6 +45,7 @@ export default function AdminManagement() {
 
   const form = useForm<InsertAdminUser>({
     resolver: zodResolver(insertAdminUserSchema),
+    mode: "onChange",
     defaultValues: {
       username: "",
       email: "",
@@ -53,7 +56,9 @@ export default function AdminManagement() {
 
   const createMutation = useMutation({
     mutationFn: async (data: InsertAdminUser) => {
+      console.log("🚀 Creating admin with data:", data);
       const token = localStorage.getItem("adminToken");
+      console.log("🔑 Token:", token ? "Present" : "Missing");
       const response = await fetch("/api/admin/admins", {
         method: "POST",
         headers: {
@@ -62,19 +67,23 @@ export default function AdminManagement() {
         },
         body: JSON.stringify(data),
       });
+      console.log("📡 Response status:", response.status);
       if (!response.ok) {
         const error = await response.json();
+        console.error("❌ API Error:", error);
         throw new Error(error.message || "Failed to create admin");
       }
       return response.json();
     },
     onSuccess: (data) => {
+      console.log("✅ Admin created successfully:", data);
       queryClient.invalidateQueries({ queryKey: ["/api/admin", "admins"] });
       setCreatedAdmin({ username: data.username, email: data.email, password: data.password });
       setIsDialogOpen(false);
       form.reset();
     },
     onError: (error: Error) => {
+      console.error("❌ Creation error:", error);
       toast({ title: "Creation failed", description: error.message, variant: "destructive" });
     },
   });
@@ -126,7 +135,49 @@ export default function AdminManagement() {
     },
   });
 
-  const handleSubmit = (data: InsertAdminUser) => {
+  const resetPasswordMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const token = localStorage.getItem("adminToken");
+      const response = await fetch(`/api/admin/admins/${id}/reset-password`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to reset password");
+      }
+      return response.json();
+    },
+    onSuccess: (data) => {
+      setResetPasswordResult({
+        adminUsername: data.adminUsername,
+        tempPassword: data.tempPassword,
+        emailSent: data.emailSent,
+      });
+      toast({
+        title: "Password reset successfully",
+        description: data.emailSent 
+          ? "Temporary password has been sent to the admin's email"
+          : "Password reset (email not configured)",
+      });
+      setResetPasswordAdmin(null);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Reset failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const handleSubmit = async (data: InsertAdminUser) => {
+    console.log("📝 ========= FORM SUBMIT STARTED =========");
+    console.log("📝 Form submitted with data:", data);
+    console.log("📝 Form validation errors:", form.formState.errors);
+    console.log("📝 Form state:", form.formState);
+    console.log("📝 Is form valid?", form.formState.isValid);
+    console.log("📝 Touched fields:", form.formState.touchedFields);
+    console.log("📝 ========= CALLING MUTATION =========");
     createMutation.mutate(data);
   };
 
@@ -145,6 +196,21 @@ export default function AdminManagement() {
     if (deletingAdmin) {
       deleteAdminMutation.mutate(deletingAdmin.id);
     }
+  };
+
+  const handleResetPassword = (admin: AdminUser) => {
+    setResetPasswordAdmin(admin);
+  };
+
+  const handleConfirmResetPassword = () => {
+    if (resetPasswordAdmin) {
+      resetPasswordMutation.mutate(resetPasswordAdmin.id);
+    }
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast({ title: "Copied", description: "Password copied to clipboard" });
   };
 
   const getRoleBadgeVariant = (role: string) => {
@@ -297,6 +363,15 @@ export default function AdminManagement() {
                             <Button
                               variant="outline"
                               size="sm"
+                              onClick={() => handleResetPassword(admin)}
+                              title="Reset password"
+                              data-testid={`button-reset-password-${admin.id}`}
+                            >
+                              <Lock className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
                               onClick={() => handleEditRole(admin)}
                               data-testid={`button-edit-role-${admin.id}`}
                             >
@@ -422,6 +497,83 @@ export default function AdminManagement() {
             <Button
               onClick={() => setCreatedAdmin(null)}
               data-testid="button-close-credentials"
+            >
+              Done
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reset Password Confirmation Dialog */}
+      <Dialog open={!!resetPasswordAdmin && !resetPasswordResult} onOpenChange={() => {
+        setResetPasswordAdmin(null);
+        setResetPasswordResult(null);
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reset Admin Password</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to reset the password for <strong>{resetPasswordAdmin?.username}</strong>?
+            </DialogDescription>
+          </DialogHeader>
+          <p className="text-sm text-slate-600 dark:text-slate-400">
+            A temporary password will be generated and sent to their email address.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setResetPasswordAdmin(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleConfirmResetPassword}
+              disabled={resetPasswordMutation.isPending}
+              data-testid="button-confirm-reset-password"
+            >
+              {resetPasswordMutation.isPending ? "Resetting..." : "Reset Password"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reset Password Result Dialog - Show Temporary Password */}
+      <Dialog open={!!resetPasswordResult} onOpenChange={() => setResetPasswordResult(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-green-600">Password Reset Successfully</DialogTitle>
+            <DialogDescription>
+              {resetPasswordResult?.emailSent 
+                ? "A temporary password has been sent to the admin's email."
+                : "Email not configured, but password has been reset."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2 p-3 bg-slate-100 dark:bg-slate-800 rounded">
+              <div>
+                <p className="text-xs font-medium text-muted-foreground">Admin Username</p>
+                <p className="text-sm font-mono font-bold text-foreground" data-testid="text-reset-admin-username">{resetPasswordResult?.adminUsername}</p>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-muted-foreground">Temporary Password</p>
+                <div className="flex items-center gap-2 mt-1">
+                  <p className="text-sm font-mono font-bold text-red-600 dark:text-red-400 flex-1" data-testid="text-temp-password">{resetPasswordResult?.tempPassword}</p>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => resetPasswordResult && copyToClipboard(resetPasswordResult.tempPassword)}
+                    className="h-6 w-6 p-0"
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+            <p className="text-xs text-amber-600 dark:text-amber-400">
+              ⚠️ Share this temporary password securely. The admin should change it immediately after logging in.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              onClick={() => setResetPasswordResult(null)}
+              data-testid="button-close-reset-result"
             >
               Done
             </Button>

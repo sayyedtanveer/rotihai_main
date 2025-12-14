@@ -14,7 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 import { format } from "date-fns";
 import { Search, Filter, Truck, User } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 export default function AdminOrders() {
   const { toast } = useToast();
@@ -158,7 +158,7 @@ export default function AdminOrders() {
   };
 
   const canAssignDelivery = (order: Order) => {
-    return order.status === "confirmed" || order.status === "preparing";
+    return order.status === "confirmed" || order.status === "preparing" || order.status === "prepared";
   };
 
   const getDeliveryPersonName = (deliveryPersonId: string | null) => {
@@ -170,6 +170,35 @@ export default function AdminOrders() {
   const availableDeliveryPersonnel = deliveryPersonnel?.filter((dp) =>
     dp.isActive
   ) || [];
+
+  // Listen for WebSocket order updates
+  useEffect(() => {
+    const token = localStorage.getItem("adminToken");
+    const ws = new WebSocket(`ws://localhost:5000?token=${token}&type=admin`);
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        
+        if (data.type === "order_update") {
+          // Invalidate orders query to refetch latest data
+          queryClient.invalidateQueries({ queryKey: ["/api/admin", "orders"] });
+        }
+      } catch (error) {
+        console.error("Error parsing WebSocket message:", error);
+      }
+    };
+
+    ws.onerror = (error) => {
+      console.error("WebSocket error:", error);
+    };
+
+    return () => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.close();
+      }
+    };
+  }, []);
 
   const handleOpenAssignDialog = (order: Order) => {
     setSelectedOrderForAssignment(order);

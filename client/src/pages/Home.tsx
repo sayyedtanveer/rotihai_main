@@ -121,10 +121,17 @@ import { useState, useEffect } from "react";
       // Get chef location if available
       const chef = product.chefId ? chefs.find(c => c.id === product.chefId) : null;
 
+      // Calculate discounted price if offer exists
+      const discountedPrice = product.offerPercentage && product.offerPercentage > 0
+        ? Math.round(product.price * (1 - product.offerPercentage / 100))
+        : product.price;
+
       const cartItem = {
         id: product.id,
         name: product.name,
-        price: product.price,
+        price: discountedPrice,
+        originalPrice: product.price,
+        offerPercentage: product.offerPercentage || 0,
         image: product.image,
         chefId: product.chefId || undefined,
         chefName: selectedChefForMenu?.name || chef?.name || undefined,

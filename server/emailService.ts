@@ -118,6 +118,49 @@ export function createPasswordResetEmail(
 }
 
 /* ============================================
+   ADMIN PASSWORD RESET EMAIL
+============================================ */
+export function createAdminPasswordResetEmail(
+  username: string,
+  tempPassword: string
+) {
+  return `
+    <!DOCTYPE html>
+    <html>
+    <body style="font-family: Arial; max-width: 600px; margin: auto;">
+      <h2>🔐 Admin Password Reset</h2>
+      <p>Hello ${username},</p>
+      <p>Your password has been reset by the Super Admin. Your new temporary password is:</p>
+
+      <div style="
+          padding: 15px;
+          background: #f0f0f0;
+          border-radius: 6px;
+          width: fit-content;
+          margin: 15px 0;
+        ">
+        <b style="font-size: 20px; letter-spacing: 2px;">${tempPassword}</b>
+      </div>
+
+      <p>
+        <strong>Login credentials:</strong><br>
+        • Username: <b>${username}</b><br>
+        • Password: <b>${tempPassword}</b><br>
+      </p>
+
+      <p style="color: #d32f2f; font-weight: bold;">
+        ⚠️ Please change this password immediately after logging in for security.
+      </p>
+
+      <p style="color: #666; font-size: 12px; margin-top: 20px;">
+        This is an automated message from RotiHai Admin System.
+      </p>
+    </body>
+    </html>
+  `;
+}
+
+/* ============================================
    PASSWORD CHANGE CONFIRMATION
 ============================================ */
 export function createPasswordChangeConfirmationEmail(

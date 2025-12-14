@@ -160,9 +160,22 @@ export default function PaymentQRDialog({
         throw new Error(errorMessage);
       }
 
+      const data = await response.json();
+
+      // If new user account was created, store the tokens for immediate login
+      if (data.userCreated && data.accessToken) {
+        localStorage.setItem("userToken", data.accessToken);
+        if (data.refreshToken) {
+          localStorage.setItem("userRefreshToken", data.refreshToken);
+        }
+        console.log(`✅ New user auto-logged in with tokens`);
+      }
+
       toast({
         title: "✓ Payment Confirmed!",
-        description: "Your order has been submitted. We'll verify the payment shortly.",
+        description: data.userCreated 
+          ? "Your account has been created and you're logged in!"
+          : "Your order has been submitted. We'll verify the payment shortly.",
       });
 
       // Navigate to tracking page

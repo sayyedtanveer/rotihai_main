@@ -112,6 +112,42 @@ export function usePartnerNotifications() {
           console.log("📅 Subscription update received");
           queryClient.invalidateQueries({ queryKey: ["/api/partner/subscriptions"] });
           queryClient.invalidateQueries({ queryKey: ["/api/partner/subscription-deliveries"] });
+          
+          // Show toast notification for subscription updates
+          toast({
+            title: "Subscription Updated",
+            description: `${data.data?.customerName || 'Customer'} - ${data.data?.planName || 'Subscription'}`,
+          });
+        }
+
+        if (data.type === "subscription_assigned") {
+          console.log("✅ NEW SUBSCRIPTION ASSIGNED:", data.data);
+          
+          const subscriptionData = data.data;
+          
+          // Invalidate queries to refresh subscription data
+          queryClient.invalidateQueries({ queryKey: ["/api/partner/subscriptions"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/partner/subscription-deliveries"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/partner/dashboard/metrics"] });
+          
+          // Show browser notification
+          if (Notification.permission === "granted") {
+            new Notification("New Subscription Assigned! 🎉", {
+              body: `${subscriptionData.customerName} - ${subscriptionData.planName}\nDelivery: ${subscriptionData.nextDeliveryDate}`,
+              icon: "/favicon.png",
+              tag: subscriptionData.subscriptionId,
+            });
+
+            // Play notification sound
+            const audio = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBTGH0fPTgjMGHm7A7+OZURE=");
+            audio.play().catch(() => {});
+          }
+          
+          // Show toast notification
+          toast({
+            title: "New Subscription Assigned! 🎉",
+            description: `${subscriptionData.customerName} - ${subscriptionData.planName}\nNext Delivery: ${new Date(subscriptionData.nextDeliveryDate).toLocaleDateString()}`,
+          });
         }
       } catch (error) {
         console.error("Failed to parse WebSocket message:", error);

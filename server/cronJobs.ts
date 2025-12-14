@@ -1,7 +1,8 @@
 import { db } from "../shared/db";
-import { subscriptions } from "../shared/schema";
+import { subscriptions, orders, chefs, adminUsers } from "../shared/schema";
 import { eq } from "drizzle-orm";
 import { storage } from "./storage";
+import { sendScheduledOrder2HourReminder } from "./whatsappService";
 
 let isRunning = false;
 
@@ -141,6 +142,89 @@ export async function updateNextDeliveryDates(): Promise<void> {
   }
 }
 
+export async function sendScheduledOrder2HourNotifications(): Promise<void> {
+  try {
+    const now = new Date();
+    
+    // Find all scheduled orders (with deliveryTime and deliveryDate) that are 2 hours away
+    const allScheduledOrders = await db.query.orders.findMany({
+      where: (o, { and, eq, isNotNull }) => and(
+        eq(o.status, "approved"),
+        isNotNull(o.deliveryTime),
+        isNotNull(o.deliveryDate)
+      ),
+    });
+
+    let notificationsSent = 0;
+
+    for (const order of allScheduledOrders) {
+      if (!order.deliveryTime || !order.deliveryDate) continue;
+
+      // Parse delivery time and date
+      const [delHours, delMins] = order.deliveryTime.split(":").map(Number);
+      const deliveryDateTime = new Date(order.deliveryDate);
+      deliveryDateTime.setHours(delHours, delMins, 0, 0);
+
+      // Calculate time difference
+      const timeUntilDelivery = deliveryDateTime.getTime() - now.getTime();
+      const hoursUntilDelivery = timeUntilDelivery / (1000 * 60 * 60);
+
+      // Check if delivery is in approximately 2 hours (within 1 hour 50 min to 2 hours 10 min window)
+      if (hoursUntilDelivery > 1.83 && hoursUntilDelivery <= 2.17) {
+        const items = Array.isArray(order.items) 
+          ? order.items.map((item: any) => item.name || item.title || "Item").join(", ")
+          : "Order items";
+
+        // Send notification to chef
+        if (order.chefId) {
+          const chef = await db.query.chefs.findFirst({
+            where: eq(chefs.id, order.chefId),
+          });
+
+          if (chef && chef.phone) {
+            const success = await sendScheduledOrder2HourReminder(
+              chef.name,
+              chef.phone,
+              order.id,
+              order.deliveryTime,
+              order.deliveryDate,
+              order.customerName,
+              items.split(", ")
+            );
+            if (success) notificationsSent++;
+          }
+        }
+
+        // Send notification to all active admins
+        const admins = await db.query.adminUsers.findMany({
+          where: (a) => a.id,
+        });
+
+        for (const admin of admins) {
+          if (admin.phone) {
+            const success = await sendScheduledOrder2HourReminder(
+              admin.username,
+              admin.phone,
+              order.id,
+              order.deliveryTime,
+              order.deliveryDate,
+              order.customerName,
+              items.split(", ")
+            );
+            if (success) notificationsSent++;
+          }
+        }
+      }
+    }
+
+    if (notificationsSent > 0) {
+      console.log(`📱 Sent ${notificationsSent} 2-hour reminder notification(s)`);
+    }
+  } catch (error) {
+    console.error("Error in sendScheduledOrder2HourNotifications:", error);
+  }
+}
+
 export async function runScheduledTasks(): Promise<void> {
   if (isRunning) return;
   
@@ -149,6 +233,7 @@ export async function runScheduledTasks(): Promise<void> {
     await autoResumeSubscriptions();
     await generateDailyDeliveryLogs();
     await updateNextDeliveryDates();
+    await sendScheduledOrder2HourNotifications();
   } finally {
     isRunning = false;
   }

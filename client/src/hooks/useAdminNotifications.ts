@@ -7,6 +7,7 @@ import type { Order } from "@shared/schema";
 export function useAdminNotifications() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [wsConnected, setWsConnected] = useState(false);
+  const [lastNotificationType, setLastNotificationType] = useState<"order" | "subscription">("order");
 
   const { data: pendingPayments = [] } = useQuery<Order[]>({
     queryKey: ["/api/admin", "orders", "pending-payments"],
@@ -53,6 +54,7 @@ export function useAdminNotifications() {
 
         // Show notification only for payment-related updates
         if (order.paymentStatus === "pending" || order.paymentStatus === "paid") {
+          setLastNotificationType("order");
           setUnreadCount((prev) => prev + 1);
 
           if (Notification.permission === "granted") {
@@ -72,6 +74,7 @@ export function useAdminNotifications() {
         queryClient.invalidateQueries({ queryKey: ["/api/admin", "subscriptions"] });
         queryClient.invalidateQueries({ queryKey: ["/api/admin/dashboard/metrics"] });
 
+        setLastNotificationType("subscription");
         setUnreadCount((prev) => prev + 1);
 
         toast({
@@ -102,6 +105,7 @@ export function useAdminNotifications() {
 
         // Show notification if payment transaction ID was just added (user confirmed payment)
         if (subscription.paymentTransactionId && !subscription.isPaid) {
+          setLastNotificationType("subscription");
           setUnreadCount((prev) => prev + 1);
 
           toast({
@@ -131,6 +135,7 @@ export function useAdminNotifications() {
         queryClient.invalidateQueries({ queryKey: ["/api/admin", "subscriptions"] });
         queryClient.invalidateQueries({ queryKey: ["/api/admin/dashboard/metrics"] });
         
+        setLastNotificationType("subscription");
         setUnreadCount((prev) => prev + 1);
 
         toast({
@@ -213,6 +218,7 @@ export function useAdminNotifications() {
     unreadCount,
     wsConnected,
     pendingPayments,
+    lastNotificationType,
     requestNotificationPermission,
     clearUnreadCount,
   };

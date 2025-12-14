@@ -173,7 +173,15 @@ export default function MySubscriptions() {
 
   const getNextDeliveryInfo = (subscription: Subscription) => {
     if (!subscription.nextDeliveryDate) return null;
+    
+    // Check if the date is valid (matches backend validation: 1980-2100)
     const nextDate = new Date(subscription.nextDeliveryDate);
+    const year = nextDate.getFullYear();
+    if (isNaN(nextDate.getTime()) || year < 1980 || year > 2100) {
+      // Invalid or default date - don't show delivery info
+      return null;
+    }
+    
     const slot = getDeliverySlotInfo(subscription.deliverySlotId);
     
     return {

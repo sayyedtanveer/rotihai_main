@@ -39,15 +39,12 @@ export function registerPartnerRoutes(app: Express): void {
         return;
       }
 
-      // Fetch subscriptions directly for this chef from DB to avoid any accidental cross-chef leaks
       const chefSubscriptionsRaw = await storage.getActiveSubscriptionsByChef(chefId);
-
       console.log(`Partner subscriptions (DB): chefId=${chefId}, matchedSubs=${chefSubscriptionsRaw.length}`);
 
       const enrichedSubscriptions = await Promise.all(
         chefSubscriptionsRaw.map(async (sub) => {
           const plan = await storage.getSubscriptionPlan(sub.planId);
-          // Remove sensitive customer information
           const { phone, address, email, ...safeSub } = sub as any;
           return {
             ...safeSub,
@@ -243,14 +240,17 @@ export function registerPartnerRoutes(app: Express): void {
             const isRotiCategory = category?.name?.toLowerCase() === 'roti' || 
                                    category?.name?.toLowerCase().includes('roti');
 
-            if (isRotiCategory && !order.deliverySlotId) {
-              res.status(400).json({ message: "Delivery time slot is required for Roti category" });
+            // Only enforce slot requirement if order has deliveryTime (i.e., it was scheduled)
+            // Non-scheduled Roti orders (without deliveryTime) do NOT need a slot
+            if (isRotiCategory && order.deliveryTime && !order.deliverySlotId) {
+              res.status(400).json({ message: "Delivery time slot is required for scheduled Roti orders" });
               return;
             }
           }
         }
         // If it's roti category and time slot is provided, it's already saved in the order.
         // If it's not roti category, no time slot validation needed.
+        // If it's roti but not scheduled (no deliveryTime), no validation needed.
       }
       // --- End Roti Category + Delivery Time Slot Flow ---
 
@@ -506,6 +506,11 @@ export function registerPartnerRoutes(app: Express): void {
       let delivered = 0;
 
       for (const sub of subscriptions) {
+        // Skip subscriptions with invalid nextDeliveryDate
+        if (!sub.nextDeliveryDate || isNaN(new Date(sub.nextDeliveryDate).getTime())) {
+          continue;
+        }
+        
         // Check if subscription has delivery today based on next delivery date
         const nextDelivery = new Date(sub.nextDeliveryDate);
         nextDelivery.setHours(0, 0, 0, 0);

@@ -325,6 +325,10 @@ export function broadcastOrderUpdate(order: Order) {
   console.log(`Payment Status: ${order.paymentStatus}`);
   console.log(`Chef ID: ${order.chefId}`);
   console.log(`Assigned To: ${order.assignedTo || 'None'}`);
+  console.log(`\n📋 Connected clients (${clients.size}):`);
+  clients.forEach((client, clientId) => {
+    console.log(`  - ${clientId}: type=${client.type}, chefId=${client.chefId || 'N/A'}`);
+  });
 
   // Cancel timeout if order is no longer waiting for delivery assignment
   // Valid statuses for delivery assignment: "accepted_by_chef", "preparing", "prepared"
@@ -355,6 +359,8 @@ export function broadcastOrderUpdate(order: Order) {
       client.ws.send(message);
       customerNotified = true;
       console.log(`  ✅ Sent to customer ${clientId}`);
+    } else if (client.type === "chef" && client.chefId !== order.chefId) {
+      console.log(`  ❌ Chef ${clientId} skipped - chefId mismatch (client: ${client.chefId}, order: ${order.chefId})`);
     }
   });
 
@@ -683,3 +689,45 @@ export function broadcastSubscriptionAssignmentToPartner(subscription: any, chef
   console.log(`  - Partner notified: ${partnerNotified ? 'YES' : 'NO'}`);
   console.log(`================================================\n`);
 }
+
+// 💳 Broadcast wallet balance update to customer
+export function broadcastWalletUpdate(userId: string, newBalance: number) {
+  const message = JSON.stringify({
+    type: "wallet_updated",
+    data: {
+      userId,
+      newBalance,
+      timestamp: new Date().toISOString(),
+    },
+    message: `Wallet updated: ₹${newBalance}`,
+  });
+
+  console.log(`\n💳 [BROADCAST] Wallet update for user: ${userId}, Balance: ₹${newBalance}`);
+  console.log(`💳 [BROADCAST] Total connected clients: ${clients.size}`);
+
+  let sentCount = 0;
+  let skippedCount = 0;
+
+  // Send to all connected customers with this userId
+  clients.forEach((client, clientId) => {
+    const typeMatch = client.type === "customer" || client.type === "browser";
+    const userIdMatch = client.userId === userId;
+    const wsOpen = client.ws.readyState === WebSocket.OPEN;
+    
+    console.log(`💳 [BROADCAST] Client ${clientId}: type=${client.type} (match=${typeMatch}), userId=${client.userId} (match=${userIdMatch}), wsOpen=${wsOpen}`);
+    
+    if (typeMatch && userIdMatch && wsOpen) {
+      client.ws.send(message);
+      sentCount++;
+      console.log(`✅ [BROADCAST] Sent wallet update to client ${clientId}`);
+    } else {
+      skippedCount++;
+      if (!typeMatch) console.log(`   ⏭️ Skipped: type mismatch (${client.type})`);
+      if (!userIdMatch) console.log(`   ⏭️ Skipped: userId mismatch (${client.userId} !== ${userId})`);
+      if (!wsOpen) console.log(`   ⏭️ Skipped: WebSocket not open`);
+    }
+  });
+  
+  console.log(`💳 [BROADCAST] Summary: Sent=${sentCount}, Skipped=${skippedCount}\n`);
+}
+

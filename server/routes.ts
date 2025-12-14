@@ -5,12 +5,12 @@ import { insertOrderSchema, userLoginSchema, insertUserSchema } from "@shared/sc
 import { registerAdminRoutes } from "./adminRoutes";
 import { registerPartnerRoutes } from "./partnerRoutes";
 import { registerDeliveryRoutes } from "./deliveryRoutes";
-import { setupWebSocket, broadcastNewOrder, broadcastSubscriptionDelivery, broadcastNewSubscriptionToAdmin, broadcastSubscriptionAssignmentToPartner } from "./websocket";
+import { setupWebSocket, broadcastNewOrder, broadcastSubscriptionDelivery, broadcastNewSubscriptionToAdmin, broadcastSubscriptionAssignmentToPartner, broadcastWalletUpdate } from "./websocket";
 import { hashPassword, verifyPassword, generateAccessToken, generateRefreshToken, requireUser, type AuthenticatedUserRequest } from "./userAuth";
 import { verifyToken as verifyUserToken } from "./userAuth";
 import { requireAdmin } from "./adminAuth";
 import { sendEmail, createWelcomeEmail, createPasswordResetEmail, createPasswordChangeConfirmationEmail } from "./emailService";
-import { db, subscriptions } from "@shared/db";
+import { db, subscriptions, orders, walletSettings, referralRewards } from "@shared/db";
 import { eq } from "drizzle-orm";
 import { ZodError } from "zod";
 
@@ -550,6 +550,22 @@ app.post("/api/user/logout", async (req, res) => {
         return;
       }
 
+      // Get referral bonus info if user was referred
+      let pendingBonus = null;
+      const referral = await (await import("@shared/db")).db.query.referrals.findFirst({
+        where: (r, { eq }) => eq(r.referredId, user.id),
+      });
+
+      if (referral && referral.status === "pending") {
+        const settings = await storage.getActiveReferralReward();
+        pendingBonus = {
+          amount: referral.referredBonus,
+          minOrderAmount: settings?.minOrderAmount || 0,
+          code: referral.referralCode,
+          referrerName: (await storage.getUser(referral.referrerId))?.name,
+        };
+      }
+
       res.json({
         id: user.id,
         name: user.name,
@@ -558,6 +574,7 @@ app.post("/api/user/logout", async (req, res) => {
         address: user.address,
         referralCode: user.referralCode,
         walletBalance: user.walletBalance || 0,
+        pendingBonus,
       });
     } catch (error) {
       console.error("Error fetching profile:", error);
@@ -675,8 +692,20 @@ app.post("/api/user/logout", async (req, res) => {
         return;
       }
 
+      // Check if system is enabled
+      const settings = await storage.getActiveReferralReward();
+      if (!settings?.isActive) {
+        return res.status(400).json({ message: "Referral system is currently disabled" });
+      }
+
       await storage.applyReferralBonus(referralCode, userId);
-      res.json({ message: "Referral bonus applied successfully", bonus: 50 });
+      
+      const bonus = settings.referredBonus || 50;
+      res.json({ 
+        message: "Referral bonus applied successfully", 
+        bonus,
+        note: "Bonus is credited to your wallet. It will be available for your next order."
+      });
     } catch (error: any) {
       console.error("Error applying referral:", error);
       res.status(400).json({ message: error.message || "Failed to apply referral" });
@@ -770,6 +799,50 @@ app.post("/api/user/logout", async (req, res) => {
     }
   });
 
+  // Check if user is eligible to claim referral bonus at checkout
+  app.post("/api/user/check-bonus-eligibility", requireUser(), async (req: AuthenticatedUserRequest, res) => {
+    try {
+      const userId = req.authenticatedUser!.userId;
+      const { orderTotal } = req.body;
+
+      if (!orderTotal || orderTotal <= 0) {
+        return res.status(400).json({ message: "Order total is required and must be greater than 0" });
+      }
+
+      const eligibility = await storage.validateBonusEligibility(userId, orderTotal);
+      res.json(eligibility);
+    } catch (error: any) {
+      console.error("Error checking bonus eligibility:", error);
+      res.status(500).json({ message: error.message || "Failed to check bonus eligibility" });
+    }
+  });
+
+  // Claim referral bonus at checkout
+  app.post("/api/user/claim-bonus-at-checkout", requireUser(), async (req: AuthenticatedUserRequest, res) => {
+    try {
+      const userId = req.authenticatedUser!.userId;
+      const { orderTotal, orderId } = req.body;
+
+      if (!orderTotal || orderTotal <= 0) {
+        return res.status(400).json({ message: "Order total is required and must be greater than 0" });
+      }
+
+      if (!orderId) {
+        return res.status(400).json({ message: "Order ID is required" });
+      }
+
+      const result = await storage.claimReferralBonusAtCheckout(userId, orderTotal, orderId);
+      
+      if (result.bonusClaimed) {
+        return res.json(result);
+      } else {
+        return res.status(400).json(result);
+      }
+    } catch (error: any) {
+      console.error("Error claiming bonus:", error);
+      res.status(500).json({ message: error.message || "Failed to claim bonus" });
+    }
+  });
 
 
   // Get subscription delivery schedule
@@ -1007,6 +1080,7 @@ app.post("/api/orders", async (req: any, res) => {
       userId: body.userId || undefined,
       couponCode: body.couponCode || undefined,
       discount: body.discount || 0,
+      walletAmountUsed: sanitizeNumber(body.walletAmountUsed) || 0,
       categoryId: body.categoryId || undefined,
       categoryName: body.categoryName || undefined,
       deliveryTime: body.deliveryTime || undefined,
@@ -1072,80 +1146,103 @@ app.post("/api/orders", async (req: any, res) => {
           console.log(`📅 Auto-scheduling Roti order for next day - slot cutoff passed`);
         }
       } else {
-        // NO SLOT SELECTED - Auto-calculate delivery time as 1 hour from now
-        const deliveryTime = new Date(now);
-        deliveryTime.setHours(deliveryTime.getHours() + 1);
-        const deliveryHour = String(deliveryTime.getHours()).padStart(2, '0');
-        const deliveryMinute = String(deliveryTime.getMinutes()).padStart(2, '0');
-        sanitized.deliveryTime = `${deliveryHour}:${deliveryMinute}`;
-        console.log(`⏰ No slot selected: auto-set delivery time to ${sanitized.deliveryTime} (1 hour from now)`);
+        // NO SLOT SELECTED - Do NOT set deliveryTime
+        // Order should be treated as a regular order, NOT scheduled
+        console.log(`⏰ No slot selected: Order will be treated as regular order (not scheduled)`);
       }
     }
 
-    const result = insertOrderSchema.safeParse(sanitized);
-    if (!result.success) {
-      console.error("❌ Order validation failed:", result.error.flatten());
-      return res.status(400).json({
-        message: "Invalid order data",
-        errors: result.error.flatten(),
-        received: sanitized,
-      });
+    // Remove undefined deliveryTime and deliverySlotId from sanitized object
+    // This ensures they're treated as optional and not validated against
+    if (sanitized.deliveryTime === undefined) {
+      delete (sanitized as any).deliveryTime;
+    }
+    if (sanitized.deliverySlotId === undefined) {
+      delete (sanitized as any).deliverySlotId;
     }
 
-    // Extract authenticated userId (JWT) or auto-register new user
-    let userId: string | undefined;
-    let accountCreated = false;
-    let generatedPassword: string | undefined;
-    let emailSent = false;
+      const result = insertOrderSchema.safeParse(sanitized);
+      if (!result.success) {
+        console.error("❌ Order validation failed:", result.error.flatten());
+        return res.status(400).json({
+          message: "Invalid order data",
+          errors: result.error.flatten(),
+          received: sanitized,
+        });
+      }
 
-    if (req.headers.authorization?.startsWith("Bearer ")) {
+      // Extract authenticated userId (JWT) or auto-register new user
+      let userId: string | undefined;
+      let accountCreated = false;
+      let generatedPassword: string | undefined;
+      let emailSent = false;
+      let appliedReferralBonus = 0;
+      const referralCodeInput = (req.body as any).referralCode;    if (req.headers.authorization?.startsWith("Bearer ")) {
       const token = req.headers.authorization.substring(7);
       const payload = verifyUserToken(token);
       if (payload?.userId) userId = payload.userId;
     } else if (sanitized.phone) {
       // Auto-register user if phone is provided and user doesn't exist
+      // Phone is the PRIMARY identifier, not email
       let user = await storage.getUserByPhone(sanitized.phone);
 
       if (!user) {
-        // Double-check phone doesn't exist (security measure)
-        const existingUser = await storage.getUserByPhone(sanitized.phone);
-        if (existingUser) {
-          return res.status(400).json({
-            message: "Phone number already registered. Please login to continue.",
-            requiresLogin: true
-          });
-        }
-
+        // NEW PHONE = Create new account (email can be reused)
         accountCreated = true;
-        // Default password: last 6 digits of phone number
         const tempPassword = sanitized.phone.slice(-6);
         generatedPassword = tempPassword;
         const passwordHash = await hashPassword(tempPassword);
-        user = await storage.createUser({
-          name: sanitized.customerName,
-          phone: sanitized.phone,
-          email: sanitized.email || null,
-          address: sanitized.address || null,
-          passwordHash,
-          referralCode: null,
-          walletBalance: 0,
-        });
-        console.log("New user auto-created during checkout:", user.id, "- Default password:", generatedPassword);
-
-        // Send welcome email with password if email is provided
-        if (sanitized.email && generatedPassword) {
-          const emailHtml = createWelcomeEmail(sanitized.customerName, sanitized.phone, generatedPassword);
-          emailSent = await sendEmail({
-            to: sanitized.email,
-            subject: '🍽️ Welcome to RotiHai - Your Account Details',
-            html: emailHtml,
+        
+        try {
+          user = await storage.createUser({
+            name: sanitized.customerName,
+            phone: sanitized.phone,
+            email: sanitized.email || null,
+            address: sanitized.address || null,
+            passwordHash,
+            referralCode: null,
+            walletBalance: 0,
           });
+          console.log(`✅ New account created with phone: ${sanitized.phone}, Email: ${sanitized.email || 'Not provided'}`);
 
-          if (emailSent) {
-            console.log(`✅ Welcome email sent to ${sanitized.email}`);
+          // Apply referral code if provided (new user only)
+          if (referralCodeInput && user.id) {
+            try {
+              await storage.applyReferralBonus(referralCodeInput.trim().toUpperCase(), user.id);
+              console.log(`✅ Referral code ${referralCodeInput} applied to new user ${user.id}`);
+              
+              // Get the bonus amount from wallet transactions
+              const transactions = await storage.getWalletTransactions(user.id, 1);
+              const referralTransaction = transactions.find(t => t.type === 'referral_bonus');
+              if (referralTransaction) {
+                appliedReferralBonus = referralTransaction.amount;
+              }
+            } catch (referralError: any) {
+              console.warn(`⚠️ Failed to apply referral code: ${referralError.message}`);
+              // Don't fail the order if referral fails - it's optional
+            }
           }
+
+          // Send welcome email if provided
+          if (sanitized.email && generatedPassword) {
+            const emailHtml = createWelcomeEmail(sanitized.customerName, sanitized.phone, generatedPassword);
+            emailSent = await sendEmail({
+              to: sanitized.email,
+              subject: '🍽️ Welcome to RotiHai - Your Account Details',
+              html: emailHtml,
+            });
+
+            if (emailSent) {
+              console.log(`✅ Welcome email sent to ${sanitized.email}`);
+            }
+          }
+        } catch (createUserError: any) {
+          console.error("Error creating user:", createUserError);
+          throw createUserError;
         }
       } else {
+        // EXISTING PHONE = Use existing account
+        console.log(`✅ Existing account found with phone: ${sanitized.phone}`);
         await storage.updateUserLastLogin(user.id);
       }
 
@@ -1158,6 +1255,8 @@ app.post("/api/orders", async (req: any, res) => {
       paymentStatus: "pending",
       userId,
     };
+
+    console.log("📦 Creating order with userId:", userId, "accountCreated:", accountCreated);
 
     // Determine chefId if missing
     if (!orderPayload.chefId && orderPayload.items.length > 0) {
@@ -1177,7 +1276,29 @@ app.post("/api/orders", async (req: any, res) => {
       orderPayload.chefName = chef.name;
     }
 
+    // Calculate and set deliveryDate if deliverySlotId is provided
+    if (orderPayload.deliverySlotId) {
+      try {
+        const slot = await storage.getDeliveryTimeSlot(orderPayload.deliverySlotId);
+        if (slot) {
+          const cutoffInfo = computeSlotCutoffInfo(slot);
+          // Format date as YYYY-MM-DD
+          const deliveryDate = cutoffInfo.nextAvailableDate;
+          const year = deliveryDate.getFullYear();
+          const month = String(deliveryDate.getMonth() + 1).padStart(2, '0');
+          const day = String(deliveryDate.getDate()).padStart(2, '0');
+          orderPayload.deliveryDate = `${year}-${month}-${day}`;
+          console.log(`📅 Set deliveryDate to: ${orderPayload.deliveryDate}`);
+        }
+      } catch (error) {
+        console.warn("Error calculating deliveryDate:", error);
+      }
+    }
+
+    console.log("📝 Order payload before DB insert:", JSON.stringify(orderPayload, null, 2));
     const order = await storage.createOrder(orderPayload);
+    console.log("✅ Order created successfully:", order.id);
+    console.log(`📋 Order Details: userId=${userId}, walletAmountUsed=${order.walletAmountUsed}`);
 
       // Record coupon usage with per-user tracking
       if (orderPayload.couponCode && userId) {
@@ -1248,6 +1369,7 @@ app.post("/api/orders", async (req: any, res) => {
       defaultPassword: accountCreated ? generatedPassword : undefined,
       emailSent: accountCreated ? emailSent : undefined,
       accessToken: accountCreated ? accessToken : undefined,
+      appliedReferralBonus: appliedReferralBonus > 0 ? appliedReferralBonus : undefined,
     });
   } catch (error: any) {
     console.error("❌ Create order error:", error);
@@ -1339,15 +1461,160 @@ app.post("/api/orders", async (req: any, res) => {
         return;
       }
 
+      let accessToken: string | undefined;
+      let refreshToken: string | undefined;
+      let userCreated = false;
+
+      // Check if order userId is null (new user) - create account on payment confirmation
+      if (!order.userId) {
+        console.log(`📝 Payment confirmed for new user order ${id} - Creating user account`);
+        
+        let user = await storage.getUserByPhone(order.phone);
+        
+        if (!user) {
+          // Create new user account with default password (last 6 digits of phone)
+          const generatedPassword = order.phone.slice(-6);
+          const passwordHash = await hashPassword(generatedPassword);
+          
+          user = await storage.createUser({
+            name: order.customerName,
+            phone: order.phone,
+            email: order.email || null,
+            address: order.address || null,
+            passwordHash,
+            referralCode: null,
+            walletBalance: 0,
+          });
+          
+          console.log(`✅ New user created on payment confirmation: ${user.id} - Phone: ${order.phone}`);
+          userCreated = true;
+          
+          // Send welcome email if email provided
+          if (order.email) {
+            const emailHtml = createWelcomeEmail(order.customerName, order.phone, generatedPassword);
+            const emailSent = await sendEmail({
+              to: order.email,
+              subject: '🍽️ Welcome to RotiHai - Your Account Details',
+              html: emailHtml,
+            });
+            
+            if (emailSent) {
+              console.log(`✅ Welcome email sent to ${order.email}`);
+            }
+          }
+          
+          // Update order with new userId
+          await db.update(orders).set({ userId: user.id }).where(eq(orders.id, id));
+          order.userId = user.id;
+          
+          // Generate tokens for immediate login
+          accessToken = generateAccessToken(user);
+          refreshToken = generateRefreshToken(user);
+        } else {
+          console.log(`👤 User already exists with phone ${order.phone}, linking to order`);
+          // Link existing user to order
+          await db.update(orders).set({ userId: user.id }).where(eq(orders.id, id));
+          order.userId = user.id;
+          
+          // Generate tokens for login
+          accessToken = generateAccessToken(user);
+          refreshToken = generateRefreshToken(user);
+        }
+      }
+
+      // Check if order was already paid (for idempotency)
+      const orderBefore = await storage.getOrderById(id);
+      const isIdempotentCall = orderBefore?.paymentStatus === "paid";
+      
+      if (isIdempotentCall) {
+        console.log(`⏭️ Order ${id} already marked as paid. Skipping payment processing...`);
+        // Still return the order to client, but don't process again
+        res.json({
+          message: "Payment already confirmed for this order",
+          order: orderBefore,
+        });
+        return;
+      }
+
       // Update order payment status to indicate user confirmed payment
       const updatedOrder = await storage.updateOrderPaymentStatus(id, "paid");
 
       console.log(`✅ Payment confirmed for order ${id} - Status: ${updatedOrder?.paymentStatus}`);
 
-      res.json({
+      // 💳 DEDUCT WALLET BALANCE when payment is confirmed (only once)
+      if (updatedOrder && updatedOrder.walletAmountUsed && updatedOrder.walletAmountUsed > 0 && updatedOrder.userId) {
+        console.log(`\n💳 [=${'='.repeat(50)}] WALLET DEDUCTION TRACE [${'='.repeat(50)}]`);
+        console.log(`💳 [WALLET] Processing wallet deduction for order ${id}...`);
+        console.log(`💳 [WALLET] Order walletAmountUsed value: ₹${updatedOrder.walletAmountUsed}`);
+        console.log(`💳 [WALLET] Order walletAmountUsed type: ${typeof updatedOrder.walletAmountUsed}`);
+        
+        // Get current wallet balance before deduction
+        const userBefore = await storage.getUser(updatedOrder.userId);
+        const balanceBefore = userBefore?.walletBalance || 0;
+        console.log(`💳 [WALLET] User ID: ${updatedOrder.userId}`);
+        console.log(`💳 [WALLET] STEP 1 - Query user balance BEFORE deduction:`);
+        console.log(`💳 [WALLET]   → Returned walletBalance: ${userBefore?.walletBalance}`);
+        console.log(`💳 [WALLET]   → Actual balanceBefore used: ₹${balanceBefore}`);
+        
+        // Check if wallet has already been deducted for this order (double-check)
+        const existingTransactions = await storage.getWalletTransactions(updatedOrder.userId, 100);
+        const deductionTransactions = existingTransactions.filter(
+          (txn: any) => txn.referenceId === id && txn.type === "debit"
+        );
+        
+        if (deductionTransactions.length > 0) {
+          console.log(`⏭️ [WALLET] Found ${deductionTransactions.length} existing debit transaction(s) for order ${id}. Skipping...`);
+          const existingAmount = deductionTransactions.reduce((sum: number, txn: any) => sum + txn.amount, 0);
+          console.log(`   Already deducted: ₹${existingAmount}`);
+        } else {
+          console.log(`💳 [WALLET] No existing transaction found. Proceeding with deduction...`);
+          try {
+            // Create wallet transaction for audit trail (this also updates the wallet balance atomically)
+            await storage.createWalletTransaction({
+              userId: updatedOrder.userId,
+              amount: updatedOrder.walletAmountUsed,
+              type: "debit",
+              description: `Wallet payment for order #${updatedOrder.id}`,
+              referenceId: updatedOrder.id,
+              referenceType: "order",
+            });
+            console.log(`✅ [WALLET] Balance updated and transaction logged`);
+            
+            // Get updated wallet balance
+            const updatedUser = await storage.getUser(updatedOrder.userId);
+            const newWalletBalance = updatedUser?.walletBalance || 0;
+            console.log(`   User wallet balance AFTER: ₹${newWalletBalance}`);
+            console.log(`   Calculation: ₹${balanceBefore} - ₹${updatedOrder.walletAmountUsed} = ₹${newWalletBalance}`);
+            
+            // 📣 Broadcast wallet update to customer in real-time
+            broadcastWalletUpdate(updatedOrder.userId, newWalletBalance);
+            console.log(`✅ [WALLET] Broadcast sent to user ${updatedOrder.userId}`);
+            
+            console.log(`✅ [WALLET] COMPLETE: ₹${updatedOrder.walletAmountUsed} deducted from wallet for order #${updatedOrder.id}`);
+            console.log(`💳 [${'='.repeat(100)}]\n`);
+          } catch (walletError: any) {
+            console.error("❌ [WALLET] ERROR during deduction:", walletError.message);
+            console.error(walletError.stack);
+            // Don't fail the payment confirmation if wallet deduction fails - it's non-critical
+          }
+        }
+      } else {
+        console.log(`⏭️ [WALLET] Skipped deduction: walletAmountUsed=${updatedOrder?.walletAmountUsed}, userId=${updatedOrder?.userId}`);
+      }
+
+      const response: any = {
         message: "Payment confirmation received",
-        order: updatedOrder
-      });
+        order: updatedOrder,
+      };
+
+      // Include tokens and user info if new account was created
+      if (userCreated) {
+        response.userCreated = true;
+        response.accessToken = accessToken;
+        response.refreshToken = refreshToken;
+      }
+
+      res.json(response);
     } catch (error: any) {
       console.error("Error confirming payment:", error);
       res.status(500).json({ message: error.message || "Failed to confirm payment" });
@@ -1522,39 +1789,44 @@ app.post("/api/orders", async (req: any, res) => {
 
       if (!user) {
         isNewUser = true;
-        // Default password: last 6 digits of phone number
+        // Phone is PRIMARY identifier - create new account even if email exists
         const newPassword = sanitizedPhone.slice(-6);
         generatedPassword = newPassword;
-
         const passwordHash = await hashPassword(newPassword);
-        user = await storage.createUser({
-          name: customerName.trim(),
-          phone: sanitizedPhone,
-          email: email ? email.trim().toLowerCase() : null,
-          address: address ? address.trim() : null,
-          passwordHash,
-          referralCode: null,
-          walletBalance: 0,
-        });
-
-        console.log(`✅ New user created during subscription: ${user.id} - Default password: ${newPassword}`);
-
-        // Send welcome email with password if email is provided
-        if (email) {
-          const emailHtml = createWelcomeEmail(customerName, sanitizedPhone, newPassword);
-          emailSent = await sendEmail({
-            to: email,
-            subject: '🍽️ Welcome to RotiHai - Your Account Details',
-            html: emailHtml,
+        
+        try {
+          user = await storage.createUser({
+            name: customerName.trim(),
+            phone: sanitizedPhone,
+            email: email ? email.trim().toLowerCase() : null,
+            address: address ? address.trim() : null,
+            passwordHash,
+            referralCode: null,
+            walletBalance: 0,
           });
 
-          if (emailSent) {
-            console.log(`✅ Welcome email sent to ${email}`);
+          console.log(`✅ New account created during subscription with phone: ${sanitizedPhone}, Email: ${email || 'Not provided'}`);
+
+          // Send welcome email if provided
+          if (email) {
+            const emailHtml = createWelcomeEmail(customerName, sanitizedPhone, newPassword);
+            emailSent = await sendEmail({
+              to: email,
+              subject: '🍽️ Welcome to RotiHai - Your Account Details',
+              html: emailHtml,
+            });
+
+            if (emailSent) {
+              console.log(`✅ Welcome email sent to ${email}`);
+            }
           }
+        } catch (createUserError: any) {
+          console.error("Error creating user during subscription:", createUserError);
+          throw createUserError;
         }
       } else {
+        console.log(`✅ Existing account found with phone: ${sanitizedPhone}`);
         await storage.updateUserLastLogin(user.id);
-        console.log(`✅ Existing user found during subscription: ${user.id}`);
       }
 
       // Generate tokens for the user
@@ -1563,8 +1835,25 @@ app.post("/api/orders", async (req: any, res) => {
 
       // Create the subscription
       const now = new Date();
-      const nextDelivery = new Date(now);
-      nextDelivery.setDate(nextDelivery.getDate() + 1);
+      let nextDelivery = new Date(now);
+      let finalDeliveryTime = deliveryTime; // Start with provided delivery time
+      
+      // If this is a slot-based subscription, calculate the correct next delivery date AND time
+      if (deliverySlotId) {
+        const slot = await storage.getDeliveryTimeSlot(deliverySlotId);
+        if (slot) {
+          const cutoffInfo = computeSlotCutoffInfo(slot);
+          nextDelivery = new Date(cutoffInfo.nextAvailableDate);
+          finalDeliveryTime = slot.startTime; // Extract time from slot (e.g., "20:00" for 8PM)
+          console.log(`📅 Subscription next delivery date set from slot: ${nextDelivery.toISOString()}, time: ${finalDeliveryTime}`);
+        } else {
+          // Fallback if slot not found
+          nextDelivery.setDate(nextDelivery.getDate() + 1);
+        }
+      } else {
+        // Non-slot subscriptions default to tomorrow
+        nextDelivery.setDate(nextDelivery.getDate() + 1);
+      }
 
       const endDate = new Date(now);
       endDate.setDate(endDate.getDate() + durationDays);
@@ -1595,7 +1884,7 @@ app.post("/api/orders", async (req: any, res) => {
         startDate: now,
         endDate,
         nextDeliveryDate: nextDelivery,
-        nextDeliveryTime: deliveryTime,
+        nextDeliveryTime: finalDeliveryTime,
         customItems: null,
         remainingDeliveries: totalDeliveries,
         totalDeliveries,
@@ -1710,8 +1999,25 @@ app.post("/api/orders", async (req: any, res) => {
       }
 
       const now = new Date();
-      const nextDelivery = new Date(now);
-      nextDelivery.setDate(nextDelivery.getDate() + 1);
+      let nextDelivery = new Date(now);
+      let finalDeliveryTime = deliveryTime; // Start with provided delivery time
+      
+      // If this is a slot-based subscription, calculate the correct next delivery date AND time
+      if (deliverySlotId) {
+        const slot = await storage.getDeliveryTimeSlot(deliverySlotId);
+        if (slot) {
+          const cutoffInfo = computeSlotCutoffInfo(slot);
+          nextDelivery = new Date(cutoffInfo.nextAvailableDate);
+          finalDeliveryTime = slot.startTime; // Extract time from slot (e.g., "20:00" for 8PM)
+          console.log(`📅 Subscription next delivery date set from slot: ${nextDelivery.toISOString()}, time: ${finalDeliveryTime}`);
+        } else {
+          // Fallback if slot not found
+          nextDelivery.setDate(nextDelivery.getDate() + 1);
+        }
+      } else {
+        // Non-slot subscriptions default to tomorrow
+        nextDelivery.setDate(nextDelivery.getDate() + 1);
+      }
 
       const endDate = new Date(now);
       endDate.setDate(endDate.getDate() + durationDays);
@@ -1742,7 +2048,7 @@ app.post("/api/orders", async (req: any, res) => {
         startDate: now,
         endDate,
         nextDeliveryDate: nextDelivery,
-        nextDeliveryTime: deliveryTime,
+        nextDeliveryTime: finalDeliveryTime,
         customItems: null,
         remainingDeliveries: totalDeliveries,
         totalDeliveries,
@@ -2035,8 +2341,25 @@ app.post("/api/orders", async (req: any, res) => {
       }
 
       const now = new Date();
-      const nextDelivery = new Date(now);
-      nextDelivery.setDate(nextDelivery.getDate() + 1);
+      let nextDelivery = new Date(now);
+      let finalDeliveryTime = oldSubscription.nextDeliveryTime || "09:00"; // Use old time as default
+      
+      // If this is a slot-based subscription, calculate the correct next delivery date AND time
+      if (oldSubscription.deliverySlotId) {
+        const slot = await storage.getDeliveryTimeSlot(oldSubscription.deliverySlotId);
+        if (slot) {
+          const cutoffInfo = computeSlotCutoffInfo(slot);
+          nextDelivery = new Date(cutoffInfo.nextAvailableDate);
+          finalDeliveryTime = slot.startTime; // Extract time from slot (e.g., "20:00" for 8PM)
+          console.log(`📅 Renewed subscription next delivery date set from slot: ${nextDelivery.toISOString()}, time: ${finalDeliveryTime}`);
+        } else {
+          // Fallback if slot not found
+          nextDelivery.setDate(nextDelivery.getDate() + 1);
+        }
+      } else {
+        // Non-slot subscriptions default to tomorrow
+        nextDelivery.setDate(nextDelivery.getDate() + 1);
+      }
 
       const endDate = new Date(now);
       endDate.setDate(endDate.getDate() + 30);
@@ -2058,7 +2381,7 @@ app.post("/api/orders", async (req: any, res) => {
         startDate: now,
         endDate,
         nextDeliveryDate: nextDelivery,
-        nextDeliveryTime: oldSubscription.nextDeliveryTime || "09:00",
+        nextDeliveryTime: finalDeliveryTime,
         customItems: null,
         remainingDeliveries: totalDeliveries,
         totalDeliveries,
@@ -2258,6 +2581,27 @@ app.post("/api/orders", async (req: any, res) => {
     } catch (error: any) {
       console.error("Error fetching roti settings:", error);
       res.status(500).json({ message: error.message || "Failed to fetch roti settings" });
+    }
+  });
+
+  // Public wallet settings endpoint (for checkout page)
+  app.get("/api/wallet-settings", async (req, res) => {
+    try {
+      const walletSetting = await db.query.walletSettings.findFirst({
+        where: (ws, { eq }) => eq(ws.isActive, true)
+      });
+
+      const defaultWallet = { 
+        maxUsagePerOrder: 10, 
+        minOrderAmount: 0,
+        referrerBonus: 100, 
+        referredBonus: 50 
+      };
+
+      res.json(walletSetting || defaultWallet);
+    } catch (error: any) {
+      console.error("Error fetching wallet settings:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch wallet settings" });
     }
   });
 

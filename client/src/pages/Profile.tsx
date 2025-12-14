@@ -3,6 +3,7 @@ import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { Redirect, useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
+import { useWalletUpdates } from "@/hooks/useWalletUpdates";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import MenuDrawer from "@/components/MenuDrawer";
@@ -42,6 +43,9 @@ export default function Profile() {
   const savedUserData = localStorage.getItem("userData");
   const parsedUserData = savedUserData ? JSON.parse(savedUserData) : null;
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
+
+  // 📡 Enable real-time wallet updates for authenticated users on this page
+  useWalletUpdates();
 
   // 🧍 Fetch authenticated user
   const { data: phoneUser, isLoading: phoneUserLoading } = useQuery<ProfileUser>({

@@ -46,6 +46,7 @@ export interface IStorage {
   createAdmin(admin: InsertAdminUser & { passwordHash: string }): Promise<AdminUser>;
   updateAdminLastLogin(id: string): Promise<void>;
   updateAdminRole(id: string, role: string): Promise<AdminUser | undefined>;
+  updateAdminPassword(id: string, passwordHash: string): Promise<void>;
   deleteAdmin(id: string): Promise<boolean>;
   getAllAdmins(): Promise<AdminUser[]>;
   getAllUsers(): Promise<User[]>;
@@ -144,13 +145,24 @@ export interface IStorage {
   getReferralsByUser(userId: string): Promise<any[]>;
   getReferralByReferredId(referredId: string): Promise<any | null>;
   getUserWalletBalance(userId: string): Promise<number>;
+  validateBonusEligibility(userId: string, orderTotal: number): Promise<{
+    eligible: boolean;
+    bonus: number;
+    minOrderAmount: number;
+    reason?: string;
+  }>;
+  claimReferralBonusAtCheckout(userId: string, orderTotal: number, orderId: string): Promise<{
+    bonusClaimed: boolean;
+    amount: number;
+    message: string;
+  }>;
   updateWalletBalance(userId: string, amount: number): Promise<void>;
 
   // Enhanced Wallet & Referral methods
   createWalletTransaction(transaction: {
     userId: string;
     amount: number;
-    type: "credit" | "debit" | "referral_bonus" | "order_discount";
+    type: "credit" | "debit" | "referral_bonus" | "referral_bonus_claimed" | "order_discount";
     description: string;
     referenceId?: string;
     referenceType?: string;
@@ -208,6 +220,50 @@ export interface IStorage {
   updateRotiSettings(data: Partial<InsertRotiSettings>): Promise<RotiSettings>;
 }
 
+/**
+ * Helper function to safely serialize subscription dates
+ * Ensures consistent ISO string format across all endpoints
+ * 
+ * Validation rules:
+ * - null/undefined: kept as-is (represents "not scheduled")
+ * - Valid ISO strings or Date objects: converted to ISO string
+ * - Epoch dates (Jan 1, 1970) or very old dates (before 1980): set to null
+ * - Invalid dates (NaN): set to null
+ * - Dates too far in future (after year 2100): set to null
+ */
+function serializeSubscription(sub: any): any {
+  if (!sub) return sub;
+  const serialized = { ...sub };
+  
+  // Convert nextDeliveryDate to ISO string if it exists and is valid
+  if (serialized.nextDeliveryDate) {
+    try {
+      const dateObj = new Date(serialized.nextDeliveryDate);
+      const timestamp = dateObj.getTime();
+      const year = dateObj.getFullYear();
+      
+      // Check if date is valid (not NaN)
+      if (!isNaN(timestamp)) {
+        // Reject epoch (1970), very old dates (before 1980), and dates too far in future (after 2100)
+        if (year >= 1980 && year <= 2100) {
+          serialized.nextDeliveryDate = dateObj.toISOString();
+        } else {
+          // Invalid year - set to null so frontend shows "Not scheduled"
+          serialized.nextDeliveryDate = null;
+        }
+      } else {
+        // NaN timestamp - invalid date
+        serialized.nextDeliveryDate = null;
+      }
+    } catch (e) {
+      // If date parsing fails, set to null
+      serialized.nextDeliveryDate = null;
+    }
+  }
+  
+  return serialized;
+}
+
 export class MemStorage implements IStorage {
   private users: Map<string, User>;
   private categories: Map<string, Category> = new Map();
@@ -240,14 +296,20 @@ export class MemStorage implements IStorage {
 
   async createUser(userData: Omit<User, "id" | "createdAt" | "updatedAt" | "lastLoginAt">): Promise<User> {
     const id = randomUUID();
+    
+    // Auto-generate referral code for new user
+    const referralCode = userData.referralCode || `REF${nanoid(8).toUpperCase()}`;
+    
     const user: User = {
       ...userData,
+      referralCode,
       id,
       lastLoginAt: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
     await db.insert(users).values(user);
+    console.log(`✅ User created with auto-generated referral code: ${referralCode}`);
     return user;
   }
 
@@ -352,22 +414,37 @@ export class MemStorage implements IStorage {
       items: insertOrder.items,
       subtotal: insertOrder.subtotal,
       deliveryFee: insertOrder.deliveryFee,
+      discount: insertOrder.discount || 0,
+      couponCode: insertOrder.couponCode || null,
       total: insertOrder.total,
       status: insertOrder.paymentStatus || "pending",
       paymentStatus: "pending" as const,
       paymentQrShown: true,
       chefId: insertOrder.chefId || null,
       chefName: insertOrder.chefName || null,
-      userId: insertOrder.userId || null,
+      userId: insertOrder.userId ? insertOrder.userId : null,
       categoryId: insertOrder.categoryId || null,
       categoryName: insertOrder.categoryName || null,
       deliveryTime: insertOrder.deliveryTime || null,
       deliverySlotId: insertOrder.deliverySlotId || null,
+      deliveryDate: (insertOrder as any).deliveryDate || null,
+      walletAmountUsed: insertOrder.walletAmountUsed || 0,
       createdAt: new Date(),
     };
 
-    const [createdOrder] = await db.insert(orders).values(orderData).returning();
-    return createdOrder;
+    try {
+      const [createdOrder] = await db.insert(orders).values(orderData).returning();
+      return createdOrder;
+    } catch (error: any) {
+      // If foreign key constraint fails for userId, try again without userId
+      if (error.code === '23503' && error.message.includes('user_id')) {
+        console.warn("Foreign key constraint for userId - creating order without userId reference");
+        orderData.userId = null;
+        const [createdOrder] = await db.insert(orders).values(orderData).returning();
+        return createdOrder;
+      }
+      throw error;
+    }
   }
 
   async getOrderById(id: string): Promise<Order | undefined> {
@@ -407,8 +484,8 @@ export class MemStorage implements IStorage {
     const result = await db.select().from(chefs);
     return result.map(chef => ({
       ...chef,
-      latitude: chef.latitude ?? 19.0728,
-      longitude: chef.longitude ?? 72.8826,
+      latitude: (chef as any).latitude ?? 19.0728,
+      longitude: (chef as any).longitude ?? 72.8826,
     }));
   }
 
@@ -426,8 +503,10 @@ export class MemStorage implements IStorage {
 
   async createChef(data: Omit<Chef, "id">): Promise<Chef> {
     const id = nanoid();
-    const chef: Chef = { id, ...data, latitude: data.latitude || 0, longitude: data.longitude || 0 };
-    await db.insert(chefs).values(chef);
+    // Omit latitude and longitude as they don't exist in the current database schema
+    const { latitude, longitude, ...chefData } = data as any;
+    const chef: Chef = { id, ...chefData, latitude: 0, longitude: 0 };
+    await db.insert(chefs).values({ id, ...chefData } as any);
     return chef;
   }
 
@@ -456,6 +535,7 @@ export class MemStorage implements IStorage {
       id,
       username: adminData.username,
       email: adminData.email,
+      phone: null,
       passwordHash: adminData.passwordHash,
       role: adminData.role || "viewer",
       lastLoginAt: null,
@@ -472,6 +552,10 @@ export class MemStorage implements IStorage {
   async updateAdminRole(id: string, role: string): Promise<AdminUser | undefined> {
     await db.update(adminUsers).set({ role: role as "super_admin" | "manager" | "viewer" }).where(eq(adminUsers.id, id));
     return this.getAdminById(id);
+  }
+
+  async updateAdminPassword(id: string, passwordHash: string): Promise<void> {
+    await db.update(adminUsers).set({ passwordHash: passwordHash }).where(eq(adminUsers.id, id));
   }
 
   async deleteAdmin(id: string): Promise<boolean> {
@@ -774,11 +858,13 @@ export class MemStorage implements IStorage {
 
   // Subscriptions
   async getSubscriptions(): Promise<Subscription[]> {
-    return db.query.subscriptions.findMany();
+    const subs = await db.query.subscriptions.findMany();
+    return subs.map(serializeSubscription);
   }
 
   async getSubscription(id: string): Promise<Subscription | undefined> {
-    return db.query.subscriptions.findFirst({ where: (s, { eq }) => eq(s.id, id) });
+    const sub = await db.query.subscriptions.findFirst({ where: (s, { eq }) => eq(s.id, id) });
+    return sub ? serializeSubscription(sub) : undefined;
   }
 
   async createSubscription(data: Omit<Subscription, "id" | "createdAt" | "updatedAt">): Promise<Subscription> {
@@ -790,7 +876,7 @@ export class MemStorage implements IStorage {
       updatedAt: new Date(),
     };
     await db.insert(subscriptions).values(subscription);
-    return subscription;
+    return serializeSubscription(subscription);
   }
 
   async updateSubscription(id: string, data: Partial<Subscription>): Promise<Subscription | undefined> {
@@ -858,12 +944,13 @@ export class MemStorage implements IStorage {
 
   // Get active subscriptions by chef
   async getActiveSubscriptionsByChef(chefId: string): Promise<Subscription[]> {
-    return db.query.subscriptions.findMany({
+    const subs = await db.query.subscriptions.findMany({
       where: (s, { and, eq }) => and(
         eq(s.chefId, chefId),
         eq(s.status, "active")
       ),
     });
+    return subs.map(serializeSubscription);
   }
 
   // Subscription Delivery Logs
@@ -1346,6 +1433,12 @@ export class MemStorage implements IStorage {
   async applyReferralBonus(referralCode: string, newUserId: string): Promise<void> {
     // Execute entire referral bonus application in a database transaction
     await db.transaction(async (tx) => {
+      // Check if system is enabled first
+      const settings = await this.getActiveReferralReward();
+      if (!settings?.isActive) {
+        throw new Error("Referral system is currently disabled");
+      }
+
       const referrer = await tx.query.users.findFirst({
         where: (u, { eq }) => eq(u.referralCode, referralCode),
       });
@@ -1376,8 +1469,7 @@ export class MemStorage implements IStorage {
         throw new Error("User already used a referral code");
       }
 
-      // Get referral settings
-      const settings = await this.getActiveReferralReward();
+      // Settings already retrieved above for enable check
       const referrerBonus = settings?.referrerBonus || 50;
       const referredBonus = settings?.referredBonus || 50;
       const maxReferralsPerMonth = settings?.maxReferralsPerMonth || 10;
@@ -1523,6 +1615,83 @@ export class MemStorage implements IStorage {
     return user?.walletBalance || 0;
   }
 
+  async validateBonusEligibility(userId: string, orderTotal: number): Promise<{
+    eligible: boolean;
+    bonus: number;
+    minOrderAmount: number;
+    reason?: string;
+  }> {
+    // Check if user has pending referral bonus
+    const referral = await db.query.referrals.findFirst({
+      where: (r, { eq }) => eq(r.referredId, userId),
+    });
+
+    if (!referral) {
+      return { eligible: false, bonus: 0, minOrderAmount: 0, reason: "No referral found for this user" };
+    }
+
+    if (referral.status !== "pending") {
+      return { eligible: false, bonus: 0, minOrderAmount: 0, reason: `Referral is ${referral.status}, cannot claim bonus` };
+    }
+
+    // Get referral settings
+    const settings = await this.getActiveReferralReward();
+    if (!settings?.isActive) {
+      return { eligible: false, bonus: 0, minOrderAmount: 0, reason: "Referral system is disabled" };
+    }
+
+    const minOrderAmount = settings?.minOrderAmount || 0;
+    const referredBonus = settings?.referredBonus || 50;
+
+    // Check minimum order amount
+    if (orderTotal < minOrderAmount) {
+      return { 
+        eligible: false, 
+        bonus: referredBonus, 
+        minOrderAmount,
+        reason: `Minimum order amount ₹${minOrderAmount} required to claim bonus. Current order: ₹${orderTotal}` 
+      };
+    }
+
+    return { eligible: true, bonus: referredBonus, minOrderAmount };
+  }
+
+  async claimReferralBonusAtCheckout(userId: string, orderTotal: number, orderId: string): Promise<{
+    bonusClaimed: boolean;
+    amount: number;
+    message: string;
+  }> {
+    // Validate eligibility
+    const validation = await this.validateBonusEligibility(userId, orderTotal);
+    
+    if (!validation.eligible) {
+      return {
+        bonusClaimed: false,
+        amount: 0,
+        message: validation.reason || "Not eligible for bonus"
+      };
+    }
+
+    // Update wallet with bonus
+    await this.updateWalletBalance(userId, validation.bonus);
+
+    // Log the transaction
+    await this.createWalletTransaction({
+      userId,
+      amount: validation.bonus,
+      type: "referral_bonus_claimed",
+      description: `Referral bonus claimed at checkout for order ${orderId}`,
+      referenceId: orderId,
+      referenceType: "order",
+    });
+
+    return {
+      bonusClaimed: true,
+      amount: validation.bonus,
+      message: `₹${validation.bonus} bonus claimed successfully!`
+    };
+  }
+
   async updateWalletBalance(userId: string, amount: number): Promise<void> {
     await db.update(users)
       .set({ walletBalance: sql`${users.walletBalance} + ${amount}` })
@@ -1532,7 +1701,7 @@ export class MemStorage implements IStorage {
   async createWalletTransaction(transaction: {
     userId: string;
     amount: number;
-    type: "credit" | "debit" | "referral_bonus" | "order_discount";
+    type: "credit" | "debit" | "referral_bonus" | "referral_bonus_claimed" | "order_discount";
     description: string;
     referenceId?: string;
     referenceType?: string;
@@ -1541,6 +1710,12 @@ export class MemStorage implements IStorage {
     if (transaction.amount <= 0) {
       throw new Error("Transaction amount must be positive");
     }
+
+    console.log(`\n💳 [STORAGE] createWalletTransaction called:`);
+    console.log(`💳 [STORAGE]   Type: ${transaction.type}`);
+    console.log(`💳 [STORAGE]   Amount: ₹${transaction.amount}`);
+    console.log(`💳 [STORAGE]   Amount type: ${typeof transaction.amount}`);
+    console.log(`💳 [STORAGE]   User ID: ${transaction.userId}`);
 
     // Use provided transaction client or default db
     const dbClient = txClient || db;
@@ -1553,8 +1728,13 @@ export class MemStorage implements IStorage {
     if (!user) throw new Error("User not found");
 
     const balanceBefore = user.walletBalance;
+    console.log(`💳 [STORAGE]   Read from DB - walletBalance: ${balanceBefore} (type: ${typeof balanceBefore})`);
+    
     const amountChange = transaction.type === "debit" ? -transaction.amount : transaction.amount;
+    console.log(`💳 [STORAGE]   AmountChange: ${amountChange}`);
+    
     const balanceAfter = balanceBefore + amountChange;
+    console.log(`💳 [STORAGE]   Calculation: ${balanceBefore} + ${amountChange} = ${balanceAfter}`);
 
     if (balanceAfter < 0) {
       throw new Error("Insufficient wallet balance");
@@ -1571,11 +1751,14 @@ export class MemStorage implements IStorage {
       balanceBefore,
       balanceAfter,
     });
+    console.log(`💳 [STORAGE]   Inserted into walletTransactions table`);
 
     // Update user's wallet balance using the same transaction client
     await dbClient.update(users)
       .set({ walletBalance: balanceAfter })
       .where(eq(users.id, transaction.userId));
+    console.log(`💳 [STORAGE]   Updated users table - walletBalance set to: ${balanceAfter}`);
+    console.log(`💳 [STORAGE] createWalletTransaction completed\n`);
   }
 
   async getWalletTransactions(userId: string, limit: number = 50): Promise<any[]> {
@@ -1590,19 +1773,41 @@ export class MemStorage implements IStorage {
     totalReferrals: number;
     pendingReferrals: number;
     completedReferrals: number;
+    expiredReferrals: number;
     totalEarnings: number;
     referralCode: string;
   }> {
     const user = await this.getUser(userId);
     const referralCode = user?.referralCode || "";
+    const settings = await this.getActiveReferralReward();
+    const expiryDays = settings?.expiryDays || 30;
 
-    const allReferrals = await db.query.referrals.findMany({
+    let allReferrals = await db.query.referrals.findMany({
       where: (r, { eq }) => eq(r.referrerId, userId),
     });
+
+    // Auto-expire pending referrals that have exceeded expiry time
+    const now = new Date();
+    for (const referral of allReferrals) {
+      if (referral.status === "pending") {
+        const createdDate = new Date(referral.createdAt);
+        const expiryDate = new Date(createdDate);
+        expiryDate.setDate(expiryDate.getDate() + expiryDays);
+
+        if (now > expiryDate) {
+          await db.update(referrals)
+            .set({ status: "expired" })
+            .where(eq(referrals.id, referral.id));
+          referral.status = "expired";
+          console.log(`⏰ Auto-expired referral ${referral.id} for user ${userId}`);
+        }
+      }
+    }
 
     const totalReferrals = allReferrals.length;
     const pendingReferrals = allReferrals.filter(r => r.status === "pending").length;
     const completedReferrals = allReferrals.filter(r => r.status === "completed").length;
+    const expiredReferrals = allReferrals.filter(r => r.status === "expired").length;
     const totalEarnings = allReferrals
       .filter(r => r.status === "completed")
       .reduce((sum, r) => sum + r.referrerBonus, 0);
@@ -1611,6 +1816,7 @@ export class MemStorage implements IStorage {
       totalReferrals,
       pendingReferrals,
       completedReferrals,
+      expiredReferrals,
       totalEarnings,
       referralCode,
     };
@@ -1799,10 +2005,29 @@ export class MemStorage implements IStorage {
   }
 
   async getActiveReferralReward(): Promise<ReferralReward | undefined> {
-    return db.query.referralRewards.findFirst({
+    let settings = await db.query.referralRewards.findFirst({
       where: (rr, { eq }) => eq(rr.isActive, true),
       orderBy: (rr, { desc }) => [desc(rr.createdAt)]
     });
+
+    // If no active settings exist, create default settings
+    if (!settings) {
+      console.log("📝 No active referral settings found, creating defaults...");
+      const defaultReward = {
+        name: "Default Referral Program",
+        referrerBonus: 50,
+        referredBonus: 50,
+        minOrderAmount: 0,
+        maxReferralsPerMonth: 10,
+        maxEarningsPerMonth: 500,
+        expiryDays: 30,
+        isActive: true,
+      };
+      settings = await this.createReferralReward(defaultReward);
+      console.log(`✅ Default referral settings created: ${JSON.stringify(defaultReward)}`);
+    }
+
+    return settings;
   }
 
   async createReferralReward(data: Omit<ReferralReward, "id" | "createdAt" | "updatedAt">): Promise<ReferralReward> {

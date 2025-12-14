@@ -1,4 +1,5 @@
 import axios from "axios";
+import { formatTime12Hour } from "../shared/timeFormatter";
 
 // WhatsApp API Configuration
 const WHATSAPP_API_URL = process.env.WHATSAPP_API_URL || "";
@@ -61,10 +62,7 @@ export async function sendScheduledDeliveryReminder(
   customerName: string,
   items: string[]
 ): Promise<boolean> {
-  const [hours, mins] = deliveryTime.split(":").map(Number);
-  const period = hours >= 12 ? "PM" : "AM";
-  const displayHours = hours % 12 || 12;
-  const timeString = `${displayHours}:${String(mins).padStart(2, "0")} ${period}`;
+  const timeString = formatTime12Hour(deliveryTime);
 
   const itemsList = items.join(", ");
 
@@ -83,6 +81,41 @@ You have a scheduled delivery order coming up!
 • Delivery Date: ${deliveryDate}
 
 ⏰ Please prepare accordingly!
+
+-RotiHai Team
+  `.trim();
+
+  return sendWhatsAppMessage(recipientPhone, message);
+}
+
+export async function sendScheduledOrder2HourReminder(
+  recipientName: string,
+  recipientPhone: string,
+  orderNumber: string,
+  deliveryTime: string,
+  deliveryDate: string,
+  customerName: string,
+  items: string[]
+): Promise<boolean> {
+  const timeString = formatTime12Hour(deliveryTime);
+
+  const itemsList = items.join(", ");
+
+  const message = `
+⏰ *URGENT: Order Delivery in 2 Hours* ⏰
+
+Hi ${recipientName},
+
+An order is scheduled for delivery in 2 HOURS!
+
+📋 *Order Details:*
+• Order #: ${orderNumber}
+• Customer: ${customerName}
+• Items: ${itemsList}
+• Delivery Time: ${timeString}
+• Delivery Date: ${deliveryDate}
+
+🚀 Please prepare and get ready for delivery!
 
 -RotiHai Team
   `.trim();

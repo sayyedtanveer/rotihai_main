@@ -34,6 +34,7 @@ export const adminUsers = pgTable("admin_users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   username: varchar("username", { length: 50 }).notNull().unique(),
   email: varchar("email", { length: 255 }).notNull().unique(),
+  phone: text("phone"),
   passwordHash: text("password_hash").notNull(),
   role: adminRoleEnum("role").notNull().default("viewer"),
   lastLoginAt: timestamp("last_login_at"),
@@ -63,6 +64,7 @@ export const categories = pgTable("categories", {
 export const chefs = pgTable("chefs", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
+  phone: text("phone"),
   description: text("description").notNull(),
   image: text("image").notNull(),
   rating: text("rating").notNull(),
@@ -371,6 +373,7 @@ export const insertOrderSchema = createInsertSchema(orders, {
     'cancelled'             // Order cancelled
   ]).default('pending'),
   paymentStatus: z.enum(['pending', 'paid', 'confirmed']).default('pending'),
+  userId: z.string().optional().nullable(), // userId is optional - user created on payment
   categoryId: z.string().optional(),
   categoryName: z.string().optional(),
   deliveryTime: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, "Invalid time format").optional(),
@@ -406,8 +409,10 @@ export type User = typeof users.$inferSelect;
 export const insertUserSchema = createInsertSchema(users, {
   name: z.string().min(1, { message: "Name must be at least 1 character long" }),
   phone: z.string().min(10, { message: "Phone number must be at least 10 digits long" }),
+  email: z.string().email({ message: "Invalid email address" }).optional().nullable(),
+  address: z.string().optional().nullable(),
   passwordHash: z.string().min(6, { message: "Password must be at least 6 characters long" }),
-  referralCode: z.string().optional(),
+  referralCode: z.string().optional().nullable(),
   walletBalance: z.number().int().default(0),
 }).omit({
   id: true,
@@ -429,14 +434,15 @@ export type UserLogin = z.infer<typeof userLoginSchema>;
 export const insertAdminUserSchema = createInsertSchema(adminUsers, {
   username: z.string().min(3, { message: "Username must be at least 3 characters long" }),
   email: z.string().email({ message: "Invalid email address" }),
-  passwordHash: z.string().min(8, { message: "Password must be at least 8 characters long" }),
   role: z.enum(["super_admin", "manager", "viewer"]).default("viewer"),
+  phone: z.string().optional(),
 }).omit({
   id: true,
   lastLoginAt: true,
   createdAt: true,
+  passwordHash: true,
 }).extend({
-  password: z.string().min(8),
+  password: z.string().min(8, { message: "Password must be at least 8 characters long" }),
 });
 
 export const adminLoginSchema = z.object({
@@ -452,13 +458,13 @@ export const insertPartnerUserSchema = createInsertSchema(partnerUsers, {
   chefId: z.string().min(1, { message: "Chef ID is required" }),
   username: z.string().min(3, { message: "Username must be at least 3 characters long" }),
   email: z.string().email({ message: "Invalid email address" }),
-  passwordHash: z.string().min(8, { message: "Password must be at least 8 characters long" }),
 }).omit({
   id: true,
   lastLoginAt: true,
   createdAt: true,
+  passwordHash: true,
 }).extend({
-  password: z.string().min(8),
+  password: z.string().min(8, { message: "Password must be at least 8 characters long" }),
 });
 
 export const partnerLoginSchema = z.object({
@@ -576,7 +582,6 @@ export type CartSetting = typeof cartSettings.$inferSelect;
 export const insertDeliveryPersonnelSchema = createInsertSchema(deliveryPersonnel, {
   name: z.string().min(1, { message: "Name is required" }),
   phone: z.string().min(10, { message: "Phone number must be at least 10 digits long" }),
-  passwordHash: z.string().min(8, { message: "Password must be at least 8 characters long" }),
   status: z.enum(["available", "busy", "offline"]).default("available"),
   isActive: z.boolean().default(true),
   totalDeliveries: z.number().int().default(0),
@@ -585,8 +590,9 @@ export const insertDeliveryPersonnelSchema = createInsertSchema(deliveryPersonne
   id: true,
   createdAt: true,
   lastLoginAt: true,
+  passwordHash: true,
 }).extend({
-  password: z.string().min(8),
+  password: z.string().min(8, { message: "Password must be at least 8 characters long" }),
 });
 
 export const deliveryPersonnelLoginSchema = z.object({
@@ -691,7 +697,7 @@ export const insertDeliveryTimeSlotsSchema = createInsertSchema(deliveryTimeSlot
   label: z.string().min(1, "Label is required"),
   capacity: z.number().int().min(1, "Capacity must be at least 1"),
   isActive: z.boolean().default(true),
-  cutoffHoursBefore: z.number().int().min(0).optional(),
+  cutoffHoursBefore: z.number().int().min(0, "Cutoff hours must be a whole number (0, 1, 2, etc.)").optional(),
 }).omit({
   id: true,
   currentOrders: true,

@@ -202,9 +202,25 @@ export default function CategoryMenuDrawer({
                                 </span>
                               </div>
                             </div>
-                            <p className="font-bold text-lg" data-testid={`text-price-${product.id}`}>
-                              ₹{product.price}
-                            </p>
+                            <div className="flex flex-col items-end gap-1">
+                              {product.offerPercentage && product.offerPercentage > 0 ? (
+                                <>
+                                  <span className="text-xs font-semibold text-red-600 bg-red-100 px-2 py-1 rounded">
+                                    {product.offerPercentage}% OFF
+                                  </span>
+                                  <span className="text-sm text-muted-foreground line-through">
+                                    ₹{product.price}
+                                  </span>
+                                  <p className="font-bold text-lg text-green-600" data-testid={`text-price-${product.id}`}>
+                                    ₹{Math.round(product.price * (1 - product.offerPercentage / 100))}
+                                  </p>
+                                </>
+                              ) : (
+                                <p className="font-bold text-lg" data-testid={`text-price-${product.id}`}>
+                                  ₹{product.price}
+                                </p>
+                              )}
+                            </div>
                           </div>
                           <p className="text-sm text-muted-foreground mt-2 line-clamp-2" data-testid={`text-description-${product.id}`}>
                             {product.description}

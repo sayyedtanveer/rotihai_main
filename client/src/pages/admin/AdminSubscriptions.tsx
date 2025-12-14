@@ -38,6 +38,11 @@ export default function AdminSubscriptions() {
   const [newStatus, setNewStatus] = useState("");
   const [newDeliveryDate, setNewDeliveryDate] = useState("");
 
+  // Chef assignment modal
+  const [chefAssignmentModalOpen, setChefAssignmentModalOpen] = useState(false);
+  const [subscriptionForChefAssignment, setSubscriptionForChefAssignment] = useState<Subscription | null>(null);
+  const [selectedChefId, setSelectedChefId] = useState<string>("");
+
   // Today's deliveries modal
   const [todaysDeliveriesOpen, setTodaysDeliveriesOpen] = useState(false);
   const [deletingSubscription, setDeletingSubscription] = useState<Subscription | null>(null);
@@ -335,7 +340,25 @@ export default function AdminSubscriptions() {
   const openAdjustModal = (subscription: Subscription) => {
     setSelectedSubscription(subscription);
     setNewStatus(subscription.status);
-    setNewDeliveryDate(format(new Date(subscription.nextDeliveryDate), "yyyy-MM-dd"));
+    // Only set delivery date if it's valid (matches backend: 1980-2100)
+    if (subscription.nextDeliveryDate) {
+      try {
+        const dateObj = typeof subscription.nextDeliveryDate === 'string' 
+          ? new Date(subscription.nextDeliveryDate) 
+          : new Date(subscription.nextDeliveryDate);
+        const timestamp = dateObj.getTime();
+        const year = dateObj.getFullYear();
+        if (!isNaN(timestamp) && year >= 1980 && year <= 2100) {
+          setNewDeliveryDate(format(dateObj, "yyyy-MM-dd"));
+        } else {
+          setNewDeliveryDate(format(new Date(), "yyyy-MM-dd"));
+        }
+      } catch {
+        setNewDeliveryDate(format(new Date(), "yyyy-MM-dd"));
+      }
+    } else {
+      setNewDeliveryDate(format(new Date(), "yyyy-MM-dd"));
+    }
     setAdjustModalOpen(true);
   };
 
@@ -849,6 +872,16 @@ export default function AdminSubscriptions() {
                             <div className="flex flex-col items-end gap-2">
                               <Button
                                 onClick={async () => {
+                                  const subscription = subscriptions.find((s: Subscription) => s.id === sub.id);
+                                  
+                                  // If no chef assigned, show chef selection modal
+                                  if (!subscription?.chefId) {
+                                    setSubscriptionForChefAssignment(subscription);
+                                    setChefAssignmentModalOpen(true);
+                                    return;
+                                  }
+
+                                  // Proceed with payment confirmation (chef already assigned)
                                   try {
                                     const response = await fetch(`/api/admin/subscriptions/${sub.id}/confirm-payment`, {
                                       method: "POST",
@@ -997,7 +1030,25 @@ export default function AdminSubscriptions() {
                               <p className="text-sm text-slate-600 dark:text-slate-400">Phone: {sub.phone}</p>
                               <p className="text-sm text-slate-600 dark:text-slate-400">Address: {sub.address}</p>
                               <div className="flex gap-4 mt-2 text-xs text-slate-500 flex-wrap">
-                                <span>Next: {format(new Date(sub.nextDeliveryDate), "PPP")}</span>
+                                <span>Next: {(() => {
+                                  try {
+                                    if (!sub.nextDeliveryDate) return "Not scheduled";
+                                    const dateObj = typeof sub.nextDeliveryDate === 'string' 
+                                      ? new Date(sub.nextDeliveryDate) 
+                                      : new Date(sub.nextDeliveryDate);
+                                    const timestamp = dateObj.getTime();
+                                    // Match backend validation: accept dates from 1980 to 2100
+                                    if (!isNaN(timestamp)) {
+                                      const year = dateObj.getFullYear();
+                                      if (year >= 1980 && year <= 2100) {
+                                        return format(dateObj, "PPP");
+                                      }
+                                    }
+                                    return "Not scheduled";
+                                  } catch {
+                                    return "Not scheduled";
+                                  }
+                                })()}</span>
                                 <span>Time: {sub.nextDeliveryTime || "09:00"}</span>
                                 <span>Remaining: {sub.remainingDeliveries}/{sub.totalDeliveries}</span>
                               </div>
@@ -1315,6 +1366,110 @@ export default function AdminSubscriptions() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setTodaysDeliveriesOpen(false)}>
               Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Chef Assignment Modal */}
+      <Dialog open={chefAssignmentModalOpen} onOpenChange={setChefAssignmentModalOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Assign Chef to Subscription</DialogTitle>
+            <DialogDescription>
+              {subscriptionForChefAssignment?.customerName} - {plans?.find(p => p.id === subscriptionForChefAssignment?.planId)?.name}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="chef-select">Select Chef *</Label>
+              <Select value={selectedChefId} onValueChange={setSelectedChefId}>
+                <SelectTrigger id="chef-select">
+                  <SelectValue placeholder="Choose a chef for this subscription" />
+                </SelectTrigger>
+                <SelectContent>
+                  {chefs?.map(chef => (
+                    <SelectItem key={chef.id} value={chef.id}>
+                      {chef.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              You can change the chef assignment later from the active subscriptions section.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setChefAssignmentModalOpen(false);
+                setSubscriptionForChefAssignment(null);
+                setSelectedChefId("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={!selectedChefId}
+              onClick={async () => {
+                if (!subscriptionForChefAssignment || !selectedChefId) return;
+
+                try {
+                  // First assign the chef
+                  const assignResponse = await fetch(
+                    `/api/admin/subscriptions/${subscriptionForChefAssignment.id}/assign-chef`,
+                    {
+                      method: "PUT",
+                      headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${token}`,
+                      },
+                      body: JSON.stringify({ chefId: selectedChefId }),
+                    }
+                  );
+
+                  if (!assignResponse.ok) {
+                    throw new Error("Failed to assign chef");
+                  }
+
+                  // Then confirm the payment
+                  const paymentResponse = await fetch(
+                    `/api/admin/subscriptions/${subscriptionForChefAssignment.id}/confirm-payment`,
+                    {
+                      method: "POST",
+                      headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${token}`,
+                      },
+                    }
+                  );
+
+                  if (!paymentResponse.ok) {
+                    const error = await paymentResponse.json();
+                    throw new Error(error.message || "Failed to confirm payment");
+                  }
+
+                  queryClient.invalidateQueries({ queryKey: ["/api/admin", "subscriptions"] });
+                  toast({
+                    title: "Success ✅",
+                    description: "Chef assigned and subscription activated",
+                  });
+
+                  setChefAssignmentModalOpen(false);
+                  setSubscriptionForChefAssignment(null);
+                  setSelectedChefId("");
+                } catch (error: any) {
+                  toast({
+                    title: "Error",
+                    description: error.message || "Failed to assign chef or activate subscription",
+                    variant: "destructive",
+                  });
+                }
+              }}
+            >
+              Assign & Activate
             </Button>
           </DialogFooter>
         </DialogContent>

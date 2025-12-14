@@ -11,13 +11,14 @@ import {
   verifyToken,
   type AuthenticatedAdminRequest,
 } from "./adminAuth";
-import { db, walletSettings } from "@shared/db";
+import { db, walletSettings, referralRewards } from "@shared/db";
 import { adminLoginSchema, insertAdminUserSchema, insertCategorySchema, insertProductSchema, insertDeliveryPersonnelSchema, insertDeliveryTimeSlotsSchema, insertReferralRewardSchema, insertCouponSchema } from "@shared/schema";
 import { fromZodError } from "zod-validation-error";
 import { broadcastOrderUpdate, broadcastNewOrder, notifyDeliveryAssignment, cancelPreparedOrderTimeout, broadcastProductAvailabilityUpdate, broadcastChefStatusUpdate, broadcastSubscriptionAssignmentToPartner, broadcastSubscriptionUpdate } from "./websocket";
 import { hashPassword as hashDeliveryPassword } from "./deliveryAuth";
 import { eq } from "drizzle-orm";
 import { subscriptions } from "@shared/schema";
+import { sendEmail, createAdminPasswordResetEmail } from "./emailService";
 
 export function registerAdminRoutes(app: Express) {
   // Admin Delivery Time Slots Management
@@ -79,20 +80,33 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  // TEMPORARY TEST ENDPOINT - REMOVE IN PRODUCTION
-  app.post("/api/admin/auth/test-login", async (req, res) => {
+  // DEVELOPMENT ONLY - Test login without password (completely bypasses database)
+  app.post("/api/admin/auth/test-login", (req, res) => {
     try {
-      const admin = await storage.getAdminByUsername("admin");
+      const { username = "admin", role = "super_admin" } = req.body;
 
-      if (!admin) {
-        res.status(404).json({ message: "Default admin not found. Run create-admin script first." });
-        return;
+      if (!username) {
+        return res.status(400).json({ message: "Username is required" });
       }
 
-      await storage.updateAdminLastLogin(admin.id);
+      console.log(`[Test Login] 🔓 Bypass login for: ${username}`);
 
-      const accessToken = generateAccessToken(admin);
-      const refreshToken = generateRefreshToken(admin);
+      // Create a mock admin object for token generation
+      const mockAdmin = {
+        id: `admin-${username}`,
+        username: username,
+        email: `${username}@rotihai.com`,
+        phone: null,
+        role: role,
+        passwordHash: "",
+        lastLoginAt: null,
+        createdAt: new Date(),
+      };
+
+      const accessToken = generateAccessToken(mockAdmin);
+      const refreshToken = generateRefreshToken(mockAdmin);
+
+      console.log(`[Test Login] ✅ Token generated for: ${username}`);
 
       res.cookie("refreshToken", refreshToken, {
         httpOnly: true,
@@ -104,15 +118,19 @@ export function registerAdminRoutes(app: Express) {
       res.json({
         accessToken,
         admin: {
-          id: admin.id,
-          username: admin.username,
-          email: admin.email,
-          role: admin.role,
+          id: mockAdmin.id,
+          username: mockAdmin.username,
+          email: mockAdmin.email,
+          role: mockAdmin.role,
         },
+        message: "✅ Test login successful (development bypass mode)",
       });
     } catch (error) {
-      console.error("Test login error:", error);
-      res.status(500).json({ message: "Test login failed" });
+      console.error("❌ Test login error:", error);
+      res.status(500).json({ 
+        message: "Test login failed",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
     }
   });
 
@@ -188,6 +206,71 @@ export function registerAdminRoutes(app: Express) {
     } catch (error) {
       console.error('[Admin Login Error]', { ...loginAttempt, error: error instanceof Error ? error.message : 'Unknown error' });
       res.status(500).json({ message: "Login failed" });
+    }
+  });
+
+  app.post("/api/admin/auth/logout", requireAdmin(), (req, res) => {
+    res.clearCookie("refreshToken");
+    res.json({ message: "Logged out successfully" });
+  });
+
+  // DEVELOPMENT ONLY - Reset admin password without verification
+  app.post("/api/admin/auth/reset-password", async (req, res) => {
+    try {
+      const { username, newPassword } = req.body;
+
+      if (!username || !newPassword) {
+        return res.status(400).json({ message: "Username and newPassword are required" });
+      }
+
+      console.log(`[Password Reset] Attempting to reset password for: ${username}`);
+
+      const admin = await storage.getAdminByUsername(username);
+
+      if (!admin) {
+        console.log(`[Password Reset] Admin user '${username}' not found`);
+        return res.status(404).json({ 
+          message: `Admin user '${username}' not found`,
+        });
+      }
+
+      const newPasswordHash = await hashPassword(newPassword);
+      
+      // Update the password in database
+      await storage.updateAdminPassword(admin.id, newPasswordHash);
+
+      // Send email with new password
+      let emailSent = false;
+      if (admin.email) {
+        const emailHtml = createAdminPasswordResetEmail(admin.username, newPassword);
+        emailSent = await sendEmail({
+          to: admin.email,
+          subject: '🔐 Admin Password Reset - RotiHai',
+          html: emailHtml,
+        });
+
+        if (emailSent) {
+          console.log(`✅ Password reset email sent to ${admin.email}`);
+        }
+      }
+
+      console.log(`[Password Reset] ✅ Password reset successfully for: ${username}`);
+
+      res.json({
+        message: emailSent 
+          ? "✅ Password reset successfully. Email has been sent to the admin."
+          : "✅ Password reset successfully (no email configured)",
+        username: username,
+        newPassword: newPassword,
+        emailSent: emailSent,
+        instruction: "Admin can now login with the new password"
+      });
+    } catch (error) {
+      console.error("❌ Password reset error:", error);
+      res.status(500).json({ 
+        message: "Password reset failed",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
     }
   });
 
@@ -278,6 +361,17 @@ export function registerAdminRoutes(app: Express) {
         notifyDeliveryAssignment(order, order.assignedTo);
       }
 
+      // Complete referral when order is delivered
+      if (status === "delivered" && order.userId) {
+        try {
+          await storage.completeReferralOnFirstOrder(order.userId, id);
+          console.log(`✅ Referral completion triggered for order ${id}`);
+        } catch (referralError: any) {
+          console.warn(`⚠️ Error completing referral: ${referralError.message}`);
+          // Don't fail the order status update if referral completion fails
+        }
+      }
+
       res.json(order);
     } catch (error) {
       console.error("Update order status error:", error);
@@ -302,15 +396,26 @@ export function registerAdminRoutes(app: Express) {
         return;
       }
 
+      console.log(`\n💳 ADMIN CONFIRMING PAYMENT FOR ORDER ${orderId}`);
+      console.log(`Current order status: ${order.status}, Payment status: ${order.paymentStatus}`);
+      console.log(`Chef ID: ${order.chefId}`);
+
       // Update payment status to confirmed and order status to confirmed
       const updatedOrder = await storage.updateOrderPaymentStatus(orderId, paymentStatus as "pending" | "paid" | "confirmed");
+
+      console.log(`✅ Updated order payment status: ${updatedOrder?.paymentStatus}`);
 
       if (paymentStatus === "confirmed") {
         // Also update order status to confirmed
         const confirmedOrder = await storage.updateOrderStatus(orderId, "confirmed");
 
         if (confirmedOrder) {
-          console.log(`✅ Admin confirmed payment for order ${orderId} - Broadcasting to chef ${confirmedOrder.chefId}`);
+          console.log(`\n🎯 ORDER CONFIRMED - PREPARING BROADCAST`);
+          console.log(`Order ID: ${confirmedOrder.id}`);
+          console.log(`Status: ${confirmedOrder.status}`);
+          console.log(`Payment Status: ${confirmedOrder.paymentStatus}`);
+          console.log(`Chef ID: ${confirmedOrder.chefId}`);
+          console.log(`Customer: ${confirmedOrder.customerName}`);
           
           // For scheduled delivery orders (roti category with deliveryTime), log the scheduled delivery
           if (confirmedOrder.deliveryTime && confirmedOrder.deliverySlotId && confirmedOrder.chefId) {
@@ -318,6 +423,7 @@ export function registerAdminRoutes(app: Express) {
           }
           
           // Broadcast to chef and admin
+          console.log(`\n📡 NOW BROADCASTING TO CHEF AND ADMINS...`);
           broadcastOrderUpdate(confirmedOrder);
         }
       }
@@ -885,6 +991,63 @@ export function registerAdminRoutes(app: Express) {
     } catch (error) {
       console.error("Delete partner error:", error);
       res.status(500).json({ message: "Failed to delete partner" });
+    }
+  });
+
+  // Reset Admin Password (Super Admin only) - MUST come before generic :id route
+  app.patch("/api/admin/admins/:id/reset-password", requireSuperAdmin(), async (req: AuthenticatedAdminRequest, res) => {
+    try {
+      const { id } = req.params;
+
+      // Get the admin to reset
+      const admin = await storage.getAdminById(id);
+      if (!admin) {
+        res.status(404).json({ message: "Admin not found" });
+        return;
+      }
+
+      // Generate temporary password
+      const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*";
+      let tempPassword = "";
+      for (let i = 0; i < 12; i++) {
+        tempPassword += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+
+      // Hash and update password
+      const newPasswordHash = await hashPassword(tempPassword);
+      await storage.updateAdminPassword(id, newPasswordHash);
+
+      // Send email with temporary password
+      let emailSent = false;
+      if (admin.email) {
+        const emailHtml = createAdminPasswordResetEmail(admin.username, tempPassword);
+        emailSent = await sendEmail({
+          to: admin.email,
+          subject: '🔐 Admin Password Reset - RotiHai',
+          html: emailHtml,
+        });
+
+        if (emailSent) {
+          console.log(`✅ Password reset email sent to ${admin.email}`);
+        }
+      }
+
+      console.log(`[Password Reset] ✅ Super Admin reset password for: ${admin.username}`);
+
+      res.json({
+        message: emailSent 
+          ? "✅ Password reset successfully. Email has been sent to the admin."
+          : "✅ Password reset successfully (no email configured)",
+        adminUsername: admin.username,
+        tempPassword: tempPassword,
+        emailSent: emailSent,
+      });
+    } catch (error) {
+      console.error("❌ Admin password reset error:", error);
+      res.status(500).json({ 
+        message: "Password reset failed",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
     }
   });
 
@@ -1554,6 +1717,11 @@ export function registerAdminRoutes(app: Express) {
       let scheduled = 0;
 
       for (const sub of subscriptions) {
+        // Skip subscriptions with invalid nextDeliveryDate
+        if (!sub.nextDeliveryDate || isNaN(new Date(sub.nextDeliveryDate).getTime())) {
+          continue;
+        }
+        
         const nextDelivery = new Date(sub.nextDeliveryDate);
         nextDelivery.setHours(0, 0, 0, 0);
         const nextDeliveryStr = nextDelivery.toISOString().split('T')[0];
@@ -2425,10 +2593,25 @@ export function registerAdminRoutes(app: Express) {
   // Wallet Settings
   app.get("/api/admin/wallet-settings", requireAdmin(), async (req, res) => {
     try {
-      const settings = await db.query.walletSettings.findFirst({
+      const walletSetting = await db.query.walletSettings.findFirst({
         where: (ws, { eq }) => eq(ws.isActive, true)
       });
-      res.json(settings || { maxUsagePerOrder: 10, referrerBonus: 100, referredBonus: 50 });
+      const referralSetting = await db.query.referralRewards.findFirst({
+        where: (rr, { eq }) => eq(rr.isActive, true)
+      });
+
+      const defaultWallet = { maxUsagePerOrder: 10, referrerBonus: 100, referredBonus: 50 };
+      const defaultReferral = { 
+        minOrderAmount: 0, 
+        maxReferralsPerMonth: 10, 
+        maxEarningsPerMonth: 500, 
+        expiryDays: 30 
+      };
+
+      res.json({
+        ...(walletSetting || defaultWallet),
+        ...(referralSetting || defaultReferral)
+      });
     } catch (error) {
       console.error("Get wallet settings error:", error);
       res.status(500).json({ message: "Failed to fetch wallet settings" });
@@ -2437,20 +2620,57 @@ export function registerAdminRoutes(app: Express) {
 
   app.post("/api/admin/wallet-settings", requireAdminOrManager(), async (req, res) => {
     try {
-      const { maxUsagePerOrder, referrerBonus, referredBonus } = req.body;
+      const { 
+        maxUsagePerOrder, 
+        referrerBonus, 
+        referredBonus,
+        minOrderAmount,
+        maxReferralsPerMonth,
+        maxEarningsPerMonth,
+        expiryDays
+      } = req.body;
 
-      // Deactivate old settings
+      // Update wallet settings
       await db.update(walletSettings).set({ isActive: false });
-
-      // Create new settings
-      const [newSettings] = await db.insert(walletSettings).values({
+      const [newWalletSettings] = await db.insert(walletSettings).values({
         maxUsagePerOrder,
         referrerBonus,
         referredBonus,
         isActive: true,
       }).returning();
 
-      res.json(newSettings);
+      // Update referral rewards
+      const existingRewards = await db.query.referralRewards.findFirst({
+        where: (rr, { eq }) => eq(rr.isActive, true),
+      });
+
+      if (existingRewards) {
+        const [updatedRewards] = await db.update(referralRewards)
+          .set({
+            referrerBonus,
+            referredBonus,
+            minOrderAmount: minOrderAmount || 0,
+            maxReferralsPerMonth: maxReferralsPerMonth || 10,
+            maxEarningsPerMonth: maxEarningsPerMonth || 500,
+            expiryDays: expiryDays || 30,
+            updatedAt: new Date(),
+          })
+          .where(eq(referralRewards.id, existingRewards.id))
+          .returning();
+        res.json({ ...newWalletSettings, ...updatedRewards });
+      } else {
+        const [newRewards] = await db.insert(referralRewards).values({
+          name: "Admin Configuration",
+          referrerBonus,
+          referredBonus,
+          minOrderAmount: minOrderAmount || 0,
+          maxReferralsPerMonth: maxReferralsPerMonth || 10,
+          maxEarningsPerMonth: maxEarningsPerMonth || 500,
+          expiryDays: expiryDays || 30,
+          isActive: true,
+        }).returning();
+        res.json({ ...newWalletSettings, ...newRewards });
+      }
     } catch (error) {
       console.error("Update wallet settings error:", error);
       res.status(500).json({ message: "Failed to update wallet settings" });
@@ -2839,8 +3059,10 @@ export function registerAdminRoutes(app: Express) {
       // Enrich referrals with user details
       const enrichedReferrals = await Promise.all(
         referrals.map(async (referral) => {
-          const referrer = await storage.getUser(referral.referrerId);
-          const referred = await storage.getUser(referral.referredId);
+          // Handle null/undefined IDs gracefully
+          const referrer = referral.referrerId ? await storage.getUser(referral.referrerId) : null;
+          const referred = referral.referredId ? await storage.getUser(referral.referredId) : null;
+          
           return {
             ...referral,
             referrerName: referrer?.name || "Unknown",
@@ -2879,6 +3101,33 @@ export function registerAdminRoutes(app: Express) {
     } catch (error) {
       console.error("Error fetching referral stats:", error);
       res.status(500).json({ message: "Failed to fetch referral stats" });
+    }
+  });
+
+  // DEBUG: Get raw referral data (admin only)
+  app.get("/api/admin/referrals/debug/raw", requireAdmin(), async (req: AuthenticatedAdminRequest, res) => {
+    try {
+      const referrals = await storage.getAllReferrals();
+      // Show first few referrals with all fields
+      const sample = referrals.slice(0, 5).map(r => ({
+        id: r.id,
+        referrerId: r.referrerId,
+        referredId: r.referredId,
+        referralCode: r.referralCode,
+        status: r.status,
+        createdAt: r.createdAt,
+        _referrerIdExists: !!r.referrerId,
+        _referredIdExists: !!r.referredId,
+      }));
+      
+      res.json({
+        totalCount: referrals.length,
+        sample,
+        note: "This is debug data showing if IDs are present in database",
+      });
+    } catch (error) {
+      console.error("Error fetching raw referral data:", error);
+      res.status(500).json({ message: "Failed to fetch raw referral data" });
     }
   });
 

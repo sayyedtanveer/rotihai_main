@@ -19,16 +19,20 @@ import { queryClient } from "@/lib/queryClient";
 interface DeliveryTimeSlot {
   id: string;
   startTime: string;
+  endTime: string;
   label: string;
+  capacity: number;
   isActive: boolean;
   cutoffHoursBefore?: number;
 }
 
 export default function AdminDeliveryTimeSlots() {
   const { toast } = useToast();
-  const [newSlot, setNewSlot] = useState<{ startTime: string; label: string; isActive: boolean; cutoffHoursBefore?: number | undefined }>({
+  const [newSlot, setNewSlot] = useState<{ startTime: string; endTime: string; label: string; capacity: number; isActive: boolean; cutoffHoursBefore?: number | undefined }>({
     startTime: "09:00",
+    endTime: "10:00",
     label: "9:00 AM - 10:00 AM",
+    capacity: 50,
     isActive: true,
     cutoffHoursBefore: undefined,
   });
@@ -74,7 +78,9 @@ export default function AdminDeliveryTimeSlots() {
       });
       setNewSlot({
         startTime: "09:00",
+        endTime: "10:00",
         label: "9:00 AM - 10:00 AM",
+        capacity: 50,
         isActive: true,
         cutoffHoursBefore: undefined,
       });
@@ -175,7 +181,7 @@ export default function AdminDeliveryTimeSlots() {
             <CardDescription>Create a new delivery time slot</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="startTime">Start Time</Label>
                 <Input
@@ -186,6 +192,18 @@ export default function AdminDeliveryTimeSlots() {
                     setNewSlot({ ...newSlot, startTime: e.target.value })
                   }
                   data-testid="input-start-time"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="endTime">End Time</Label>
+                <Input
+                  id="endTime"
+                  type="time"
+                  value={newSlot.endTime}
+                  onChange={(e) =>
+                    setNewSlot({ ...newSlot, endTime: e.target.value })
+                  }
+                  data-testid="input-end-time"
                 />
               </div>
               <div className="space-y-2">
@@ -201,30 +219,43 @@ export default function AdminDeliveryTimeSlots() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="cutoff">Cutoff (hours before)</Label>
+                <Label htmlFor="capacity">Capacity</Label>
+                <Input
+                  id="capacity"
+                  type="number"
+                  min={1}
+                  value={newSlot.capacity}
+                  onChange={(e) =>
+                    setNewSlot({ ...newSlot, capacity: parseInt(e.target.value) || 50 })
+                  }
+                  data-testid="input-capacity"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="cutoff">Cutoff (hours before - must be whole number)</Label>
                 <Input
                   id="cutoff"
                   type="number"
-                  step="0.25"
                   min={0}
-                  placeholder="Leave blank for 15 min default"
+                  step="1"
+                  placeholder="Leave blank for default"
                   value={newSlot.cutoffHoursBefore ?? ""}
-                  onChange={(e) => setNewSlot({ ...newSlot, cutoffHoursBefore: e.target.value === "" ? undefined : parseFloat(e.target.value) })}
+                  onChange={(e) => setNewSlot({ ...newSlot, cutoffHoursBefore: e.target.value === "" ? undefined : parseInt(e.target.value) })}
                   data-testid="input-cutoff"
                 />
                 <div className="space-y-1">
-                  <p className="text-xs text-green-600 dark:text-green-400">
-                    ✅ Default: 0.25 hours (15 minutes) before slot
-                  </p>
                   <p className="text-xs text-blue-600 dark:text-blue-400">
-                    💡 Use 0.5 for 30 min, 1 for 1 hour, 2 for 2 hours, etc.
+                    💡 Use 0 for same day, 1 for 1 hour, 2 for 2 hours before slot
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Example: 9 AM slot with default = Order until 8:45 AM
+                    Example: 9 AM slot with 0 = Order until 9:00 AM, with 1 = Order until 8:00 AM
                   </p>
                 </div>
               </div>
-              <div className="flex items-end">
+              <div className="flex items-end gap-2">
                 <Button
                   onClick={() => createMutation.mutate(newSlot)}
                   disabled={createMutation.isPending}

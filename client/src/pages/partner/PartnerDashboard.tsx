@@ -10,9 +10,17 @@ import { format, startOfMonth, endOfMonth, subMonths, parse, isBefore, subHours,
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 import { usePartnerNotifications } from "@/hooks/usePartnerNotifications";
+import { formatTime12Hour, formatDeliveryTime } from "@shared/timeFormatter";
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import type { Chef, Product, Order } from "@shared/schema"; // Assuming Order type is defined in schema
+
+// Helper function to get slot info
+const getSlotInfo = (slotId: string, slots: any[]): { label: string; startTime: string; endTime: string } | null => {
+  if (!slotId) return null;
+  const slot = slots.find(s => s.id === slotId);
+  return slot ? { label: slot.label, startTime: slot.startTime, endTime: slot.endTime } : null;
+};
 
 export default function PartnerDashboard() {
   const partnerToken = localStorage.getItem("partnerToken");
@@ -134,6 +142,10 @@ export default function PartnerDashboard() {
       if (!response.ok) throw new Error("Failed to fetch income report");
       return response.json();
     },
+  });
+
+  const { data: deliverySlots = [] } = useQuery<any[]>({
+    queryKey: ["/api/delivery-slots"],
   });
 
   const { data: chefDetails } = useQuery<Chef>({
@@ -370,7 +382,8 @@ export default function PartnerDashboard() {
   };
 
   // Helper function to check if a scheduled order can have the prepare button enabled
-  // Prepare button should be enabled 2 hours before the scheduled delivery time
+  // Prepare button should be enabled starting from 2 hours before the scheduled delivery time
+  // Once enabled, it remains enabled until the chef accepts the order
   const canEnablePrepareButton = (order: Order): boolean => {
     if (!order.deliveryTime || order.status !== "confirmed") {
       return false;
@@ -392,10 +405,11 @@ export default function PartnerDashboard() {
       const deliveryDateTime = new Date(deliveryDate.getFullYear(), deliveryDate.getMonth(), deliveryDate.getDate(), hours, minutes, 0);
 
       // Calculate 2 hours before delivery time
-      const twoHoursBefore = subHours(deliveryDateTime, 2);
+      const twoHoursBefore = subHours(deliveryDateTime, 8);
 
-      // Check if current time is at or after 2 hours before delivery AND before or at delivery time
-      const canPrepare = isAfter(currentTime, twoHoursBefore) && isBefore(currentTime, deliveryDateTime);
+      // Button is enabled once we reach 2 hours before delivery time
+      // It stays enabled even if delivery time has passed (until order is accepted)
+      const canPrepare = isAfter(currentTime, twoHoursBefore) || currentTime.getTime() === twoHoursBefore.getTime();
       
       return canPrepare;
     } catch (error) {
@@ -583,10 +597,19 @@ export default function PartnerDashboard() {
                               <p className="text-muted-foreground text-xs">+{(order.items as any[]).length - 2} more</p>
                             )}
                           </div>
+                          {order.assignedTo && order.deliveryPersonName && (
+                            <Badge variant="outline" className="text-xs mt-2">
+                              🚴 {order.deliveryPersonName}
+                            </Badge>
+                          )}
                           {/* Display delivery time slot if available */}
                           {order.deliveryTime && (
                             <p className="text-sm font-bold text-orange-600 bg-orange-50 dark:bg-orange-950 px-2 py-1 rounded inline-block mt-1">
-                              🕐 Delivery Time: {order.deliveryTime}
+                              🕐 {(() => {
+                                const slotInfo = order.deliverySlotId ? getSlotInfo(order.deliverySlotId, deliverySlots) : null;
+                                const displayText = slotInfo?.label || `${formatTime12Hour(order.deliveryTime)}`;
+                                return displayText;
+                              })()}
                             </p>
                           )}
                         </div>
@@ -663,11 +686,13 @@ export default function PartnerDashboard() {
                                 Waiting for delivery
                               </Badge>
                             )}
-                            {order.assignedTo && order.deliveryPersonName && order.status === "preparing" && (
-                              <div className="flex flex-col gap-1">
-                                <Badge variant="outline" className="text-xs">
-                                  🚴 {order.deliveryPersonName}
-                                </Badge>
+                            {order.status === "preparing" && (
+                              <div className="flex flex-col gap-1 w-full">
+                                {order.assignedTo && order.deliveryPersonName && (
+                                  <Badge variant="outline" className="text-xs">
+                                    🚴 {order.deliveryPersonName}
+                                  </Badge>
+                                )}
                                 <Button
                                   size="sm"
                                   onClick={() => updateStatusMutation.mutate({ orderId: order.id, status: "prepared" })}
@@ -898,7 +923,11 @@ export default function PartnerDashboard() {
                           {/* Display delivery time slot if available */}
                           {order.deliveryTime && (
                             <p className="text-sm font-bold text-orange-600 bg-orange-50 dark:bg-orange-950 px-2 py-1 rounded inline-block mt-1">
-                              🕐 Delivery Time: {order.deliveryTime}
+                              🕐 {(() => {
+                                const slotInfo = order.deliverySlotId ? getSlotInfo(order.deliverySlotId, deliverySlots) : null;
+                                const displayText = slotInfo?.label || `${formatTime12Hour(order.deliveryTime)}`;
+                                return displayText;
+                              })()}
                             </p>
                           )}
                         </div>
@@ -1076,7 +1105,7 @@ export default function PartnerDashboard() {
                               <div className="mt-2 p-2 bg-orange-50 dark:bg-orange-950 rounded border border-orange-200 dark:border-orange-800">
                                 <p className="text-sm font-bold text-orange-700 dark:text-orange-300 flex items-center gap-1">
                                   <Clock className="h-4 w-4" />
-                                  📅 {order.deliveryDate ? format(new Date(order.deliveryDate), "MMM d, yyyy") : (() => {
+                                  📅 {order.deliveryDate && order.deliveryDate !== '1970-01-01' ? format(new Date(order.deliveryDate), "MMM d, yyyy") : (() => {
                                     const today = new Date();
                                     const [hours, mins] = order.deliveryTime.split(":").map(Number);
                                     const deliveryTime = new Date(today.getFullYear(), today.getMonth(), today.getDate(), hours, mins);
@@ -1088,16 +1117,18 @@ export default function PartnerDashboard() {
                                       tomorrow.setDate(tomorrow.getDate() + 1);
                                       return format(tomorrow, "MMM d, yyyy");
                                     } else {
-                                      return "Today";
+                                      return format(today, "MMM d, yyyy");
                                     }
                                   })()}
                                 </p>
                                 <p className="text-sm font-bold text-orange-700 dark:text-orange-300 flex items-center gap-1 mt-1">
                                   🕐 {order.deliveryTime && (() => {
-                                    const [hours, mins] = order.deliveryTime.split(":").map(Number);
-                                    const period = hours >= 12 ? "PM" : "AM";
-                                    const displayHours = hours % 12 || 12;
-                                    return `${displayHours}:${String(mins).padStart(2, "0")} ${period}`;
+                                    const slotInfo = order.deliverySlotId ? getSlotInfo(order.deliverySlotId, deliverySlots) : null;
+                                    if (slotInfo?.label) {
+                                      return slotInfo.label;
+                                    } else {
+                                      return formatTime12Hour(order.deliveryTime);
+                                    }
                                   })()}
                                 </p>
                                 {isPrepareEnabled && (
@@ -1157,13 +1188,13 @@ export default function PartnerDashboard() {
                                 <Button
                                   size="sm"
                                   onClick={() => updateStatusMutation.mutate({ orderId: order.id, status: "prepared" })}
-                                  disabled={updateStatusMutation.isPending || !isPrepareEnabled}
-                                  variant={isPrepareEnabled ? "default" : "secondary"}
+                                  disabled={updateStatusMutation.isPending}
+                                  variant="default"
                                   className="text-xs"
-                                  title={!isPrepareEnabled ? "Prepare button will be enabled 2 hours before delivery time" : ""}
+                                  title="Mark this order as prepared and ready for delivery"
                                   data-testid={`button-scheduled-ready-${order.id}`}
                                 >
-                                  {isPrepareEnabled ? "Mark Ready" : "Not Ready Yet"}
+                                  Mark Ready
                                 </Button>
                               )}
                               {order.status === "prepared" && (
@@ -1213,23 +1244,61 @@ export default function PartnerDashboard() {
                     {subscriptions.map((sub: any) => (
                       <div
                         key={sub.id}
-                        className="border rounded-lg p-4 space-y-2"
+                        className="border border-slate-200 dark:border-slate-700 rounded-lg p-4 space-y-3 hover:shadow-md transition-shadow bg-gradient-to-br from-slate-50 to-white dark:from-slate-800 dark:to-slate-900"
                         data-testid={`subscription-${sub.id}`}
                       >
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <h4 className="font-semibold">{sub.planName || 'Subscription'}</h4>
-                            <p className="text-sm text-muted-foreground">{sub.phone}</p>
+                        <div className="flex justify-between items-start gap-3">
+                          <div className="flex-1">
+                            <h4 className="font-bold text-base text-slate-900 dark:text-white">{sub.planName || 'Subscription'}</h4>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">👤 {sub.phone}</p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">📍 {sub.address}</p>
                           </div>
-                          <Badge className={sub.status === "active" ? "bg-green-500" : "bg-yellow-500"}>
-                            {sub.status}
+                          <Badge className={sub.status === "active" ? "bg-green-500 hover:bg-green-600" : "bg-yellow-500 hover:bg-yellow-600"}>
+                            {sub.status.charAt(0).toUpperCase() + sub.status.slice(1)}
                           </Badge>
                         </div>
-                        <div className="text-sm grid gap-1">
-                          <p>Next Delivery: {new Date(sub.nextDeliveryDate).toLocaleDateString()}</p>
-                          <p>Time: {sub.nextDeliveryTime}</p>
-                          <p>Remaining: {sub.remainingDeliveries} / {sub.totalDeliveries} deliveries</p>
-                          <p className="text-sm">{sub.address}</p>
+                        <div className="space-y-2 border-t border-slate-200 dark:border-slate-700 pt-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-slate-500 dark:text-slate-400">📅 Next Delivery:</span>
+                            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                              {sub.nextDeliveryDate ? (() => {
+                                try {
+                                  let dateObj: Date;
+                                  
+                                  if (typeof sub.nextDeliveryDate === 'string') {
+                                    dateObj = new Date(sub.nextDeliveryDate);
+                                  } else if (sub.nextDeliveryDate instanceof Date) {
+                                    dateObj = sub.nextDeliveryDate;
+                                  } else {
+                                    dateObj = new Date(sub.nextDeliveryDate as any);
+                                  }
+                                  
+                                  const timestamp = dateObj.getTime();
+                                  
+                                  // Check if date is valid (not NaN) and is in a reasonable range (1980-2100)
+                                  // This matches the backend serialization validation
+                                  if (!isNaN(timestamp)) {
+                                    const year = dateObj.getFullYear();
+                                    if (year >= 1980 && year <= 2100) {
+                                      return format(dateObj, "MMM d, yyyy");
+                                    }
+                                  }
+                                  
+                                  return "Not scheduled";
+                                } catch (error) {
+                                  return "Not scheduled";
+                                }
+                              })() : "Not scheduled"}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-slate-500 dark:text-slate-400">⏰ Delivery Time:</span>
+                            <span className="text-sm font-semibold text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-950/50 px-2 py-1 rounded">{formatTime12Hour(sub.nextDeliveryTime)}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-slate-500 dark:text-slate-400">📦 Remaining:</span>
+                            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">{sub.remainingDeliveries} / {sub.totalDeliveries} deliveries</span>
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -1308,27 +1377,45 @@ export default function PartnerDashboard() {
                     {subscriptionDeliveries.deliveries.map((delivery: any) => (
                       <div
                         key={delivery.id}
-                        className="border rounded-lg p-4 space-y-2"
+                        className="border border-slate-200 dark:border-slate-700 rounded-lg p-4 space-y-3 hover:shadow-md transition-shadow bg-gradient-to-br from-slate-50 to-white dark:from-slate-800 dark:to-slate-900"
                         data-testid={`subscription-delivery-${delivery.id}`}
                       >
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <h4 className="font-semibold">{delivery.planName}</h4>
-                            {/* customer name removed for privacy */}
+                        <div className="flex justify-between items-start gap-3">
+                          <div className="flex-1">
+                            <h4 className="font-bold text-base text-slate-900 dark:text-white">{delivery.planName}</h4>
                             {delivery.deliverySlotId && (
-                              <p className="text-sm font-medium text-orange-600 bg-orange-50 dark:bg-orange-950 px-2 py-1 rounded inline-block mt-1">
-                                🕐 Delivery Time: {delivery.nextDeliveryTime}
+                              <p className="text-sm font-semibold text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-950/50 px-2 py-1 rounded inline-block mt-2">
+                                {formatDeliveryTime(delivery.nextDeliveryTime)}
                               </p>
                             )}
                           </div>
-                          <Badge className={delivery.status === "active" ? "bg-green-500" : "bg-yellow-500"}>
-                            {delivery.status}
+                          <Badge className={`${
+                            delivery.status === "delivered" ? "bg-green-500" :
+                            delivery.status === "out_for_delivery" ? "bg-blue-500" :
+                            delivery.status === "preparing" ? "bg-yellow-500" :
+                            "bg-slate-400"
+                          } hover:opacity-90`}>
+                            {delivery.status === "out_for_delivery" ? "Out for Delivery" :
+                             delivery.status.charAt(0).toUpperCase() + delivery.status.slice(1).replace(/_/g, " ")}
                           </Badge>
                         </div>
-                        <div className="text-sm">
-                          <p>Next Delivery: {new Date(delivery.nextDeliveryDate).toLocaleDateString()}</p>
-                          <p>Remaining: {delivery.remainingDeliveries} / {delivery.totalDeliveries} deliveries</p>
-                          <p className="font-medium">Items: {delivery.planItems?.map((item: any) => `${item.name} x${item.quantity}`).join(", ")}</p>
+                        <div className="space-y-2 border-t border-slate-200 dark:border-slate-700 pt-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-slate-500 dark:text-slate-400">📦 Items:</span>
+                            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">{delivery.planItems?.length || 0} items</span>
+                          </div>
+                          <div className="text-xs text-slate-600 dark:text-slate-400 space-y-1">
+                            {delivery.planItems?.map((item: any, idx: number) => (
+                              <div key={idx} className="flex justify-between">
+                                <span>{item.name}</span>
+                                <span className="font-medium">x{item.quantity}</span>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="flex items-center justify-between pt-2 border-t border-slate-200 dark:border-slate-700">
+                            <span className="text-xs text-slate-500 dark:text-slate-400">📊 Progress:</span>
+                            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">{delivery.remainingDeliveries} / {delivery.totalDeliveries} remaining</span>
+                          </div>
                         </div>
                       </div>
                     ))}

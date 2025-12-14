@@ -4,12 +4,59 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Package, CheckCircle, MapPin, Clock, Bell, Wifi, WifiOff, DollarSign, TrendingUp, Calendar, LogOut, Truck } from "lucide-react";
+import { Package, CheckCircle, MapPin, Clock, Bell, Wifi, WifiOff, DollarSign, TrendingUp, Calendar, LogOut, Truck, AlertCircle } from "lucide-react";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 import { useDeliveryNotifications } from "@/hooks/useDeliveryNotifications";
+import { formatTime12Hour, formatSlotRange } from "@shared/timeFormatter";
 import { useEffect, useState } from "react";
+
+// Helper function to calculate time until delivery
+const getTimeUntilDelivery = (deliveryTime: string): { display: string; minutes: number; isPrompt: boolean } | null => {
+  if (!deliveryTime) return null;
+  
+  try {
+    const now = new Date();
+    const [hours, minutes] = deliveryTime.split(':').map(Number);
+    const deliveryDate = new Date();
+    deliveryDate.setHours(hours, minutes, 0);
+    
+    // If delivery time has passed today, assume it's tomorrow
+    if (deliveryDate < now) {
+      deliveryDate.setDate(deliveryDate.getDate() + 1);
+    }
+    
+    const diffMs = deliveryDate.getTime() - now.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    
+    if (diffMins < 0) return null;
+    
+    let display = '';
+    if (diffMins < 60) {
+      display = `${diffMins} min`;
+    } else {
+      const hrs = Math.floor(diffMins / 60);
+      const mins = diffMins % 60;
+      display = mins > 0 ? `${hrs}h ${mins}m` : `${hrs}h`;
+    }
+    
+    return {
+      display,
+      minutes: diffMins,
+      isPrompt: diffMins <= 30 // Show alert if delivery is within 30 minutes
+    };
+  } catch (error) {
+    return null;
+  }
+};
+
+// Helper function to get slot info
+const getSlotInfo = (slotId: string, slots: any[]): { label: string; startTime: string; endTime: string } | null => {
+  if (!slotId) return null;
+  const slot = slots.find(s => s.id === slotId);
+  return slot ? { label: slot.label, startTime: slot.startTime, endTime: slot.endTime } : null;
+};
 
 export default function DeliveryDashboard() {
   const deliveryPersonName = localStorage.getItem("deliveryPersonName");
@@ -48,6 +95,10 @@ export default function DeliveryDashboard() {
 
   const { data: availableOrders = [] } = useQuery<any[]>({
     queryKey: ["/api/delivery/available-orders"],
+  });
+
+  const { data: deliverySlots = [] } = useQuery<any[]>({
+    queryKey: ["/api/delivery-slots"],
   });
 
   const { data: earnings } = useQuery<any>({
@@ -251,46 +302,79 @@ export default function DeliveryDashboard() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    {availableOrders.map((order: any) => (
-                      <div
-                        key={order.id}
-                        className="flex flex-col gap-4 p-4 border border-orange-200 dark:border-orange-800 rounded-lg bg-orange-50 dark:bg-orange-950/20"
-                        data-testid={`available-order-${order.id}`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex-1">
-                            <p className="font-medium">Order #{order.id.slice(0, 8)}</p>
-                            <p className="text-sm text-muted-foreground">
-                              {order.customerName} • {order.phone}
-                            </p>
-                            <p className="text-sm text-muted-foreground flex items-center gap-1 mt-1">
-                              <MapPin className="h-3 w-3" />
-                              {order.address}
-                            </p>
-                            <p className="text-sm text-muted-foreground mt-1">
-                              {format(new Date(order.createdAt), "PPp")}
-                            </p>
-                          </div>
-                          <div className="text-right">
-                            <Badge className={getStatusColor(order.status)}>
-                              {order.status.replace("_", " ").toUpperCase()}
-                            </Badge>
-                            <p className="font-bold mt-2">₹{order.total}</p>
-                            <p className="text-sm text-muted-foreground mt-1">Fee: ₹{order.deliveryFee}</p>
-                          </div>
-                        </div>
-
-                        <Button
-                          onClick={() => claimOrderMutation.mutate(order.id)}
-                          disabled={claimOrderMutation.isPending}
-                          size="default"
-                          className="w-full"
-                          data-testid={`button-claim-${order.id}`}
+                    {availableOrders.map((order: any) => {
+                      const timeInfo = order.deliveryTime ? getTimeUntilDelivery(order.deliveryTime) : null;
+                      return (
+                        <div
+                          key={order.id}
+                          className={`flex flex-col gap-4 p-4 border border-orange-200 dark:border-orange-800 rounded-lg ${
+                            timeInfo?.isPrompt 
+                              ? 'bg-red-50 dark:bg-red-950/20 border-red-300 dark:border-red-700' 
+                              : 'bg-orange-50 dark:bg-orange-950/20'
+                          }`}
+                          data-testid={`available-order-${order.id}`}
                         >
-                          {claimOrderMutation.isPending ? "Claiming..." : "Claim This Order"}
-                        </Button>
-                      </div>
-                    ))}
+                          <div className="flex items-center justify-between">
+                            <div className="flex-1">
+                              <p className="font-medium">Order #{order.id.slice(0, 8)}</p>
+                              <p className="text-sm text-muted-foreground">
+                                {order.customerName} • {order.phone}
+                              </p>
+                              <p className="text-sm text-muted-foreground flex items-center gap-1 mt-1">
+                                <MapPin className="h-3 w-3" />
+                                {order.address}
+                              </p>
+                              <p className="text-sm text-muted-foreground mt-1">
+                                {format(new Date(order.createdAt), "PPp")}
+                              </p>
+                              
+                              {/* Delivery Time Display - Dashboard */}
+                              {order.deliveryTime && (
+                                <div className={`mt-3 p-2 rounded flex items-center gap-2 ${
+                                  timeInfo?.isPrompt 
+                                    ? 'bg-red-100 dark:bg-red-900 border border-red-300' 
+                                    : 'bg-amber-100 dark:bg-amber-900/20'
+                                }`}>
+                                  <Clock className={`h-4 w-4 flex-shrink-0 ${timeInfo?.isPrompt ? 'text-red-600' : 'text-amber-600'}`} />
+                                  <div className="text-sm">
+                                    <p className="font-semibold">
+                                      {(() => {
+                                        const slotInfo = order.deliverySlotId ? getSlotInfo(order.deliverySlotId, deliverySlots) : null;
+                                        const displayText = slotInfo?.label || `${formatTime12Hour(order.deliveryTime)}`;
+                                        return displayText;
+                                      })()}
+                                    </p>
+                                    {timeInfo && (
+                                      <p className={`text-xs font-semibold ${timeInfo.isPrompt ? 'text-red-700 flex items-center gap-1' : 'text-muted-foreground'}`}>
+                                        {timeInfo.isPrompt && <AlertCircle className="h-3 w-3" />}
+                                        Time left: {timeInfo.display}
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                            <div className="text-right">
+                              <Badge className={getStatusColor(order.status)}>
+                                {order.status.replace("_", " ").toUpperCase()}
+                              </Badge>
+                              <p className="font-bold mt-2">₹{order.total}</p>
+                              <p className="text-sm text-muted-foreground mt-1">Fee: ₹{order.deliveryFee}</p>
+                            </div>
+                          </div>
+
+                          <Button
+                            onClick={() => claimOrderMutation.mutate(order.id)}
+                            disabled={claimOrderMutation.isPending}
+                            size="default"
+                            className={`w-full ${timeInfo?.isPrompt ? 'bg-red-600 hover:bg-red-700' : ''}`}
+                            data-testid={`button-claim-${order.id}`}
+                          >
+                            {claimOrderMutation.isPending ? "Claiming..." : "Claim This Order"}
+                          </Button>
+                        </div>
+                      );
+                    })}
                   </div>
                 </CardContent>
               </Card>
@@ -303,59 +387,89 @@ export default function DeliveryDashboard() {
               <CardContent>
                 <div className="space-y-4">
                   {orders && orders.length > 0 ? (
-                    orders.slice(0, 5).map((order: any) => (
-                      <div
-                        key={order.id}
-                        className="flex flex-col gap-4 p-4 border rounded-lg"
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex-1">
-                            <p className="font-medium">Order #{order.id.slice(0, 8)}</p>
-                            <p className="text-sm text-muted-foreground">
-                              {order.customerName} • {order.phone}
-                            </p>
-                            <p className="text-sm text-muted-foreground flex items-center gap-1 mt-1">
-                              <MapPin className="h-3 w-3" />
-                              {order.address}
-                            </p>
-                            <p className="text-sm text-muted-foreground mt-1">
-                              {format(new Date(order.createdAt), "PPp")}
-                            </p>
+                    orders.slice(0, 5).map((order: any) => {
+                      const timeInfo = order.deliveryTime ? getTimeUntilDelivery(order.deliveryTime) : null;
+                      return (
+                        <div
+                          key={order.id}
+                          className={`flex flex-col gap-4 p-4 border rounded-lg ${
+                            timeInfo?.isPrompt ? 'border-orange-400 bg-orange-50 dark:bg-orange-950/20' : ''
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex-1">
+                              <p className="font-medium">Order #{order.id.slice(0, 8)}</p>
+                              <p className="text-sm text-muted-foreground">
+                                {order.customerName} • {order.phone}
+                              </p>
+                              <p className="text-sm text-muted-foreground flex items-center gap-1 mt-1">
+                                <MapPin className="h-3 w-3" />
+                                {order.address}
+                              </p>
+                              <p className="text-sm text-muted-foreground mt-1">
+                                {format(new Date(order.createdAt), "PPp")}
+                              </p>
+                              
+                              {/* Delivery Time Display */}
+                              {order.deliveryTime && (
+                                <div className={`mt-3 p-2 rounded flex items-center gap-2 ${
+                                  timeInfo?.isPrompt 
+                                    ? 'bg-orange-100 dark:bg-orange-900' 
+                                    : 'bg-blue-50 dark:bg-blue-900/20'
+                                }`}>
+                                  <Clock className={`h-4 w-4 ${timeInfo?.isPrompt ? 'text-orange-600' : 'text-blue-600'}`} />
+                                  <div className="text-sm">
+                                    <p className="font-semibold">
+                                      {(() => {
+                                        const slotInfo = order.deliverySlotId ? getSlotInfo(order.deliverySlotId, deliverySlots) : null;
+                                        const displayText = slotInfo?.label || `${formatTime12Hour(order.deliveryTime)}`;
+                                        return displayText;
+                                      })()}
+                                    </p>
+                                    {timeInfo && (
+                                      <p className={`text-xs ${timeInfo.isPrompt ? 'text-orange-700 font-bold' : 'text-muted-foreground'}`}>
+                                        {timeInfo.isPrompt && '⏰ '} Time left: {timeInfo.display}
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                            <div className="text-right">
+                              <Badge className={getStatusColor(order.status)}>
+                                {order.status.replace("_", " ").toUpperCase()}
+                              </Badge>
+                              <p className="font-bold mt-2">₹{order.total}</p>
+                            </div>
                           </div>
-                          <div className="text-right">
-                            <Badge className={getStatusColor(order.status)}>
-                              {order.status.replace("_", " ").toUpperCase()}
-                            </Badge>
-                            <p className="font-bold mt-2">₹{order.total}</p>
-                          </div>
-                        </div>
 
-                        <div className="flex gap-2">
-                          {(order.status === "preparing" || order.status === "accepted_by_delivery" || order.status === "prepared") && (
-                            <Button
-                              size="sm"
-                              onClick={() => pickupOrderMutation.mutate(order.id)}
-                              disabled={pickupOrderMutation.isPending}
-                              className="bg-purple-600 hover:bg-purple-700"
-                              data-testid={`button-pickup-${order.id}`}
-                            >
-                              Mark as Picked Up
-                            </Button>
-                          )}
-                          {order.status === "out_for_delivery" && (
-                            <Button
-                              onClick={() => deliverOrderMutation.mutate(order.id)}
-                              disabled={deliverOrderMutation.isPending}
-                              size="sm"
-                              variant="default"
-                              data-testid={`button-deliver-${order.id}`}
-                            >
-                              Mark as Delivered
-                            </Button>
-                          )}
+                          <div className="flex gap-2">
+                            {(order.status === "preparing" || order.status === "accepted_by_delivery" || order.status === "prepared") && (
+                              <Button
+                                size="sm"
+                                onClick={() => pickupOrderMutation.mutate(order.id)}
+                                disabled={pickupOrderMutation.isPending}
+                                className="bg-purple-600 hover:bg-purple-700"
+                                data-testid={`button-pickup-${order.id}`}
+                              >
+                                Mark as Picked Up
+                              </Button>
+                            )}
+                            {order.status === "out_for_delivery" && (
+                              <Button
+                                onClick={() => deliverOrderMutation.mutate(order.id)}
+                                disabled={deliverOrderMutation.isPending}
+                                size="sm"
+                                variant="default"
+                                data-testid={`button-deliver-${order.id}`}
+                              >
+                                Mark as Delivered
+                              </Button>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))
+                      );
+                    })
                   ) : (
                     <p className="text-center text-muted-foreground py-8">No orders assigned yet</p>
                   )}
@@ -375,46 +489,79 @@ export default function DeliveryDashboard() {
               <CardContent>
                 <div className="space-y-4">
                   {availableOrders && availableOrders.length > 0 ? (
-                    availableOrders.map((order: any) => (
-                      <div
-                        key={order.id}
-                        className="flex flex-col gap-4 p-4 border border-orange-200 dark:border-orange-800 rounded-lg bg-orange-50 dark:bg-orange-950/20"
-                        data-testid={`available-order-${order.id}`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex-1">
-                            <p className="font-medium">Order #{order.id.slice(0, 8)}</p>
-                            <p className="text-sm text-muted-foreground">
-                              {order.customerName} • {order.phone}
-                            </p>
-                            <p className="text-sm text-muted-foreground flex items-center gap-1 mt-1">
-                              <MapPin className="h-3 w-3" />
-                              {order.address}
-                            </p>
-                            <p className="text-sm text-muted-foreground mt-1">
-                              {format(new Date(order.createdAt), "PPp")}
-                            </p>
-                          </div>
-                          <div className="text-right">
-                            <Badge className={getStatusColor(order.status)}>
-                              {order.status.replace("_", " ").toUpperCase()}
-                            </Badge>
-                            <p className="font-bold mt-2">₹{order.total}</p>
-                            <p className="text-sm text-muted-foreground mt-1">Fee: ₹{order.deliveryFee}</p>
-                          </div>
-                        </div>
-
-                        <Button
-                          onClick={() => claimOrderMutation.mutate(order.id)}
-                          disabled={claimOrderMutation.isPending}
-                          size="default"
-                          className="w-full"
-                          data-testid={`button-claim-${order.id}`}
+                    availableOrders.map((order: any) => {
+                      const timeInfo = order.deliveryTime ? getTimeUntilDelivery(order.deliveryTime) : null;
+                      return (
+                        <div
+                          key={order.id}
+                          className={`flex flex-col gap-4 p-4 border border-orange-200 dark:border-orange-800 rounded-lg ${
+                            timeInfo?.isPrompt 
+                              ? 'bg-red-50 dark:bg-red-950/20 border-red-300 dark:border-red-700' 
+                              : 'bg-orange-50 dark:bg-orange-950/20'
+                          }`}
+                          data-testid={`available-order-${order.id}`}
                         >
-                          {claimOrderMutation.isPending ? "Claiming..." : "Claim This Order"}
-                        </Button>
-                      </div>
-                    ))
+                          <div className="flex items-center justify-between">
+                            <div className="flex-1">
+                              <p className="font-medium">Order #{order.id.slice(0, 8)}</p>
+                              <p className="text-sm text-muted-foreground">
+                                {order.customerName} • {order.phone}
+                              </p>
+                              <p className="text-sm text-muted-foreground flex items-center gap-1 mt-1">
+                                <MapPin className="h-3 w-3" />
+                                {order.address}
+                              </p>
+                              <p className="text-sm text-muted-foreground mt-1">
+                                {format(new Date(order.createdAt), "PPp")}
+                              </p>
+                              
+                              {/* Delivery Time Display - Available Tab */}
+                              {order.deliveryTime && (
+                                <div className={`mt-3 p-2 rounded flex items-center gap-2 ${
+                                  timeInfo?.isPrompt 
+                                    ? 'bg-red-100 dark:bg-red-900 border border-red-300' 
+                                    : 'bg-amber-100 dark:bg-amber-900/20'
+                                }`}>
+                                  <Clock className={`h-4 w-4 flex-shrink-0 ${timeInfo?.isPrompt ? 'text-red-600' : 'text-amber-600'}`} />
+                                  <div className="text-sm">
+                                    <p className="font-semibold">
+                                      {(() => {
+                                        const slotInfo = order.deliverySlotId ? getSlotInfo(order.deliverySlotId, deliverySlots) : null;
+                                        const displayText = slotInfo?.label || `${formatTime12Hour(order.deliveryTime)}`;
+                                        return displayText;
+                                      })()}
+                                    </p>
+                                    {timeInfo && (
+                                      <p className={`text-xs font-semibold ${timeInfo.isPrompt ? 'text-red-700 flex items-center gap-1' : 'text-muted-foreground'}`}>
+                                        {timeInfo.isPrompt && <AlertCircle className="h-3 w-3" />}
+                                        Time left: {timeInfo.display}
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                            <div className="text-right">
+                              <Badge className={getStatusColor(order.status)}>
+                                {order.status.replace("_", " ").toUpperCase()}
+                              </Badge>
+                              <p className="font-bold mt-2">₹{order.total}</p>
+                              <p className="text-sm text-muted-foreground mt-1">Fee: ₹{order.deliveryFee}</p>
+                            </div>
+                          </div>
+
+                          <Button
+                            onClick={() => claimOrderMutation.mutate(order.id)}
+                            disabled={claimOrderMutation.isPending}
+                            size="default"
+                            className={`w-full ${timeInfo?.isPrompt ? 'bg-red-600 hover:bg-red-700' : ''}`}
+                            data-testid={`button-claim-${order.id}`}
+                          >
+                            {claimOrderMutation.isPending ? "Claiming..." : "Claim This Order"}
+                          </Button>
+                        </div>
+                      );
+                    })
                   ) : (
                     <p className="text-center text-muted-foreground py-8">
                       No available orders at the moment. You'll be notified when new orders are available.
@@ -433,59 +580,89 @@ export default function DeliveryDashboard() {
               <CardContent>
                 <div className="space-y-4">
                   {orders && orders.length > 0 ? (
-                    orders.map((order: any) => (
-                      <div
-                        key={order.id}
-                        className="flex flex-col gap-4 p-4 border rounded-lg"
-                        data-testid={`order-card-${order.id}`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex-1">
-                            <p className="font-medium">Order #{order.id.slice(0, 8)}</p>
-                            <p className="text-sm text-muted-foreground">
-                              {order.customerName} • {order.phone}
-                            </p>
-                            <p className="text-sm text-muted-foreground flex items-center gap-1 mt-1">
-                              <MapPin className="h-3 w-3" />
-                              {order.address}
-                            </p>
-                            <p className="text-sm text-muted-foreground mt-1">
-                              {format(new Date(order.createdAt), "PPp")}
-                            </p>
+                    orders.map((order: any) => {
+                      const timeInfo = order.deliveryTime ? getTimeUntilDelivery(order.deliveryTime) : null;
+                      return (
+                        <div
+                          key={order.id}
+                          className={`flex flex-col gap-4 p-4 border rounded-lg ${
+                            timeInfo?.isPrompt ? 'border-orange-400 bg-orange-50 dark:bg-orange-950/20' : ''
+                          }`}
+                          data-testid={`order-card-${order.id}`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex-1">
+                              <p className="font-medium">Order #{order.id.slice(0, 8)}</p>
+                              <p className="text-sm text-muted-foreground">
+                                {order.customerName} • {order.phone}
+                              </p>
+                              <p className="text-sm text-muted-foreground flex items-center gap-1 mt-1">
+                                <MapPin className="h-3 w-3" />
+                                {order.address}
+                              </p>
+                              <p className="text-sm text-muted-foreground mt-1">
+                                {format(new Date(order.createdAt), "PPp")}
+                              </p>
+                              
+                              {/* Delivery Time Display - Orders Tab */}
+                              {order.deliveryTime && (
+                                <div className={`mt-3 p-2 rounded flex items-center gap-2 ${
+                                  timeInfo?.isPrompt 
+                                    ? 'bg-orange-100 dark:bg-orange-900' 
+                                    : 'bg-blue-50 dark:bg-blue-900/20'
+                                }`}>
+                                  <Clock className={`h-4 w-4 ${timeInfo?.isPrompt ? 'text-orange-600' : 'text-blue-600'}`} />
+                                  <div className="text-sm">
+                                    <p className="font-semibold">
+                                      {(() => {
+                                        const slotInfo = order.deliverySlotId ? getSlotInfo(order.deliverySlotId, deliverySlots) : null;
+                                        const displayText = slotInfo?.label || `${formatTime12Hour(order.deliveryTime)}`;
+                                        return displayText;
+                                      })()}
+                                    </p>
+                                    {timeInfo && (
+                                      <p className={`text-xs ${timeInfo.isPrompt ? 'text-orange-700 font-bold' : 'text-muted-foreground'}`}>
+                                        {timeInfo.isPrompt && '⏰ '} Time left: {timeInfo.display}
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                            <div className="text-right">
+                              <Badge className={getStatusColor(order.status)}>
+                                {order.status.replace("_", " ").toUpperCase()}
+                              </Badge>
+                              <p className="font-bold mt-2">₹{order.total}</p>
+                              <p className="text-sm text-muted-foreground mt-1">Fee: ₹{order.deliveryFee}</p>
+                            </div>
                           </div>
-                          <div className="text-right">
-                            <Badge className={getStatusColor(order.status)}>
-                              {order.status.replace("_", " ").toUpperCase()}
-                            </Badge>
-                            <p className="font-bold mt-2">₹{order.total}</p>
-                            <p className="text-sm text-muted-foreground mt-1">Fee: ₹{order.deliveryFee}</p>
-                          </div>
-                        </div>
 
-                        <div className="flex gap-2">
-                          {(order.status === "preparing" || order.status === "accepted_by_delivery" || order.status === "prepared") && (
-                            <Button
-                              size="sm"
-                              onClick={() => pickupOrderMutation.mutate(order.id)}
-                              disabled={pickupOrderMutation.isPending}
-                              className="bg-purple-600 hover:bg-purple-700"
-                            >
-                              Mark as Picked Up
-                            </Button>
-                          )}
-                          {order.status === "out_for_delivery" && (
-                            <Button
-                              onClick={() => deliverOrderMutation.mutate(order.id)}
-                              disabled={deliverOrderMutation.isPending}
-                              size="sm"
-                              variant="default"
-                            >
-                              Mark as Delivered
-                            </Button>
-                          )}
+                          <div className="flex gap-2">
+                            {(order.status === "preparing" || order.status === "accepted_by_delivery" || order.status === "prepared") && (
+                              <Button
+                                size="sm"
+                                onClick={() => pickupOrderMutation.mutate(order.id)}
+                                disabled={pickupOrderMutation.isPending}
+                                className="bg-purple-600 hover:bg-purple-700"
+                              >
+                                Mark as Picked Up
+                              </Button>
+                            )}
+                            {order.status === "out_for_delivery" && (
+                              <Button
+                                onClick={() => deliverOrderMutation.mutate(order.id)}
+                                disabled={deliverOrderMutation.isPending}
+                                size="sm"
+                                variant="default"
+                              >
+                                Mark as Delivered
+                              </Button>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))
+                      );
+                    })
                   ) : (
                     <p className="text-center text-muted-foreground py-8">No deliveries yet</p>
                   )}

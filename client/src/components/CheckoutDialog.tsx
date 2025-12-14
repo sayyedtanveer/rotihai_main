@@ -31,6 +31,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
+import { useWalletUpdates } from "@/hooks/useWalletUpdates";
 import { useApplyReferral } from "@/hooks/useApplyReferral";
 import { Loader2, Clock } from "lucide-react";
 
@@ -135,10 +136,28 @@ export default function CheckoutDialog({
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [selectedDeliveryTime, setSelectedDeliveryTime] = useState("");
   const [selectedDeliverySlotId, setSelectedDeliverySlotId] = useState("");
+  
+  // Referral bonus states
+  const [pendingBonus, setPendingBonus] = useState<number>(0);
+  const [minOrderAmount, setMinOrderAmount] = useState<number>(0);
+  const [bonusEligible, setBonusEligible] = useState<boolean>(false);
+  const [useBonusAtCheckout, setUseBonusAtCheckout] = useState<boolean>(false);
+  const [isCheckingBonusEligibility, setIsCheckingBonusEligibility] = useState(false);
+  const [bonusEligibilityMsg, setBonusEligibilityMsg] = useState<string>("");
+  
+  // Wallet balance states
+  const [useWalletBalance, setUseWalletBalance] = useState<boolean>(false);
+  const [walletAmountToUse, setWalletAmountToUse] = useState<number>(0);
+  const [maxWalletUsagePerOrder, setMaxWalletUsagePerOrder] = useState<number>(10);
+  const [minOrderAmountForWallet, setMinOrderAmountForWallet] = useState<number>(0);
+  
   const { toast } = useToast();
-  const { user, isAuthenticated } = useAuth();
+  const { user, isAuthenticated, userToken } = useAuth();
   const applyReferralMutation = useApplyReferral();
   const isMobile = useIsMobile();
+
+  // Listen for wallet updates via WebSocket
+  useWalletUpdates();
 
   // Dummy password state for login form
   const [password, setPassword] = useState("");
@@ -147,6 +166,24 @@ export default function CheckoutDialog({
   const isRotiCategory =
     cart?.categoryName?.toLowerCase() === "roti" ||
     cart?.categoryName?.toLowerCase().includes("roti");
+
+  // Fetch wallet settings (maxUsagePerOrder and minOrderAmount limits)
+  const { data: walletSettings } = useQuery<{
+    maxUsagePerOrder: number;
+    minOrderAmount: number;
+  }>({
+    queryKey: ["/api/wallet-settings"],
+    enabled: isOpen,
+    refetchInterval: 60000,
+  });
+
+  // Update local state when wallet settings are fetched
+  useEffect(() => {
+    if (walletSettings) {
+      setMaxWalletUsagePerOrder(walletSettings.maxUsagePerOrder || 10);
+      setMinOrderAmountForWallet(walletSettings.minOrderAmount || 0);
+    }
+  }, [walletSettings]);
 
   // Fetch roti time settings for blocking logic
   const { data: rotiSettings } = useQuery<{
@@ -293,9 +330,6 @@ export default function CheckoutDialog({
     nextAvailableDate: string;
   }>(null);
 
-  // Get token from localStorage (for authenticated users)
-  const userToken = localStorage.getItem("userToken");
-
   useEffect(() => {
     if (cart) {
       const calculatedSubtotal = cart.items.reduce(
@@ -321,28 +355,105 @@ export default function CheckoutDialog({
         : 0;
       setDiscount(calculatedDiscount);
 
-      setTotal(calculatedSubtotal + calculatedDeliveryFee - calculatedDiscount);
-    }
-  }, [cart, address, appliedCoupon]);
+      // Calculate base total before bonus
+      let baseTotal = calculatedSubtotal + calculatedDeliveryFee - calculatedDiscount;
 
-  useEffect(() => {
-    // Auto-fill details if user is logged in
-    if (userToken && cart) {
-      const savedUserData = localStorage.getItem("userData");
-      if (savedUserData) {
-        try {
-          const userData = JSON.parse(savedUserData);
-          setCustomerName(userData.name || "");
-          setPhone(userData.phone || "");
-          setEmail(userData.email || "");
-          setAddress(userData.address || "");
-        } catch (error) {
-          console.error("Failed to parse user data:", error);
-        }
+      // Apply bonus if user has chosen to use it
+      if (useBonusAtCheckout && bonusEligible && pendingBonus > 0) {
+        baseTotal = Math.max(0, baseTotal - pendingBonus);
       }
-      setActiveTab("checkout"); // Automatically go to checkout
+
+      // Apply wallet balance if user has chosen to use it
+      if (useWalletBalance && user?.walletBalance && user.walletBalance > 0) {
+        // Check minimum order amount requirement
+        if (minOrderAmountForWallet > 0 && baseTotal < minOrderAmountForWallet) {
+          // Don't apply wallet if order is below minimum
+          setWalletAmountToUse(0);
+        } else {
+          // Apply wallet respecting both maxUsagePerOrder limit and available balance
+          const maxAllowed = Math.min(maxWalletUsagePerOrder, user.walletBalance);
+          const amountToDeduct = Math.min(maxAllowed, baseTotal);
+          setWalletAmountToUse(amountToDeduct);
+          baseTotal = Math.max(0, baseTotal - amountToDeduct);
+        }
+      } else {
+        setWalletAmountToUse(0);
+      }
+
+      setTotal(baseTotal);
     }
-  }, [userToken, cart]);
+  }, [cart, address, appliedCoupon, useBonusAtCheckout, bonusEligible, pendingBonus, useWalletBalance, user?.walletBalance, maxWalletUsagePerOrder, minOrderAmountForWallet]);
+
+  // Auto-fill checkout fields when user profile is loaded
+  useEffect(() => {
+    if (isAuthenticated && user) {
+      // Use data from useAuth() hook which fetches from /api/user/profile
+      setCustomerName(user.name || "");
+      setPhone(user.phone || "");
+      setEmail(user.email || "");
+      setAddress(user.address || "");
+      setActiveTab("checkout");
+    }
+  }, [user, isAuthenticated]);
+
+  // Fetch pending bonus and referral info from user profile
+  useEffect(() => {
+    if (user && user.pendingBonus) {
+      setPendingBonus(user.pendingBonus.amount || 0);
+      setMinOrderAmount(user.pendingBonus.minOrderAmount || 0);
+      setBonusEligibilityMsg("");
+    }
+  }, [user]);
+
+  // Check bonus eligibility when total changes
+  useEffect(() => {
+    if (
+      isAuthenticated &&
+      userToken &&
+      pendingBonus > 0 &&
+      total > 0 &&
+      isOpen
+    ) {
+      checkBonusEligibility();
+    }
+  }, [total, isOpen]);
+
+  const checkBonusEligibility = async () => {
+    if (!userToken || pendingBonus <= 0) return;
+
+    setIsCheckingBonusEligibility(true);
+    try {
+      const response = await fetch("/api/user/check-bonus-eligibility", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${userToken}`,
+        },
+        body: JSON.stringify({ orderTotal: total }),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        setBonusEligible(result.eligible);
+        if (result.eligible) {
+          setBonusEligibilityMsg(`✓ You can claim ₹${result.bonus} bonus!`);
+        } else {
+          setBonusEligibilityMsg(
+            result.reason ||
+              `Minimum order of ₹${result.minOrderAmount} required for bonus`,
+          );
+        }
+      } else {
+        setBonusEligible(false);
+        setBonusEligibilityMsg("Unable to check bonus eligibility");
+      }
+    } catch (error) {
+      console.error("Error checking bonus eligibility:", error);
+      setBonusEligible(false);
+    } finally {
+      setIsCheckingBonusEligibility(false);
+    }
+  };
 
   const handlePhoneChange = async (value: string) => {
     setPhone(value.replace(/\D/g, "").slice(0, 10)); // Allow only digits, max 10
@@ -530,6 +641,7 @@ export default function CheckoutDialog({
         deliveryFee,
         discount,
         couponCode: appliedCoupon?.code,
+        referralCode: referralCode && !userToken ? referralCode.trim().toUpperCase() : undefined,
         total,
         chefId: cart.chefId || cart.items[0]?.chefId,
         categoryId: cart.categoryId,
@@ -546,9 +658,16 @@ export default function CheckoutDialog({
           isRotiCategory && deliveryDateStr ? deliveryDateStr : undefined,
         status: "pending" as const,
         paymentStatus: "pending" as const,
+        bonusUsedAtCheckout: useBonusAtCheckout ? user?.pendingBonus?.amount || 0 : 0,
+        walletAmountUsed: useWalletBalance ? walletAmountToUse : 0,
       };
 
+      console.log("=== ORDER DATA ===");
+      console.log("useWalletBalance:", useWalletBalance);
+      console.log("walletAmountToUse:", walletAmountToUse);
+      console.log("walletAmountUsed in order:", orderData.walletAmountUsed);
       console.log("Sending order data:", orderData);
+      console.log("================");
 
       const headers: HeadersInit = {
         "Content-Type": "application/json",
@@ -603,11 +722,56 @@ export default function CheckoutDialog({
 
       console.log("Order created successfully:", result);
 
+      // Claim referral bonus if eligible and user wants to use it
+      if (
+        useBonusAtCheckout &&
+        isAuthenticated &&
+        userToken &&
+        bonusEligible &&
+        pendingBonus > 0
+      ) {
+        try {
+          const bonusResponse = await fetch(
+            "/api/user/claim-bonus-at-checkout",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${userToken}`,
+              },
+              body: JSON.stringify({
+                orderTotal: total,
+                orderId: result.id,
+              }),
+            },
+          );
+
+          if (bonusResponse.ok) {
+            const bonusResult = await bonusResponse.json();
+            if (bonusResult.bonusClaimed) {
+              toast({
+                title: "✓ Referral bonus claimed!",
+                description: `₹${bonusResult.amount} bonus has been added to your wallet.`,
+                duration: 5000,
+              });
+            }
+          } else {
+            console.error("Failed to claim bonus at checkout");
+          }
+        } catch (err) {
+          console.error("Error claiming bonus:", err);
+        }
+      }
+
       // Show different messages for new vs existing users
       if (result.accountCreated) {
+        let accountMessage = `Order #${result.id.slice(0, 8)} created. Your login password is the last 6 digits of your phone: ${phone.slice(-6)}`;
+        if (result.appliedReferralBonus && result.appliedReferralBonus > 0) {
+          accountMessage += `. You received ₹${result.appliedReferralBonus} referral bonus!`;
+        }
         toast({
           title: "✓ Account Created & Order Placed!",
-          description: `Order #${result.id.slice(0, 8)} created. Your login password is the last 6 digits of your phone: ${phone.slice(-6)}`,
+          description: accountMessage,
           duration: 10000, // Show for 10 seconds
         });
 
@@ -1175,6 +1339,157 @@ export default function CheckoutDialog({
                       <span>-₹{discount.toFixed(2)}</span>
                     </div>
                   )}
+
+                  {/* Product-level discounts */}
+                  {cart?.items?.some((item: any) => item.offerPercentage > 0) && (
+                    <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-700 space-y-2">
+                      <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">Product Offers Applied:</p>
+                      {cart?.items?.map((item: any) => {
+                        const offerPercentage = item.offerPercentage || 0;
+                        if (offerPercentage > 0) {
+                          const originalPrice = item.originalPrice || item.price;
+                          const discountPerItem = originalPrice - item.price;
+                          return (
+                            <div key={item.id} className="flex justify-between text-xs text-muted-foreground">
+                              <span>{item.name} ({item.quantity}x) - {offerPercentage}% OFF</span>
+                              <span className="text-green-600">- Rs. {(discountPerItem * item.quantity).toFixed(2)}</span>
+                            </div>
+                          );
+                        }
+                        return null;
+                      })}
+                    </div>
+                  )}
+
+                  {/* Referral Bonus Section */}
+                  {isAuthenticated &&
+                    pendingBonus > 0 &&
+                    (bonusEligible || !bonusEligibilityMsg) && (
+                      <div className="border-t pt-2 mt-2 space-y-2">
+                        <div className="bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-md p-2 space-y-2">
+                          <div className="flex justify-between items-start">
+                            <div className="flex-1">
+                              <p className="text-xs font-medium text-amber-900 dark:text-amber-100">
+                                Available Referral Bonus
+                              </p>
+                              <p className="text-sm font-bold text-amber-700 dark:text-amber-300">
+                                ₹{pendingBonus}
+                              </p>
+                              {minOrderAmount > 0 && (
+                                <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                                  Minimum order: ₹{minOrderAmount}
+                                </p>
+                              )}
+                            </div>
+                            {bonusEligible && (
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  id="useBonusCheckbox"
+                                  checked={useBonusAtCheckout}
+                                  onChange={(e) =>
+                                    setUseBonusAtCheckout(e.target.checked)
+                                  }
+                                  className="cursor-pointer"
+                                />
+                                <label
+                                  htmlFor="useBonusCheckbox"
+                                  className="text-xs cursor-pointer font-medium text-amber-700 dark:text-amber-300"
+                                >
+                                  Use Bonus
+                                </label>
+                              </div>
+                            )}
+                          </div>
+
+                          {bonusEligibilityMsg && (
+                            <p
+                              className={`text-xs ${
+                                bonusEligible
+                                  ? "text-green-600 dark:text-green-400"
+                                  : "text-red-600 dark:text-red-400"
+                              }`}
+                            >
+                              {bonusEligibilityMsg}
+                            </p>
+                          )}
+
+                          {isCheckingBonusEligibility && (
+                            <p className="text-xs text-amber-600 dark:text-amber-400">
+                              Checking eligibility...
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                  {/* Show ineligibility message */}
+                  {isAuthenticated &&
+                    pendingBonus > 0 &&
+                    !bonusEligible &&
+                    bonusEligibilityMsg && (
+                      <div className="border-t pt-2 mt-2">
+                        <div className="bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-md p-2">
+                          <p className="text-xs text-red-700 dark:text-red-300">
+                            {bonusEligibilityMsg}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                  {/* Wallet Balance */}
+                  {isAuthenticated && user?.walletBalance && user.walletBalance > 0 && (
+                    <div className="border-t pt-2 mt-2">
+                      <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-md p-2 space-y-2">
+                        <div className="flex justify-between items-start">
+                          <div className="flex-1">
+                            <p className="text-xs font-medium text-blue-900 dark:text-blue-100">
+                              Available Wallet Balance
+                            </p>
+                            <p className="text-sm font-bold text-blue-700 dark:text-blue-300">
+                              ₹{user.walletBalance}
+                            </p>
+                            <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                              Max per order: ₹{maxWalletUsagePerOrder}
+                            </p>
+                          </div>
+                          {user.walletBalance > 0 && (
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="checkbox"
+                                id="useWalletCheckbox"
+                                checked={useWalletBalance}
+                                onChange={(e) => {
+                                  setUseWalletBalance(e.target.checked);
+                                }}
+                                disabled={minOrderAmountForWallet > 0 && subtotal < minOrderAmountForWallet}
+                                className="cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                              />
+                              <label
+                                htmlFor="useWalletCheckbox"
+                                className="text-xs cursor-pointer font-medium text-blue-700 dark:text-blue-300"
+                              >
+                                Use Balance
+                              </label>
+                            </div>
+                          )}
+                        </div>
+                        
+                        {minOrderAmountForWallet > 0 && subtotal < minOrderAmountForWallet && (
+                          <p className="text-xs text-amber-600 dark:text-amber-400">
+                            ⚠️ Minimum order ₹{minOrderAmountForWallet} required to use wallet
+                          </p>
+                        )}
+                        
+                        {useWalletBalance && walletAmountToUse > 0 && minOrderAmountForWallet <= subtotal && (
+                          <p className="text-xs text-green-600 dark:text-green-400">
+                            ✓ Will use ₹{walletAmountToUse} from wallet
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
                   <div className="flex justify-between font-bold text-base border-t pt-2">
                     <span>Total:</span>
                     <span>₹{total.toFixed(2)}</span>

@@ -33,8 +33,15 @@ interface User {
   name: string;
   phone: string;
   email?: string;
+  address?: string;
   walletBalance: number;
   referralCode?: string;
+  pendingBonus?: {
+    amount: number;
+    minOrderAmount: number;
+    code?: string;
+    referrerName?: string;
+  };
 }
 
 interface UseAuthReturn {
@@ -42,6 +49,7 @@ interface UseAuthReturn {
   isLoading: boolean;
   error: Error | null;
   isAuthenticated: boolean;
+  userToken: string | null;
   login: (phone: string, password: string) => Promise<any>;
   logout: () => void;
 }
@@ -125,6 +133,7 @@ export function useAuth(): UseAuthReturn {
     isLoading, 
     error, 
     isAuthenticated,
+    userToken: localStorage.getItem('userToken'),
     login,
     logout
   };
