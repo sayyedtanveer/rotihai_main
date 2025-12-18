@@ -3,6 +3,7 @@ import { storage } from "./storage";
 import { hashPassword, verifyPassword, generateDeliveryToken, generateRefreshToken, verifyToken, requireDeliveryAuth, type AuthenticatedDeliveryRequest } from "./deliveryAuth";
 import { deliveryPersonnelLoginSchema, insertDeliveryPersonnelSchema } from "@shared/schema";
 import { broadcastOrderUpdate, notifyDeliveryAssignment, cancelPreparedOrderTimeout } from "./websocket";
+import { sendDeliveryCompletedNotification } from "./whatsappService";
 import { db, orders } from "@shared/db";
 import { eq } from "drizzle-orm";
 

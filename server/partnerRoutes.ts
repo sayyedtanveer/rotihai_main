@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { requirePartner, type AuthenticatedPartnerRequest, verifyToken } from "./partnerAuth";
 import { storage } from "./storage";
 import { broadcastOrderUpdate, broadcastPreparedOrderToAvailableDelivery, broadcastProductAvailabilityUpdate, broadcastChefStatusUpdate } from "./websocket";
+import { sendDeliveryAvailableNotification } from "./whatsappService";
 import { db, orders } from "@shared/db";
 import { eq } from "drizzle-orm";
 
@@ -276,6 +277,36 @@ export function registerPartnerRoutes(app: Express): void {
             // If no one claimed yet, broadcast to all available delivery personnel
             console.log(`📢 No delivery person assigned yet, broadcasting to all available delivery personnel`);
             await broadcastPreparedOrderToAvailableDelivery(updatedOrder);
+          }
+
+          // 📱 Send WhatsApp notifications to available delivery personnel (non-blocking)
+          try {
+            const allDeliveryPersonnel = await storage.getAllDeliveryPersonnel();
+            const activeDeliveryPersonnel = allDeliveryPersonnel.filter(dp => dp.isActive);
+            
+            if (activeDeliveryPersonnel.length > 0) {
+              const deliveryPersonIds = activeDeliveryPersonnel.map(dp => dp.id);
+              const deliveryPersonPhones = new Map(
+                activeDeliveryPersonnel.map(dp => [dp.id, dp.phone])
+              );
+
+              const itemsList = (updatedOrder.items as any[])
+                .map((item: any) => `${item.name} (x${item.quantity})`)
+                .slice(0, 3) // Show first 3 items
+                .join(", ");
+
+              const sentCount = await sendDeliveryAvailableNotification(
+                deliveryPersonIds,
+                updatedOrder.id,
+                updatedOrder.address,
+                deliveryPersonPhones
+              );
+
+              console.log(`✅ Sent WhatsApp notifications to ${sentCount}/${activeDeliveryPersonnel.length} delivery personnel for order ${orderId}`);
+            }
+          } catch (notificationError) {
+            console.error("⚠️ Error sending delivery WhatsApp notifications (non-critical):", notificationError);
+            // Don't fail the order update if notification fails
           }
         }
       }

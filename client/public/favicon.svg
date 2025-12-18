@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
+  <!-- Background circle -->
+  <circle cx="96" cy="96" r="96" fill="#f97316"/>
+  
+  <!-- Roti plate -->
+  <circle cx="96" cy="96" r="70" fill="#fde047"/>
+  
+  <!-- Roti circles -->
+  <circle cx="96" cy="60" r="25" fill="#fff7ed" stroke="#f97316" stroke-width="2"/>
+  <circle cx="65" cy="110" r="25" fill="#fff7ed" stroke="#f97316" stroke-width="2"/>
+  <circle cx="127" cy="110" r="25" fill="#fff7ed" stroke="#f97316" stroke-width="2"/>
+  
+  <!-- Roti patterns (dots) -->
+  <circle cx="96" cy="60" r="3" fill="#f97316" opacity="0.6"/>
+  <circle cx="90" cy="55" r="2" fill="#f97316" opacity="0.6"/>
+  <circle cx="102" cy="55" r="2" fill="#f97316" opacity="0.6"/>
+  <circle cx="88" cy="65" r="2" fill="#f97316" opacity="0.6"/>
+  <circle cx="104" cy="65" r="2" fill="#f97316" opacity="0.6"/>
+  
+  <circle cx="65" cy="110" r="3" fill="#f97316" opacity="0.6"/>
+  <circle cx="59" cy="105" r="2" fill="#f97316" opacity="0.6"/>
+  <circle cx="71" cy="105" r="2" fill="#f97316" opacity="0.6"/>
+  
+  <circle cx="127" cy="110" r="3" fill="#f97316" opacity="0.6"/>
+  <circle cx="121" cy="105" r="2" fill="#f97316" opacity="0.6"/>
+  <circle cx="133" cy="105" r="2" fill="#f97316" opacity="0.6"/>
+</svg>

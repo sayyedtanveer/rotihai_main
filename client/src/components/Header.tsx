@@ -7,6 +7,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { getDeliveryMessage } from "@/lib/locationUtils";
+import { InstallPrompt } from "@/components/InstallPrompt";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -158,7 +159,9 @@ export default function Header({ cartItemCount = 0, onCartClick, onMenuClick, se
   };
 
   return (
-    <header className="sticky top-0 z-50 bg-background border-b">
+    <>
+      <InstallPrompt />
+      <header className="sticky top-0 z-50 bg-background border-b">
       <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-8">
         <div className="flex items-center justify-between gap-2 sm:gap-4 h-14 sm:h-16">
           <div className="flex items-center gap-2 sm:gap-3">
@@ -382,5 +385,6 @@ export default function Header({ cartItemCount = 0, onCartClick, onMenuClick, se
         </div>
       </div>
     </header>
+    </>
   );
 }

@@ -23,12 +23,15 @@ import {
   ShoppingCart, // Import ShoppingCart icon
   Megaphone, // Import Megaphone icon
   Clock,
+  Eye, // Import Eye icon for visitor analytics
+  MessageSquare, // Import MessageSquare icon for SMS settings
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useAdminNotifications } from "@/hooks/useAdminNotifications";
 
 import SubscriptionDrawer from "@/components/SubscriptionDrawer";
+import PromotionalBannersDrawer from "@/components/admin/PromotionalBannersDrawer";
 
 interface AdminLayoutProps {
   children: React.ReactNode;
@@ -38,6 +41,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   const [location, setLocation] = useLocation();
   const { toast } = useToast();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isPromoBannersOpen, setIsPromoBannersOpen] = useState(false);
   const { unreadCount, wsConnected, requestNotificationPermission, clearUnreadCount, lastNotificationType } = useAdminNotifications();
 
   const adminUser = JSON.parse(localStorage.getItem("adminUser") || "{}");
@@ -89,7 +93,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
 
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-900">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100 dark:bg-gradient-to-br dark:from-slate-900 dark:via-slate-800 dark:to-slate-900">
       <div className="lg:flex">
         <div
           className={`fixed inset-0 z-40 lg:hidden ${isSidebarOpen ? "block" : "hidden"}`}
@@ -151,13 +155,14 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                 <span>Subscriptions</span>
               </div>
             </Link>
-            {/* Promotional Banners Link */}
-            <Link href="/admin/promotional-banners">
-              <div className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-colors cursor-pointer ${location === "/admin/promotional-banners" ? "bg-primary text-primary-foreground" : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700"}`}>
-                <Megaphone className="w-5 h-5" />
-                <span>Promotional Banners</span>
-              </div>
-            </Link>
+            {/* Promotional Banners - Open in Drawer */}
+            <button
+              onClick={() => setIsPromoBannersOpen(true)}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors cursor-pointer text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700"
+            >
+              <Megaphone className="w-5 h-5" />
+              <span>Promotional Banners</span>
+            </button>
             <Link href="/admin/delivery-settings">
               <div className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-colors cursor-pointer ${location === "/admin/delivery-settings" ? "bg-primary text-primary-foreground" : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700"}`}>
                 <Truck className="w-5 h-5" />
@@ -200,6 +205,18 @@ export function AdminLayout({ children }: AdminLayoutProps) {
               <div className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-colors cursor-pointer ${location === "/admin/wallet-logs" ? "bg-primary text-primary-foreground" : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700"}`}>
                 <Wallet className="w-5 h-5" />
                 <span>Wallet Logs</span>
+              </div>
+            </Link>
+            <Link href="/admin/visitor-analytics">
+              <div className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-colors cursor-pointer ${location === "/admin/visitor-analytics" ? "bg-primary text-primary-foreground" : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700"}`}>
+                <Eye className="w-5 h-5" />
+                <span>Visitor Analytics</span>
+              </div>
+            </Link>
+            <Link href="/admin/notification-settings">
+              <div className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-colors cursor-pointer ${location === "/admin/notification-settings" ? "bg-primary text-primary-foreground" : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700"}`}>
+                <Bell className="w-5 h-5" />
+                <span>Notification Settings</span>
               </div>
             </Link>
           </nav>
@@ -256,9 +273,15 @@ export function AdminLayout({ children }: AdminLayoutProps) {
             </div>
           </header>
 
-          <main className="p-6">{children}</main>
+          <main className="p-6 bg-gradient-to-br from-transparent via-blue-50/30 to-transparent dark:via-slate-800/20 min-h-screen">{children}</main>
         </div>
       </div>
+
+      {/* Promotional Banners Drawer */}
+      <PromotionalBannersDrawer
+        isOpen={isPromoBannersOpen}
+        onOpenChange={setIsPromoBannersOpen}
+      />
     </div>
   );
 }

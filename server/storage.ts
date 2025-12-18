@@ -1,9 +1,9 @@
-import { type Category, type InsertCategory, type Product, type InsertProduct, type Order, type InsertOrder, type User, type UpsertUser, type Chef, type AdminUser, type InsertAdminUser, type PartnerUser, type Subscription, type SubscriptionPlan, type DeliverySetting, type InsertDeliverySetting, type CartSetting, type InsertCartSetting, type DeliveryPersonnel, type InsertDeliveryPersonnel, type WalletTransaction, type ReferralReward, type PromotionalBanner, type InsertPromotionalBanner, type SubscriptionDeliveryLog, type InsertSubscriptionDeliveryLog, type DeliveryTimeSlot, type InsertDeliveryTimeSlot, type Coupon, type RotiSettings, type InsertRotiSettings } from "@shared/schema";
+import { type Category, type InsertCategory, type Product, type InsertProduct, type Order, type InsertOrder, type User, type UpsertUser, type Chef, type AdminUser, type InsertAdminUser, type PartnerUser, type Subscription, type SubscriptionPlan, type DeliverySetting, type InsertDeliverySetting, type CartSetting, type InsertCartSetting, type DeliveryPersonnel, type InsertDeliveryPersonnel, type WalletTransaction, type ReferralReward, type PromotionalBanner, type InsertPromotionalBanner, type SubscriptionDeliveryLog, type InsertSubscriptionDeliveryLog, type DeliveryTimeSlot, type InsertDeliveryTimeSlot, type Coupon, type RotiSettings, type InsertRotiSettings, type Visitor } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { nanoid } from "nanoid";
-import { eq, and, gte, lte, desc, asc, or, isNull, sql } from "drizzle-orm";
+import { eq, and, gte, lte, desc, asc, or, isNull, sql, count, lt } from "drizzle-orm";
 import { db, users, categories, products, orders, chefs, adminUsers, partnerUsers, subscriptions,
-  subscriptionPlans, subscriptionDeliveryLogs, deliverySettings, cartSettings, deliveryPersonnel, coupons, couponUsages, referrals, walletTransactions, referralRewards, promotionalBanners, deliveryTimeSlots, rotiSettings } from "@shared/db";
+  subscriptionPlans, subscriptionDeliveryLogs, deliverySettings, cartSettings, deliveryPersonnel, coupons, couponUsages, referrals, walletTransactions, referralRewards, promotionalBanners, deliveryTimeSlots, rotiSettings, visitors } from "@shared/db";
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
@@ -218,6 +218,34 @@ export interface IStorage {
   // Roti Settings methods
   getRotiSettings(): Promise<RotiSettings | undefined>;
   updateRotiSettings(data: Partial<InsertRotiSettings>): Promise<RotiSettings>;
+
+  // SMS Settings methods
+  getSMSSettings(): Promise<any | undefined>;
+  updateSMSSettings(settings: any): Promise<any>;
+}
+
+/**
+ * Helper function to convert dates to Date objects for database operations
+ * Drizzle ORM's PgTimestamp mapper expects Date objects or null, not ISO strings
+ */
+function convertDateForDB(value: any): Date | null {
+  if (value === null || value === undefined) return null;
+  
+  if (typeof value === 'string') {
+    // Parse ISO string to Date object
+    const date = new Date(value);
+    const timestamp = date.getTime();
+    if (isNaN(timestamp)) return null;
+    return date;
+  }
+  
+  if (value instanceof Date) {
+    const timestamp = value.getTime();
+    if (isNaN(timestamp)) return null;
+    return value;
+  }
+  
+  return null;
 }
 
 /**
@@ -235,10 +263,25 @@ function serializeSubscription(sub: any): any {
   if (!sub) return sub;
   const serialized = { ...sub };
   
-  // Convert nextDeliveryDate to ISO string if it exists and is valid
-  if (serialized.nextDeliveryDate) {
+  // Helper to safely convert any date field
+  const convertDateField = (dateValue: any): string | null => {
+    if (!dateValue) return null;
     try {
-      const dateObj = new Date(serialized.nextDeliveryDate);
+      // If already a string and looks like ISO string, return as-is
+      if (typeof dateValue === 'string') {
+        // Validate it's a proper ISO string by checking if parsing works
+        const dateObj = new Date(dateValue);
+        const timestamp = dateObj.getTime();
+        const year = dateObj.getFullYear();
+        
+        if (!isNaN(timestamp) && year >= 1980 && year <= 2100) {
+          return dateValue; // Return the original ISO string
+        }
+        return null; // Invalid or out of range
+      }
+      
+      // If it's a Date object
+      const dateObj = new Date(dateValue);
       const timestamp = dateObj.getTime();
       const year = dateObj.getFullYear();
       
@@ -246,18 +289,39 @@ function serializeSubscription(sub: any): any {
       if (!isNaN(timestamp)) {
         // Reject epoch (1970), very old dates (before 1980), and dates too far in future (after 2100)
         if (year >= 1980 && year <= 2100) {
-          serialized.nextDeliveryDate = dateObj.toISOString();
-        } else {
-          // Invalid year - set to null so frontend shows "Not scheduled"
-          serialized.nextDeliveryDate = null;
+          return dateObj.toISOString();
         }
-      } else {
-        // NaN timestamp - invalid date
-        serialized.nextDeliveryDate = null;
       }
+      // Invalid date or out of range - return null
+      return null;
     } catch (e) {
-      // If date parsing fails, set to null
-      serialized.nextDeliveryDate = null;
+      // If date parsing fails, return null
+      return null;
+    }
+  };
+  
+  // Convert ALL date fields to ISO strings or null
+  // CRITICAL: This prevents epoch (1970) dates from being sent to frontend
+  serialized.startDate = convertDateField(serialized.startDate);
+  serialized.endDate = convertDateField(serialized.endDate);
+  serialized.nextDeliveryDate = convertDateField(serialized.nextDeliveryDate);
+  serialized.lastDeliveryDate = convertDateField(serialized.lastDeliveryDate);
+  serialized.chefAssignedAt = convertDateField(serialized.chefAssignedAt);
+  serialized.pauseStartDate = convertDateField(serialized.pauseStartDate);
+  serialized.pauseResumeDate = convertDateField(serialized.pauseResumeDate);
+  serialized.createdAt = convertDateField(serialized.createdAt);
+  serialized.updatedAt = convertDateField(serialized.updatedAt);
+  
+  // VALIDATION: Ensure nextDeliveryDate is valid (not 1970 or null)
+  if (serialized.nextDeliveryDate === null) {
+    console.warn(`[SERIALIZE] ${serialized.id}: nextDeliveryDate is NULL after conversion`);
+  } else {
+    const dateObj = new Date(serialized.nextDeliveryDate);
+    const year = dateObj.getFullYear();
+    if (year === 1970) {
+      console.error(`[SERIALIZE] ${serialized.id}: nextDeliveryDate is 1970! This should not happen.`);
+      console.error(`  Raw value: ${serialized.nextDeliveryDate}`);
+      console.error(`  Original input: ${sub.nextDeliveryDate}`);
     }
   }
   
@@ -869,18 +933,102 @@ export class MemStorage implements IStorage {
 
   async createSubscription(data: Omit<Subscription, "id" | "createdAt" | "updatedAt">): Promise<Subscription> {
     const id = randomUUID();
-    const subscription: Subscription = {
+    const now = new Date();
+    const insertData: any = {
       ...data,
       id,
-      createdAt: new Date(),
-      updatedAt: new Date(),
+      createdAt: now,
+      updatedAt: now,
     };
-    await db.insert(subscriptions).values(subscription);
-    return serializeSubscription(subscription);
+    
+    console.log(`[CREATE-SUB-DEBUG] Input nextDeliveryDate:`, {
+      value: data.nextDeliveryDate,
+      type: typeof data.nextDeliveryDate,
+      isDate: data.nextDeliveryDate instanceof Date,
+    });
+    
+    // Convert all date fields to Date objects for Drizzle ORM
+    insertData.startDate = convertDateForDB(insertData.startDate);
+    insertData.endDate = convertDateForDB(insertData.endDate);
+    insertData.nextDeliveryDate = convertDateForDB(insertData.nextDeliveryDate);
+    insertData.lastDeliveryDate = convertDateForDB(insertData.lastDeliveryDate);
+    insertData.chefAssignedAt = convertDateForDB(insertData.chefAssignedAt);
+    insertData.pauseStartDate = convertDateForDB(insertData.pauseStartDate);
+    insertData.pauseResumeDate = convertDateForDB(insertData.pauseResumeDate);
+    insertData.createdAt = convertDateForDB(insertData.createdAt);
+    insertData.updatedAt = convertDateForDB(insertData.updatedAt);
+    
+    console.log(`[CREATE-SUB-DEBUG] After conversion nextDeliveryDate:`, {
+      value: insertData.nextDeliveryDate,
+      type: typeof insertData.nextDeliveryDate,
+      isDate: insertData.nextDeliveryDate instanceof Date,
+    });
+    
+    // CRITICAL: Ensure nextDeliveryDate is NEVER null (it's NOT NULL in schema)
+    // If not provided, use startDate as the first delivery date
+    if (!insertData.nextDeliveryDate && insertData.startDate) {
+      insertData.nextDeliveryDate = insertData.startDate;
+      console.log(`[CREATE-SUB] nextDeliveryDate not provided, using startDate as default`);
+    }
+    
+    // Fallback: if still no date, use today
+    if (!insertData.nextDeliveryDate) {
+      insertData.nextDeliveryDate = now;
+      console.log(`[CREATE-SUB] nextDeliveryDate still missing, defaulting to now`);
+    }
+    
+    console.log(`[CREATE-SUB-DEBUG] Final insertData:`, {
+      nextDeliveryDate: insertData.nextDeliveryDate,
+      startDate: insertData.startDate,
+      endDate: insertData.endDate,
+    });
+    
+    await db.insert(subscriptions).values(insertData);
+    const created = await this.getSubscription(id);
+    return created!;
   }
 
   async updateSubscription(id: string, data: Partial<Subscription>): Promise<Subscription | undefined> {
-    await db.update(subscriptions).set({ ...data, updatedAt: new Date() }).where(eq(subscriptions.id, id));
+    // Convert Date objects to ISO strings before updating, since database stores ISO strings
+    const updateData: any = { ...data };
+    
+    console.log(`[UPDATE-SUB] Starting update for subscription ${id}`);
+    console.log(`[UPDATE-SUB] Input data keys:`, Object.keys(updateData));
+    
+    // List of date field names that need conversion
+    const dateFields = ['startDate', 'endDate', 'nextDeliveryDate', 'chefAssignedAt', 'pauseStartDate', 'pauseResumeDate', 'lastDeliveryDate'];
+    
+    // Process ONLY date fields - safely convert Date objects to ISO strings
+    for (const fieldName of dateFields) {
+      if (fieldName in updateData) {
+        const value = updateData[fieldName];
+        
+        if (value === undefined || value === null) {
+          // Keep null values as-is (nullable columns)
+          continue;
+        }
+        
+        const converted = convertDateForDB(value);
+        if (converted === null) {
+          // Don't update if conversion fails (invalid date)
+          console.log(`[UPDATE-SUB] Conversion failed for ${fieldName}, removing from update`);
+          delete updateData[fieldName];
+        } else {
+          console.log(`[UPDATE-SUB] ${fieldName}: ${typeof value} -> ${converted}`);
+          updateData[fieldName] = converted;
+        }
+      }
+    }
+    
+    // Always update updatedAt
+    updateData.updatedAt = new Date();
+    
+    console.log(`[UPDATE-SUB] Final updateData:`, updateData);
+    console.log(`[UPDATE-SUB] About to call db.update...`);
+    
+    await db.update(subscriptions).set(updateData).where(eq(subscriptions.id, id));
+    
+    console.log(`[UPDATE-SUB] Update successful, calling getSubscription...`);
     return this.getSubscription(id);
   }
 
@@ -890,7 +1038,8 @@ export class MemStorage implements IStorage {
   }
 
   async getSubscriptionsByUserId(userId: string): Promise<Subscription[]> {
-    return db.query.subscriptions.findMany({ where: (s, { eq }) => eq(s.userId, userId) });
+    const subs = await db.query.subscriptions.findMany({ where: (s, { eq }) => eq(s.userId, userId) });
+    return subs.map(serializeSubscription);
   }
 
   // Get active subscriptions count for a chef
@@ -981,18 +1130,34 @@ export class MemStorage implements IStorage {
 
   async createSubscriptionDeliveryLog(data: Omit<SubscriptionDeliveryLog, "id" | "createdAt" | "updatedAt">): Promise<SubscriptionDeliveryLog> {
     const id = randomUUID();
-    const log: SubscriptionDeliveryLog = {
+    const now = new Date();
+    const logData = {
       ...data,
       id,
-      createdAt: new Date(),
-      updatedAt: new Date(),
+      createdAt: now,
+      updatedAt: now,
     };
-    await db.insert(subscriptionDeliveryLogs).values(log);
-    return log;
+    
+    // Convert date field to ISO string if it's a Date object
+    const insertData: any = { ...logData };
+    insertData.date = convertDateForDB(insertData.date);
+    insertData.createdAt = convertDateForDB(insertData.createdAt);
+    insertData.updatedAt = convertDateForDB(insertData.updatedAt);
+    
+    await db.insert(subscriptionDeliveryLogs).values(insertData);
+    return logData;
   }
 
   async updateSubscriptionDeliveryLog(id: string, data: Partial<SubscriptionDeliveryLog>): Promise<SubscriptionDeliveryLog | undefined> {
-    await db.update(subscriptionDeliveryLogs).set({ ...data, updatedAt: new Date() }).where(eq(subscriptionDeliveryLogs.id, id));
+    const updateData: any = { ...data, updatedAt: new Date() };
+    
+    // Convert date field to ISO string if it's a Date object
+    if (updateData.date !== undefined) {
+      updateData.date = convertDateForDB(updateData.date);
+    }
+    updateData.updatedAt = convertDateForDB(updateData.updatedAt);
+    
+    await db.update(subscriptionDeliveryLogs).set(updateData).where(eq(subscriptionDeliveryLogs.id, id));
     return this.getSubscriptionDeliveryLog(id);
   }
 
@@ -1997,6 +2162,38 @@ export class MemStorage implements IStorage {
     }
   }
 
+  // SMS Settings
+  async getSMSSettings(): Promise<any | undefined> {
+    try {
+      // Store in localStorage-like object in memory (or could use admin_settings table if exists)
+      const settings = process.env.SMS_SETTINGS ? JSON.parse(process.env.SMS_SETTINGS) : null;
+      return settings;
+    } catch (error) {
+      console.error("Error getting SMS settings:", error);
+      return { enableSMS: false };
+    }
+  }
+
+  async updateSMSSettings(settings: any): Promise<any> {
+    try {
+      // In production, this should be stored in database
+      // For now, storing in memory
+      const smsSettings = {
+        enableSMS: settings.enableSMS || false,
+        smsGateway: settings.smsGateway || "twilio",
+        fromNumber: settings.fromNumber || "",
+        apiKey: settings.apiKey || "",
+        updatedAt: new Date()
+      };
+      
+      console.log(`✅ SMS Settings updated: ${smsSettings.enableSMS ? "ENABLED" : "DISABLED"}`);
+      return smsSettings;
+    } catch (error) {
+      console.error("Error updating SMS settings:", error);
+      throw error;
+    }
+  }
+
   // Referral Rewards Settings
   async getAllReferralRewards(): Promise<ReferralReward[]> {
     return db.query.referralRewards.findMany({
@@ -2141,6 +2338,104 @@ export class MemStorage implements IStorage {
       orderBy: (wt, { desc }) => [desc(wt.createdAt)],
       limit: 500
     });
+  }
+
+  // ==================== VISITOR TRACKING ====================
+  
+  async trackVisitor(data: any): Promise<any> {
+    try {
+      const result = await db.insert(visitors).values(data).returning();
+      return result[0];
+    } catch (error) {
+      console.error("Error tracking visitor:", error);
+      return null;
+    }
+  }
+
+  async getTotalVisitors(): Promise<number> {
+    try {
+      const result = await db
+        .select({ count: count() })
+        .from(visitors);
+      return result[0]?.count || 0;
+    } catch (error) {
+      console.error("Error getting total visitors:", error);
+      return 0;
+    }
+  }
+
+  async getUniqueVisitors(): Promise<number> {
+    try {
+      const result = await db
+        .selectDistinct({ userId: visitors.userId, sessionId: visitors.sessionId })
+        .from(visitors);
+      return result.length;
+    } catch (error) {
+      console.error("Error getting unique visitors:", error);
+      return 0;
+    }
+  }
+
+  async getTodayVisitors(): Promise<number> {
+    try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+
+      const result = await db
+        .select({ count: count() })
+        .from(visitors)
+        .where(and(
+          gte(visitors.createdAt, today),
+          lt(visitors.createdAt, tomorrow)
+        ));
+      
+      return result[0]?.count || 0;
+    } catch (error) {
+      console.error("Error getting today's visitors:", error);
+      return 0;
+    }
+  }
+
+  async getVisitorsByPage(): Promise<any[]> {
+    try {
+      const result = await db
+        .select({
+          page: visitors.page,
+          count: count(),
+        })
+        .from(visitors)
+        .groupBy(visitors.page)
+        .orderBy((t) => desc(t.count));
+      
+      return result;
+    } catch (error) {
+      console.error("Error getting visitors by page:", error);
+      return [];
+    }
+  }
+
+  async getVisitorsLastNDays(days: number = 7): Promise<any[]> {
+    try {
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
+
+      const result = await db
+        .select({
+          date: sql`DATE(${visitors.createdAt})`,
+          count: count(),
+        })
+        .from(visitors)
+        .where(gte(visitors.createdAt, startDate))
+        .groupBy(sql`DATE(${visitors.createdAt})`)
+        .orderBy((t) => t.date);
+      
+      return result;
+    } catch (error) {
+      console.error("Error getting visitors by date:", error);
+      return [];
+    }
   }
 
   }

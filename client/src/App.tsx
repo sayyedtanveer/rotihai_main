@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { Route, Switch, Redirect } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -37,6 +37,8 @@ import AdminDeliveryTimeSlots from "@/pages/admin/AdminDeliveryTimeSlots";
 import InviteEarn from "@/pages/InviteEarn";
 import AdminReferrals from "@/pages/admin/AdminReferrals";
 import AdminWalletLogs from "@/pages/admin/AdminWalletLogs";
+import AdminVisitorAnalytics from "@/pages/admin/AdminVisitorAnalytics";
+import AdminNotificationSettings from "@/pages/admin/AdminNotificationSettings";
 // Add AdminCartSettings import here
 const AdminCartSettings = lazy(() => import("@/pages/admin/AdminCartSettings"));
 
@@ -91,6 +93,8 @@ function Router() {
       <Route path="/admin/delivery-time-slots" component={AdminDeliveryTimeSlots} />
       <Route path="/admin/referrals" component={AdminReferrals} />
       <Route path="/admin/wallet-logs" component={AdminWalletLogs} />
+      <Route path="/admin/visitor-analytics" component={AdminVisitorAnalytics} />
+      <Route path="/admin/notification-settings" component={AdminNotificationSettings} />
       {/* Add cart settings admin route */}
       <Route path="/admin/cart-settings" component={AdminCartSettings} />
       <Route path="/admin/roti-settings" component={AdminRotiSettings} />
@@ -138,6 +142,44 @@ function Router() {
 }
 
 function App() {
+  useEffect(() => {
+    // Track visitor on app load - exclude admin, partner, and delivery routes
+    const trackVisitor = async () => {
+      try {
+        const currentPath = window.location.pathname;
+        
+        // Skip tracking for admin, partner, and delivery routes
+        if (currentPath.startsWith("/admin") || 
+            currentPath.startsWith("/partner") || 
+            currentPath.startsWith("/delivery")) {
+          return;
+        }
+
+        const userId = localStorage.getItem("userId") || null;
+        const sessionId = sessionStorage.getItem("sessionId") || generateSessionId();
+        if (!sessionStorage.getItem("sessionId")) {
+          sessionStorage.setItem("sessionId", sessionId);
+        }
+
+        await fetch("/api/track-visitor", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            userId,
+            sessionId,
+            page: currentPath,
+            userAgent: navigator.userAgent,
+            referrer: document.referrer,
+          }),
+        });
+      } catch (error) {
+        console.log("Visitor tracking error (non-critical):", error);
+      }
+    };
+
+    trackVisitor();
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
@@ -146,6 +188,11 @@ function App() {
       </TooltipProvider>
     </QueryClientProvider>
   );
+}
+
+// Helper to generate unique session ID
+function generateSessionId(): string {
+  return `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 }
 
 export default App;

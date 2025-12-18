@@ -122,7 +122,7 @@ export default function CartSidebar({
 
       {/* Sidebar */}
       <div
-        className="fixed right-0 top-0 h-full w-full max-w-md sm:w-96 bg-background border-l z-50 flex flex-col"
+        className="fixed inset-y-0 right-0 w-full max-w-sm sm:max-w-md lg:w-96 bg-background border-l z-50 flex flex-col"
         data-testid="sidebar-cart"
       >
         {/* Header */}

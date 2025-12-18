@@ -19,6 +19,7 @@ import { hashPassword as hashDeliveryPassword } from "./deliveryAuth";
 import { eq } from "drizzle-orm";
 import { subscriptions } from "@shared/schema";
 import { sendEmail, createAdminPasswordResetEmail } from "./emailService";
+import { sendChefAssignmentNotification } from "./whatsappService";
 
 export function registerAdminRoutes(app: Express) {
   // Admin Delivery Time Slots Management
@@ -359,6 +360,20 @@ export function registerAdminRoutes(app: Express) {
       // Notify assigned delivery person when order is confirmed
       if (status === "confirmed" && order.assignedTo) {
         notifyDeliveryAssignment(order, order.assignedTo);
+      }
+
+      // Send delivery completed notification to user
+      if (status === "delivered" && order.userId) {
+        try {
+          const user = await storage.getUser(order.userId);
+          if (user && user.phone) {
+            sendDeliveryCompletedNotification(order.userId, id, user.phone).catch(error => {
+              console.warn(`⚠️ Failed to send delivery notification for order ${id}:`, error);
+            });
+          }
+        } catch (notificationError: any) {
+          console.warn(`⚠️ Error sending delivery notification: ${notificationError.message}`);
+        }
       }
 
       // Complete referral when order is delivered
@@ -1252,6 +1267,7 @@ export function registerAdminRoutes(app: Express) {
       // Auto-assign chef if not already assigned
       let chefId = subscription.chefId;
       let chefAssignedAt = subscription.chefAssignedAt;
+      let nextDeliveryDate = subscription.nextDeliveryDate;
 
       if (!chefId) {
         const plan = await storage.getSubscriptionPlan(subscription.planId);
@@ -1270,12 +1286,28 @@ export function registerAdminRoutes(app: Express) {
         }
       }
 
+      // IMPORTANT: Always use the existing nextDeliveryDate from subscription.
+      // If somehow it's still not set at this point, calculate from startDate.
+      // However, normally the subscription already has nextDeliveryDate set during creation.
+      if (!nextDeliveryDate || isNaN(new Date(nextDeliveryDate).getTime())) {
+        if (subscription.startDate) {
+          nextDeliveryDate = new Date(subscription.startDate);
+          console.log(`📅 Recalculated nextDeliveryDate as startDate: ${nextDeliveryDate.toISOString()}`);
+        } else {
+          console.warn(`⚠️ Cannot calculate nextDeliveryDate: startDate missing, using today`);
+          nextDeliveryDate = new Date();
+        }
+      } else {
+        console.log(`📅 Using existing nextDeliveryDate: ${new Date(nextDeliveryDate).toISOString()}`);
+      }
+
       // Update subscription - mark as paid, activate, and assign chef
       const updated = await storage.updateSubscription(subscriptionId, {
         isPaid: true,
         status: "active",
         chefId,
         chefAssignedAt,
+        nextDeliveryDate,
       });
 
       if (!updated) {
@@ -1306,7 +1338,14 @@ export function registerAdminRoutes(app: Express) {
       // Create today's delivery log if the subscription starts today and notify chef
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      const nextDelivery = new Date(updated.nextDeliveryDate);
+      
+      // Convert nextDeliveryDate from database (could be string or Date) to Date object for comparison
+      let nextDeliveryDateObj = updated.nextDeliveryDate;
+      if (typeof nextDeliveryDateObj === 'string') {
+        nextDeliveryDateObj = new Date(nextDeliveryDateObj);
+      }
+      
+      const nextDelivery = new Date(nextDeliveryDateObj);
       nextDelivery.setHours(0, 0, 0, 0);
 
       if (nextDelivery.getTime() === today.getTime() && chefId) {
@@ -1450,6 +1489,12 @@ export function registerAdminRoutes(app: Express) {
 
         // Notify the newly assigned partner about the subscription
         broadcastSubscriptionAssignmentToPartner(updated, chef.name, plan?.name);
+
+        // Send WhatsApp notification to chef
+        const planItems = plan?.items ? JSON.stringify(plan.items).substring(0, 200) : "Items";
+        sendChefAssignmentNotification(chefId, id, planItems, chef.phone).catch(error => {
+          console.warn(`⚠️ Failed to send WhatsApp to chef ${chef.name}:`, error);
+        });
       }
 
       res.json({ 
@@ -2541,6 +2586,28 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // Visitor Analytics Reports
+  app.get("/api/admin/reports/visitors", requireAdmin(), async (req, res) => {
+    try {
+      const todayVisitors = await storage.getTodayVisitors();
+      const totalVisitors = await storage.getTotalVisitors();
+      const uniqueVisitors = await storage.getUniqueVisitors();
+      const visitorsByPage = await storage.getVisitorsByPage();
+      const visitorsLastNDays = await storage.getVisitorsLastNDays(30);
+
+      res.json({
+        todayVisitors,
+        totalVisitors,
+        uniqueVisitors,
+        visitorsByPage,
+        visitorsLastNDays,
+      });
+    } catch (error) {
+      console.error("Get visitors report error:", error);
+      res.status(500).json({ message: "Failed to fetch visitors report" });
+    }
+  });
+
   // Delivery Settings
   app.get("/api/admin/delivery-settings", requireAdmin(), async (req, res) => {
     try {
@@ -2590,6 +2657,106 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // SMS Notification Settings
+  app.get("/api/admin/sms-settings", requireAdmin(), async (req, res) => {
+    try {
+      const smsSettings = await storage.getSMSSettings();
+      res.json(smsSettings || { 
+        enableSMS: false, 
+        smsGateway: "twilio",
+        fromNumber: "",
+        apiKey: ""
+      });
+    } catch (error) {
+      console.error("Get SMS settings error:", error);
+      res.status(500).json({ message: "Failed to fetch SMS settings" });
+    }
+  });
+
+  app.post("/api/admin/sms-settings", requireAdmin(), async (req, res) => {
+    try {
+      const { enableSMS, smsGateway, fromNumber, apiKey } = req.body;
+      
+      const settings = {
+        enableSMS: !!enableSMS,
+        smsGateway: smsGateway || "twilio",
+        fromNumber: fromNumber || "",
+        apiKey: apiKey || ""
+      };
+
+      const result = await storage.updateSMSSettings(settings);
+      console.log(`✅ SMS settings updated: ${enableSMS ? "ENABLED" : "DISABLED"}`);
+      res.json(result);
+    } catch (error) {
+      console.error("Update SMS settings error:", error);
+      res.status(500).json({ message: "Failed to update SMS settings" });
+    }
+  });
+
+  // Notification Settings (Combined WhatsApp + SMS)
+  app.get("/api/admin/notification-settings", requireAdmin(), async (req, res) => {
+    try {
+      const smsSettings = await storage.getSMSSettings();
+      
+      // Get WhatsApp settings from environment or storage
+      const enableWhatsApp = process.env.WHATSAPP_API_URL ? true : false;
+      const whatsappPhoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID || "";
+      
+      const settings = {
+        enableWhatsApp,
+        whatsappPhoneNumberId,
+        enableSMS: smsSettings?.enableSMS || false,
+        smsGateway: smsSettings?.smsGateway || "twilio",
+        fromNumber: smsSettings?.fromNumber || "",
+        updatedAt: smsSettings?.updatedAt
+      };
+      
+      res.json(settings);
+    } catch (error) {
+      console.error("Error fetching notification settings:", error);
+      res.status(500).json({ message: "Failed to fetch notification settings" });
+    }
+  });
+
+  app.post("/api/admin/notification-settings", requireAdmin(), async (req, res) => {
+    try {
+      const { enableWhatsApp, enableSMS, smsGateway, fromNumber, apiKey } = req.body;
+      
+      // Validate that at least one method is enabled
+      if (!enableWhatsApp && !enableSMS) {
+        res.status(400).json({ message: "At least one notification method must be enabled" });
+        return;
+      }
+      
+      // Update SMS settings in storage
+      const smsSettings = {
+        enableSMS: !!enableSMS,
+        smsGateway: smsGateway || "twilio",
+        fromNumber: fromNumber || "",
+        apiKey: apiKey || ""
+      };
+      
+      await storage.updateSMSSettings(smsSettings);
+      
+      // WhatsApp settings are environment-based, log the intent
+      console.log(`✅ Notification settings updated - WhatsApp: ${enableWhatsApp ? "ENABLED" : "DISABLED"}, SMS: ${enableSMS ? "ENABLED" : "DISABLED"}`);
+      
+      const settings = {
+        enableWhatsApp,
+        whatsappPhoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || "",
+        enableSMS,
+        smsGateway,
+        fromNumber,
+        updatedAt: new Date()
+      };
+      
+      res.json(settings);
+    } catch (error) {
+      console.error("Update notification settings error:", error);
+      res.status(500).json({ message: "Failed to update notification settings" });
+    }
+  });
+
   // Wallet Settings
   app.get("/api/admin/wallet-settings", requireAdmin(), async (req, res) => {
     try {
@@ -2600,18 +2767,35 @@ export function registerAdminRoutes(app: Express) {
         where: (rr, { eq }) => eq(rr.isActive, true)
       });
 
-      const defaultWallet = { maxUsagePerOrder: 10, referrerBonus: 100, referredBonus: 50 };
+      const defaultWallet = { 
+        maxUsagePerOrder: 10, 
+        minOrderAmount: 0,
+        referrerBonus: 100, 
+        referredBonus: 50 
+      };
       const defaultReferral = { 
-        minOrderAmount: 0, 
         maxReferralsPerMonth: 10, 
         maxEarningsPerMonth: 500, 
         expiryDays: 30 
       };
 
-      res.json({
-        ...(walletSetting || defaultWallet),
-        ...(referralSetting || defaultReferral)
-      });
+      // Combine wallet and referral settings
+      const response = {
+        // From walletSettings table
+        id: walletSetting?.id || "default",
+        maxUsagePerOrder: walletSetting?.maxUsagePerOrder || defaultWallet.maxUsagePerOrder,
+        minOrderAmount: walletSetting?.minOrderAmount || defaultWallet.minOrderAmount,
+        referrerBonus: walletSetting?.referrerBonus || defaultWallet.referrerBonus,
+        referredBonus: walletSetting?.referredBonus || defaultWallet.referredBonus,
+        isActive: walletSetting?.isActive || true,
+        // From referralRewards table
+        maxReferralsPerMonth: referralSetting?.maxReferralsPerMonth || defaultReferral.maxReferralsPerMonth,
+        maxEarningsPerMonth: referralSetting?.maxEarningsPerMonth || defaultReferral.maxEarningsPerMonth,
+        expiryDays: referralSetting?.expiryDays || defaultReferral.expiryDays,
+      };
+
+      console.log("[ADMIN] Wallet settings response:", response);
+      res.json(response);
     } catch (error) {
       console.error("Get wallet settings error:", error);
       res.status(500).json({ message: "Failed to fetch wallet settings" });
@@ -2630,14 +2814,32 @@ export function registerAdminRoutes(app: Express) {
         expiryDays
       } = req.body;
 
+      console.log("[ADMIN WALLET SETTINGS] Request received:", {
+        maxUsagePerOrder,
+        minOrderAmount,
+        referrerBonus,
+        referredBonus,
+      });
+
       // Update wallet settings
       await db.update(walletSettings).set({ isActive: false });
+      
+      console.log("[ADMIN WALLET SETTINGS] Attempting to INSERT into walletSettings with:", {
+        maxUsagePerOrder,
+        minOrderAmount: minOrderAmount || 0,
+        referrerBonus,
+        referredBonus,
+      });
+
       const [newWalletSettings] = await db.insert(walletSettings).values({
         maxUsagePerOrder,
+        minOrderAmount: minOrderAmount || 0,
         referrerBonus,
         referredBonus,
         isActive: true,
       }).returning();
+
+      console.log("[ADMIN WALLET SETTINGS] Successfully saved to walletSettings:", newWalletSettings);
 
       // Update referral rewards
       const existingRewards = await db.query.referralRewards.findFirst({
@@ -2645,6 +2847,7 @@ export function registerAdminRoutes(app: Express) {
       });
 
       if (existingRewards) {
+        console.log("[ADMIN WALLET SETTINGS] Updating existing referralRewards...");
         const [updatedRewards] = await db.update(referralRewards)
           .set({
             referrerBonus,
@@ -2657,8 +2860,10 @@ export function registerAdminRoutes(app: Express) {
           })
           .where(eq(referralRewards.id, existingRewards.id))
           .returning();
+        console.log("[ADMIN WALLET SETTINGS] Successfully updated referralRewards:", updatedRewards);
         res.json({ ...newWalletSettings, ...updatedRewards });
       } else {
+        console.log("[ADMIN WALLET SETTINGS] Creating new referralRewards...");
         const [newRewards] = await db.insert(referralRewards).values({
           name: "Admin Configuration",
           referrerBonus,
@@ -2669,6 +2874,7 @@ export function registerAdminRoutes(app: Express) {
           expiryDays: expiryDays || 30,
           isActive: true,
         }).returning();
+        console.log("[ADMIN WALLET SETTINGS] Successfully created referralRewards:", newRewards);
         res.json({ ...newWalletSettings, ...newRewards });
       }
     } catch (error) {

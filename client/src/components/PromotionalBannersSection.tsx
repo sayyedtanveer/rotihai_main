@@ -17,6 +17,24 @@ export default function PromotionalBannersSection({
     queryKey: ["/api/promotional-banners"],
   });
 
+  // Map Tailwind colors to actual hex values
+  const colorMap: Record<string, string> = {
+    "orange-600": "#ea580c",
+    "amber-600": "#b45309",
+    "yellow-600": "#ca8a04",
+    "red-600": "#dc2626",
+    "rose-600": "#e11d48",
+    "pink-600": "#db2777",
+    "blue-600": "#2563eb",
+    "cyan-600": "#0891b2",
+    "teal-600": "#0d9488",
+    "purple-600": "#9333ea",
+    "violet-600": "#7c3aed",
+    "indigo-600": "#4f46e5",
+    "green-600": "#16a34a",
+    "emerald-600": "#059669",
+  };
+
   if (banners.length === 0) return null;
 
   return (
@@ -24,7 +42,10 @@ export default function PromotionalBannersSection({
       {banners.map((banner) => (
         <div
           key={banner.id}
-          className={`relative overflow-hidden rounded-2xl bg-gradient-to-r from-${banner.gradientFrom} via-${banner.gradientVia} to-${banner.gradientTo} p-4 sm:p-6`}
+          className="relative overflow-hidden rounded-2xl p-4 sm:p-6"
+          style={{
+            background: `linear-gradient(to right, ${colorMap[banner.gradientFrom] || "#ea580c"}, ${colorMap[banner.gradientVia] || "#b45309"}, ${colorMap[banner.gradientTo] || "#ca8a04"})`,
+          }}
         >
           <div className="absolute inset-0 opacity-20">
             <div className="absolute top-2 left-4 text-6xl">{banner.emoji1}</div>

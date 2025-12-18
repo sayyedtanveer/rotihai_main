@@ -47,8 +47,22 @@ export default function PaymentQRDialog({
   const [, setLocation] = useLocation();
   const isMobile = isMobileDevice();
 
+  // Set isConfirming to true when dialog opens (prevents closing immediately)
+  // Reset when dialog closes
   useEffect(() => {
-    if (isOpen && canvasRef.current) {
+    if (isOpen) {
+      console.log("[PAYMENT QR] Dialog opened - preventing accidental closes until payment confirmed");
+      // Don't set isConfirming here - let it be controlled by the actual confirmation action
+    } else {
+      console.log("[PAYMENT QR] Dialog closed - resetting state");
+      setIsConfirming(false);
+      setHasPaid(false);
+    }
+  }, [isOpen]);
+
+  // Generate UPI intent as soon as dialog opens (don't wait for canvas)
+  useEffect(() => {
+    if (isOpen) {
       const intent = generateUPIIntent({
         upiId: upiId,
         name: "RotiHai",
@@ -56,13 +70,21 @@ export default function PaymentQRDialog({
         transactionNote: `Order #${orderId.slice(0, 8)}`,
       });
 
+      console.log("[PAYMENT QR] Generated UPI intent:", intent);
+      console.log("[PAYMENT QR] Dialog opened, setting intent");
       setUpiIntent(intent);
+    }
+  }, [isOpen, upiId, amount, orderId]);
 
+  // Render QR code to canvas separately after intent is set
+  useEffect(() => {
+    if (upiIntent && canvasRef.current) {
+      console.log("[PAYMENT QR] Rendering QR code to canvas");
       const qrSize = window.innerWidth < 768 ? 200 : 256;
 
       QRCode.toCanvas(
         canvasRef.current,
-        intent,
+        upiIntent,
         {
           width: qrSize,
           margin: 2,
@@ -83,7 +105,11 @@ export default function PaymentQRDialog({
         }
       );
     }
-  }, [isOpen, upiId, amount, orderId, toast]);
+  }, [upiIntent, toast]);
+
+  useEffect(() => {
+    console.log("[PAYMENT QR] upiIntent state changed:", upiIntent ? "SET (buttons should render)" : "NOT SET (buttons hidden)");
+  }, [upiIntent]);
 
   const copyUpiId = () => {
     navigator.clipboard.writeText(upiId);
@@ -96,6 +122,7 @@ export default function PaymentQRDialog({
   const handlePayWithApp = (app: "gpay" | "phonepe" | "paytm") => {
     try {
       const deepLink = getPaymentAppDeepLink(app, upiIntent);
+      console.log(`[PAYMENT QR] Opening ${app}:`, deepLink);
       window.location.href = deepLink;
       
       toast({
@@ -103,7 +130,7 @@ export default function PaymentQRDialog({
         description: `Redirecting to ${app === "gpay" ? "Google Pay" : app === "phonepe" ? "PhonePe" : "Paytm"}...`,
       });
     } catch (error) {
-      console.error("Error opening payment app:", error);
+      console.error("[PAYMENT QR] Error opening payment app:", error);
       toast({
         title: "Error",
         description: "Failed to open payment app. Please scan QR code instead.",
@@ -196,28 +223,35 @@ export default function PaymentQRDialog({
     }
   };
 
-  const handleDialogChange = (open: boolean) => {
-    if (!open) {
-      // Prevent closing the dialog by clicking outside or pressing Escape if the user has
-      // already marked the payment as paid or confirmation is in progress. This avoids
-      // the user accidentally closing the dialog after paying but before clicking
-      // "Confirm Payment" which would leave the admin unaware of the payment.
-      if (hasPaid || isConfirming) {
-        toast({
-          title: "Payment pending",
-          description: "You've indicated payment — please click 'Confirm Payment' so we can verify it. Closing is disabled until you confirm.",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      onClose();
-    }
+  const handlePaymentQRDialogContentProps = {
+    onPointerDownOutside: (e: any) => {
+      // Always prevent closing by clicking outside - user must use Cancel button
+      console.log("[PAYMENT QR] onPointerDownOutside - blocking outside click");
+      e.preventDefault();
+    },
+    onEscapeKeyDown: (e: any) => {
+      // Always prevent closing with ESC - user must use Cancel button
+      console.log("[PAYMENT QR] ESC key detected - blocking ESC key");
+      e.preventDefault();
+    },
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={handleDialogChange}>
-      <DialogContent className="w-full max-w-md mx-auto max-h-[90vh] overflow-y-auto">
+    <Dialog 
+      open={isOpen}
+      onOpenChange={(open) => {
+        console.log("[PAYMENT QR] Dialog onOpenChange called with open:", open);
+        if (!open) {
+          // Close is being triggered - only allow it to proceed
+          // (outside clicks are already blocked by onPointerDownOutside and onEscapeKeyDown)
+          onClose();
+        }
+      }}
+    >
+      <DialogContent 
+        className="w-full max-w-md mx-auto max-h-[90vh] overflow-y-auto"
+        {...handlePaymentQRDialogContentProps}
+      >
         <DialogHeader>
           <DialogTitle>Complete Payment</DialogTitle>
           <DialogDescription>Scan QR code to pay with any UPI app</DialogDescription>
@@ -283,8 +317,8 @@ export default function PaymentQRDialog({
               </div>
             )}
 
-            {/* Payment App Buttons (Mobile) */}
-            {isMobile && upiIntent && (
+            {/* Payment App Buttons - Always show, not just mobile */}
+            {upiIntent && (
               <>
                 <Separator />
                 <div className="space-y-2">
@@ -338,7 +372,11 @@ export default function PaymentQRDialog({
               <Checkbox
                 id="payment-confirm"
                 checked={hasPaid}
-                onCheckedChange={(checked) => setHasPaid(checked as boolean)}
+                onCheckedChange={(checked) => {
+                  const newVal = checked as boolean;
+                  console.log("[PAYMENT QR] Payment confirmation checkbox changed:", newVal);
+                  setHasPaid(newVal);
+                }}
                 data-testid="checkbox-payment-confirmed"
               />
               <label

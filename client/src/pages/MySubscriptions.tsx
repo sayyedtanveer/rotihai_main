@@ -198,10 +198,11 @@ export default function MySubscriptions() {
     return <Redirect to="/" />;
   }
 
+  const pendingPaymentSubscriptions = subscriptions.filter((s) => s.status === "pending");
   const activeSubscriptions = subscriptions.filter((s) => s.status === "active");
   const pausedSubscriptions = subscriptions.filter((s) => s.status === "paused");
   const otherSubscriptions = subscriptions.filter(
-    (s) => !["active", "paused"].includes(s.status)
+    (s) => !["active", "paused", "pending"].includes(s.status)
   );
 
   return (
@@ -269,6 +270,66 @@ export default function MySubscriptions() {
           </Card>
         ) : (
           <div className="space-y-6">
+            {pendingPaymentSubscriptions.length > 0 && (
+              <section>
+                <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                  <Clock className="w-5 h-5 text-orange-600" />
+                  Awaiting Confirmation
+                </h2>
+                <div className="space-y-4">
+                  {pendingPaymentSubscriptions.map((subscription) => (
+                    <Card key={subscription.id} className="border-orange-200 bg-orange-50 dark:bg-orange-950 dark:border-orange-800">
+                      <CardHeader>
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <CardTitle className="text-lg">{getPlanName(subscription.planId)}</CardTitle>
+                            <CardDescription className="mt-1">
+                              {getCategoryName(subscription.planId)}
+                            </CardDescription>
+                          </div>
+                          <Badge className="bg-orange-600 text-white">Awaiting Verification</Badge>
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-4">
+                          <div className="p-4 bg-white dark:bg-slate-900 rounded-lg border border-orange-200 dark:border-orange-800">
+                            <div className="flex items-center gap-3 text-orange-700 dark:text-orange-300">
+                              <Clock className="w-5 h-5 flex-shrink-0" />
+                              <div>
+                                <p className="font-semibold">Payment Submitted</p>
+                                <p className="text-sm text-orange-600 dark:text-orange-400">
+                                  Our admin team is verifying your payment. This usually takes 5-10 minutes.
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-4 text-sm">
+                            <div>
+                              <p className="text-muted-foreground text-xs font-medium">Plan</p>
+                              <p className="font-semibold">{getPlanName(subscription.planId)}</p>
+                            </div>
+                            <div>
+                              <p className="text-muted-foreground text-xs font-medium">Duration</p>
+                              <p className="font-semibold">{subscription.totalDeliveries} deliveries</p>
+                            </div>
+                            <div>
+                              <p className="text-muted-foreground text-xs font-medium">Amount Paid</p>
+                              <p className="font-semibold">₹{(subscription.finalAmount || subscription.originalPrice || 0) / 100}</p>
+                            </div>
+                            <div>
+                              <p className="text-muted-foreground text-xs font-medium">Status</p>
+                              <p className="font-semibold">Awaiting Verification</p>
+                            </div>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </section>
+            )}
+
             {activeSubscriptions.length > 0 && (
               <section>
                 <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">

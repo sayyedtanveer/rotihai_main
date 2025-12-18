@@ -9,6 +9,7 @@ export interface DeliverySetting {
   minDistance: string;
   maxDistance: string;
   price: number;
+  minOrderAmount?: number;
   isActive: boolean;
 }
 
@@ -44,6 +45,7 @@ export interface DeliveryCalculation {
   freeDeliveryEligible: boolean;
   amountForFreeDelivery?: number;
   deliveryRangeName?: string;
+  minOrderAmount?: number; // Add minimum order for this distance range
 }
 
 /**
@@ -104,6 +106,9 @@ export function calculateDelivery(
     deliveryFee = matchingSetting.price;
     deliveryRangeName = matchingSetting.name;
     
+    // Get minimum order amount for this distance range
+    const minOrderForRange = matchingSetting.minOrderAmount || 0;
+    
     // Free delivery logic: if fee is 0 in settings, it's free
     if (deliveryFee === 0) {
       freeDeliveryEligible = true;
@@ -112,22 +117,33 @@ export function calculateDelivery(
       // This would need to be configured per range, but for now we don't apply free delivery
       freeDeliveryEligible = false;
     }
+    
+    const result = {
+      deliveryFee,
+      freeDeliveryEligible,
+      amountForFreeDelivery,
+      deliveryRangeName,
+      minOrderAmount: minOrderForRange, // Return min order for this range
+    };
+    
+    console.log(`[Delivery Calc] Final result:`, result);
+    return result;
   } else {
     // No matching range found - outside delivery zone
     deliveryFee = 0;
     deliveryRangeName = "Outside delivery zone";
+    
+    const result = {
+      deliveryFee,
+      freeDeliveryEligible,
+      amountForFreeDelivery,
+      deliveryRangeName,
+      minOrderAmount: 0,
+    };
+    
+    console.log(`[Delivery Calc] Final result:`, result);
+    return result;
   }
-
-  const result = {
-    deliveryFee,
-    freeDeliveryEligible,
-    amountForFreeDelivery,
-    deliveryRangeName,
-  };
-  
-  console.log(`[Delivery Calc] Final result:`, result);
-  
-  return result;
 }
 
 /**

@@ -156,6 +156,7 @@ export const deliverySettings = pgTable("delivery_settings", {
   minDistance: decimal("min_distance", { precision: 5, scale: 2 }).notNull(),
   maxDistance: decimal("max_distance", { precision: 5, scale: 2 }).notNull(),
   price: integer("price").notNull(),
+  minOrderAmount: integer("min_order_amount").default(0), // Minimum order for this range
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -236,6 +237,7 @@ export const walletTransactions = pgTable("wallet_transactions", {
 export const walletSettings = pgTable("wallet_settings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   maxUsagePerOrder: integer("max_usage_per_order").notNull().default(10),
+  minOrderAmount: integer("min_order_amount").notNull().default(0),
   referrerBonus: integer("referrer_bonus").notNull().default(100),
   referredBonus: integer("referred_bonus").notNull().default(50),
   isActive: boolean("is_active").notNull().default(true),
@@ -715,6 +717,7 @@ export const rotiSettings = pgTable("roti_settings", {
   morningBlockEndTime: varchar("morning_block_end_time", { length: 5 }).notNull().default("11:00"),
   lastOrderTime: varchar("last_order_time", { length: 5 }).notNull().default("23:00"),
   blockMessage: text("block_message").notNull().default("Roti orders are not available from 8 AM to 11 AM. Please order before 11 PM for next morning delivery."),
+  prepareWindowHours: integer("prepare_window_hours").notNull().default(2),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().default(sql`now()`),
   updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
@@ -725,6 +728,7 @@ export const insertRotiSettingsSchema = createInsertSchema(rotiSettings, {
   morningBlockEndTime: z.string().regex(/^\d{2}:\d{2}$/, "Invalid time format (HH:mm)"),
   lastOrderTime: z.string().regex(/^\d{2}:\d{2}$/, "Invalid time format (HH:mm)"),
   blockMessage: z.string().min(1, "Block message is required"),
+  prepareWindowHours: z.number().int().min(1, "Prepare window must be at least 1 hour").max(24, "Prepare window cannot exceed 24 hours"),
   isActive: z.boolean().default(true),
 }).omit({
   id: true,
@@ -734,3 +738,23 @@ export const insertRotiSettingsSchema = createInsertSchema(rotiSettings, {
 
 export type InsertRotiSettings = z.infer<typeof insertRotiSettingsSchema>;
 export type RotiSettings = typeof rotiSettings.$inferSelect;
+
+// Visitor tracking table - tracks app visits for analytics
+export const visitors = pgTable("visitors", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id"), // null if not logged in
+  sessionId: varchar("session_id"), // unique session identifier
+  page: text("page"), // e.g., "/", "/subscriptions", "/orders"
+  userAgent: text("user_agent"),
+  ipAddress: text("ip_address"),
+  referrer: text("referrer"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertVisitorSchema = createInsertSchema(visitors).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertVisitor = z.infer<typeof insertVisitorSchema>;
+export type Visitor = typeof visitors.$inferSelect;

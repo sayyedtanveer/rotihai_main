@@ -17,6 +17,7 @@ interface RotiSettings {
   morningBlockEndTime: string;
   lastOrderTime: string;
   blockMessage: string;
+  prepareWindowHours: number;
   isActive: boolean;
   isInBlockedPeriod: boolean;
   isPastLastOrderTime: boolean;
@@ -31,6 +32,7 @@ export default function AdminRotiSettings() {
     morningBlockEndTime: "11:00",
     lastOrderTime: "23:00",
     blockMessage: "Roti orders are not available from 8 AM to 11 AM. Please order before 11 PM for next morning delivery.",
+    prepareWindowHours: 2,
     isActive: true,
   });
 
@@ -45,6 +47,7 @@ export default function AdminRotiSettings() {
         morningBlockEndTime: settings.morningBlockEndTime || "11:00",
         lastOrderTime: settings.lastOrderTime || "23:00",
         blockMessage: settings.blockMessage || "Roti orders are not available from 8 AM to 11 AM. Please order before 11 PM for next morning delivery.",
+        prepareWindowHours: settings.prepareWindowHours || 2,
         isActive: settings.isActive ?? true,
       });
     }
@@ -223,6 +226,23 @@ export default function AdminRotiSettings() {
                     />
                     <p className="text-xs text-muted-foreground">
                       Last time to order for next morning delivery
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="prepareWindowHours">Chef Prepare Button Enable Window (Hours)</Label>
+                    <Input
+                      id="prepareWindowHours"
+                      type="number"
+                      min={1}
+                      max={24}
+                      step={1}
+                      value={formData.prepareWindowHours}
+                      onChange={(e) => setFormData({ ...formData, prepareWindowHours: parseInt(e.target.value) || 2 })}
+                      data-testid="input-prepare-window-hours"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Chef can start preparing scheduled orders this many hours before delivery time (1-24 hours, default 2)
                     </p>
                   </div>
                 </div>

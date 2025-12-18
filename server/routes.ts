@@ -10,6 +10,7 @@ import { hashPassword, verifyPassword, generateAccessToken, generateRefreshToken
 import { verifyToken as verifyUserToken } from "./userAuth";
 import { requireAdmin } from "./adminAuth";
 import { sendEmail, createWelcomeEmail, createPasswordResetEmail, createPasswordChangeConfirmationEmail } from "./emailService";
+import { sendOrderPlacedAdminNotification } from "./whatsappService";
 import { db, subscriptions, orders, walletSettings, referralRewards } from "@shared/db";
 import { eq } from "drizzle-orm";
 import { ZodError } from "zod";
@@ -67,27 +68,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   const computeSlotCutoffInfo = (slot: any) => {
     const now = new Date();
+    console.log(`[CUTOFF] Starting computation - now: ${now.toISOString()}, slot.startTime: ${slot?.startTime}`);
+    
     const currentHour = now.getHours();
     const [hStr, mStr] = (slot?.startTime || "00:00").split(":");
     const h = parseInt(hStr || "0", 10) || 0;
     const m = parseInt(mStr || "0", 10) || 0;
 
+    console.log(`[CUTOFF] Parsed time - h: ${h}, m: ${m}, currentHour: ${currentHour}`);
+
     // Check if this is a morning slot (8 AM to 11 AM)
     const isMorningSlot = h >= 8 && h < 11;
+    console.log(`[CUTOFF] Is morning slot: ${isMorningSlot}`);
 
     // Build a Date for today's occurrence of the slot
     const todaySlot = new Date(now);
     todaySlot.setHours(h, m, 0, 0);
+    console.log(`[CUTOFF] Today slot time: ${todaySlot.toISOString()}`);
 
     // Check if this time slot has already passed today (current time > slot time)
     const slotHasPassed = now > todaySlot;
+    console.log(`[CUTOFF] Slot has passed today: ${slotHasPassed}`);
 
     // Get cutoff hours
     const cutoffHours = getCutoffHoursBefore(slot);
+    console.log(`[CUTOFF] Cutoff hours before: ${cutoffHours}`);
     
     // For today's delivery, calculate cutoff time
     const cutoffMs = cutoffHours * 60 * 60 * 1000;
     const todayCutoffTime = new Date(todaySlot.getTime() - cutoffMs);
+    console.log(`[CUTOFF] Today cutoff time: ${todayCutoffTime.toISOString()}`);
     
     // Determine if we can still order for today's slot
     let deliveryDate: Date;
@@ -96,22 +106,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     // Logic: If slot time has passed OR we're past the cutoff time, deliver tomorrow
     if (slotHasPassed || now > todayCutoffTime) {
+      console.log(`[CUTOFF] Past cutoff - scheduling for tomorrow`);
       // Schedule for tomorrow
       deliveryDate = new Date(todaySlot);
       deliveryDate.setDate(deliveryDate.getDate() + 1);
       isPastCutoff = true;
       
+      console.log(`[CUTOFF] Tomorrow delivery date: ${deliveryDate.toISOString()}`);
+      
       // Calculate tomorrow's cutoff
       const tomorrowSlot = new Date(deliveryDate);
       cutoffDate = new Date(tomorrowSlot.getTime() - cutoffMs);
+      console.log(`[CUTOFF] Tomorrow cutoff: ${cutoffDate.toISOString()}`);
     } else {
+      console.log(`[CUTOFF] Can deliver today`);
       // Can still deliver today
       deliveryDate = todaySlot;
       isPastCutoff = false;
       cutoffDate = todayCutoffTime;
+      console.log(`[CUTOFF] Today delivery date: ${deliveryDate.toISOString()}`);
     }
 
-    return {
+    const result = {
       cutoffHoursBefore: cutoffHours,
       cutoffHours: cutoffHours,
       cutoffDate,
@@ -121,6 +137,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       slotHasPassed,
       inMorningRestriction: currentHour >= 8 && currentHour < 11,
     };
+    
+    console.log(`[CUTOFF] Final result - nextAvailableDate: ${deliveryDate.toISOString()}, year: ${deliveryDate.getFullYear()}`);
+    return result;
   };
 
   // Coupon verification route (supports optional userId for per-user limit checking)
@@ -169,6 +188,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error("Coupon verification error:", error);
       res.status(400).json({ message: error.message || "Failed to verify coupon" });
+    }
+  });
+
+  // Track visitor analytics - only frontend pages (exclude admin, partner, delivery)
+  app.post("/api/track-visitor", async (req, res) => {
+    try {
+      const { userId, sessionId, page, userAgent, referrer } = req.body;
+      
+      // Skip tracking for admin, partner, and delivery routes
+      if (page && (page.startsWith("/admin") || page.startsWith("/partner") || page.startsWith("/delivery"))) {
+        res.json({ success: true });
+        return;
+      }
+
+      const visitorData = {
+        userId: userId || null,
+        sessionId: sessionId || `session-${Date.now()}`,
+        page: page || "/",
+        userAgent: userAgent || req.get("user-agent") || "Unknown",
+        ipAddress: req.ip || req.connection.remoteAddress || "Unknown",
+        referrer: referrer || null,
+      };
+
+      await storage.trackVisitor(visitorData);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Visitor tracking error:", error);
+      // Don't fail the request, just log the error
+      res.json({ success: true });
     }
   });
 
@@ -1091,6 +1139,18 @@ app.post("/api/orders", async (req: any, res) => {
     const isRotiCategory = sanitized.categoryName?.toLowerCase() === 'roti' || 
                            sanitized.categoryName?.toLowerCase().includes('roti');
     
+    // 🔒 ENFORCE: Delivery fee MUST be greater than 0
+    // This prevents orders placed without valid location (which results in ₹0 delivery fee)
+    if (sanitized.deliveryFee <= 0) {
+      console.log(`🚫 Order blocked - deliveryFee is ₹${sanitized.deliveryFee} (invalid, must have valid location)`);
+      return res.status(400).json({
+        message: "Location services required to place order. Please enable location and try again.",
+        requiresLocation: true,
+        deliveryFeeInvalid: true,
+        currentDeliveryFee: sanitized.deliveryFee,
+      });
+    }
+    
     if (isRotiCategory) {
       // Get roti settings
       const rotiSettings = await storage.getRotiSettings();
@@ -1349,6 +1409,22 @@ app.post("/api/orders", async (req: any, res) => {
           });
         }
       }
+
+    // 📱 Send WhatsApp notification to admin about new order (non-blocking)
+    try {
+      // For now, using a default admin phone - in production, fetch from admin settings
+      // TODO: Update this to fetch actual admin phone from database settings
+      const adminPhone = process.env.ADMIN_PHONE_NUMBER;
+      await sendOrderPlacedAdminNotification(
+        order.id,
+        order.customerName,
+        order.total,
+        adminPhone
+      );
+    } catch (notificationError) {
+      console.error("⚠️ Error sending admin WhatsApp notification (non-critical):", notificationError);
+      // Don't fail the order creation if notification fails
+    }
 
     broadcastNewOrder(order);
 
@@ -1947,13 +2023,139 @@ app.post("/api/orders", async (req: any, res) => {
     }
   });
 
+  // Helper to safely convert Date to ISO string
+  const toISOStringOrNull = (date: any, fieldName: string = "unknown"): string | null => {
+    try {
+      console.log(`[ISO-CONVERT] Converting ${fieldName}: type=${typeof date}`);
+      
+      if (!date) {
+        console.log(`[ISO-CONVERT] ${fieldName} is null/empty, returning null`);
+        return null;
+      }
+      
+      // Handle Date objects
+      if (date instanceof Date) {
+        // FIRST CHECK: Validate the Date object itself is valid before calling toISOString
+        const timeValue = date.getTime();
+        console.log(`[ISO-CONVERT] ${fieldName} - getTime(): ${timeValue}, isNaN: ${isNaN(timeValue)}`);
+        
+        if (isNaN(timeValue)) {
+          console.warn(`[ISO-CONVERT] ${fieldName} - INVALID DATE OBJECT (getTime returned NaN), returning null`);
+          return null;
+        }
+        
+        // NOW it's safe to call toISOString
+        const isoStr = date.toISOString();
+        console.log(`[ISO-CONVERT] ${fieldName} - toISOString succeeded: ${isoStr}`);
+        
+        const parsedDate = new Date(isoStr);
+        const year = parsedDate.getFullYear();
+        console.log(`[ISO-CONVERT] ${fieldName} - Parsed year: ${year}`);
+        
+        // CRITICAL: Reject epoch dates (1970) and dates outside acceptable range
+        if (year < 1980 || year > 2100) {
+          if (year === 1970) {
+            console.error(`[ISO-CONVERT] ${fieldName} - EPOCH DATE DETECTED (1970)! This indicates a database issue. Returning null to prevent frontend errors.`);
+            console.error(`  Time value: ${timeValue}, ISO: ${isoStr}`);
+          } else {
+            console.warn(`[ISO-CONVERT] ${fieldName} - INVALID YEAR: ${year}, returning null`);
+          }
+          return null;
+        }
+        return isoStr;
+      }
+      
+      // Handle ISO strings
+      if (typeof date === 'string') {
+        console.log(`[ISO-CONVERT] ${fieldName} is string: "${date}"`);
+        const parsed = new Date(date);
+        const time = parsed.getTime();
+        console.log(`[ISO-CONVERT] ${fieldName} - Parsed string, getTime(): ${time}, year: ${parsed.getFullYear()}`);
+        
+        if (isNaN(time)) {
+          console.warn(`[ISO-CONVERT] ${fieldName} - Invalid date string, returning null`);
+          return null;
+        }
+        
+        const year = parsed.getFullYear();
+        if (year < 1980 || year > 2100) {
+          console.warn(`[ISO-CONVERT] ${fieldName} - Invalid year: ${year}, returning null`);
+          return null;
+        }
+        
+        return date;
+      }
+      
+      console.log(`[ISO-CONVERT] ${fieldName} - Unhandled type, returning null`);
+      return null;
+    } catch (e) {
+      console.error(`[ISO-CONVERT] Error converting ${fieldName}: type=${typeof date}, error:`, e);
+      return null;
+    }
+  };
+
   // Get user's subscriptions
   app.get("/api/subscriptions", requireUser(), async (req: AuthenticatedUserRequest, res) => {
     try {
       const userId = req.authenticatedUser!.userId;
       const allSubscriptions = await storage.getSubscriptions();
       const userSubscriptions = allSubscriptions.filter(s => s.userId === userId);
-      res.json(userSubscriptions);
+      
+      // Serialize timestamps to ISO strings for proper frontend handling
+      const serialized = userSubscriptions.map(s => {
+        try {
+          console.log(`\n[SERIALIZE-SUB] ===== Starting serialization for ${s.id} =====`);
+          const result = {
+            ...s,
+            startDate: toISOStringOrNull(s.startDate, `${s.id}.startDate`),
+            endDate: toISOStringOrNull(s.endDate, `${s.id}.endDate`),
+            nextDeliveryDate: toISOStringOrNull(s.nextDeliveryDate, `${s.id}.nextDeliveryDate`),
+            lastDeliveryDate: toISOStringOrNull(s.lastDeliveryDate, `${s.id}.lastDeliveryDate`),
+            chefAssignedAt: toISOStringOrNull(s.chefAssignedAt, `${s.id}.chefAssignedAt`),
+            pauseStartDate: toISOStringOrNull(s.pauseStartDate, `${s.id}.pauseStartDate`),
+            pauseResumeDate: toISOStringOrNull(s.pauseResumeDate, `${s.id}.pauseResumeDate`),
+            createdAt: toISOStringOrNull(s.createdAt, `${s.id}.createdAt`),
+            updatedAt: toISOStringOrNull(s.updatedAt, `${s.id}.updatedAt`),
+          };
+          console.log(`[SERIALIZE-SUB] Completed serialization for ${s.id}`);
+          console.log(`[SERIALIZE-SUB] Final nextDeliveryDate for ${s.id}: ${result.nextDeliveryDate}`);
+          return result;
+        } catch (e) {
+          console.error(`[SERIALIZE-SUB] Error serializing subscription ${s.id}:`, e);
+          console.error('Subscription data:', {
+            id: s.id,
+            startDate: s.startDate,
+            endDate: s.endDate,
+            nextDeliveryDate: s.nextDeliveryDate,
+            lastDeliveryDate: s.lastDeliveryDate,
+            chefAssignedAt: s.chefAssignedAt,
+            pauseStartDate: s.pauseStartDate,
+            pauseResumeDate: s.pauseResumeDate,
+            createdAt: s.createdAt,
+            updatedAt: s.updatedAt,
+          });
+          throw e;
+        }
+      });
+      
+      console.log(`[SUBSCRIPTIONS] Returning ${serialized.length} subscriptions for user ${userId}`);
+      
+      // Log each subscription's nextDeliveryDate for debugging
+      serialized.forEach((sub: any) => {
+        if (sub.nextDeliveryDate === null) {
+          console.log(`[SUB-GET] ${sub.id}: nextDeliveryDate is NULL after serialization`);
+        } else {
+          const date = new Date(sub.nextDeliveryDate);
+          const year = date.getFullYear();
+          if (year === 1970) {
+            console.warn(`[SUB-GET] ${sub.id}: nextDeliveryDate is 1970! Raw value: ${sub.nextDeliveryDate}`);
+          } else {
+            console.log(`[SUB-GET] ${sub.id}: nextDeliveryDate = ${sub.nextDeliveryDate}, year = ${year}`);
+          }
+        }
+      });
+      
+      res.json(serialized);
     } catch (error) {
       console.error("Error fetching user subscriptions:", error);
       res.status(500).json({ message: "Failed to fetch subscriptions" });
@@ -2002,22 +2204,37 @@ app.post("/api/orders", async (req: any, res) => {
       let nextDelivery = new Date(now);
       let finalDeliveryTime = deliveryTime; // Start with provided delivery time
       
+      console.log(`\n[SUB-CREATE] ===== STARTING SUBSCRIPTION CREATION =====`);
+      console.log(`[SUB-CREATE] planId: ${planId}, deliverySlotId: ${deliverySlotId}, deliveryTime: ${deliveryTime}`);
+      console.log(`[SUB-CREATE] [1] Initial values - now: ${now.toISOString()}, nextDelivery: ${nextDelivery.toISOString()}`);
+      
       // If this is a slot-based subscription, calculate the correct next delivery date AND time
       if (deliverySlotId) {
+        console.log(`[SUB-CREATE] [2] Slot ID provided: ${deliverySlotId}`);
         const slot = await storage.getDeliveryTimeSlot(deliverySlotId);
+        console.log(`[SUB-CREATE] [3] Slot lookup result: ${slot ? 'FOUND' : 'NOT FOUND'}`);
         if (slot) {
+          console.log(`[SUB-CREATE] [4] Slot details - id: ${slot.id}, startTime: ${slot.startTime}`);
           const cutoffInfo = computeSlotCutoffInfo(slot);
+          console.log(`[SUB-CREATE] [5] Cutoff info computed - nextAvailableDate: ${cutoffInfo.nextAvailableDate.toISOString()}`);
           nextDelivery = new Date(cutoffInfo.nextAvailableDate);
           finalDeliveryTime = slot.startTime; // Extract time from slot (e.g., "20:00" for 8PM)
+          console.log(`[SUB-CREATE] [6] Setting nextDelivery from slot - ${nextDelivery.toISOString()}, finalDeliveryTime: ${finalDeliveryTime}`);
           console.log(`📅 Subscription next delivery date set from slot: ${nextDelivery.toISOString()}, time: ${finalDeliveryTime}`);
         } else {
           // Fallback if slot not found
+          console.log(`[SUB-CREATE] [4B] Slot not found, using fallback - adding 1 day`);
           nextDelivery.setDate(nextDelivery.getDate() + 1);
+          console.log(`[SUB-CREATE] [5B] After fallback - nextDelivery: ${nextDelivery.toISOString()}`);
         }
       } else {
         // Non-slot subscriptions default to tomorrow
+        console.log(`[SUB-CREATE] [2B] No slot ID, using default - adding 1 day`);
         nextDelivery.setDate(nextDelivery.getDate() + 1);
+        console.log(`[SUB-CREATE] [3B] After default - nextDelivery: ${nextDelivery.toISOString()}`);
       }
+      
+      console.log(`[SUB-CREATE] [7] Final nextDelivery before validation: ${nextDelivery.toISOString()}, year: ${nextDelivery.getFullYear()}, time: ${nextDelivery.getTime()}`);
 
       const endDate = new Date(now);
       endDate.setDate(endDate.getDate() + durationDays);
@@ -2032,6 +2249,20 @@ app.post("/api/orders", async (req: any, res) => {
         totalDeliveries = Math.floor(durationDays / 7);
       } else {
         totalDeliveries = Math.floor(durationDays / 30);
+      }
+
+      // VALIDATION: Ensure nextDelivery is valid before saving
+      if (!nextDelivery || isNaN(nextDelivery.getTime())) {
+        console.error(`[SUB-CREATE] ERROR: Invalid nextDelivery date!`, { nextDelivery, isoString: nextDelivery?.toISOString?.() });
+        res.status(400).json({ message: "Invalid delivery date calculation. Please contact support." });
+        return;
+      }
+      
+      const nextDeliveryYear = nextDelivery.getFullYear();
+      if (nextDeliveryYear < 1980 || nextDeliveryYear > 2100) {
+        console.error(`[SUB-CREATE] ERROR: Invalid year in nextDelivery!`, { nextDelivery: nextDelivery.toISOString(), year: nextDeliveryYear });
+        res.status(400).json({ message: "Delivery date is outside valid range. Please try again." });
+        return;
       }
 
       const subscriptionData: any = { // Use a different variable name to avoid conflict
@@ -2067,7 +2298,41 @@ app.post("/api/orders", async (req: any, res) => {
         pauseResumeDate: null,
       };
 
+      console.log(`[SUB-CREATE] About to save subscription with nextDeliveryDate:`, {
+        value: subscriptionData.nextDeliveryDate,
+        valueString: String(subscriptionData.nextDeliveryDate),
+        isoString: subscriptionData.nextDeliveryDate?.toISOString?.(),
+        year: subscriptionData.nextDeliveryDate?.getFullYear?.(),
+        time: subscriptionData.nextDeliveryDate?.getTime?.(),
+        isDate: subscriptionData.nextDeliveryDate instanceof Date,
+      });
+
       const subscription = await storage.createSubscription(subscriptionData);
+
+      console.log(`[SUB-CREATE] ===== AFTER STORAGE.CREATE =====`);
+      console.log(`[SUB-CREATE] Returned subscription nextDeliveryDate:`, {
+        value: subscription.nextDeliveryDate,
+        type: typeof subscription.nextDeliveryDate,
+        valueString: String(subscription.nextDeliveryDate),
+        isDate: subscription.nextDeliveryDate instanceof Date,
+      });
+      
+      if (subscription.nextDeliveryDate instanceof Date) {
+        const time = subscription.nextDeliveryDate.getTime();
+        const year = subscription.nextDeliveryDate.getFullYear();
+        console.log(`[SUB-CREATE] As Date object: getTime()=${time}, getFullYear()=${year}, isNaN=${isNaN(time)}`);
+        if (!isNaN(time)) {
+          console.log(`[SUB-CREATE] toISOString(): ${subscription.nextDeliveryDate.toISOString()}`);
+        } else {
+          console.log(`[SUB-CREATE] WARNING: getTime() is NaN - INVALID DATE!`);
+        }
+      } else if (typeof subscription.nextDeliveryDate === 'string') {
+        console.log(`[SUB-CREATE] Is string: "${subscription.nextDeliveryDate}"`);
+        const parsed = new Date(subscription.nextDeliveryDate);
+        console.log(`[SUB-CREATE] Parsed as Date: getTime()=${parsed.getTime()}, getFullYear()=${parsed.getFullYear()}`);
+      } else {
+        console.log(`[SUB-CREATE] Unknown type: ${typeof subscription.nextDeliveryDate}`);
+      }
 
       console.log(`✅ Subscription created: ${subscription.id}`);
 
@@ -2549,6 +2814,7 @@ app.post("/api/orders", async (req: any, res) => {
           morningBlockEndTime: "11:00",
           lastOrderTime: "23:00",
           blockMessage: "Roti orders are not available from 8 AM to 11 AM. Please order before 11 PM for next morning delivery.",
+          prepareWindowHours: 2,
           isActive: true,
           createdAt: new Date(),
           updatedAt: new Date(),
@@ -2598,7 +2864,9 @@ app.post("/api/orders", async (req: any, res) => {
         referredBonus: 50 
       };
 
-      res.json(walletSetting || defaultWallet);
+      const response = walletSetting || defaultWallet;
+      console.log("[WALLET] Public endpoint returning:", response);
+      res.json(response);
     } catch (error: any) {
       console.error("Error fetching wallet settings:", error);
       res.status(500).json({ message: error.message || "Failed to fetch wallet settings" });
@@ -2608,7 +2876,7 @@ app.post("/api/orders", async (req: any, res) => {
   // Admin: Update roti time settings
   app.put("/api/admin/roti-settings", requireAdmin(), async (req: any, res) => {
     try {
-      const { morningBlockStartTime, morningBlockEndTime, lastOrderTime, blockMessage, isActive } = req.body;
+      const { morningBlockStartTime, morningBlockEndTime, lastOrderTime, blockMessage, prepareWindowHours, isActive } = req.body;
       
       // Validate time formats
       const timeRegex = /^\d{2}:\d{2}$/;
@@ -2625,11 +2893,18 @@ app.post("/api/orders", async (req: any, res) => {
         return;
       }
       
+      // Validate prepareWindowHours
+      if (prepareWindowHours !== undefined && (typeof prepareWindowHours !== "number" || prepareWindowHours < 1 || prepareWindowHours > 24)) {
+        res.status(400).json({ message: "Prepare window hours must be between 1 and 24" });
+        return;
+      }
+      
       const settings = await storage.updateRotiSettings({
         morningBlockStartTime,
         morningBlockEndTime,
         lastOrderTime,
         blockMessage,
+        prepareWindowHours,
         isActive,
       });
       
@@ -2689,6 +2964,7 @@ app.post("/api/orders", async (req: any, res) => {
   app.get("/api/admin/subscriptions/reassignment-pending", requireAdmin(), async (req: any, res) => {
     try {
       const allSubscriptions = await storage.getSubscriptions();
+      const allOrders = await storage.getAllOrders();
       const now = new Date();
       const reassignmentThresholdDays = 2; // Reassign if no delivery in 2 days
 
@@ -2711,14 +2987,43 @@ app.post("/api/orders", async (req: any, res) => {
       const enrichedReassignments = await Promise.all(pendingReassignments.map(async (sub) => {
         const chef = sub.chefId ? await storage.getChefById(sub.chefId) : null;
         const plan = await storage.getSubscriptionPlan(sub.planId);
+        
+        // Check if there's a scheduled order that wasn't completed
+        // Since orders don't have subscriptionId field, match by deliverySlot
+        const subscriptionOrders = allOrders.filter(o => 
+          o.deliverySlotId === sub.deliverySlotId && 
+          o.status !== "completed" && 
+          o.status !== "cancelled"
+        );
+        
+        const overdueOrders = subscriptionOrders.filter(o => {
+          if (!o.deliveryTime || !o.deliveryDate) return false;
+          const orderTime = new Date(`${o.deliveryDate}T${o.deliveryTime}`);
+          return orderTime < now;
+        });
+        
         return {
           ...sub,
           currentChefName: chef?.name,
           planName: plan?.name,
+          overdueOrderCount: overdueOrders.length,
+          overdueOrders: overdueOrders.map(o => ({
+            id: o.id,
+            status: o.status,
+            scheduledFor: o.deliveryDate,
+            time: o.deliveryTime,
+          })),
         };
       }));
 
       console.log(`⚠️ Found ${enrichedReassignments.length} subscriptions pending reassignment`);
+      if (enrichedReassignments.length > 0) {
+        console.log(`📋 Details:`, enrichedReassignments.map(r => ({
+          subscriptionId: r.id,
+          chef: r.currentChefName,
+          overdueOrders: r.overdueOrderCount,
+        })));
+      }
       res.json(enrichedReassignments);
     } catch (error: any) {
       console.error("Error fetching pending reassignments:", error);
@@ -2760,6 +3065,215 @@ app.post("/api/orders", async (req: any, res) => {
     } catch (error: any) {
       console.error("Error reassigning subscription:", error);
       res.status(500).json({ message: error.message || "Failed to reassign subscription" });
+    }
+  });
+
+  // Admin: Reschedule a subscription order to next available slot (when chef didn't complete)
+  app.post("/api/admin/subscriptions/:id/reschedule-order", requireAdmin(), async (req: any, res) => {
+    try {
+      const { orderId, reason } = req.body;
+      if (!orderId) {
+        res.status(400).json({ message: "Order ID is required" });
+        return;
+      }
+
+      const subscription = await storage.getSubscription(req.params.id);
+      if (!subscription) {
+        res.status(404).json({ message: "Subscription not found" });
+        return;
+      }
+
+      const order = await storage.getOrderById(orderId);
+      if (!order) {
+        res.status(404).json({ message: "Order not found" });
+        return;
+      }
+
+      // Check if order belongs to this subscription (by comparing dates/slot, since subscriptionId isn't in schema)
+      // For now, just proceed if order exists
+
+      // Get the subscription's delivery slot details
+      if (!subscription.deliverySlotId) {
+        res.status(400).json({ message: "Subscription has no delivery slot" });
+        return;
+      }
+
+      const slot = await storage.getDeliveryTimeSlot(subscription.deliverySlotId);
+      if (!slot) {
+        res.status(400).json({ message: "Delivery slot not found for subscription" });
+        return;
+      }
+
+      // Calculate next available delivery date using the slot cutoff logic
+      const cutoffInfo = computeSlotCutoffInfo(slot);
+      const nextDeliveryDate = new Date(cutoffInfo.nextAvailableDate);
+      // Move to the next occurrence after the current scheduled date
+      nextDeliveryDate.setDate(nextDeliveryDate.getDate() + 1);
+
+      console.log(`📅 Rescheduling subscription ${req.params.id}, order ${orderId} to ${nextDeliveryDate.toISOString()}`);
+      console.log(`   Reason: ${reason || 'Chef did not complete delivery'}`);
+
+      // Update subscription with new delivery date and unassign chef (needs reassignment for next cycle)
+      const updatedSubscription = await storage.updateSubscription(req.params.id, {
+        nextDeliveryDate: nextDeliveryDate,
+        chefId: null,
+        chefAssignedAt: null,
+      });
+
+      // Update order status to "rescheduled" to indicate it's been moved
+      await storage.updateOrderStatus(orderId, "rescheduled");
+
+      // Create a new order for the new delivery date with the same items
+      const newOrderData = {
+        userId: order.userId,
+        customerName: order.customerName,
+        phone: order.phone,
+        email: order.email || "",
+        address: order.address,
+        items: order.items as any,
+        subtotal: order.subtotal,
+        deliveryFee: order.deliveryFee,
+        discount: order.discount,
+        total: order.total,
+        status: "pending",
+        deliveryDate: nextDeliveryDate.toISOString().split('T')[0],
+        deliveryTime: slot.startTime,
+        deliverySlotId: subscription.deliverySlotId,
+        categoryId: order.categoryId,
+        categoryName: order.categoryName,
+        chefId: order.chefId,
+        chefName: order.chefName,
+        paymentStatus: order.paymentStatus,
+      };
+
+      const newOrder = await storage.createOrder(newOrderData as any);
+
+      console.log(`✅ New order created: ${newOrder.id} for reschedule`);
+
+      // Notify user about the reschedule
+      console.log(`📬 Notifying user ${order.userId} about rescheduled delivery on ${nextDeliveryDate.toDateString()}`);
+
+      res.json({
+        message: "Order rescheduled successfully",
+        updatedSubscription,
+        rescheduledOrder: order,
+        newOrder: newOrder,
+        newDeliveryDate: nextDeliveryDate,
+        reason: reason || "Chef did not complete delivery",
+      });
+    } catch (error: any) {
+      console.error("Error rescheduling order:", error);
+      res.status(500).json({ message: error.message || "Failed to reschedule order" });
+    }
+  });
+
+  // Admin: Auto-reschedule all overdue orders
+  app.post("/api/admin/subscriptions/auto-reschedule-overdue", requireAdmin(), async (req: any, res) => {
+    try {
+      const allSubscriptions = await storage.getSubscriptions();
+      const allOrders = await storage.getAllOrders();
+      const now = new Date();
+      let rescheduledCount = 0;
+      const results: any[] = [];
+
+      for (const subscription of allSubscriptions) {
+        // Only process active subscriptions with assigned chef
+        if (subscription.status !== "active" || !subscription.chefId) continue;
+
+        // Find all non-completed orders for this subscription
+        // Since orders don't have subscriptionId, check by deliveryDate/slot matching
+        const subscriptionOrders = allOrders.filter(o => 
+          o.deliverySlotId === subscription.deliverySlotId &&
+          o.status !== "completed" && 
+          o.status !== "cancelled" &&
+          o.status !== "rescheduled"
+        );
+
+        // Find overdue orders (scheduled time has passed)
+        const overdueOrders = subscriptionOrders.filter(o => {
+          const orderTime = o.deliveryTime && o.deliveryDate
+            ? new Date(`${o.deliveryDate}T${o.deliveryTime}`)
+            : o.deliveryDate ? new Date(o.deliveryDate) : null;
+          return orderTime && orderTime < now;
+        });
+
+        // Reschedule each overdue order
+        for (const order of overdueOrders) {
+          try {
+            if (!subscription.deliverySlotId) continue;
+
+            const slot = await storage.getDeliveryTimeSlot(subscription.deliverySlotId);
+            if (!slot) continue;
+
+            const cutoffInfo = computeSlotCutoffInfo(slot);
+            const nextDeliveryDate = new Date(cutoffInfo.nextAvailableDate);
+            nextDeliveryDate.setDate(nextDeliveryDate.getDate() + 1);
+
+            // Update subscription
+            await storage.updateSubscription(subscription.id, {
+              nextDeliveryDate: nextDeliveryDate,
+              chefId: null,
+              chefAssignedAt: null,
+            });
+
+            // Mark old order as rescheduled
+            await storage.updateOrderStatus(order.id, "rescheduled");
+
+            // Create new order for rescheduled date
+            const newOrderData = {
+              userId: order.userId,
+              customerName: order.customerName,
+              phone: order.phone,
+              email: order.email || "",
+              address: order.address,
+              items: order.items as any,
+              subtotal: order.subtotal,
+              deliveryFee: order.deliveryFee,
+              discount: order.discount,
+              total: order.total,
+              status: "pending",
+              deliveryDate: nextDeliveryDate.toISOString().split('T')[0],
+              deliveryTime: slot.startTime,
+              deliverySlotId: subscription.deliverySlotId,
+              categoryId: order.categoryId,
+              categoryName: order.categoryName,
+              chefId: order.chefId,
+              chefName: order.chefName,
+              paymentStatus: order.paymentStatus,
+            };
+
+            const newOrder = await storage.createOrder(newOrderData as any);
+
+            rescheduledCount++;
+            results.push({
+              subscriptionId: subscription.id,
+              orderId: order.id,
+              newOrderId: newOrder.id,
+              newDeliveryDate: nextDeliveryDate,
+              reason: "Auto-rescheduled: Chef did not complete delivery",
+            });
+
+            console.log(`✅ Auto-rescheduled subscription ${subscription.id}, order ${order.id} to ${nextDeliveryDate.toDateString()}`);
+          } catch (error) {
+            console.error(`❌ Failed to reschedule order ${order.id}:`, error);
+            results.push({
+              subscriptionId: subscription.id,
+              orderId: order.id,
+              error: "Failed to reschedule",
+            });
+          }
+        }
+      }
+
+      console.log(`🔄 Auto-reschedule complete: ${rescheduledCount} orders rescheduled`);
+      res.json({
+        message: "Auto-reschedule complete",
+        rescheduledCount,
+        results,
+      });
+    } catch (error: any) {
+      console.error("Error in auto-reschedule:", error);
+      res.status(500).json({ message: error.message || "Failed to auto-reschedule orders" });
     }
   });
 

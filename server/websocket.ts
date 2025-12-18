@@ -155,16 +155,31 @@ export function broadcastSubscriptionDelivery(subscription: any) {
 
 // Broadcast subscription update (assignment, status changes, etc.)
 export function broadcastSubscriptionUpdate(subscription: any) {
+  // Safe serialize: ensure all date fields are strings
+  const safeSubscription = { ...subscription };
+  
+  // Convert any Date objects to ISO strings
+  const dateFields = ['startDate', 'endDate', 'nextDeliveryDate', 'lastDeliveryDate', 'chefAssignedAt', 'pauseStartDate', 'pauseResumeDate', 'createdAt', 'updatedAt'];
+  for (const field of dateFields) {
+    if (safeSubscription[field]) {
+      if (safeSubscription[field] instanceof Date) {
+        safeSubscription[field] = safeSubscription[field].toISOString();
+      } else if (typeof safeSubscription[field] !== 'string') {
+        safeSubscription[field] = String(safeSubscription[field]);
+      }
+    }
+  }
+  
   const message = JSON.stringify({
     type: "subscription_update",
-    data: subscription
+    data: safeSubscription
   });
 
   console.log(`\n📡 ========== BROADCASTING SUBSCRIPTION UPDATE ==========`);
-  console.log(`Subscription ID: ${subscription.id}`);
-  console.log(`Customer: ${subscription.customerName}`);
-  console.log(`Chef ID: ${subscription.chefId || 'None'}`);
-  console.log(`Status: ${subscription.status}`);
+  console.log(`Subscription ID: ${safeSubscription.id}`);
+  console.log(`Customer: ${safeSubscription.customerName}`);
+  console.log(`Chef ID: ${safeSubscription.chefId || 'None'}`);
+  console.log(`Status: ${safeSubscription.status}`);
 
   let adminNotified = 0;
   let chefNotified = false;
@@ -175,11 +190,11 @@ export function broadcastSubscriptionUpdate(subscription: any) {
       client.ws.send(message);
       adminNotified++;
       console.log(`  ✅ Sent to admin ${clientId}`);
-    } else if (client.type === "chef" && subscription.chefId && client.chefId === subscription.chefId && client.ws.readyState === WebSocket.OPEN) {
+    } else if (client.type === "chef" && safeSubscription.chefId && client.chefId === safeSubscription.chefId && client.ws.readyState === WebSocket.OPEN) {
       client.ws.send(message);
       chefNotified = true;
       console.log(`  ✅ Sent to partner ${clientId} (chefId: ${client.chefId})`);
-    } else if (client.type === "customer" && client.userId === subscription.userId && client.ws.readyState === WebSocket.OPEN) {
+    } else if (client.type === "customer" && client.userId === safeSubscription.userId && client.ws.readyState === WebSocket.OPEN) {
       client.ws.send(message);
       customerNotified = true;
       console.log(`  ✅ Sent to customer ${clientId}`);

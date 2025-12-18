@@ -20,6 +20,7 @@ export default function AdminDeliverySettings() {
     minDistance: "",
     maxDistance: "",
     price: "",
+    minOrderAmount: "",
   });
 
   const [newDeliveryPerson, setNewDeliveryPerson] = useState({
@@ -70,6 +71,7 @@ export default function AdminDeliverySettings() {
           minDistance: parseFloat(data.minDistance),
           maxDistance: parseFloat(data.maxDistance),
           price: parseInt(data.price),
+          minOrderAmount: parseInt(data.minOrderAmount) || 0,
           isActive: true,
         }),
       });
@@ -78,7 +80,7 @@ export default function AdminDeliverySettings() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin", "delivery-settings"] });
-      setNewSetting({ name: "", minDistance: "", maxDistance: "", price: "" });
+      setNewSetting({ name: "", minDistance: "", maxDistance: "", price: "", minOrderAmount: "" });
       toast({
         title: "Setting created",
         description: "Delivery setting has been created successfully",
@@ -491,7 +493,7 @@ export default function AdminDeliverySettings() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                  <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4">
                     <div className="space-y-2">
                       <Label htmlFor="name">Range Name</Label>
                       <Input
@@ -535,6 +537,17 @@ export default function AdminDeliverySettings() {
                         value={newSetting.price}
                         onChange={(e) => setNewSetting({ ...newSetting, price: e.target.value })}
                         data-testid="input-new-price"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="minOrderAmount">Min Order (₹)</Label>
+                      <Input
+                        id="minOrderAmount"
+                        type="number"
+                        placeholder="150"
+                        value={newSetting.minOrderAmount}
+                        onChange={(e) => setNewSetting({ ...newSetting, minOrderAmount: e.target.value })}
+                        data-testid="input-new-min-order"
                       />
                     </div>
                   </div>
@@ -582,7 +595,12 @@ export default function AdminDeliverySettings() {
                                 <p className="text-sm text-slate-600 dark:text-slate-400">
                                   {setting.minDistance} km - {setting.maxDistance} km
                                 </p>
-                                <p className="text-lg font-bold text-primary mt-1">₹{setting.price}</p>
+                                <div className="flex items-center gap-4 mt-1">
+                                  <p className="text-lg font-bold text-primary">₹{setting.price}</p>
+                                  <p className="text-sm text-slate-600 dark:text-slate-400">
+                                    Min Order: ₹{setting.minOrderAmount || 0}
+                                  </p>
+                                </div>
                               </div>
                               <div className="flex items-center gap-4">
                                 <div className="flex items-center gap-2">

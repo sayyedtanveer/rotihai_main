@@ -14,6 +14,7 @@ import { useState, useEffect } from "react";
   import LoginDialog from "@/components/LoginDialog";
   import Footer from "@/components/Footer";
   import PromotionalBannersSection from "@/components/PromotionalBannersSection";
+  import { LocationPermissionModal } from "@/components/LocationPermissionModal";
   import { Button } from "@/components/ui/button";
   import { Badge } from "@/components/ui/badge";
   import { Card } from "@/components/ui/card";
@@ -71,9 +72,10 @@ import { useState, useEffect } from "react";
     const [activeFilters, setActiveFilters] = useState<string[]>([]);
     const [mobileNavTab, setMobileNavTab] = useState<string>("delivery");
     const [vegOnly, setVegOnly] = useState(false);
+    const [isLocationModalOpen, setIsLocationModalOpen] = useState(true);
     const { user } = useAuth();
 
-    const { carts, addToCart: cartAddToCart, canAddItem, clearCart, getTotalItems, setUserLocation, getAllCartsWithDelivery, updateChefStatus, fetchChefStatuses, userLatitude, userLongitude } = useCart();
+    const { carts, addToCart: cartAddToCart, canAddItem, clearCart, getTotalItems, setUserLocation, getAllCartsWithDelivery, updateChefStatus, fetchChefStatuses, userLatitude, userLongitude, updateQuantity, removeFromCart } = useCart();
     const queryClient = useQueryClient();
 
     // Use WebSocket for real-time chef status and product availability updates
@@ -409,36 +411,13 @@ import { useState, useEffect } from "react";
     });
 
     const requestLocationPermission = () => {
-      if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-          (position) => {
-            setUserLocation(position.coords.latitude, position.coords.longitude);
-          },
-          (error) => {
-            console.error("Error Code = " + error.code + " - " + error.message);
-            // Optionally set a default location or inform the user
-            // For example, set to a default point if location services fail
-            // setUserLocation(37.7749, -122.4194); // Example: San Francisco coordinates
-            toast({
-              title: "Location Access Denied",
-              description: "Please enable location services to find nearby restaurants.",
-              variant: "destructive",
-            });
-          },
-          {
-            enableHighAccuracy: true,
-            timeout: 5000,
-            maximumAge: 0
-          }
-        );
-      } else {
-        console.log("Geolocation is not supported by this browser.");
-        toast({
-          title: "Geolocation Not Supported",
-          description: "Your browser does not support geolocation. Some features may be limited.",
-          variant: "destructive",
-        });
-      }
+      // Modal will handle location requests with better UX
+      setIsLocationModalOpen(true);
+    };
+
+    const handleLocationGranted = (lat: number, lng: number) => {
+      setUserLocation(lat, lng);
+      setIsLocationModalOpen(false);
     };
 
     // Show toast notifications for chef status changes
@@ -1040,6 +1019,7 @@ import { useState, useEffect } from "react";
           chef={selectedChefForMenu}
           products={products}
           onAddToCart={handleAddToCart}
+          onUpdateQuantity={updateQuantity}
           cartItems={
             selectedCategoryForMenu
               ? carts.find(c => c.categoryId === selectedCategoryForMenu.id)?.items.map(item => ({
@@ -1098,6 +1078,13 @@ import { useState, useEffect } from "react";
           onLoginSuccess={() => {
             window.location.reload();
           }}
+        />
+
+        {/* Location Permission Modal - Zomato Style */}
+        <LocationPermissionModal
+          isOpen={isLocationModalOpen}
+          onLocationGranted={handleLocationGranted}
+          onClose={() => setIsLocationModalOpen(false)}
         />
       </div>
     );

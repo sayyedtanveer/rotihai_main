@@ -27,6 +27,7 @@ interface CategoryCart {
   freeDeliveryEligible?: boolean;
   amountForFreeDelivery?: number;
   deliveryRangeName?: string;
+  minOrderAmount?: number;
   chefIsActive?: boolean;
 }
 
@@ -316,6 +317,7 @@ export const useCart = create<CartStore>()(
           let freeDeliveryEligible = false;
           let amountForFreeDelivery: number | undefined;
           let deliveryRangeName: string | undefined;
+          let minOrderAmount: number | undefined;
 
           if (userLatitude && userLongitude && cart.chefLatitude && cart.chefLongitude) {
             // Calculate distance using shared utility
@@ -332,6 +334,7 @@ export const useCart = create<CartStore>()(
             freeDeliveryEligible = deliveryCalc.freeDeliveryEligible;
             amountForFreeDelivery = deliveryCalc.amountForFreeDelivery;
             deliveryRangeName = deliveryCalc.deliveryRangeName;
+            minOrderAmount = deliveryCalc.minOrderAmount;
           } else {
             // No location data available
             deliveryRangeName = "Location required for delivery fee";
@@ -348,6 +351,7 @@ export const useCart = create<CartStore>()(
             freeDeliveryEligible,
             amountForFreeDelivery,
             deliveryRangeName,
+            minOrderAmount,
             chefIsActive,
           };
         });

@@ -148,6 +148,15 @@ export default function PartnerDashboard() {
     queryKey: ["/api/delivery-slots"],
   });
 
+  const { data: rotiSettings } = useQuery({
+    queryKey: ["/api/roti-settings"],
+    queryFn: async () => {
+      const response = await fetch("/api/roti-settings");
+      if (!response.ok) throw new Error("Failed to fetch roti settings");
+      return response.json();
+    },
+  });
+
   const { data: chefDetails } = useQuery<Chef>({
     queryKey: ["/api/partner/chef"],
     queryFn: async () => {
@@ -382,12 +391,15 @@ export default function PartnerDashboard() {
   };
 
   // Helper function to check if a scheduled order can have the prepare button enabled
-  // Prepare button should be enabled starting from 2 hours before the scheduled delivery time
+  // Prepare button should be enabled starting from configured hours before the scheduled delivery time
   // Once enabled, it remains enabled until the chef accepts the order
   const canEnablePrepareButton = (order: Order): boolean => {
     if (!order.deliveryTime || order.status !== "confirmed") {
       return false;
     }
+
+    // Get the prepare window hours from admin settings (default to 2 if not available)
+    const prepareWindowHours = rotiSettings?.prepareWindowHours ?? 2;
 
     try {
       // Parse the delivery time (HH:mm format)
@@ -404,12 +416,12 @@ export default function PartnerDashboard() {
       
       const deliveryDateTime = new Date(deliveryDate.getFullYear(), deliveryDate.getMonth(), deliveryDate.getDate(), hours, minutes, 0);
 
-      // Calculate 2 hours before delivery time
-      const twoHoursBefore = subHours(deliveryDateTime, 8);
+      // Calculate prepare window before delivery time using admin-configured hours
+      const prepareWindowStart = subHours(deliveryDateTime, prepareWindowHours);
 
-      // Button is enabled once we reach 2 hours before delivery time
+      // Button is enabled once we reach the prepare window start time
       // It stays enabled even if delivery time has passed (until order is accepted)
-      const canPrepare = isAfter(currentTime, twoHoursBefore) || currentTime.getTime() === twoHoursBefore.getTime();
+      const canPrepare = isAfter(currentTime, prepareWindowStart) || currentTime.getTime() === prepareWindowStart.getTime();
       
       return canPrepare;
     } catch (error) {

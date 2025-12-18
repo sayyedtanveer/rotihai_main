@@ -42,5 +42,6 @@ export const {
   referralRewards,
   promotionalBanners,
   deliveryTimeSlots,
-  rotiSettings
+  rotiSettings,
+  visitors
 } = schema;

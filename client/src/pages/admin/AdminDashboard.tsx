@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { DollarSign, ShoppingCart, Users, Clock, TrendingUp, Package, UserCog, Truck, ShoppingBag, CheckCircle } from "lucide-react";
+import { DollarSign, ShoppingCart, Users, Clock, TrendingUp, Package, UserCog, Truck, ShoppingBag, CheckCircle, Eye } from "lucide-react";
 
 interface DashboardMetrics {
   userCount: number;
@@ -9,6 +9,14 @@ interface DashboardMetrics {
   totalRevenue: number;
   pendingOrders: number;
   completedOrders: number;
+}
+
+interface VisitorReport {
+  todayVisitors: number;
+  totalVisitors: number;
+  uniqueVisitors: number;
+  visitorsByPage: Array<{ page: string; count: number }>;
+  visitorsLastNDays: Array<{ date: string; count: number }>;
 }
 
 export default function AdminDashboard() {
@@ -22,6 +30,18 @@ export default function AdminDashboard() {
         },
       });
       if (!response.ok) throw new Error("Failed to fetch metrics");
+      return response.json();
+    },
+  });
+
+  const { data: visitorReport, isLoading: visitorsLoading } = useQuery<VisitorReport>({
+    queryKey: ["/api/admin/reports/visitors"],
+    queryFn: async () => {
+      const token = localStorage.getItem("adminToken");
+      const response = await fetch("/api/admin/reports/visitors", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) throw new Error("Failed to fetch visitors report");
       return response.json();
     },
   });
@@ -165,6 +185,26 @@ export default function AdminDashboard() {
             </div>
 
             <div className="grid gap-4 md:grid-cols-2 mt-4">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Today Visitors</CardTitle>
+                  <Eye className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{visitorReport?.todayVisitors || 0}</div>
+                  <p className="text-xs text-muted-foreground">Daily app visits</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Unique Visitors</CardTitle>
+                  <Users className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{visitorReport?.uniqueVisitors || 0}</div>
+                  <p className="text-xs text-muted-foreground">Total: {visitorReport?.totalVisitors || 0} visits</p>
+                </CardContent>
+              </Card>
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium">Partner Accounts</CardTitle>
