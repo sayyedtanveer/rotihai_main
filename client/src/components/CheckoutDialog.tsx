@@ -76,6 +76,8 @@ interface CategoryCart {
   distance?: number;
   freeDeliveryEligible?: boolean;
   amountForFreeDelivery?: number;
+  deliveryRangeName?: string;
+  minOrderAmount?: number;
   chefIsActive?: boolean;
 }
 
@@ -151,6 +153,11 @@ export default function CheckoutDialog({
   const [maxWalletUsagePerOrder, setMaxWalletUsagePerOrder] = useState<number>(10);
   const [minOrderAmountForWallet, setMinOrderAmountForWallet] = useState<number>(0);
   
+  // Delivery minimum order flexibility states
+  const [deliveryMinOrderAmount, setDeliveryMinOrderAmount] = useState<number>(0);
+  const [isBelowDeliveryMinimum, setIsBelowDeliveryMinimum] = useState<boolean>(false);
+  const [amountNeededForFreeDelivery, setAmountNeededForFreeDelivery] = useState<number>(0);
+  
   const { toast } = useToast();
   const { user, isAuthenticated, userToken } = useAuth();
   const applyReferralMutation = useApplyReferral();
@@ -180,8 +187,12 @@ export default function CheckoutDialog({
   // Update local state when wallet settings are fetched
   useEffect(() => {
     if (walletSettings) {
+      console.log("[WALLET] Fetched wallet settings:", walletSettings);
       setMaxWalletUsagePerOrder(walletSettings.maxUsagePerOrder || 10);
       setMinOrderAmountForWallet(walletSettings.minOrderAmount || 0);
+      console.log("[WALLET] Set minOrderAmountForWallet to:", walletSettings.minOrderAmount || 0);
+    } else {
+      console.log("[WALLET] No wallet settings fetched");
     }
   }, [walletSettings]);
 
@@ -330,6 +341,20 @@ export default function CheckoutDialog({
     nextAvailableDate: string;
   }>(null);
 
+  // Determine if wallet checkbox should be disabled
+  const isWalletCheckboxDisabled = useMemo(() => {
+    const disabled = minOrderAmountForWallet > 0 && (subtotal + deliveryFee - discount) < minOrderAmountForWallet;
+    console.log("[WALLET CHECKBOX] Disabled state calculation:", {
+      minOrderAmountForWallet,
+      subtotal,
+      deliveryFee,
+      discount,
+      orderTotal: subtotal + deliveryFee - discount,
+      isDisabled: disabled,
+    });
+    return disabled;
+  }, [minOrderAmountForWallet, subtotal, deliveryFee, discount]);
+
   useEffect(() => {
     if (cart) {
       const calculatedSubtotal = cart.items.reduce(
@@ -344,19 +369,36 @@ export default function CheckoutDialog({
       const calculatedDeliveryDistance =
         cart.distance !== undefined ? cart.distance : null;
 
-      setDeliveryFee(calculatedDeliveryFee);
+      // Check if order is below delivery minimum (for display purposes only)
+      const deliveryMin = cart?.minOrderAmount || 0;
+      
+      // ALWAYS charge delivery fee regardless of minimum order
+      const actualDeliveryFee = calculatedDeliveryFee;
+      setDeliveryFee(actualDeliveryFee);
       setDeliveryDistance(calculatedDeliveryDistance);
 
       const calculatedDiscount = appliedCoupon
         ? Math.min(
             appliedCoupon.discountAmount,
-            calculatedSubtotal + calculatedDeliveryFee,
+            calculatedSubtotal + actualDeliveryFee,
           )
         : 0;
       setDiscount(calculatedDiscount);
 
-      // Calculate base total before bonus
-      let baseTotal = calculatedSubtotal + calculatedDeliveryFee - calculatedDiscount;
+      // Calculate base total with actual delivery fee
+      let baseTotal = calculatedSubtotal + actualDeliveryFee - calculatedDiscount;
+
+      console.log("[WALLET DISABLE CHECK] Calculation Values:", {
+        calculatedSubtotal,
+        calculatedDeliveryFee,
+        actualDeliveryFee,
+        deliveryMin,
+        isBelowMinimum: deliveryMin > 0 && calculatedSubtotal < deliveryMin,
+        calculatedDiscount,
+        baseTotal,
+        minOrderAmountForWallet,
+        "isCheckboxDisabled?": minOrderAmountForWallet > 0 && baseTotal < minOrderAmountForWallet,
+      });
 
       // Apply bonus if user has chosen to use it
       if (useBonusAtCheckout && bonusEligible && pendingBonus > 0) {
@@ -366,10 +408,21 @@ export default function CheckoutDialog({
       // Apply wallet balance if user has chosen to use it
       if (useWalletBalance && user?.walletBalance && user.walletBalance > 0) {
         // Check minimum order amount requirement
-        if (minOrderAmountForWallet > 0 && baseTotal < minOrderAmountForWallet) {
+        const isOrderBelowMinimum = minOrderAmountForWallet > 0 && baseTotal < minOrderAmountForWallet;
+        console.log("[WALLET] Apply wallet balance check:", {
+          useWalletBalance,
+          userWalletBalance: user?.walletBalance,
+          minOrderAmountForWallet,
+          baseTotal,
+          isOrderBelowMinimum,
+        });
+        
+        if (isOrderBelowMinimum) {
           // Don't apply wallet if order is below minimum
+          console.log("[WALLET] ❌ Order is BELOW minimum - NOT applying wallet balance");
           setWalletAmountToUse(0);
         } else {
+          console.log("[WALLET] ✓ Order meets minimum - applying wallet balance");
           // Apply wallet respecting both maxUsagePerOrder limit and available balance
           const maxAllowed = Math.min(maxWalletUsagePerOrder, user.walletBalance);
           const amountToDeduct = Math.min(maxAllowed, baseTotal);
@@ -381,12 +434,23 @@ export default function CheckoutDialog({
       }
 
       setTotal(baseTotal);
+      
+      // Set minimum order display state
+      setDeliveryMinOrderAmount(deliveryMin);
+      
+      if (deliveryMin > 0 && calculatedSubtotal < deliveryMin) {
+        setIsBelowDeliveryMinimum(true);
+        setAmountNeededForFreeDelivery(deliveryMin - calculatedSubtotal);
+      } else {
+        setIsBelowDeliveryMinimum(false);
+        setAmountNeededForFreeDelivery(0);
+      }
     }
   }, [cart, address, appliedCoupon, useBonusAtCheckout, bonusEligible, pendingBonus, useWalletBalance, user?.walletBalance, maxWalletUsagePerOrder, minOrderAmountForWallet]);
 
-  // Auto-fill checkout fields when user profile is loaded
+  // Auto-fill checkout fields when user profile is loaded or dialog opens
   useEffect(() => {
-    if (isAuthenticated && user) {
+    if (isOpen && isAuthenticated && user) {
       // Use data from useAuth() hook which fetches from /api/user/profile
       setCustomerName(user.name || "");
       setPhone(user.phone || "");
@@ -394,7 +458,7 @@ export default function CheckoutDialog({
       setAddress(user.address || "");
       setActiveTab("checkout");
     }
-  }, [user, isAuthenticated]);
+  }, [user, isAuthenticated, isOpen]);
 
   // Fetch pending bonus and referral info from user profile
   useEffect(() => {
@@ -565,6 +629,16 @@ export default function CheckoutDialog({
       toast({
         title: "Chef Currently Closed",
         description: `${cart.chefName} is not accepting orders right now. Please try again later.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // ENFORCE: Location must be enabled to place order
+    if (!cart.distance || cart.deliveryFee === 0 || !cart.chefLatitude || !cart.chefLongitude) {
+      toast({
+        title: "Location Required",
+        description: "Please enable location services to calculate delivery fees and place your order.",
         variant: "destructive",
       });
       return;
@@ -959,7 +1033,7 @@ export default function CheckoutDialog({
     <>
       <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
         {/* Use a responsive dialog size with max height to avoid mobile distortion */}
-        <DialogContent className="w-[calc(100%-2rem)] max-w-[480px] max-h-[90vh] flex flex-col rounded-lg mx-4 p-0">
+        <DialogContent className="w-full sm:w-[calc(100%-2rem)] max-w-[480px] max-h-[90vh] flex flex-col rounded-lg p-0 mx-auto">
           <DialogHeader className="flex-shrink-0 px-4 sm:px-6 pt-4 sm:pt-6">
             <DialogTitle className="text-lg sm:text-xl">Checkout</DialogTitle>
             <DialogDescription className="text-sm">
@@ -1331,7 +1405,13 @@ export default function CheckoutDialog({
                         ? ` (${deliveryDistance.toFixed(1)} km)`
                         : ""}:
                     </span>
-                    <span>₹{deliveryFee.toFixed(2)}</span>
+                    {!isBelowDeliveryMinimum ? (
+                      <span className="text-green-600 dark:text-green-400">
+                        <span className="line-through">₹{deliveryFee.toFixed(2)}</span> FREE
+                      </span>
+                    ) : (
+                      <span>₹{deliveryFee.toFixed(2)}</span>
+                    )}
                   </div>
                   {discount > 0 && (
                     <div className="flex justify-between text-sm text-green-600">
@@ -1340,26 +1420,7 @@ export default function CheckoutDialog({
                     </div>
                   )}
 
-                  {/* Product-level discounts */}
-                  {cart?.items?.some((item: any) => item.offerPercentage > 0) && (
-                    <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-700 space-y-2">
-                      <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">Product Offers Applied:</p>
-                      {cart?.items?.map((item: any) => {
-                        const offerPercentage = item.offerPercentage || 0;
-                        if (offerPercentage > 0) {
-                          const originalPrice = item.originalPrice || item.price;
-                          const discountPerItem = originalPrice - item.price;
-                          return (
-                            <div key={item.id} className="flex justify-between text-xs text-muted-foreground">
-                              <span>{item.name} ({item.quantity}x) - {offerPercentage}% OFF</span>
-                              <span className="text-green-600">- Rs. {(discountPerItem * item.quantity).toFixed(2)}</span>
-                            </div>
-                          );
-                        }
-                        return null;
-                      })}
-                    </div>
-                  )}
+
 
                   {/* Referral Bonus Section */}
                   {isAuthenticated &&
@@ -1460,14 +1521,19 @@ export default function CheckoutDialog({
                                 id="useWalletCheckbox"
                                 checked={useWalletBalance}
                                 onChange={(e) => {
+                                  console.log("[WALLET] Checkbox changed to:", e.target.checked);
                                   setUseWalletBalance(e.target.checked);
                                 }}
-                                disabled={minOrderAmountForWallet > 0 && subtotal < minOrderAmountForWallet}
+                                disabled={isWalletCheckboxDisabled}
                                 className="cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                               />
                               <label
                                 htmlFor="useWalletCheckbox"
-                                className="text-xs cursor-pointer font-medium text-blue-700 dark:text-blue-300"
+                                className={`text-xs font-medium cursor-pointer ${
+                                  isWalletCheckboxDisabled
+                                    ? "text-gray-400 dark:text-gray-500 cursor-not-allowed"
+                                    : "text-blue-700 dark:text-blue-300"
+                                }`}
                               >
                                 Use Balance
                               </label>
@@ -1475,17 +1541,36 @@ export default function CheckoutDialog({
                           )}
                         </div>
                         
-                        {minOrderAmountForWallet > 0 && subtotal < minOrderAmountForWallet && (
+                        {isWalletCheckboxDisabled && (
                           <p className="text-xs text-amber-600 dark:text-amber-400">
-                            ⚠️ Minimum order ₹{minOrderAmountForWallet} required to use wallet
+                            ⚠️ Minimum order ₹{minOrderAmountForWallet} required to use wallet (Current: ₹{(subtotal + deliveryFee - discount).toFixed(2)})
                           </p>
                         )}
                         
-                        {useWalletBalance && walletAmountToUse > 0 && minOrderAmountForWallet <= subtotal && (
+                        {useWalletBalance && walletAmountToUse > 0 && !isWalletCheckboxDisabled && (
                           <p className="text-xs text-green-600 dark:text-green-400">
                             ✓ Will use ₹{walletAmountToUse} from wallet
                           </p>
                         )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Delivery Minimum Order Message */}
+                  {isBelowDeliveryMinimum && (
+                    <div className="border-t pt-2 mt-2">
+                      <div className="bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-md p-3">
+                        <div className="flex items-start gap-2">
+                          <span className="text-lg">🚚</span>
+                          <div className="flex-1">
+                            <p className="text-sm font-semibold text-amber-700 dark:text-amber-300">
+                              Delivery charge ₹{deliveryFee.toFixed(2)} is applicable
+                            </p>
+                            <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                              Add ₹{amountNeededForFreeDelivery} more items to avoid delivery charge
+                            </p>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   )}
