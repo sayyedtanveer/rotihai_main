@@ -5,6 +5,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@radix-ui/react-tooltip";
 import { useAuth } from "@/hooks/useAuth";
+import { useOrderNotifications } from "@/hooks/useOrderNotifications";
 import Home from "@/pages/Home";
 import MyOrders from "@/pages/MyOrders";
 import MySubscriptions from "@/pages/MySubscriptions";
@@ -141,7 +142,14 @@ function Router() {
   );
 }
 
-function App() {
+// Separate component for notifications to avoid hook conflicts
+function NotificationsWrapper() {
+  useOrderNotifications();
+  return null; // This component just sets up notifications, doesn't render anything
+}
+
+// 🔔 Wrapper component for notifications (must be inside QueryClientProvider)
+function AppContent() {
   useEffect(() => {
     // Track visitor on app load - exclude admin, partner, and delivery routes
     const trackVisitor = async () => {
@@ -181,11 +189,18 @@ function App() {
   }, []);
 
   return (
+    <TooltipProvider>
+      <Toaster />
+      <NotificationsWrapper />
+      <Router />
+    </TooltipProvider>
+  );
+}
+
+function App() {
+  return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Toaster />
-        <Router />
-      </TooltipProvider>
+      <AppContent />
     </QueryClientProvider>
   );
 }

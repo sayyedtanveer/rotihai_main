@@ -1,6 +1,6 @@
 const KURLA_LAT = 19.0728;
 const KURLA_LON = 72.8826;
-const MAX_DELIVERY_DISTANCE_KM = 5;
+const MAX_DELIVERY_DISTANCE_KM = 2.5; // Only Kurla West area within 2.5km radius
 
 function toRad(degrees: number): number {
   return degrees * (Math.PI / 180);

@@ -24,4 +24,5 @@ export interface Order {
   deliveryTime?: string;
   deliverySlotId?: string;
   categoryName?: string;
+  isBelowDeliveryMinimum?: boolean;
 }

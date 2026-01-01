@@ -11,6 +11,7 @@ interface CartItem {
   chefId?: string;
   chefName?: string;
   categoryId?: string;
+  offerPercentage?: number; // Add offer percentage
 }
 
 interface CategoryCart {

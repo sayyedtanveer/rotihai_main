@@ -848,15 +848,15 @@ export default function PartnerDashboard() {
                           {product.offerPercentage > 0 ? (
                             <div className="flex flex-col">
                               <span className="text-xs line-through text-muted-foreground">
-                                ₹{product.price}
+                                ₹{product.hotelPrice || product.price}
                               </span>
                               <span className="font-bold text-lg text-green-600">
-                                ₹{Math.round(product.price * (1 - product.offerPercentage / 100))}
+                                ₹{Math.round((product.hotelPrice || product.price) * (1 - product.offerPercentage / 100))}
                               </span>
                             </div>
                           ) : (
                             <span className="font-bold text-lg text-primary">
-                              ₹{product.price}
+                              ₹{product.hotelPrice || product.price}
                             </span>
                           )}
                         </div>
@@ -1287,17 +1287,23 @@ export default function PartnerDashboard() {
                                   
                                   const timestamp = dateObj.getTime();
                                   
-                                  // Check if date is valid (not NaN) and is in a reasonable range (1980-2100)
+                                  // CRITICAL: Check if date is valid (not NaN) and is in a reasonable range (1980-2100)
                                   // This matches the backend serialization validation
                                   if (!isNaN(timestamp)) {
                                     const year = dateObj.getFullYear();
+                                    console.log(`[Partner Sub] ${sub.planName} - nextDeliveryDate year: ${year}, timestamp: ${timestamp}`);
                                     if (year >= 1980 && year <= 2100) {
                                       return format(dateObj, "MMM d, yyyy");
+                                    } else {
+                                      console.warn(`[Partner Sub] ${sub.planName} - Invalid year ${year}, should be 1980-2100`);
                                     }
+                                  } else {
+                                    console.warn(`[Partner Sub] ${sub.planName} - Invalid timestamp (NaN)`);
                                   }
                                   
                                   return "Not scheduled";
                                 } catch (error) {
+                                  console.error(`[Partner Sub] Error parsing date for ${sub.planName}:`, error);
                                   return "Not scheduled";
                                 }
                               })() : "Not scheduled"}
@@ -1477,6 +1483,52 @@ export default function PartnerDashboard() {
                 </CardContent>
               </Card>
             </div>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm md:text-base">Per-Order Earnings</CardTitle>
+                <CardDescription>Income breakdown for each order</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {incomeReport?.orderBreakdown && incomeReport.orderBreakdown.length > 0 ? (
+                    incomeReport.orderBreakdown.filter((order: any) => order.status !== 'cancelled').map((order: any, idx: number) => (
+                      <div
+                        key={idx}
+                        className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 p-3 md:p-4 bg-slate-50 dark:bg-slate-800 rounded-lg border border-border/50"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-xs md:text-sm">Order #{order.orderId.slice(0, 8)}</p>
+                          <p className="text-xs text-muted-foreground mt-1">{order.customerName}</p>
+                          <p className="text-xs text-muted-foreground">{new Date(order.createdAt).toLocaleDateString()} {new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                          <div className="mt-2 text-xs space-y-0.5">
+                            {(order.items as any[]).slice(0, 2).map((item: any, itemIdx: number) => (
+                              <p key={itemIdx} className="text-muted-foreground">
+                                {item.name} x{item.quantity} = ₹{Math.round((item.hotelPrice || item.price) * item.quantity)}
+                              </p>
+                            ))}
+                            {(order.items as any[]).length > 2 && (
+                              <p className="text-muted-foreground text-xs">+{(order.items as any[]).length - 2} more items</p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between md:justify-end gap-4 md:gap-8 md:ml-4">
+                          <div className="text-right">
+                            <p className="text-xs text-muted-foreground">Your Earnings</p>
+                            <p className="font-bold text-sm md:text-base text-green-600">₹{order.orderIncome}</p>
+                          </div>
+                          <Badge variant="outline" className="text-xs flex-shrink-0">
+                            {order.status === 'completed' ? '✓ Completed' : order.status === 'delivered' ? '✓ Delivered' : order.status.charAt(0).toUpperCase() + order.status.slice(1)}
+                          </Badge>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-center text-muted-foreground py-8 text-xs">No orders yet</p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
 
             <Card>
               <CardHeader>

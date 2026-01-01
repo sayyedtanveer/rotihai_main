@@ -14,6 +14,7 @@ import { sendOrderPlacedAdminNotification } from "./whatsappService";
 import { db, subscriptions, orders, walletSettings, referralRewards } from "@shared/db";
 import { eq } from "drizzle-orm";
 import { ZodError } from "zod";
+import axios from "axios";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   registerAdminRoutes(app);
@@ -366,9 +367,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Sanitize phone number
       const sanitizedPhone = result.data.phone.trim().replace(/\s+/g, '');
 
-      const existingUser = await storage.getUserByPhone(sanitizedPhone);
-      if (existingUser) {
-        res.status(409).json({ message: "User with this phone number already exists" });
+      // Allow multiple phone numbers per email (Zomato-like behavior)
+      // Just check if this exact phone number is already registered
+      const existingPhoneUser = await storage.getUserByPhone(sanitizedPhone);
+      if (existingPhoneUser) {
+        res.status(409).json({ message: "Phone number already registered. Please use a different phone number." });
         return;
       }
 
@@ -1038,11 +1041,18 @@ app.post("/api/user/logout", async (req, res) => {
 
       console.log("GET /api/user/orders - User phone:", user.phone);
 
+      // Get delivery settings to determine minimum order amount
+      const deliverySettings = await storage.getDeliverySettings();
+      const minOrderAmount = deliverySettings[0]?.minOrderAmount || 100;
+
       // Get all orders and filter by user's phone number
       const allOrders = await storage.getAllOrders();
       const userOrders = allOrders.filter(order =>
         order.phone === user.phone || order.userId === userId
-      );
+      ).map(order => ({
+        ...order,
+        isBelowDeliveryMinimum: order.subtotal < minOrderAmount
+      }));
 
       console.log("GET /api/user/orders - Found", userOrders.length, "orders");
       res.json(userOrders);
@@ -1140,14 +1150,87 @@ app.post("/api/orders", async (req: any, res) => {
                            sanitized.categoryName?.toLowerCase().includes('roti');
     
     // 🔒 ENFORCE: Delivery fee MUST be greater than 0
-    // This prevents orders placed without valid location (which results in ₹0 delivery fee)
+    // This ensures user has provided either:
+    // 1. Valid customer location (geolocation coordinates)
+    // 2. Valid customer address
+    // Without at least one of these, delivery cannot be calculated/validated
     if (sanitized.deliveryFee <= 0) {
-      console.log(`🚫 Order blocked - deliveryFee is ₹${sanitized.deliveryFee} (invalid, must have valid location)`);
+      console.log(`🚫 Order blocked - deliveryFee is ₹${sanitized.deliveryFee} (location/address required)`);
       return res.status(400).json({
-        message: "Location services required to place order. Please enable location and try again.",
+        message: "Valid delivery location required to place order. Please provide either your location or delivery address.",
         requiresLocation: true,
         deliveryFeeInvalid: true,
         currentDeliveryFee: sanitized.deliveryFee,
+      });
+    }
+
+    // 🔒 CRITICAL: Validate DELIVERY ADDRESS is in service zone (NOT customer GPS location)
+    // Address-based validation ensures orders can only be delivered to Kurla West area
+    const customerLatitude = sanitizeNumber(body.customerLatitude);
+    const customerLongitude = sanitizeNumber(body.customerLongitude);
+    
+    // We must have ADDRESS coordinates to validate delivery zone
+    if (!customerLatitude || !customerLongitude) {
+      console.log(`🚫 Order blocked - no delivery coordinates provided`);
+      return res.status(400).json({
+        message: "Delivery address coordinates required. Please enter and confirm your delivery address.",
+        requiresAddressValidation: true,
+      });
+    }
+
+    // Calculate distance from CHEF'S LOCATION to DELIVERY ADDRESS
+    const { calculateDistance } = await import("@shared/deliveryUtils");
+    
+    // Get chef's location from database (if no chefId, use Kurla West default)
+    let chefLat = 19.0728;
+    let chefLon = 72.8826;
+    let chefName = "Kurla West Kitchen";
+    
+    if (sanitized.chefId) {
+      const chef = await db.query.chefs.findFirst({ 
+        where: (c: any, { eq }: any) => eq(c.id, sanitized.chefId) 
+      });
+      if (chef) {
+        chefLat = chef.latitude ?? 19.0728;
+        chefLon = chef.longitude ?? 72.8826;
+        chefName = chef.name;
+      }
+    }
+    
+    const MAX_DELIVERY_DISTANCE_KM = 2.5; // 2.5km delivery zone from chef location
+    
+    const addressDistance = calculateDistance(chefLat, chefLon, customerLatitude, customerLongitude);
+    
+    console.log(`[DELIVERY-ZONE] Validating delivery address:`, {
+      address: sanitized.address,
+      latitude: customerLatitude,
+      longitude: customerLongitude,
+      chefName: chefName,
+      chefLocation: `${chefLat.toFixed(4)}, ${chefLon.toFixed(4)}`,
+      distanceFromChef: addressDistance.toFixed(2),
+      maxDistance: MAX_DELIVERY_DISTANCE_KM,
+    });
+
+    if (addressDistance > MAX_DELIVERY_DISTANCE_KM) {
+      console.log(`🚫 Order blocked - delivery address outside service zone:`, {
+        address: sanitized.address,
+        chef: chefName,
+        distanceFromChef: addressDistance.toFixed(2),
+        maxDistance: MAX_DELIVERY_DISTANCE_KM,
+      });
+      return res.status(400).json({
+        message: `Delivery not available to this address. ${chefName} delivers within ${MAX_DELIVERY_DISTANCE_KM}km. This address is ${addressDistance.toFixed(1)}km away.`,
+        outsideDeliveryZone: true,
+        addressDistance: addressDistance.toFixed(1),
+        maxDistance: MAX_DELIVERY_DISTANCE_KM,
+        address: sanitized.address,
+      });
+    } else {
+      console.log(`✅ Delivery address validated successfully:`, {
+        address: sanitized.address,
+        chef: chefName,
+        distanceFromChef: addressDistance.toFixed(2),
+        withinZone: true,
       });
     }
     
@@ -1243,11 +1326,12 @@ app.post("/api/orders", async (req: any, res) => {
       if (payload?.userId) userId = payload.userId;
     } else if (sanitized.phone) {
       // Auto-register user if phone is provided and user doesn't exist
-      // Phone is the PRIMARY identifier, not email
+      // Phone is the PRIMARY identifier (unique per account)
       let user = await storage.getUserByPhone(sanitized.phone);
 
       if (!user) {
-        // NEW PHONE = Create new account (email can be reused)
+        // NEW PHONE = Create new account
+        // Email can be reused across different phone numbers
         accountCreated = true;
         const tempPassword = sanitized.phone.slice(-6);
         generatedPassword = tempPassword;
@@ -1306,7 +1390,11 @@ app.post("/api/orders", async (req: any, res) => {
         await storage.updateUserLastLogin(user.id);
       }
 
-      userId = user.id;
+      if (user) {
+        userId = user.id;
+      } else {
+        throw new Error("Failed to create or find user account");
+      }
     }
 
     // Build payload to create order
@@ -1335,6 +1423,17 @@ app.post("/api/orders", async (req: any, res) => {
     if (chef) {
       orderPayload.chefName = chef.name;
     }
+
+    // Enrich items with hotelPrice (partner's cost price) from products table
+    orderPayload.items = await Promise.all(
+      orderPayload.items.map(async (item: any) => {
+        const product = await storage.getProductById(item.id);
+        return {
+          ...item,
+          hotelPrice: product?.hotelPrice || 0, // Add partner's cost price to order item
+        };
+      })
+    );
 
     // Calculate and set deliveryDate if deliverySlotId is provided
     if (orderPayload.deliverySlotId) {
@@ -1707,11 +1806,28 @@ app.post("/api/orders", async (req: any, res) => {
     }
   });
 
-  // Get chefs by category ID
-  app.get("/api/chefs/:categoryId", (req, res) => {
-    const { categoryId } = req.params;
-    const chefs = storage.getChefsByCategory(categoryId);
-    res.json(chefs);
+  // Get specific chef by ID
+  app.get("/api/chefs/:chefId", async (req, res) => {
+    try {
+      const { chefId } = req.params;
+      
+      // Prevent matching with category endpoint - check if it looks like a chef ID
+      // Chef IDs typically contain "chef" or are nanoid/uuid format
+      // Category IDs are like "cat-roti", "cat-lunch" etc.
+      if (!chefId || chefId.startsWith('cat-')) {
+        // This looks like a category ID, not a chef ID
+        const chefs = await storage.getChefsByCategory(chefId);
+        return res.json(chefs);
+      }
+      
+      const chef = await storage.getChefById(chefId);
+      if (!chef) {
+        return res.status(404).json({ message: "Chef not found" });
+      }
+      res.json(chef);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch chef" });
+    }
   });
 
   // Calculate delivery fee based on distance (using admin settings)
@@ -1744,7 +1860,13 @@ app.post("/api/orders", async (req: any, res) => {
       const distance = calculateDistance(latitude, longitude, chefLat, chefLon);
 
       // Get admin delivery settings
-      const deliverySettings = await storage.getDeliverySettings();
+      const deliverySettingsRaw = await storage.getDeliverySettings();
+
+      // Map null minOrderAmount to undefined for type compatibility
+      const deliverySettings = deliverySettingsRaw.map(setting => ({
+        ...setting,
+        minOrderAmount: setting.minOrderAmount ?? undefined
+      }));
 
       // Calculate delivery fee using admin settings
       const deliveryCalc = calculateDelivery(distance, subtotal, deliverySettings);
@@ -3274,6 +3396,216 @@ app.post("/api/orders", async (req: any, res) => {
     } catch (error: any) {
       console.error("Error in auto-reschedule:", error);
       res.status(500).json({ message: error.message || "Failed to auto-reschedule orders" });
+    }
+  });
+
+  // ============ DELIVERY FEE ENDPOINTS ============
+
+  // POST /api/geocode - Convert address/pincode to coordinates using OpenStreetMap
+  // Smart address geocoding with fallback for vague addresses
+  app.post("/api/geocode", async (req, res) => {
+    try {
+      const { address, pincode } = req.body;
+
+      if (!address && !pincode) {
+        return res.status(400).json({
+          success: false,
+          message: "Either address or pincode must be provided",
+        });
+      }
+
+      const query = address || pincode;
+      console.log(`[GEOCODE] Attempting to geocode: "${query}"`);
+
+      // Helper function to geocode an address
+      const geocodeQuery = async (searchQuery: string) => {
+        try {
+          const response = await axios.get("https://nominatim.openstreetmap.org/search", {
+            params: {
+              q: searchQuery,
+              format: "json",
+              limit: 1,
+              addressdetails: 1,
+            },
+            headers: {
+              "User-Agent": "Replitrotihai-App",
+            },
+            timeout: 5000,
+          });
+
+          if (response.data && response.data.length > 0) {
+            return response.data[0];
+          }
+          return null;
+        } catch (error) {
+          console.error(`[GEOCODE] Error geocoding "${searchQuery}":`, error instanceof Error ? error.message : error);
+          return null;
+        }
+      };
+
+      // First attempt: Try the exact address/pincode as provided
+      let result = await geocodeQuery(query);
+
+      // Second attempt: If address provided, try appending Mumbai for context
+      if (!result && address) {
+        const withMumbai = address + ", Mumbai";
+        console.log(`[GEOCODE] Trying with Mumbai context: "${withMumbai}"`);
+        result = await geocodeQuery(withMumbai);
+      }
+
+      // Third attempt: Extract area keywords when full address fails
+      // This handles: "39/18, LJG colony, Kurla west, Mumbai" → extracts "Kurla west, Mumbai"
+      if (!result && address) {
+        console.log(`[GEOCODE] Full address failed, attempting area extraction...`);
+        
+        const areaKeywords = [
+          "kurla", "bandra", "andheri", "dadar", "colaba", "mahim",
+          "worli", "powai", "thane", "airoli", "mulund", "borivali",
+          "malad", "kandivali", "goregaon", "dombivli", "navi", "vile parle",
+          "santacruz", "chembur", "vikhroli", "ghatkopar", "kanjurmarg"
+        ];
+
+        const addressLower = address.toLowerCase();
+        
+        // Find the LAST (rightmost) occurrence of any area keyword
+        // This skips shop/building names that come before the area
+        let lastAreaIndex = -1;
+        let lastAreaKeyword = "";
+        
+        for (const keyword of areaKeywords) {
+          const index = addressLower.lastIndexOf(keyword);
+          if (index > lastAreaIndex) {
+            lastAreaIndex = index;
+            lastAreaKeyword = keyword;
+          }
+        }
+
+        // If we found an area keyword, extract from there onwards
+        if (lastAreaKeyword) {
+          // Get the substring starting from the area keyword
+          const extractedArea = address.substring(lastAreaIndex).trim();
+          const areaQuery = extractedArea + ", Mumbai";
+          
+          console.log(`[GEOCODE] Extracted area: "${areaQuery}" from full address`);
+          result = await geocodeQuery(areaQuery);
+          
+          if (result) {
+            console.log(`[GEOCODE] ✅ Area extraction successful: "${areaQuery}"`);
+          }
+        }
+      }
+
+      // If we got a result, return it
+      if (result) {
+        const latitude = parseFloat(result.lat);
+        const longitude = parseFloat(result.lon);
+        const formattedAddress = result.display_name || query;
+
+        console.log(`✅ [GEOCODE] Successfully geocoded: ${query} -> (${latitude}, ${longitude})`);
+
+        res.json({
+          success: true,
+          latitude,
+          longitude,
+          formattedAddress,
+        });
+      } else {
+        console.warn(`❌ [GEOCODE] Could not geocode: ${query}`);
+        return res.status(404).json({
+          success: false,
+          message: "Address not found. Try using area name (e.g., 'Kurla West, Mumbai') or click on map to select your location.",
+        });
+      }
+    } catch (error: any) {
+      console.error("[GEOCODE] Geocoding error:", error.message);
+
+      if (error.code === "ECONNABORTED") {
+        return res.status(504).json({
+          success: false,
+          message: "Geocoding service timeout. Please try again.",
+        });
+      }
+
+      res.status(500).json({
+        success: false,
+        message: "Failed to geocode address. Please try again.",
+      });
+    }
+  });
+
+  // POST /api/calculate-delivery-fee - Calculate delivery fee based on location and order amount
+  app.post("/api/calculate-delivery-fee", async (req, res) => {
+    try {
+      const { chefId, customerLatitude, customerLongitude, orderAmount } = req.body;
+
+      if (!chefId) {
+        return res.status(400).json({
+          success: false,
+          message: "chefId is required",
+        });
+      }
+
+      if (typeof orderAmount !== "number" || orderAmount < 0) {
+        return res.status(400).json({
+          success: false,
+          message: "orderAmount must be a non-negative number",
+        });
+      }
+
+      // Get chef details
+      const chef = await storage.getChefById(chefId);
+      if (!chef) {
+        return res.status(404).json({
+          success: false,
+          message: "Chef not found",
+        });
+      }
+
+      // Calculate distance if location provided
+      let distance: number | null = null;
+
+      if (customerLatitude && customerLongitude && chef.latitude && chef.longitude) {
+        // Haversine formula to calculate distance between two coordinates
+        const R = 6371; // Earth's radius in km
+        const dLat = ((chef.latitude - customerLatitude) * Math.PI) / 180;
+        const dLng = ((chef.longitude - customerLongitude) * Math.PI) / 180;
+        const a =
+          Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos((customerLatitude * Math.PI) / 180) *
+            Math.cos((chef.latitude * Math.PI) / 180) *
+            Math.sin(dLng / 2) *
+            Math.sin(dLng / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        distance = Math.round((R * c + Number.EPSILON) * 100) / 100; // Round to 2 decimals
+      }
+
+      // Use storage helper to calculate delivery fee
+      const feeResult = await storage.calculateDeliveryFee(
+        distance !== null,
+        distance || 0,
+        orderAmount,
+        chef
+      );
+
+      console.log(`✅ Calculated delivery fee for chef ${chefId}: ${feeResult.deliveryFee}, distance: ${distance}km, isFree: ${feeResult.isFreeDelivery}`);
+
+      res.json({
+        success: true,
+        distance: distance || 0,
+        deliveryFee: feeResult.deliveryFee,
+        isFreeDelivery: feeResult.isFreeDelivery,
+        breakdown: {
+          subtotal: orderAmount,
+          deliveryFee: feeResult.deliveryFee,
+          total: orderAmount + (feeResult.isFreeDelivery ? 0 : feeResult.deliveryFee),
+        },
+      });
+    } catch (error: any) {
+      console.error("Delivery fee calculation error:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to calculate delivery fee",
+      });
     }
   });
 

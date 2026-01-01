@@ -172,13 +172,21 @@ export default function MySubscriptions() {
   };
 
   const getNextDeliveryInfo = (subscription: Subscription) => {
-    if (!subscription.nextDeliveryDate) return null;
+    if (!subscription.nextDeliveryDate) {
+      console.log(`[MySubscriptions] Subscription ${subscription.id} - nextDeliveryDate is null/falsy`);
+      return null;
+    }
     
     // Check if the date is valid (matches backend validation: 1980-2100)
     const nextDate = new Date(subscription.nextDeliveryDate);
     const year = nextDate.getFullYear();
+    const timestamp = nextDate.getTime();
+    
+    console.log(`[MySubscriptions] Subscription ${subscription.id} - nextDeliveryDate: ${subscription.nextDeliveryDate}, year: ${year}, timestamp: ${timestamp}, valid: ${!isNaN(timestamp)}`);
+    
     if (isNaN(nextDate.getTime()) || year < 1980 || year > 2100) {
       // Invalid or default date - don't show delivery info
+      console.warn(`[MySubscriptions] Subscription ${subscription.id} - Invalid date detected! Year: ${year}, Timestamp: ${timestamp}`);
       return null;
     }
     
@@ -315,7 +323,7 @@ export default function MySubscriptions() {
                             </div>
                             <div>
                               <p className="text-muted-foreground text-xs font-medium">Amount Paid</p>
-                              <p className="font-semibold">₹{(subscription.finalAmount || subscription.originalPrice || 0) / 100}</p>
+                              <p className="font-semibold">₹{Math.round(subscription.finalAmount || subscription.originalPrice || 0)}</p>
                             </div>
                             <div>
                               <p className="text-muted-foreground text-xs font-medium">Status</p>

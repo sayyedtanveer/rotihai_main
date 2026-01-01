@@ -371,7 +371,15 @@ export function registerPartnerRoutes(app: Express): void {
 
       const allProducts = await storage.getAllProducts();
       const chefProducts = allProducts.filter(p => p.chefId === chefId);
-      res.json(chefProducts);
+      
+      // Show partner's hotel price (their selling price), hide marginPercent (internal profit calc)
+      // hotelPrice is what partner charges, so they should see it
+      const sanitizedProducts = chefProducts.map((p: any) => {
+        const { marginPercent, ...safeProduct } = p;
+        return safeProduct;
+      });
+      
+      res.json(sanitizedProducts);
     } catch (error) {
       console.error("Error fetching partner products:", error);
       res.status(500).json({ message: "Failed to fetch products" });
@@ -459,7 +467,14 @@ export function registerPartnerRoutes(app: Express): void {
       const allOrders = await storage.getOrdersByChefId(chefId);
       const completedOrders = allOrders.filter(o => o.paymentStatus === "confirmed");
 
-      const totalIncome = completedOrders.reduce((sum, order) => sum + order.total, 0);
+      // Calculate income based on hotelPrice (partner's price), not selling price
+      const totalIncome = completedOrders.reduce((sum, order) => {
+        const orderPartnerIncome = (order.items as any[]).reduce((itemSum, item) => {
+          const itemPrice = item.hotelPrice || item.price; // Use hotelPrice if available, else fallback to price
+          return itemSum + (itemPrice * item.quantity);
+        }, 0);
+        return sum + orderPartnerIncome;
+      }, 0);
 
       const now = new Date();
       const startOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -471,8 +486,16 @@ export function registerPartnerRoutes(app: Express): void {
         new Date(o.createdAt) >= startOfLastMonth && new Date(o.createdAt) <= endOfLastMonth
       );
 
-      const thisMonth = thisMonthOrders.reduce((sum, order) => sum + order.total, 0);
-      const lastMonth = lastMonthOrders.reduce((sum, order) => sum + order.total, 0);
+      // Calculate based on hotelPrice (partner's price)
+      const calculateOrderIncome = (order: any) => {
+        return (order.items as any[]).reduce((sum, item) => {
+          const itemPrice = item.hotelPrice || item.price;
+          return sum + (itemPrice * item.quantity);
+        }, 0);
+      };
+
+      const thisMonth = thisMonthOrders.reduce((sum, order) => sum + calculateOrderIncome(order), 0);
+      const lastMonth = lastMonthOrders.reduce((sum, order) => sum + calculateOrderIncome(order), 0);
 
       // Monthly breakdown for last 6 months
       const monthlyBreakdown = [];
@@ -485,7 +508,7 @@ export function registerPartnerRoutes(app: Express): void {
           return orderDate >= monthStart && orderDate <= monthEnd;
         });
 
-        const monthRevenue = monthOrders.reduce((sum, order) => sum + order.total, 0);
+        const monthRevenue = monthOrders.reduce((sum, order) => sum + calculateOrderIncome(order), 0);
         const avgOrderValue = monthOrders.length > 0 ? Math.round(monthRevenue / monthOrders.length) : 0;
 
         monthlyBreakdown.push({
@@ -496,11 +519,28 @@ export function registerPartnerRoutes(app: Express): void {
         });
       }
 
+      // Get per-order income breakdown
+      const orderBreakdown = completedOrders.map(order => {
+        const orderIncome = (order.items as any[]).reduce((sum, item) => {
+          const itemPrice = item.hotelPrice || item.price;
+          return sum + (itemPrice * item.quantity);
+        }, 0);
+        return {
+          orderId: order.id,
+          customerName: order.customerName,
+          createdAt: order.createdAt,
+          items: order.items,
+          orderIncome,
+          status: order.status,
+        };
+      }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
       res.json({
         totalIncome,
         thisMonth,
         lastMonth,
         monthlyBreakdown,
+        orderBreakdown,
       });
     } catch (error) {
       console.error("Error fetching income report:", error);

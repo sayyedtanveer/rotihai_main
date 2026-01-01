@@ -1,5 +1,5 @@
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,7 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import { adminApiRequest } from "@/hooks/useAdminAuth";
 import { queryClient } from "@/lib/queryClient";
 import type { Chef, Category } from "@shared/schema";
-import { Star, Pencil, Trash2, Plus, Store } from "lucide-react";
+import { Star, Pencil, Trash2, Plus, Store, Loader2, MapPin } from "lucide-react";
 
 export default function AdminChefs() {
   const { toast } = useToast();
@@ -28,7 +28,21 @@ export default function AdminChefs() {
     rating: "4.5",
     reviewCount: 0,
     categoryId: "",
+    address: "",
+    // Structured address fields
+    addressBuilding: "",
+    addressStreet: "",
+    addressArea: "",
+    addressCity: "Mumbai",
+    addressPincode: "",
+    latitude: 19.0728,
+    longitude: 72.8826,
   });
+  
+  // Geocoding states
+  const [isGeocodingAddress, setIsGeocodingAddress] = useState(false);
+  const [geocodeError, setGeocodeError] = useState("");
+  const geocodeTimeoutRef = useRef<NodeJS.Timeout>();
 
   const { data: chefs, isLoading } = useQuery<Chef[]>({
     queryKey: ["/api/admin", "chefs"],
@@ -139,11 +153,116 @@ export default function AdminChefs() {
       rating: "4.5",
       reviewCount: 0,
       categoryId: "",
+      address: "",
+      // Structured address fields
+      addressBuilding: "",
+      addressStreet: "",
+      addressArea: "",
+      addressCity: "Mumbai",
+      addressPincode: "",
+      latitude: 19.0728,
+      longitude: 72.8826,
     });
+    setGeocodeError("");
+  };
+
+  // Auto-geocode address with debounce - triggered by area field change
+  const handleAddressChange = (field: string, value: string) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+    
+    // Only trigger geocoding when area field changes
+    if (field !== "addressArea") {
+      setGeocodeError("");
+      return;
+    }
+
+    setGeocodeError("");
+    
+    if (geocodeTimeoutRef.current) {
+      clearTimeout(geocodeTimeoutRef.current);
+    }
+
+    if (!value.trim()) {
+      return;
+    }
+
+    // Build full address from components for geocoding
+    const building = formData.addressBuilding?.trim() || "";
+    const street = formData.addressStreet?.trim() || "";
+    const area = value.trim();
+    const city = formData.addressCity?.trim() || "Mumbai";
+    const fullAddress = [building, street, area, city]
+      .filter(part => part.length > 0)
+      .join(", ");
+
+    if (!fullAddress.trim()) {
+      return;
+    }
+
+    geocodeTimeoutRef.current = setTimeout(async () => {
+      try {
+        setIsGeocodingAddress(true);
+        const response = await fetch("/api/geocode", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ address: fullAddress }),
+        });
+
+        if (!response.ok) {
+          const data = await response.json();
+          setGeocodeError(data.message || "Failed to geocode address");
+          setIsGeocodingAddress(false);
+          return;
+        }
+
+        const data = await response.json();
+        if (data.success) {
+          setFormData(prev => ({
+            ...prev,
+            latitude: data.latitude,
+            longitude: data.longitude,
+          }));
+          setGeocodeError("");
+          toast({
+            title: "Location found",
+            description: `${fullAddress} - (${data.latitude.toFixed(4)}, ${data.longitude.toFixed(4)})`,
+          });
+        } else {
+          setGeocodeError(data.message || "Could not find location");
+        }
+      } catch (error) {
+        setGeocodeError("Error geocoding address");
+        console.error("Geocoding error:", error);
+      } finally {
+        setIsGeocodingAddress(false);
+      }
+    }, 1000); // 1 second debounce
   };
 
   const handleEdit = (chef: Chef) => {
     setEditingChef(chef);
+    
+    // Parse old address format if structured fields are empty
+    let addressBuilding = (chef as any).addressBuilding || "";
+    let addressStreet = (chef as any).addressStreet || "";
+    let addressArea = (chef as any).addressArea || "";
+    let addressCity = (chef as any).addressCity || "Mumbai";
+    let addressPincode = (chef as any).addressPincode || "";
+    
+    // If old address exists but new structured fields are empty, parse the old format
+    const oldAddress = (chef as any).address || "";
+    if (oldAddress && !addressBuilding && !addressStreet && !addressArea) {
+      const parts = oldAddress.split(",").map((p: string) => p.trim());
+      if (parts.length >= 2) {
+        // Format: "Building, Street, Area, City, Pincode"
+        addressBuilding = parts[0] || "";
+        addressStreet = parts[1] || "";
+        addressArea = parts[2] || "";
+        addressCity = parts[3] || "Mumbai";
+        addressPincode = parts[4] || "";
+      }
+    }
+    
     setFormData({
       name: chef.name,
       description: chef.description,
@@ -151,7 +270,17 @@ export default function AdminChefs() {
       rating: chef.rating,
       reviewCount: chef.reviewCount,
       categoryId: chef.categoryId,
+      address: oldAddress,
+      // Structured address fields
+      addressBuilding,
+      addressStreet,
+      addressArea,
+      addressCity,
+      addressPincode,
+      latitude: (chef as any).latitude || 19.0728,
+      longitude: (chef as any).longitude || 72.8826,
     });
+    setGeocodeError("");
   };
 
   const handleUpdate = () => {
@@ -286,12 +415,12 @@ export default function AdminChefs() {
 
       {/* Add Chef Dialog */}
       <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Add New Chef</DialogTitle>
             <DialogDescription>Create a new chef or restaurant profile</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
+          <div className="space-y-4 py-4 overflow-y-auto flex-1">
             <div className="space-y-2">
               <Label htmlFor="name">Name</Label>
               <Input
@@ -355,6 +484,120 @@ export default function AdminChefs() {
                 />
               </div>
             </div>
+            
+            {/* Chef Address & Location - Structured */}
+            <div className="space-y-3 border-t pt-4">
+              <Label className="flex items-center gap-2 font-semibold">
+                <MapPin className="w-4 h-4" />
+                Chef Restaurant Address
+              </Label>
+
+              {/* Row 1: Building/House Number and Street */}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label htmlFor="addressBuilding" className="text-xs text-gray-600">
+                    Building/House No
+                  </Label>
+                  <Input
+                    id="addressBuilding"
+                    value={formData.addressBuilding}
+                    onChange={(e) => setFormData({ ...formData, addressBuilding: e.target.value })}
+                    placeholder="e.g., 18/20"
+                    className="text-sm"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="addressStreet" className="text-xs text-gray-600">
+                    Street/Colony
+                  </Label>
+                  <Input
+                    id="addressStreet"
+                    value={formData.addressStreet}
+                    onChange={(e) => setFormData({ ...formData, addressStreet: e.target.value })}
+                    placeholder="e.g., Liguardo"
+                    className="text-sm"
+                  />
+                </div>
+              </div>
+
+              {/* Row 2: Area (Critical for validation) */}
+              <div>
+                <Label htmlFor="addressArea" className="text-xs text-gray-600 font-semibold">
+                  Area/Locality * (Required)
+                </Label>
+                <Input
+                  id="addressArea"
+                  value={formData.addressArea}
+                  onChange={(e) => handleAddressChange("addressArea", e.target.value)}
+                  placeholder="e.g., Kurla West"
+                  className="text-sm"
+                  disabled={isGeocodingAddress}
+                />
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Area will be auto-geocoded to find exact location
+                </p>
+              </div>
+
+              {/* Row 3: City and Pincode */}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label htmlFor="addressCity" className="text-xs text-gray-600">
+                    City
+                  </Label>
+                  <Input
+                    id="addressCity"
+                    value={formData.addressCity}
+                    onChange={(e) => setFormData({ ...formData, addressCity: e.target.value })}
+                    placeholder="Mumbai"
+                    className="text-sm"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="addressPincode" className="text-xs text-gray-600">
+                    Pincode
+                  </Label>
+                  <Input
+                    id="addressPincode"
+                    value={formData.addressPincode}
+                    onChange={(e) => setFormData({ ...formData, addressPincode: e.target.value })}
+                    placeholder="e.g., 400070"
+                    className="text-sm"
+                  />
+                </div>
+              </div>
+
+              {/* Geocoding status/error */}
+              {isGeocodingAddress && (
+                <div className="flex items-center gap-2 text-sm text-blue-600">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Finding location...
+                </div>
+              )}
+              
+              {geocodeError && (
+                <div className="text-sm text-red-600 bg-red-50 dark:bg-red-900/20 p-2 rounded">
+                  {geocodeError}
+                </div>
+              )}
+              
+              {/* Location preview */}
+              {(formData.latitude || formData.longitude) && !isGeocodingAddress && (
+                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-md p-3 space-y-1">
+                  <p className="text-xs font-semibold text-blue-900 dark:text-blue-100">
+                    📍 Location Confirmed
+                  </p>
+                  <p className="text-xs text-blue-800 dark:text-blue-200">
+                    Latitude: {formData.latitude.toFixed(4)}
+                  </p>
+                  <p className="text-xs text-blue-800 dark:text-blue-200">
+                    Longitude: {formData.longitude.toFixed(4)}
+                  </p>
+                  <p className="text-xs text-blue-700 dark:text-blue-300 mt-2">
+                    Delivery zone: 2.5km from this location
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
@@ -373,12 +616,12 @@ export default function AdminChefs() {
 
       {/* Edit Chef Dialog */}
       <Dialog open={!!editingChef} onOpenChange={() => setEditingChef(null)}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Edit Chef</DialogTitle>
             <DialogDescription>Update chef information</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
+          <div className="space-y-4 py-4 overflow-y-auto flex-1">
             <div className="space-y-2">
               <Label htmlFor="edit-name">Name</Label>
               <Input
@@ -441,6 +684,58 @@ export default function AdminChefs() {
                   data-testid="input-edit-reviews"
                 />
               </div>
+            </div>
+            
+            {/* Chef Address & Location */}
+            <div className="space-y-3 border-t pt-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-address" className="flex items-center gap-2">
+                  <MapPin className="w-4 h-4" />
+                  Chef Address (Optional)
+                </Label>
+                <Input
+                  id="edit-address"
+                  value={formData.address}
+                  onChange={(e) => handleAddressChange(e.target.value)}
+                  placeholder="e.g., 18/20, Liguardo, Kurla West, Mumbai"
+                  disabled={isGeocodingAddress}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Address will be auto-geocoded to find exact location
+                </p>
+              </div>
+              
+              {/* Geocoding status/error */}
+              {isGeocodingAddress && (
+                <div className="flex items-center gap-2 text-sm text-blue-600">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Finding location...
+                </div>
+              )}
+              
+              {geocodeError && (
+                <div className="text-sm text-red-600 bg-red-50 dark:bg-red-900/20 p-2 rounded">
+                  {geocodeError}
+                </div>
+              )}
+              
+              {/* Location preview */}
+              {(formData.latitude || formData.longitude) && !isGeocodingAddress && (
+                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-md p-3 space-y-1">
+                  <p className="text-xs font-semibold text-blue-900 dark:text-blue-100">
+                    📍 Location Confirmed
+                  </p>
+                  <p className="text-xs text-blue-800 dark:text-blue-200">
+                    Latitude: {formData.latitude.toFixed(4)}
+                  </p>
+                  <p className="text-xs text-blue-800 dark:text-blue-200">
+                    Longitude: {formData.longitude.toFixed(4)}
+                  </p>
+                  <p className="text-xs text-blue-700 dark:text-blue-300 mt-2">
+                    Delivery zone: 2.5km from this location
+                  </p>
+                </div>
+              )}
             </div>
           </div>
           <DialogFooter>

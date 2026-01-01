@@ -19,7 +19,7 @@ export const sessions = pgTable(
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: varchar("name", { length: 255 }).notNull(),
-  phone: varchar("phone", { length: 20 }).notNull().unique(),
+  phone: varchar("phone", { length: 20 }).notNull(), // Multiple phone numbers allowed per email
   email: varchar("email", { length: 255 }),
   address: text("address"),
   passwordHash: text("password_hash").notNull(),
@@ -70,9 +70,20 @@ export const chefs = pgTable("chefs", {
   rating: text("rating").notNull(),
   reviewCount: integer("review_count").notNull(),
   categoryId: text("category_id").notNull(),
+  address: text("address"), // Chef's physical address (optional)
+  // Structured address components (added for better search/filtering)
+  addressBuilding: text("address_building"),
+  addressStreet: text("address_street"),
+  addressArea: text("address_area"),
+  addressCity: text("address_city"),
+  addressPincode: text("address_pincode"),
   latitude: real("latitude").notNull().default(19.0728),
   longitude: real("longitude").notNull().default(72.8826),
   isActive: boolean("is_active").notNull().default(true),
+  // Delivery fee configuration
+  defaultDeliveryFee: integer("default_delivery_fee").notNull().default(20), // Fallback fee when no location
+  deliveryFeePerKm: integer("delivery_fee_per_km").notNull().default(5), // ₹ per km
+  freeDeliveryThreshold: integer("free_delivery_threshold").notNull().default(200), // Free delivery above this amount
 });
 
 
@@ -80,7 +91,8 @@ export const products = pgTable("products", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   description: text("description").notNull(),
-  price: integer("price").notNull(),
+  hotelPrice: integer("hotel_price").notNull().default(0), // ← NEW: Cost from hotel/supplier (₹)
+  price: integer("price").notNull(), // ← RotiHai selling price (₹)
   image: text("image").notNull(),
   rating: decimal("rating", { precision: 2, scale: 1 }).notNull().default("4.5"),
   reviewCount: integer("review_count").notNull().default(0),
@@ -91,7 +103,8 @@ export const products = pgTable("products", {
   isAvailable: boolean("is_available").notNull().default(true),
   categoryId: varchar("category_id").notNull(),
   chefId: text("chef_id"),
-  offerPercentage: integer("offer_percentage").notNull().default(0), // Added offerPercentage field
+  offerPercentage: integer("offer_percentage").notNull().default(0),
+  marginPercent: decimal("margin_percent", { precision: 5, scale: 2 }).default("0"), // ← NEW: Auto-calculated margin %
 });
 
 export const paymentStatusEnum = pgEnum("payment_status", ["pending", "paid", "confirmed"]);
@@ -119,6 +132,12 @@ export const orders = pgTable("orders", {
   phone: text("phone").notNull(),
   email: text("email"),
   address: text("address").notNull(),
+  // Structured address components (added for better search/filtering)
+  addressBuilding: text("address_building"),
+  addressStreet: text("address_street"),
+  addressArea: text("address_area"),
+  addressCity: text("address_city"),
+  addressPincode: text("address_pincode"),
   items: jsonb("items").notNull(),
   subtotal: integer("subtotal").notNull(),
   deliveryFee: integer("delivery_fee").notNull(),
@@ -337,8 +356,10 @@ export const insertCategorySchema = createInsertSchema(categories).omit({
 export const insertProductSchema = createInsertSchema(products).omit({
   id: true,
 }).extend({
+  hotelPrice: z.number().min(0).optional(), // ← NEW: Cost from hotel/supplier
+  marginPercent: z.union([z.number(), z.string()]).transform(v => typeof v === 'string' ? parseFloat(v) : v).optional(), // ← NEW: Auto-calculated margin (handle DECIMAL from DB)
   isCustomizable: z.boolean().default(false).optional(),
-  offerPercentage: z.number().min(0).max(100).optional(), // Added offerPercentage to Zod schema
+  offerPercentage: z.number().min(0).max(100).optional(),
   createdAt: z.date().or(z.string()).optional(),
   updatedAt: z.date().or(z.string()).optional(),
 });
@@ -352,6 +373,7 @@ const orderItemSchema = z.object({
   id: z.string(),
   name: z.string(),
   price: z.number(),
+  hotelPrice: z.number().optional(), // ← Partner's cost price
   quantity: z.number(),
 });
 
@@ -360,6 +382,7 @@ export const insertOrderSchema = createInsertSchema(orders, {
     id: z.string(),
     name: z.string(),
     price: z.number(),
+    hotelPrice: z.number().optional(), // ← Partner's cost price
     quantity: z.number(),
   })),
   status: z.enum([
@@ -512,17 +535,17 @@ export const insertSubscriptionSchema = createInsertSchema(subscriptions, {
   phone: z.string().min(10, { message: "Phone number must be at least 10 digits long" }),
   address: z.string().min(1, { message: "Address is required" }),
   status: z.enum(["pending", "active", "paused", "cancelled", "expired"]).default("active"),
-  startDate: z.preprocess((arg) => new Date(arg as string), z.date()),
-  endDate: z.preprocess((arg) => new Date(arg as string), z.date()).optional(),
-  nextDeliveryDate: z.preprocess((arg) => new Date(arg as string), z.date()),
+  startDate: z.preprocess((arg) => arg ? new Date(arg as string) : null, z.date().nullable()).optional(),
+  endDate: z.preprocess((arg) => arg ? new Date(arg as string) : null, z.date().nullable()).optional(),
+  nextDeliveryDate: z.preprocess((arg) => arg ? new Date(arg as string) : null, z.date().nullable()).optional(),
   nextDeliveryTime: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, { message: "Invalid time format. Use HH:mm." }).default("09:00"),
   customItems: z.array(z.object({ id: z.string(), name: z.string(), quantity: z.number() })).optional(),
   remainingDeliveries: z.number().int().min(0).default(30),
   totalDeliveries: z.number().int().min(0).default(30),
   isPaid: z.boolean().default(false),
   paymentTransactionId: z.string().optional(),
-  lastDeliveryDate: z.preprocess((arg) => new Date(arg as string), z.date()).optional(),
-  deliveryHistory: z.array(z.object({ deliveryDate: z.preprocess((arg) => new Date(arg as string), z.date()), status: z.string() })).default([]),
+  lastDeliveryDate: z.preprocess((arg) => arg ? new Date(arg as string) : null, z.date().nullable()).optional(),
+  deliveryHistory: z.array(z.object({ deliveryDate: z.preprocess((arg) => arg ? new Date(arg as string) : null, z.date().nullable()), status: z.string() })).default([]),
   pauseStartDate: z.preprocess((arg) => arg ? new Date(arg as string) : null, z.date().nullable()).optional(),
   pauseResumeDate: z.preprocess((arg) => arg ? new Date(arg as string) : null, z.date().nullable()).optional(),
 }).omit({

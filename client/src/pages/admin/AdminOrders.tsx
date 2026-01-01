@@ -357,9 +357,9 @@ export default function AdminOrders() {
                         </TableCell>
                         <TableCell className="font-semibold">₹{order.total}</TableCell>
                         <TableCell>
-                          {order.chefId && chefs ? (
-                            <span className="text-sm text-primary">
-                              {chefs.find((c: any) => c.id === order.chefId)?.name || "Unknown"}
+                          {order.chefName ? (
+                            <span className="text-sm font-medium text-primary">
+                              {order.chefName}
                             </span>
                           ) : (
                             <span className="text-sm text-slate-400">-</span>

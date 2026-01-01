@@ -27,13 +27,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { useWalletUpdates } from "@/hooks/useWalletUpdates";
 import { useApplyReferral } from "@/hooks/useApplyReferral";
-import { Loader2, Clock } from "lucide-react";
+import { Loader2, Clock, MapPin } from "lucide-react";
+import { getDeliveryMessage, calculateDistance } from "@/lib/locationUtils";
 
 // Hook to check for mobile viewport
 function useIsMobile() {
@@ -61,6 +62,7 @@ interface CartItem {
   chefId?: string;
   chefName?: string;
   categoryId?: string;
+  offerPercentage?: number; // Add offer percentage
 }
 
 interface CategoryCart {
@@ -115,16 +117,43 @@ export default function CheckoutDialog({
   onShowPaymentQR,
 }: CheckoutDialogProps) {
   const [activeTab, setActiveTab] = useState("checkout");
+  
+  // Log when cart changes
+  useEffect(() => {
+    console.log("[CHECKOUT-DIALOG] Received cart prop:", {
+      isOpen,
+      hasCart: !!cart,
+      cartChefId: cart?.chefId,
+      cartChefLatitude: cart?.chefLatitude,
+      cartChefLongitude: cart?.chefLongitude,
+      cartDeliveryFee: cart?.deliveryFee,
+      cartDistance: cart?.distance,
+    });
+  }, [cart, isOpen]);
   const [customerName, setCustomerName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
-  const [address, setAddress] = useState("");
+  
+  // Structured address fields
+  const [addressBuilding, setAddressBuilding] = useState("");
+  const [addressStreet, setAddressStreet] = useState("");
+  const [addressArea, setAddressArea] = useState("");
+  const [addressCity, setAddressCity] = useState("Mumbai");
+  const [addressPincode, setAddressPincode] = useState("");
+  
+  // Full address for display
+  const address = [addressBuilding, addressStreet, addressArea, addressCity, addressPincode]
+    .filter(Boolean)
+    .join(", ");
+  
   const [couponCode, setCouponCode] = useState("");
   const [referralCode, setReferralCode] = useState("");
   const [subtotal, setSubtotal] = useState(0);
+  const [originalSubtotal, setOriginalSubtotal] = useState(0); // Original price before item discounts
   const [deliveryFee, setDeliveryFee] = useState(0);
   const [deliveryDistance, setDeliveryDistance] = useState<number | null>(null);
   const [discount, setDiscount] = useState(0);
+  const [itemDiscountSavings, setItemDiscountSavings] = useState(0); // Track savings from item offers
   const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [isCheckingPhone, setIsCheckingPhone] = useState(false);
@@ -158,6 +187,20 @@ export default function CheckoutDialog({
   const [isBelowDeliveryMinimum, setIsBelowDeliveryMinimum] = useState<boolean>(false);
   const [amountNeededForFreeDelivery, setAmountNeededForFreeDelivery] = useState<number>(0);
   
+  // Location states
+  const [customerLatitude, setCustomerLatitude] = useState<number | null>(null);
+  const [customerLongitude, setCustomerLongitude] = useState<number | null>(null);
+  const [isGeocodingAddress, setIsGeocodingAddress] = useState(false);
+  const [locationError, setLocationError] = useState("");
+  const [hasLocationPermission, setHasLocationPermission] = useState(false);
+  const [isRequestingLocation, setIsRequestingLocation] = useState(false);
+  
+  // Delivery address zone validation (NOT GPS-based)
+  const [addressInDeliveryZone, setAddressInDeliveryZone] = useState(true);
+  const [addressZoneValidated, setAddressZoneValidated] = useState(false);
+  const [addressZoneDistance, setAddressZoneDistance] = useState<number>(0);
+  const autoGeocodeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
   const { toast } = useToast();
   const { user, isAuthenticated, userToken } = useAuth();
   const applyReferralMutation = useApplyReferral();
@@ -168,6 +211,11 @@ export default function CheckoutDialog({
 
   // Dummy password state for login form
   const [password, setPassword] = useState("");
+
+  // TWO-STEP CHECKOUT: Step 1 = Address Entry, Step 2 = Order Confirmation
+  // This follows Zomato's approach: address first, then partners/fees
+  const [checkoutStep, setCheckoutStep] = useState<"address" | "confirmation">("address");
+  const [addressValidationMessage, setAddressValidationMessage] = useState("");
 
   // Check if this is a Roti category order
   const isRotiCategory =
@@ -343,39 +391,66 @@ export default function CheckoutDialog({
 
   // Determine if wallet checkbox should be disabled
   const isWalletCheckboxDisabled = useMemo(() => {
-    const disabled = minOrderAmountForWallet > 0 && (subtotal + deliveryFee - discount) < minOrderAmountForWallet;
+    // Calculate if delivery fee should actually be charged
+    const deliveryMin = cart?.minOrderAmount || 0;
+    const isBelowMin = deliveryMin > 0 && subtotal < deliveryMin;
+    const actualFeeForCalc = isBelowMin ? deliveryFee : 0;
+    const disabled = minOrderAmountForWallet > 0 && (subtotal + actualFeeForCalc - discount) < minOrderAmountForWallet;
     console.log("[WALLET CHECKBOX] Disabled state calculation:", {
       minOrderAmountForWallet,
       subtotal,
       deliveryFee,
+      actualFeeForCalc,
       discount,
-      orderTotal: subtotal + deliveryFee - discount,
+      orderTotal: subtotal + actualFeeForCalc - discount,
       isDisabled: disabled,
     });
     return disabled;
-  }, [minOrderAmountForWallet, subtotal, deliveryFee, discount]);
+  }, [minOrderAmountForWallet, subtotal, deliveryFee, discount, cart?.minOrderAmount]);
 
   useEffect(() => {
     if (cart) {
+      // Calculate original subtotal and item savings
+      // If item has offerPercentage, item.price is already the discounted price
+      // We need to calculate the original price from: originalPrice = discountedPrice / (1 - offerPercentage/100)
+      let originalSubtotalValue = 0;
+      let itemSavings = 0;
+
+      cart.items.forEach((item) => {
+        console.log("[CHECKOUT] Item:", item.name, "offerPercentage:", item.offerPercentage, "price:", item.price);
+        if (item.offerPercentage && item.offerPercentage > 0) {
+          // item.price is the discounted price, calculate original price
+          const originalPrice = item.price / (1 - item.offerPercentage / 100);
+          originalSubtotalValue += originalPrice * item.quantity;
+          itemSavings += (originalPrice - item.price) * item.quantity;
+          console.log("[CHECKOUT] Calculated savings for", item.name, ":", itemSavings);
+        } else {
+          // No discount, item.price is the original price
+          originalSubtotalValue += item.price * item.quantity;
+        }
+      });
+
+      // Actual subtotal is always the sum of item.price (which is already discounted if applicable)
       const calculatedSubtotal = cart.items.reduce(
         (sum, item) => sum + item.price * item.quantity,
         0,
       );
-      setSubtotal(calculatedSubtotal);
-
-      // Use precomputed delivery values from cart if available
-      const calculatedDeliveryFee =
-        cart.deliveryFee !== undefined ? cart.deliveryFee : 20;
-      const calculatedDeliveryDistance =
-        cart.distance !== undefined ? cart.distance : null;
-
-      // Check if order is below delivery minimum (for display purposes only)
-      const deliveryMin = cart?.minOrderAmount || 0;
       
-      // ALWAYS charge delivery fee regardless of minimum order
-      const actualDeliveryFee = calculatedDeliveryFee;
-      setDeliveryFee(actualDeliveryFee);
-      setDeliveryDistance(calculatedDeliveryDistance);
+      setOriginalSubtotal(originalSubtotalValue);
+      setSubtotal(calculatedSubtotal);
+      setItemDiscountSavings(itemSavings);
+
+      // Use current deliveryFee state (updated by calculateDynamicDeliveryFee) or cart default
+      // This ensures that geocoding-triggered fee updates are reflected in totals
+      const calculatedDeliveryFee = deliveryFee !== 0 || customerLatitude !== null ? deliveryFee : (cart.deliveryFee ?? 20);
+      const calculatedDeliveryDistance = deliveryDistance;
+
+      // Check if order is below delivery minimum
+      const deliveryMin = cart?.minOrderAmount || 0;
+      const isBelowMin = deliveryMin > 0 && calculatedSubtotal < deliveryMin;
+      
+      // Only charge delivery fee if below minimum order amount
+      const actualDeliveryFee = isBelowMin ? calculatedDeliveryFee : 0;
 
       const calculatedDiscount = appliedCoupon
         ? Math.min(
@@ -383,9 +458,21 @@ export default function CheckoutDialog({
             calculatedSubtotal + actualDeliveryFee,
           )
         : 0;
+      
+      // Log discount changes for debugging cache issues
+      if (calculatedDiscount !== discount) {
+        console.log("[DISCOUNT CHANGE] Discount updated:", {
+          previousDiscount: discount,
+          newDiscount: calculatedDiscount,
+          appliedCoupon: appliedCoupon ? { code: appliedCoupon.code, discountAmount: appliedCoupon.discountAmount } : null,
+          subtotal: calculatedSubtotal,
+          deliveryFee: actualDeliveryFee,
+          maxApplicableDiscount: calculatedSubtotal + actualDeliveryFee,
+        });
+      }
       setDiscount(calculatedDiscount);
 
-      // Calculate base total with actual delivery fee
+      // Calculate base total with actual delivery fee (only added if below minimum)
       let baseTotal = calculatedSubtotal + actualDeliveryFee - calculatedDiscount;
 
       console.log("[WALLET DISABLE CHECK] Calculation Values:", {
@@ -446,7 +533,7 @@ export default function CheckoutDialog({
         setAmountNeededForFreeDelivery(0);
       }
     }
-  }, [cart, address, appliedCoupon, useBonusAtCheckout, bonusEligible, pendingBonus, useWalletBalance, user?.walletBalance, maxWalletUsagePerOrder, minOrderAmountForWallet]);
+  }, [cart, address, appliedCoupon, useBonusAtCheckout, bonusEligible, pendingBonus, useWalletBalance, user?.walletBalance, maxWalletUsagePerOrder, minOrderAmountForWallet, deliveryFee, customerLatitude, customerLongitude]);
 
   // Auto-fill checkout fields when user profile is loaded or dialog opens
   useEffect(() => {
@@ -459,6 +546,136 @@ export default function CheckoutDialog({
       setActiveTab("checkout");
     }
   }, [user, isAuthenticated, isOpen]);
+
+  // Auto-request geolocation when checkout opens for DELIVERY FEE CALCULATION ONLY
+  // GPS is NOT used for zone validation - only for accurate delivery fee
+  // BUT: Address geocoding is preferred over GPS when available (more accurate in urban areas)
+  useEffect(() => {
+    if (isOpen && !customerLatitude && !customerLongitude && !hasLocationPermission && !addressArea.trim()) {
+      console.log("[LOCATION] Checkout opened - requesting GPS for delivery fee accuracy (NOT for zone validation, and only if no address entered)");
+      
+      if (!navigator.geolocation) {
+        console.log("[LOCATION] Geolocation not supported by browser");
+        return; // Silent fail - address will be used instead
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const lat = position.coords.latitude;
+          const lon = position.coords.longitude;
+          console.log("[LOCATION] ✓ GPS captured (for fee calculation only):", { latitude: lat, longitude: lon });
+          setCustomerLatitude(lat);
+          setCustomerLongitude(lon);
+          setHasLocationPermission(true);
+          setLocationError("");
+        },
+        (error) => {
+          console.log("[LOCATION] GPS unavailable (fallback to address):", error.message);
+          // Silent fail - user will use address-based delivery instead
+          // NO zone validation blocking based on GPS
+        },
+        { 
+          timeout: 10000,
+          enableHighAccuracy: false,
+          maximumAge: 0,
+        }
+      );
+    }
+  }, [isOpen, customerLatitude, customerLongitude, hasLocationPermission, addressArea]);
+
+  // Fetch pending bonus and referral info from user profile
+  // Recalculate delivery fee whenever customer or chef coordinates change
+  useEffect(() => {
+    console.log("[DELIVERY-FEE-CALC] useEffect triggered:", {
+      hasCart: !!cart,
+      customerLatitude,
+      customerLongitude,
+      cartChefLatitude: cart?.chefLatitude,
+      cartChefLongitude: cart?.chefLongitude,
+      checkLatitude: cart?.chefLatitude || cart?.chefLatitude === 0,
+      checkLongitude: cart?.chefLongitude || cart?.chefLongitude === 0,
+    });
+
+    if (
+      cart && 
+      customerLatitude !== null && 
+      customerLongitude !== null &&
+      (cart.chefLatitude || cart.chefLatitude === 0) &&
+      (cart.chefLongitude || cart.chefLongitude === 0)
+    ) {
+      const chefLat = cart.chefLatitude ?? 19.0728;
+      const chefLon = cart.chefLongitude ?? 72.8826;
+      
+      console.log("[DELIVERY-FEE-CALC] Calling calculateDynamicDeliveryFee:", {
+        customerLatitude,
+        customerLongitude,
+        chefLat,
+        chefLon,
+        subtotal,
+      });
+      
+      const newDeliveryFee = calculateDynamicDeliveryFee(
+        customerLatitude,
+        customerLongitude,
+        chefLat,
+        chefLon
+      );
+      
+      console.log("[DELIVERY-FEE-CALC] Fee calculated:", newDeliveryFee);
+      setDeliveryFee(newDeliveryFee);
+      
+      // Also recalculate total with new delivery fee
+      const distance = calculateDistance(chefLat, chefLon, customerLatitude, customerLongitude);
+      console.log("[DELIVERY-FEE-CALC] Distance calculated:", distance);
+      setDeliveryDistance(distance);
+    } else {
+      console.log("[DELIVERY-FEE-CALC] Conditions not met - skipping fee calculation");
+    }
+  }, [customerLatitude, customerLongitude, cart?.chefLatitude, cart?.chefLongitude, subtotal]);
+
+  // Auto-validate delivery on dialog open - use chef's coordinates if area is empty
+  useEffect(() => {
+    console.log("[CHECKOUT-INIT] Dialog opened with cart:", {
+      cartId: cart?.categoryId,
+      cartChefId: cart?.chefId,
+      cartChefLatitude: cart?.chefLatitude,
+      cartChefLongitude: cart?.chefLongitude,
+      cartDeliveryFee: cart?.deliveryFee,
+      cartDistance: cart?.distance,
+      addressArea: addressArea.trim(),
+      isOpen,
+      addressZoneValidated,
+    });
+
+    if (isOpen && cart && !addressZoneValidated) {
+      // If area is empty, use chef's coordinates for validation
+      if (!addressArea.trim() && cart.chefLatitude && cart.chefLongitude) {
+        console.log("[DELIVERY-ZONE] Area empty - using chef's coordinates for validation");
+        setCustomerLatitude(cart.chefLatitude);
+        setCustomerLongitude(cart.chefLongitude);
+        setAddressZoneValidated(true);
+        setAddressInDeliveryZone(true);
+        setLocationError("");
+        
+        // Calculate delivery fee immediately with chef's coordinates
+        const newDeliveryFee = calculateDynamicDeliveryFee(
+          cart.chefLatitude,
+          cart.chefLongitude,
+          cart.chefLatitude,
+          cart.chefLongitude
+        );
+        setDeliveryFee(newDeliveryFee);
+        setDeliveryDistance(0); // Distance is 0 when using chef's location
+      } else if (addressArea.trim()) {
+        // If area has value, auto-geocode it
+        const fullAddress = [addressBuilding, addressStreet, addressArea, addressCity, addressPincode]
+          .filter(Boolean)
+          .join(", ");
+        console.log("[DELIVERY-ZONE] Auto-geocoding on dialog open:", fullAddress);
+        autoGeocodeAddress(fullAddress);
+      }
+    }
+  }, [isOpen, cart?.chefId]);
 
   // Fetch pending bonus and referral info from user profile
   useEffect(() => {
@@ -570,25 +787,22 @@ export default function CheckoutDialog({
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
+        console.log("[COUPON] Coupon verification failed:", errorData);
         setCouponError(errorData.message || "Invalid coupon code");
         setAppliedCoupon(null);
       } else {
         const data = await response.json();
+        console.log("[COUPON] Coupon verified successfully:", {
+          code: couponCode,
+          discountAmount: data.discountAmount,
+        });
+        // Only set appliedCoupon - let useEffect handle discount recalculation
+        // This prevents double state updates and ensures consistent batching
         setAppliedCoupon({
           code: couponCode,
           discountAmount: data.discountAmount,
         });
-        // Recalculate totals to reflect discount immediately
-        const calculatedSubtotal = cart!.items.reduce(
-          (sum, item) => sum + item.price * item.quantity,
-          0,
-        );
-        const calculatedDiscount = Math.min(
-          data.discountAmount,
-          calculatedSubtotal + deliveryFee,
-        );
-        setDiscount(calculatedDiscount);
-        setTotal(calculatedSubtotal + deliveryFee - calculatedDiscount);
+        console.log("[COUPON] Applied coupon state updated, awaiting useEffect to recalculate discount");
       }
     } catch (error) {
       console.error("Coupon application error:", error);
@@ -600,16 +814,306 @@ export default function CheckoutDialog({
   };
 
   const handleRemoveCoupon = () => {
+    console.log("[COUPON] Removing applied coupon");
     setAppliedCoupon(null);
     setCouponCode("");
     setCouponError("");
-    // Recalculate totals without discount
-    const calculatedSubtotal = cart!.items.reduce(
-      (sum, item) => sum + item.price * item.quantity,
-      0,
-    );
-    setDiscount(0);
-    setTotal(calculatedSubtotal + deliveryFee);
+    // Let useEffect handle discount recalculation when appliedCoupon state changes
+    console.log("[COUPON] Coupon state cleared, awaiting useEffect to recalculate discount");
+  };
+
+  // Handle geolocation request
+  const handleRequestLocation = async () => {
+    setIsRequestingLocation(true);
+    setLocationError("");
+
+    try {
+      if (!navigator.geolocation) {
+        setLocationError("Geolocation is not supported by your browser");
+        return;
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const lat = position.coords.latitude;
+          const lon = position.coords.longitude;
+          console.log("[LOCATION] GPS location captured manually:", { latitude: lat, longitude: lon });
+          setCustomerLatitude(lat);
+          setCustomerLongitude(lon);
+          setHasLocationPermission(true);
+          setLocationError("");
+          toast({
+            title: "✓ GPS Location Captured",
+            description: `Your location: ${lat.toFixed(4)}°, ${lon.toFixed(4)}° - Delivery fee will be calculated for this exact location (${deliveryDistance !== null ? deliveryDistance.toFixed(1) : '?'} km away)`,
+          });
+        },
+        (error) => {
+          console.error("[LOCATION] Geolocation error:", error);
+          switch (error.code) {
+            case error.PERMISSION_DENIED:
+              setLocationError("Please enable location permission in your browser settings");
+              break;
+            case error.POSITION_UNAVAILABLE:
+              setLocationError("Location information is unavailable");
+              break;
+            case error.TIMEOUT:
+              setLocationError("Location request timeout. Please try again");
+              break;
+            default:
+              setLocationError("Could not get your location. Please try again.");
+          }
+        },
+        { 
+          timeout: 10000,
+          enableHighAccuracy: false, // Faster location, accuracy is fine for delivery
+        }
+      );
+    } catch (error) {
+      setLocationError("Error requesting location permission");
+      console.error("[LOCATION] Geolocation error:", error);
+    } finally {
+      setIsRequestingLocation(false);
+    }
+  };
+
+  // Handle any address field change - triggers geocoding for full address
+  const handleAddressChange = (field: string, value: string) => {
+    // Update the specific field
+    switch(field) {
+      case 'building':
+        setAddressBuilding(value);
+        break;
+      case 'street':
+        setAddressStreet(value);
+        break;
+      case 'area':
+        setAddressArea(value);
+        break;
+      case 'city':
+        setAddressCity(value);
+        break;
+      case 'pincode':
+        setAddressPincode(value);
+        break;
+    }
+
+    setAddressZoneValidated(false);
+    setLocationError("");
+
+    // Clear previous timeout
+    if (autoGeocodeTimeoutRef.current) {
+      clearTimeout(autoGeocodeTimeoutRef.current);
+    }
+
+    // Build full address with updated values
+    const updatedAddress = {
+      building: field === 'building' ? value : addressBuilding,
+      street: field === 'street' ? value : addressStreet,
+      area: field === 'area' ? value : addressArea,
+      city: field === 'city' ? value : addressCity,
+      pincode: field === 'pincode' ? value : addressPincode,
+    };
+
+    const fullAddress = [updatedAddress.building, updatedAddress.street, updatedAddress.area, updatedAddress.city, updatedAddress.pincode]
+      .filter(Boolean)
+      .join(", ");
+
+    // Only geocode if we have meaningful address (area is required minimum)
+    if (!updatedAddress.area.trim() || updatedAddress.area.trim().length < 3) {
+      return;
+    }
+
+    console.log("[LOCATION] Address field changed, will geocode:", fullAddress);
+
+    // Set new timeout for auto-geocoding (1 second debounce)
+    autoGeocodeTimeoutRef.current = setTimeout(() => {
+      autoGeocodeAddress(fullAddress);
+    }, 1000);
+  };
+
+  const autoGeocodeAddress = async (addressToGeocode: string) => {
+    setIsGeocodingAddress(true);
+    setLocationError("");
+
+    try {
+      console.log("[LOCATION] Starting auto-geocoding for:", addressToGeocode.trim());
+      
+      const response = await fetch("/api/geocode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address: addressToGeocode.trim() }),
+        signal: AbortSignal.timeout(10000), // 10 second timeout
+      });
+
+      if (!response.ok) {
+        console.error("[LOCATION] Geocode API error:", response.status, response.statusText);
+        const errorData = await response.json().catch(() => ({}));
+        setLocationError(
+          errorData.message || `Location detection failed (${response.status}). Please try again.`
+        );
+        setAddressZoneValidated(false);
+        setIsGeocodingAddress(false);
+        return;
+      }
+
+      const data = await response.json();
+      
+      if (!data.success) {
+        console.warn("[LOCATION] Geocode returned success=false:", data);
+        setLocationError(data.message || "Could not find this address. Try a different one.");
+        setAddressZoneValidated(false);
+        setIsGeocodingAddress(false);
+        return;
+      }
+
+      console.log("[LOCATION] Address auto-geocoded successfully:", {
+        address: addressToGeocode.trim(),
+        latitude: data.latitude,
+        longitude: data.longitude,
+      });
+
+      // Get chef coordinates for automatic zone validation
+      let chefLat = 19.0728;
+      let chefLon = 72.8826;
+      let chefName = "Kurla West Kitchen";
+
+      if (cart?.chefId) {
+        try {
+          console.log("[LOCATION] Fetching chef details for ID:", cart.chefId);
+          const chefResponse = await fetch(`/api/chefs/${cart.chefId}`, {
+            signal: AbortSignal.timeout(5000),
+          });
+          if (chefResponse.ok) {
+            const chefData = await chefResponse.json();
+            console.log("[LOCATION] Chef details fetched:", {
+              chefId: chefData.id,
+              chefName: chefData.name,
+              latitude: chefData.latitude,
+              longitude: chefData.longitude,
+            });
+            chefLat = chefData.latitude ?? 19.0728;
+            chefLon = chefData.longitude ?? 72.8826;
+            chefName = chefData.name || "Kurla West Kitchen";
+            console.log("[DELIVERY-ZONE] Chef coordinates fetched:", { chefLat, chefLon, chefName });
+          }
+        } catch (chefError) {
+          console.warn("[DELIVERY-ZONE] Could not fetch chef details, using defaults:", chefError);
+        }
+      }
+
+      const MAX_DELIVERY_DISTANCE = 2.5;
+      const distanceFromChef = calculateDistance(
+        chefLat,
+        chefLon,
+        data.latitude,
+        data.longitude
+      );
+
+      const isInZone = distanceFromChef <= MAX_DELIVERY_DISTANCE;
+      const areaName = addressToGeocode.trim().split(",")[0].trim();
+
+      console.log("[DELIVERY-ZONE] Auto-validation completed:", {
+        address: addressToGeocode.trim(),
+        areaName,
+        distance: distanceFromChef.toFixed(3),
+        maxDistance: MAX_DELIVERY_DISTANCE,
+        isInZone,
+        chef: chefName,
+      });
+
+      // Store coordinates automatically
+      // IMPORTANT: Address geocoding coordinates are preferred over GPS
+      // because they are more accurate for delivery in urban areas
+      console.log("[LOCATION] Setting customer coordinates in state (address-geocoded):", {
+        latitude: data.latitude,
+        longitude: data.longitude,
+        distanceFromChef,
+        note: "Address geocoding preferred over GPS for accuracy",
+      });
+      setCustomerLatitude(data.latitude);
+      setCustomerLongitude(data.longitude);
+      setHasLocationPermission(true);
+      setAddressZoneDistance(distanceFromChef);
+
+      if (!isInZone) {
+        console.log("[DELIVERY-ZONE] ❌ OUT OF ZONE - Address blocked");
+        setLocationError(
+          `${areaName} is ${distanceFromChef.toFixed(1)}km away. ${chefName} delivers within ${MAX_DELIVERY_DISTANCE}km.`
+        );
+        setAddressInDeliveryZone(false);
+        setAddressZoneValidated(true);
+      } else {
+        console.log("[DELIVERY-ZONE] ✅ IN ZONE - Address validated");
+        setLocationError("");
+        setAddressInDeliveryZone(true);
+        setAddressZoneValidated(true);
+      }
+    } catch (error) {
+      console.error("[LOCATION] Auto-geocoding failed:", {
+        error,
+        message: error instanceof Error ? error.message : "Unknown error",
+        type: error instanceof TypeError ? "Network/Fetch Error" : "Other Error",
+      });
+
+      // More helpful error messages based on error type
+      if (error instanceof TypeError) {
+        // Network error (fetch failed)
+        setLocationError(
+          "Location service unavailable. Please check your internet connection and try again."
+        );
+      } else if (error instanceof DOMException && error.name === "AbortError") {
+        // Timeout
+        setLocationError("Location detection timed out. Please try again.");
+      } else {
+        setLocationError(
+          error instanceof Error
+            ? error.message
+            : "Unable to detect location. Please check the address and try again."
+        );
+      }
+      
+      setAddressZoneValidated(false);
+    } finally {
+      setIsGeocodingAddress(false);
+    }
+  };
+
+  // Calculate delivery fee dynamically based on customer and chef coordinates
+  const calculateDynamicDeliveryFee = (
+    customerLat: number,
+    customerLon: number,
+    chefLat: number,
+    chefLon: number
+  ) => {
+    const distance = calculateDistance(chefLat, chefLon, customerLat, customerLon);
+    
+    // If chef doesn't have data, use defaults
+    const defaultDeliveryFee = 20;
+    const deliveryFeePerKm = 5;
+    const freeDeliveryThreshold = 200;
+
+    // Calculate fee based on distance
+    // Fee = base fee + (distance * per km rate)
+    const baseFee = defaultDeliveryFee;
+    const additionalFee = Math.max(0, distance - 0.5) * deliveryFeePerKm; // 0.5km grace radius
+    const calculatedFee = baseFee + additionalFee;
+
+    // Check if order is eligible for free delivery (only if subtotal >= threshold)
+    const isFreeDelivery = subtotal >= freeDeliveryThreshold;
+    const finalFee = isFreeDelivery ? 0 : calculatedFee;
+
+    console.log("[DELIVERY-FEE] Calculated dynamically:", {
+      distance: distance.toFixed(2),
+      baseFee,
+      additionalFee: additionalFee.toFixed(2),
+      calculatedFee: calculatedFee.toFixed(2),
+      subtotal,
+      freeDeliveryThreshold,
+      isFreeDelivery,
+      finalFee: finalFee.toFixed(2),
+    });
+
+    return finalFee;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -703,6 +1207,12 @@ export default function CheckoutDialog({
         phone,
         email: email || "",
         address,
+        // Structured address fields
+        addressBuilding,
+        addressStreet,
+        addressArea,
+        addressCity,
+        addressPincode,
         items: cart.items.map((item: CartItem) => ({
           id: item.id,
           name: item.name,
@@ -1159,24 +1669,150 @@ export default function CheckoutDialog({
                       />
                     </div>
 
-                    <div>
-                      <Label htmlFor="address" className="text-sm">
-                        Delivery Address *
-                      </Label>
-                      <Textarea
-                        id="address"
-                        value={address}
-                        onChange={(e) => setAddress(e.target.value)}
-                        required
-                        rows={2}
-                        className="min-h-[60px]"
-                        data-testid="input-address"
-                      />
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Please include street, area, and any landmarks in Kurla
-                        West, Mumbai
-                      </p>
+                    {/* Structured Address Fields */}
+                    <div className="space-y-3">
+                      <Label className="text-sm font-semibold">Delivery Address *</Label>
+                      
+                      {/* Row 1: Building/House Number and Street */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <Label htmlFor="building" className="text-xs text-gray-600">
+                            Building/House No
+                          </Label>
+                          <Input
+                            id="building"
+                            value={addressBuilding}
+                            onChange={(e) => handleAddressChange('building', e.target.value)}
+                            placeholder="e.g., 18/20"
+                            className="text-sm"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="street" className="text-xs text-gray-600">
+                            Street/Colony
+                          </Label>
+                          <Input
+                            id="street"
+                            value={addressStreet}
+                            onChange={(e) => handleAddressChange('street', e.target.value)}
+                            placeholder="e.g., LJG Colony"
+                            className="text-sm"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Row 2: Area (Critical for validation) */}
+                      <div>
+                        <Label htmlFor="area" className="text-xs text-gray-600 font-semibold">
+                          Area/Locality * (Required for delivery)
+                        </Label>
+                        <div className="relative">
+                          <Input
+                            id="area"
+                            value={addressArea}
+                            onChange={(e) => handleAddressChange('area', e.target.value)}
+                            placeholder="e.g., Kurla West"
+                            className="text-sm"
+                            required
+                          />
+                          {isGeocodingAddress && (
+                            <div className="absolute right-3 top-2.5">
+                              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                            </div>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Area is required to validate delivery
+                        </p>
+                      </div>
+
+                      {/* Row 3: City and Pincode */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <Label htmlFor="city" className="text-xs text-gray-600">
+                            City
+                          </Label>
+                          <Input
+                            id="city"
+                            value={addressCity}
+                            onChange={(e) => handleAddressChange('city', e.target.value)}
+                            placeholder="Mumbai"
+                            className="text-sm"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="pincode" className="text-xs text-gray-600">
+                            Pincode
+                          </Label>
+                          <Input
+                            id="pincode"
+                            value={addressPincode}
+                            onChange={(e) => handleAddressChange('pincode', e.target.value)}
+                            placeholder="e.g., 400070"
+                            className="text-sm"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Full Address Display */}
+                      <div className="bg-gray-50 dark:bg-gray-900 p-2 rounded text-xs text-gray-700 dark:text-gray-300">
+                        <p className="font-semibold">Full Address:</p>
+                        <p>{address || "(Enter details above)"}</p>
+                      </div>
                     </div>
+
+                    {/* Smart Location Validation Feedback - Zomato Style */}
+                    {addressZoneValidated && (
+                      <div
+                        className={`rounded-md p-3 border ${
+                          addressInDeliveryZone
+                            ? "bg-green-50 dark:bg-green-950/20 border-green-300 dark:border-green-700"
+                            : "bg-red-50 dark:bg-red-950/20 border-red-300 dark:border-red-700"
+                        }`}
+                      >
+                        <div className="flex gap-2 items-start">
+                          <MapPin
+                            className={`h-4 w-4 mt-0.5 flex-shrink-0 ${
+                              addressInDeliveryZone
+                                ? "text-green-600 dark:text-green-400"
+                                : "text-red-600 dark:text-red-400"
+                            }`}
+                          />
+                          <div className="flex-1">
+                            <p
+                              className={`text-sm font-semibold ${
+                                addressInDeliveryZone
+                                  ? "text-green-800 dark:text-green-200"
+                                  : "text-red-800 dark:text-red-200"
+                              }`}
+                            >
+                              {addressInDeliveryZone
+                                ? "✓ Delivery Available"
+                                : "✗ Outside Service Area"}
+                            </p>
+                            <p
+                              className={`text-xs mt-1 ${
+                                addressInDeliveryZone
+                                  ? "text-green-700 dark:text-green-300"
+                                  : "text-red-700 dark:text-red-300"
+                              }`}
+                            >
+                              {addressInDeliveryZone
+                                ? `${address.split(",")[0].trim()} is ${addressZoneDistance.toFixed(1)}km away`
+                                : `${address.split(",")[0].trim()} is ${addressZoneDistance.toFixed(1)}km away. We deliver within 2.5km only.`}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {locationError && (
+                      <div className="bg-orange-50 dark:bg-orange-950/20 border border-orange-300 dark:border-orange-700 rounded-md p-3">
+                        <p className="text-sm text-orange-800 dark:text-orange-200">
+                          ⚠️ {locationError}
+                        </p>
+                      </div>
+                    )}
 
                     {/* Delivery Time Selection - OPTIONAL for Roti orders */}
                     {isRotiCategory && (
@@ -1407,16 +2043,34 @@ export default function CheckoutDialog({
                     </span>
                     {!isBelowDeliveryMinimum ? (
                       <span className="text-green-600 dark:text-green-400">
-                        <span className="line-through">₹{deliveryFee.toFixed(2)}</span> FREE
+                        <span className="line-through text-gray-400 dark:text-gray-500">₹{deliveryFee.toFixed(2)}</span> FREE
                       </span>
                     ) : (
                       <span>₹{deliveryFee.toFixed(2)}</span>
                     )}
                   </div>
+                  
+                  {/* Item Discount Savings from offer percentages */}
+                  {itemDiscountSavings > 0 && (
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-sm text-gray-500 dark:text-gray-400">
+                        <span>Original Price:</span>
+                        <span className="line-through">₹{originalSubtotal.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm text-green-600 dark:text-green-400 font-medium">
+                        <span>Item Offer (You Save):</span>
+                        <span>-₹{itemDiscountSavings.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Coupon Discount */}
                   {discount > 0 && (
-                    <div className="flex justify-between text-sm text-green-600">
-                      <span>Discount:</span>
-                      <span>-₹{discount.toFixed(2)}</span>
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-sm text-green-600 dark:text-green-400 font-medium">
+                        <span>Coupon Discount:</span>
+                        <span>-₹{discount.toFixed(2)}</span>
+                      </div>
                     </div>
                   )}
 
@@ -1543,7 +2197,7 @@ export default function CheckoutDialog({
                         
                         {isWalletCheckboxDisabled && (
                           <p className="text-xs text-amber-600 dark:text-amber-400">
-                            ⚠️ Minimum order ₹{minOrderAmountForWallet} required to use wallet (Current: ₹{(subtotal + deliveryFee - discount).toFixed(2)})
+                            ⚠️ Minimum order ₹{minOrderAmountForWallet} required to use wallet (Current: ₹{(total).toFixed(2)})
                           </p>
                         )}
                         
@@ -1684,10 +2338,13 @@ export default function CheckoutDialog({
                     !isFormValid ||
                     (phoneExists && !userToken) ||
                     cart?.chefIsActive === false ||
-                    isRotiOrderBlocked
+                    isRotiOrderBlocked ||
+                    !addressZoneValidated ||
+                    (addressZoneValidated && !addressInDeliveryZone)
                   }
                   className="w-full sm:w-auto"
                   data-testid="button-checkout-submit"
+                  title={addressZoneValidated && !addressInDeliveryZone ? `${address.split(",")[0].trim()} is outside our service area` : ""}
                 >
                   {isLoading ? (
                     <>
@@ -1696,6 +2353,10 @@ export default function CheckoutDialog({
                     </>
                   ) : isRotiOrderBlocked ? (
                     "🚫 Roti Not Available Now"
+                  ) : !addressZoneValidated ? (
+                    "⚠️ Validate Delivery Address"
+                  ) : addressZoneValidated && !addressInDeliveryZone ? (
+                    `🚫 ${address.split(",")[0].trim()} - ${addressZoneDistance.toFixed(1)}km away`
                   ) : (
                     `Pay ₹${total.toFixed(2)}`
                   )}

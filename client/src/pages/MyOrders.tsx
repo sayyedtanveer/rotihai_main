@@ -56,9 +56,6 @@ export default function MyOrders() {
   const { user, isLoading: authLoading } = useAuth();
   const userToken = localStorage.getItem("userToken");
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
-  const [wsConnected, setWsConnected] = useState(false);
-
-  // 🧠 Fetch orders for authenticated user
   const {
     data: orders = [],
     isLoading,
@@ -103,56 +100,6 @@ export default function MyOrders() {
       return res.json();
     },
   });
-
-  // WebSocket connection for live updates
-  useEffect(() => {
-    if (!orders || orders.length === 0) return;
-
-    // Find active orders (not delivered or cancelled)
-    const activeOrders = orders.filter(
-      (order) => !["delivered", "completed", "cancelled"].includes(order.status)
-    );
-
-    if (activeOrders.length === 0) return;
-
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsConnections: WebSocket[] = [];
-
-    activeOrders.forEach((order) => {
-      const wsUrl = `${protocol}//${window.location.host}/ws?type=customer&orderId=${order.id}`;
-      const ws = new WebSocket(wsUrl);
-
-      ws.onopen = () => {
-        console.log(`WebSocket connected for order ${order.id}`);
-        setWsConnected(true);
-      };
-
-      ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        if (data.type === "order_update") {
-          queryClient.setQueryData(["/api/orders", userToken], (oldData: Order[] | undefined) => {
-            if (!oldData) return oldData;
-            return oldData.map((o) => (o.id === data.data.id ? data.data : o));
-          });
-        }
-      };
-
-      ws.onclose = () => {
-        console.log(`WebSocket disconnected for order ${order.id}`);
-      };
-
-      ws.onerror = (error) => {
-        console.error(`WebSocket error for order ${order.id}:`, error);
-      };
-
-      wsConnections.push(ws);
-    });
-
-    return () => {
-      wsConnections.forEach((ws) => ws.close());
-      setWsConnected(false);
-    };
-  }, [orders, userToken]);
 
   // Show loading state while checking auth
   if (authLoading || (userToken && isLoading)) {
@@ -322,6 +269,7 @@ export default function MyOrders() {
         onSubscriptionClick={() => setIsSubscriptionOpen(true)}
         onLoginClick={() => setIsLoginOpen(true)}
         onOffersClick={() => setLocation("/")}
+        showNotificationBell={true}
       />
 
       <main className="flex-1 bg-muted/30">
@@ -404,7 +352,7 @@ export default function MyOrders() {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-6">
-                      {wsConnected && (
+                      {activeOrder && (
                         <div className="bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-lg p-3 flex items-center gap-2">
                           <div className="h-2 w-2 bg-green-500 rounded-full animate-pulse"></div>
                           <p className="text-sm text-green-800 dark:text-green-200">
@@ -509,10 +457,26 @@ export default function MyOrders() {
                                 <span className="font-medium">₹{item.price * item.quantity}</span>
                               </div>
                             ))}
-                            <div className="border-t border-muted pt-2 mt-2">
-                              <div className="flex justify-between text-sm md:text-base font-bold">
+                            <div className="border-t border-muted pt-2 mt-2 space-y-1">
+                              <div className="flex justify-between text-xs md:text-sm">
+                                <span className="text-muted-foreground">Subtotal</span>
+                                <span className="font-medium">₹{activeOrder.subtotal.toFixed(2)}</span>
+                              </div>
+                              <div className="flex justify-between text-xs md:text-sm">
+                                <span className="text-muted-foreground">Delivery</span>
+                                <span className="font-medium">
+                                  {!activeOrder.isBelowDeliveryMinimum ? (
+                                    <span className="text-green-600 dark:text-green-400">
+                                      <span className="line-through text-gray-400">₹{activeOrder.deliveryFee.toFixed(2)}</span> FREE
+                                    </span>
+                                  ) : (
+                                    <span>₹{activeOrder.deliveryFee.toFixed(2)}</span>
+                                  )}
+                                </span>
+                              </div>
+                              <div className="flex justify-between text-sm md:text-base font-bold pt-1">
                                 <span>Total</span>
-                                <span>₹{activeOrder.total}</span>
+                                <span>₹{activeOrder.total.toFixed(2)}</span>
                               </div>
                             </div>
                           </div>

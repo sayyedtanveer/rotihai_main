@@ -370,20 +370,20 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
       }
 
       // Get plan details for success dialog
-      const plan = plans?.find(p => p.id === paymentDetails?.subscriptionId ? 
-        mySubscriptions?.find(s => s.id === paymentDetails?.subscriptionId)?.planId : null) ||
-        plans?.find(p => p.name === paymentDetails?.planName);
+      const subscription = mySubscriptions?.find(s => s.id === paymentDetails?.subscriptionId);
+      const plan = plans?.find(p => p.id === subscription?.planId);
+
+      // Use plan price directly from the matched plan, not from paymentDetails
+      const amount = plan?.price || paymentDetails?.amount || 0;
 
       // Set success details and show success dialog
-      // Get the subscription to access totalDeliveries
-      const subscription = mySubscriptions?.find(s => s.id === paymentDetails?.subscriptionId);
       setSuccessDetails({
         planName: paymentDetails?.planName || plan?.name || "Subscription",
         planItems: (plan?.items as { name: string; quantity: number }[]) || [],
         frequency: plan?.frequency || "daily",
         nextDeliveryDate: format(addDays(new Date(), 1), "EEEE, MMM d, yyyy"),
         totalDeliveries: subscription?.totalDeliveries || 30,
-        amount: paymentDetails?.amount || plan?.price || 0,
+        amount: amount,
       });
 
       setShowPaymentQR(false);
@@ -1023,6 +1023,7 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
           phone={localStorage.getItem("userPhone") || ""}
           email={localStorage.getItem("userEmail") || ""}
           address={localStorage.getItem("userAddress") || ""}
+          isSubmitting={confirmPaymentMutation.isPending}
           onPaymentConfirmed={(txnId: string) => {
             confirmPaymentMutation.mutate({
               subscriptionId: paymentDetails.subscriptionId,
@@ -1531,7 +1532,7 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
 
                   <div className="text-sm">
                     <p className="text-muted-foreground text-xs">Amount Paid</p>
-                    <p className="font-bold text-lg">₹{successDetails.amount}</p>
+                    <p className="font-bold text-lg">₹{Math.round(successDetails.amount)}</p>
                   </div>
                 </CardContent>
               </Card>

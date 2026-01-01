@@ -19,15 +19,24 @@ import { useState, useEffect } from "react";
   import { Badge } from "@/components/ui/badge";
   import { Card } from "@/components/ui/card";
   import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogDescription,
+  } from "@/components/ui/dialog";
+  import { Input } from "@/components/ui/input";
+  import {
     UtensilsCrossed, ChefHat, Hotel, MessageCircle, Star, Clock,
     SlidersHorizontal, Zap, Sparkles, CalendarClock, Home as HomeIcon, ShoppingBag,
-    User, Percent, ArrowRight, TrendingUp
+    User, Percent, ArrowRight, TrendingUp, MapPin, AlertCircle
   } from "lucide-react";
   import type { Category, Chef, Product } from "@shared/schema";
   import { useCart } from "@/hooks/use-cart";
   import { toast } from "@/hooks/use-toast";
   import { useCustomerNotifications } from "@/hooks/useCustomerNotifications";
   import { useAuth } from "@/hooks/useAuth";
+  import { calculateDistance } from "@/lib/locationUtils";
 
   const iconMap: Record<string, React.ReactNode> = {
     UtensilsCrossed: <UtensilsCrossed className="h-6 w-6 text-primary" />,
@@ -72,11 +81,19 @@ import { useState, useEffect } from "react";
     const [activeFilters, setActiveFilters] = useState<string[]>([]);
     const [mobileNavTab, setMobileNavTab] = useState<string>("delivery");
     const [vegOnly, setVegOnly] = useState(false);
-    const [isLocationModalOpen, setIsLocationModalOpen] = useState(true);
+    const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
     const { user } = useAuth();
 
     const { carts, addToCart: cartAddToCart, canAddItem, clearCart, getTotalItems, setUserLocation, getAllCartsWithDelivery, updateChefStatus, fetchChefStatuses, userLatitude, userLongitude, updateQuantity, removeFromCart } = useCart();
     const queryClient = useQueryClient();
+
+    // DELIVERY ZONE DETECTION (Zomato-style)
+    const [deliveryZoneDetected, setDeliveryZoneDetected] = useState(false);
+    const [userInDeliveryZone, setUserInDeliveryZone] = useState(false);
+    const [isDetectingLocation, setIsDetectingLocation] = useState(true);
+    const [showAddressModal, setShowAddressModal] = useState(false);
+    const [detectedAddress, setDetectedAddress] = useState("");
+    const [manualAddress, setManualAddress] = useState("");
 
     // Use WebSocket for real-time chef status and product availability updates
     const { chefStatuses, productAvailability, wsConnected } = useCustomerNotifications();
@@ -93,6 +110,68 @@ import { useState, useEffect } from "react";
       fetchChefStatuses();
     }, [fetchChefStatuses]);
 
+    // ZOMATO-STYLE LOCATION DETECTION ON PAGE LOAD
+    // Auto-detect user location and check if they're in delivery zone
+    useEffect(() => {
+      const detectLocationAndZone = async () => {
+        try {
+          setIsDetectingLocation(true);
+          
+          // Try to get user's GPS location
+          if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+              async (position) => {
+                const lat = position.coords.latitude;
+                const lng = position.coords.longitude;
+                
+                console.log("[LOCATION-DETECTION] User location detected:", lat, lng);
+                
+                // Set location in cart store
+                setUserLocation(lat, lng);
+                
+                // Check if location is in delivery zone (within 2.5km of chef)
+                // Assuming chef is at Kurla West, Mumbai (19.068604, 72.87658)
+                const CHEF_LAT = 19.068604;
+                const CHEF_LNG = 72.87658;
+                const MAX_DELIVERY_DISTANCE = 2.5; // km
+                
+                const distance = calculateDistance(lat, lng, CHEF_LAT, CHEF_LNG);
+                console.log("[LOCATION-DETECTION] Distance to chef:", distance, "km");
+                
+                if (distance <= MAX_DELIVERY_DISTANCE) {
+                  setUserInDeliveryZone(true);
+                  console.log("[LOCATION-DETECTION] ✅ User is in delivery zone");
+                } else {
+                  setUserInDeliveryZone(false);
+                  console.log("[LOCATION-DETECTION] ❌ User is OUTSIDE delivery zone");
+                }
+                
+                setDeliveryZoneDetected(true);
+              },
+              (error) => {
+                console.log("[LOCATION-DETECTION] Location permission denied or unavailable:", error);
+                // If location denied, we'll show address modal when user tries to order
+                setDeliveryZoneDetected(true);
+                setUserInDeliveryZone(false); // Default to false if can't get location
+              },
+              { timeout: 8000, enableHighAccuracy: false }
+            );
+          } else {
+            console.log("[LOCATION-DETECTION] Geolocation not supported");
+            setDeliveryZoneDetected(true);
+            setUserInDeliveryZone(false);
+          }
+        } catch (error) {
+          console.error("[LOCATION-DETECTION] Error detecting location:", error);
+          setDeliveryZoneDetected(true);
+          setUserInDeliveryZone(false);
+        } finally {
+          setIsDetectingLocation(false);
+        }
+      };
+      
+      detectLocationAndZone();
+    }, [setUserLocation]);
 
     const handleCategoryTabChange = (value: string) => {
       setSelectedCategoryTab(value);
@@ -159,9 +238,32 @@ import { useState, useEffect } from "react";
 
     // ✅ Called when checkout creates order successfully
     const handleCheckout = (categoryId: string) => {
+      // ZOMATO-STYLE: Check if user is in delivery zone before allowing checkout
+      if (!userInDeliveryZone && !userLatitude && !userLongitude) {
+        toast({
+          title: "Location Required",
+          description: "Please enter your delivery address to proceed",
+          variant: "destructive",
+        });
+        setShowAddressModal(true);
+        return;
+      }
+
       // Get the cart with precomputed delivery values
       const cartsWithDelivery = getAllCartsWithDelivery();
       const cart = cartsWithDelivery.find(c => c.categoryId === categoryId);
+
+      console.log("[CHECKOUT] Cart selected for checkout:", {
+        categoryId,
+        cart: cart ? {
+          categoryId: cart.categoryId,
+          chefId: cart.chefId,
+          chefLatitude: cart.chefLatitude,
+          chefLongitude: cart.chefLongitude,
+          deliveryFee: cart.deliveryFee,
+          distance: cart.distance,
+        } : null,
+      });
 
       if (cart) {
         setSelectedCart(cart);
@@ -473,6 +575,23 @@ import { useState, useEffect } from "react";
             }
           }}
         />
+
+        {/* ZOMATO-STYLE: Show "Not Available" banner if user is outside delivery zone */}
+        {deliveryZoneDetected && !userInDeliveryZone && (
+          <div className="bg-orange-50 border-b-2 border-orange-200 py-4 px-4">
+            <div className="max-w-7xl mx-auto">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="h-5 w-5 text-orange-600 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <h3 className="font-semibold text-orange-900">We don't deliver to your area yet</h3>
+                  <p className="text-sm text-orange-800 mt-1">
+                    We're currently available only in Kurla West and nearby areas. Enter your delivery address below to check if we can serve you.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         <main className="flex-1">
           <Hero />
@@ -804,6 +923,7 @@ import { useState, useEffect } from "react";
                     filteredChefs
                       .map(chef => {
                         let distance: number | null = null;
+                        let deliveryFee: number | null = null;
                         const isChefActive = chef.isActive !== false;
 
                         if (userLatitude && userLongitude && chef.latitude && chef.longitude) {
@@ -825,8 +945,15 @@ import { useState, useEffect } from "react";
                             const calculatedDistance = R * c;
                             if (calculatedDistance < 100) {
                               distance = parseFloat(calculatedDistance.toFixed(1));
+                              
+                              // Calculate delivery fee: distance × ₹5/km
+                              const feePerKm = 5;
+                              deliveryFee = Math.ceil(distance * feePerKm);
                             }
                           }
+                        } else {
+                          // No location: show default delivery fee (₹20)
+                          deliveryFee = 20;
                         }
 
                         return (
@@ -895,14 +1022,41 @@ import { useState, useEffect } from "react";
                                   </p>
                                 </div>
                               </div>
-                              <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
-                                <span className="flex items-center gap-1">
-                                  <Clock className="h-3 w-3" />
-                                  {distance !== null ? `~${Math.ceil(distance * 2 + 15)} mins` : "30-45 mins"}
-                                </span>
-                                <span>•</span>
-                                <span>{chef.reviewCount} reviews</span>
+                              <div className="flex items-center justify-between gap-3 mt-2">
+                                <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                                  <span className="flex items-center gap-1">
+                                    <Clock className="h-3 w-3" />
+                                    {distance !== null ? `~${Math.ceil(distance * 2 + 15)} mins` : "30-45 mins"}
+                                  </span>
+                                  <span>•</span>
+                                  <span>{chef.reviewCount} reviews</span>
+                                </div>
                               </div>
+                              
+                              {/* Delivery Fee Display - Zomato Style */}
+                              {deliveryFee !== null && (
+                                <div className="mt-2 pt-2 border-t border-muted">
+                                  {userLatitude && userLongitude ? (
+                                    <p className="text-xs text-muted-foreground">
+                                      Delivery: <span className="font-semibold text-foreground">₹{deliveryFee}</span>
+                                    </p>
+                                  ) : (
+                                    <p className="text-xs text-amber-600 dark:text-amber-400">
+                                      Estimated delivery: <span className="font-semibold">₹{deliveryFee}</span>
+                                      <br />
+                                      <button 
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setIsLocationModalOpen(true);
+                                        }}
+                                        className="text-blue-600 hover:underline font-medium"
+                                      >
+                                        Get accurate fee
+                                      </button>
+                                    </p>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           </Card>
                         );
@@ -1086,6 +1240,117 @@ import { useState, useEffect } from "react";
           onLocationGranted={handleLocationGranted}
           onClose={() => setIsLocationModalOpen(false)}
         />
+
+        {/* ZOMATO-STYLE ADDRESS ENTRY MODAL */}
+        <Dialog open={showAddressModal} onOpenChange={setShowAddressModal}>
+          <DialogContent className="sm:max-w-[400px]">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <MapPin className="h-5 w-5 text-orange-600" />
+                Delivery Address
+              </DialogTitle>
+              <DialogDescription>
+                Enter your delivery address to check if we deliver to your area
+              </DialogDescription>
+            </DialogHeader>
+            
+            <div className="space-y-4 py-4">
+              <div>
+                <label className="text-sm font-medium">Full Address</label>
+                <Input
+                  placeholder="e.g., 18/20, M.I.G, Kurla West, Mumbai, 400070"
+                  value={manualAddress}
+                  onChange={(e) => setManualAddress(e.target.value)}
+                  className="mt-1"
+                />
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                <p className="text-xs text-blue-800">
+                  💡 Tip: Click "Detect Location" to use your GPS, or enter your address manually above.
+                </p>
+              </div>
+
+              <div className="flex gap-3">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => {
+                    setShowAddressModal(false);
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  className="flex-1 bg-orange-600 hover:bg-orange-700"
+                  onClick={async () => {
+                    if (!manualAddress.trim()) {
+                      toast({
+                        title: "Address Required",
+                        description: "Please enter your delivery address",
+                        variant: "destructive",
+                      });
+                      return;
+                    }
+
+                    try {
+                      // Geocode the entered address
+                      const response = await fetch("/api/geocode", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ address: manualAddress }),
+                      });
+
+                      if (!response.ok) {
+                        throw new Error("Could not find location");
+                      }
+
+                      const { latitude, longitude } = await response.json();
+                      
+                      // Check if in delivery zone
+                      const CHEF_LAT = 19.068604;
+                      const CHEF_LNG = 72.87658;
+                      const MAX_DELIVERY_DISTANCE = 2.5;
+                      
+                      const distance = calculateDistance(latitude, longitude, CHEF_LAT, CHEF_LNG);
+                      console.log("[ADDRESS-CHECK] Distance:", distance, "km");
+
+                      if (distance <= MAX_DELIVERY_DISTANCE) {
+                        // Address is in delivery zone!
+                        setUserLocation(latitude, longitude);
+                        setUserInDeliveryZone(true);
+                        setDetectedAddress(manualAddress);
+                        setManualAddress("");
+                        setShowAddressModal(false);
+                        
+                        toast({
+                          title: "✅ Great!",
+                          description: "We deliver to your area. Browse and order now!",
+                        });
+                      } else {
+                        // Outside delivery zone
+                        toast({
+                          title: "❌ Out of Zone",
+                          description: `Sorry, your area is ${distance.toFixed(1)} km away. We currently deliver only within 2.5 km of Kurla West.`,
+                          variant: "destructive",
+                        });
+                      }
+                    } catch (error) {
+                      console.error("[ADDRESS-CHECK] Error:", error);
+                      toast({
+                        title: "Error",
+                        description: "Could not find your address. Please try again or enter a different address.",
+                        variant: "destructive",
+                      });
+                    }
+                  }}
+                >
+                  Check Delivery
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     );
   }

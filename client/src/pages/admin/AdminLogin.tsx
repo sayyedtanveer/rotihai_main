@@ -51,7 +51,12 @@ export default function AdminLogin() {
       }
 
       const result = await response.json();
-      localStorage.setItem("adminToken", result.accessToken);
+      // Ensure token is trimmed of any whitespace
+      const cleanToken = (result.accessToken || "").trim();
+      if (!cleanToken) {
+        throw new Error("No authentication token received from server");
+      }
+      localStorage.setItem("adminToken", cleanToken);
       localStorage.setItem("adminUser", JSON.stringify(result.admin));
 
       toast({
@@ -214,7 +219,12 @@ export default function AdminLogin() {
                   }
 
                   const result = await response.json();
-                  localStorage.setItem("adminToken", result.accessToken);
+                  // Ensure token is trimmed of any whitespace
+                  const cleanToken = (result.accessToken || "").trim();
+                  if (!cleanToken) {
+                    throw new Error("No authentication token received from server");
+                  }
+                  localStorage.setItem("adminToken", cleanToken);
                   localStorage.setItem("adminUser", JSON.stringify(result.admin));
 
                   toast({

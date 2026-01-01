@@ -8,6 +8,7 @@ import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { getDeliveryMessage } from "@/lib/locationUtils";
 import { InstallPrompt } from "@/components/InstallPrompt";
+import NotificationBell from "@/components/NotificationBell";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -35,9 +36,10 @@ interface HeaderProps {
   onSubscriptionClick: () => void;
   onLoginClick?: () => void;
   onOffersClick: () => void; // Added onOffersClick prop
+  showNotificationBell?: boolean; // Show bell only on specific pages
 }
 
-export default function Header({ cartItemCount = 0, onCartClick, onMenuClick, searchQuery = "", onSearchChange, onChefListClick, onSubscriptionClick, onLoginClick, onOffersClick }: HeaderProps) {
+export default function Header({ cartItemCount = 0, onCartClick, onMenuClick, searchQuery = "", onSearchChange, onChefListClick, onSubscriptionClick, onLoginClick, onOffersClick, showNotificationBell = false }: HeaderProps) {
   const { user } = useAuth();
   const isAuthenticated = !!user;
   const { toast } = useToast();
@@ -361,6 +363,7 @@ export default function Header({ cartItemCount = 0, onCartClick, onMenuClick, se
                 </Badge>
               )}
             </Button>
+            {showNotificationBell && <NotificationBell />}
             <Button variant="ghost" size="icon" onClick={onChefListClick} data-testid="button-chefs" className="h-8 w-8 sm:h-9 sm:w-9">
               <ChefHat className="h-4 w-4 sm:h-5 sm:w-5" />
             </Button>

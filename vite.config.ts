@@ -19,6 +19,14 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        // Disable aggressive caching - add timestamp to output files
+        entryFileNames: '[name].[hash].js',
+        chunkFileNames: '[name].[hash].js',
+        assetFileNames: '[name].[hash][extname]',
+      },
+    },
   },
   server: {
     host: "0.0.0.0",
@@ -26,5 +34,11 @@ export default defineConfig({
       strict: false,
     },
     allowedHosts: true,
+    // Disable caching in dev mode - always fresh
+    middlewareMode: false,
+    hmr: {
+      host: 'localhost',
+      port: 5173,
+    },
   },
 });

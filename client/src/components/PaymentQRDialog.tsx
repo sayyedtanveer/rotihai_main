@@ -23,6 +23,7 @@ interface PaymentQRDialogProps {
   accountCreated?: boolean;
   defaultPassword?: string;
   onPaymentConfirmed?: (transactionId: string) => void;
+  isSubmitting?: boolean; // External loading state (e.g., from React Query mutation)
 }
 
 export default function PaymentQRDialog({ 
@@ -36,7 +37,8 @@ export default function PaymentQRDialog({
   address,
   accountCreated = false,
   defaultPassword = "",
-  onPaymentConfirmed
+  onPaymentConfirmed,
+  isSubmitting = false  // External loading state
 }: PaymentQRDialogProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [upiId] = useState("rotihai@paytm");
@@ -409,14 +411,14 @@ export default function PaymentQRDialog({
             </Button>
             <Button
               onClick={handleConfirmPayment}
-              disabled={!hasPaid || isConfirming}
+              disabled={!hasPaid || isConfirming || isSubmitting}
               className="flex-1"
               data-testid="button-confirm-payment"
             >
-              {isConfirming ? (
+              {isConfirming || isSubmitting ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  Confirming...
+                  {isSubmitting ? "Processing..." : "Confirming..."}
                 </>
               ) : (
                 <>

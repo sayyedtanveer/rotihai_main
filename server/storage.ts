@@ -158,6 +158,12 @@ export interface IStorage {
   }>;
   updateWalletBalance(userId: string, amount: number): Promise<void>;
 
+  // Delivery Fee Calculation methods
+  calculateDeliveryFee(hasLocation: boolean, distance: number | null, orderAmount: number, chef: Chef): Promise<{
+    deliveryFee: number;
+    isFreeDelivery: boolean;
+  }>;
+
   // Enhanced Wallet & Referral methods
   createWalletTransaction(transaction: {
     userId: string;
@@ -264,9 +270,14 @@ function serializeSubscription(sub: any): any {
   const serialized = { ...sub };
   
   // Helper to safely convert any date field
-  const convertDateField = (dateValue: any): string | null => {
-    if (!dateValue) return null;
+  const convertDateField = (dateValue: any, fieldName: string = "unknown"): string | null => {
+    if (!dateValue) {
+      console.log(`[CONVERT-FIELD] ${fieldName}: null/empty input, returning null`);
+      return null;
+    }
     try {
+      console.log(`[CONVERT-FIELD] ${fieldName}: type=${typeof dateValue}, isDate=${dateValue instanceof Date}, value=${dateValue}`);
+      
       // If already a string and looks like ISO string, return as-is
       if (typeof dateValue === 'string') {
         // Validate it's a proper ISO string by checking if parsing works
@@ -274,9 +285,13 @@ function serializeSubscription(sub: any): any {
         const timestamp = dateObj.getTime();
         const year = dateObj.getFullYear();
         
+        console.log(`[CONVERT-FIELD] ${fieldName} (string): timestamp=${timestamp}, isNaN=${isNaN(timestamp)}, year=${year}`);
+        
         if (!isNaN(timestamp) && year >= 1980 && year <= 2100) {
+          console.log(`[CONVERT-FIELD] ${fieldName}: returning ISO string as-is`);
           return dateValue; // Return the original ISO string
         }
+        console.log(`[CONVERT-FIELD] ${fieldName}: invalid string date, returning null`);
         return null; // Invalid or out of range
       }
       
@@ -285,32 +300,39 @@ function serializeSubscription(sub: any): any {
       const timestamp = dateObj.getTime();
       const year = dateObj.getFullYear();
       
+      console.log(`[CONVERT-FIELD] ${fieldName} (Date obj): timestamp=${timestamp}, isNaN=${isNaN(timestamp)}, year=${year}`);
+      
       // Check if date is valid (not NaN)
       if (!isNaN(timestamp)) {
         // Reject epoch (1970), very old dates (before 1980), and dates too far in future (after 2100)
         if (year >= 1980 && year <= 2100) {
-          return dateObj.toISOString();
+          const isoStr = dateObj.toISOString();
+          console.log(`[CONVERT-FIELD] ${fieldName}: returning ISO string: ${isoStr}`);
+          return isoStr;
         }
+        console.log(`[CONVERT-FIELD] ${fieldName}: year out of range (${year}), returning null`);
       }
       // Invalid date or out of range - return null
+      console.log(`[CONVERT-FIELD] ${fieldName}: invalid date or NaN, returning null`);
       return null;
     } catch (e) {
       // If date parsing fails, return null
+      console.log(`[CONVERT-FIELD] ${fieldName}: exception caught, returning null`, e);
       return null;
     }
   };
   
   // Convert ALL date fields to ISO strings or null
   // CRITICAL: This prevents epoch (1970) dates from being sent to frontend
-  serialized.startDate = convertDateField(serialized.startDate);
-  serialized.endDate = convertDateField(serialized.endDate);
-  serialized.nextDeliveryDate = convertDateField(serialized.nextDeliveryDate);
-  serialized.lastDeliveryDate = convertDateField(serialized.lastDeliveryDate);
-  serialized.chefAssignedAt = convertDateField(serialized.chefAssignedAt);
-  serialized.pauseStartDate = convertDateField(serialized.pauseStartDate);
-  serialized.pauseResumeDate = convertDateField(serialized.pauseResumeDate);
-  serialized.createdAt = convertDateField(serialized.createdAt);
-  serialized.updatedAt = convertDateField(serialized.updatedAt);
+  serialized.startDate = convertDateField(serialized.startDate, 'startDate');
+  serialized.endDate = convertDateField(serialized.endDate, 'endDate');
+  serialized.nextDeliveryDate = convertDateField(serialized.nextDeliveryDate, 'nextDeliveryDate');
+  serialized.lastDeliveryDate = convertDateField(serialized.lastDeliveryDate, 'lastDeliveryDate');
+  serialized.chefAssignedAt = convertDateField(serialized.chefAssignedAt, 'chefAssignedAt');
+  serialized.pauseStartDate = convertDateField(serialized.pauseStartDate, 'pauseStartDate');
+  serialized.pauseResumeDate = convertDateField(serialized.pauseResumeDate, 'pauseResumeDate');
+  serialized.createdAt = convertDateField(serialized.createdAt, 'createdAt');
+  serialized.updatedAt = convertDateField(serialized.updatedAt, 'updatedAt');
   
   // VALIDATION: Ensure nextDeliveryDate is valid (not 1970 or null)
   if (serialized.nextDeliveryDate === null) {
@@ -475,6 +497,12 @@ export class MemStorage implements IStorage {
       phone: insertOrder.phone,
       email: insertOrder.email || null,
       address: insertOrder.address,
+      // Structured address fields
+      addressBuilding: (insertOrder as any).addressBuilding || null,
+      addressStreet: (insertOrder as any).addressStreet || null,
+      addressArea: (insertOrder as any).addressArea || null,
+      addressCity: (insertOrder as any).addressCity || null,
+      addressPincode: (insertOrder as any).addressPincode || null,
       items: insertOrder.items,
       subtotal: insertOrder.subtotal,
       deliveryFee: insertOrder.deliveryFee,
@@ -567,15 +595,57 @@ export class MemStorage implements IStorage {
 
   async createChef(data: Omit<Chef, "id">): Promise<Chef> {
     const id = nanoid();
-    // Omit latitude and longitude as they don't exist in the current database schema
-    const { latitude, longitude, ...chefData } = data as any;
-    const chef: Chef = { id, ...chefData, latitude: 0, longitude: 0 };
-    await db.insert(chefs).values({ id, ...chefData } as any);
-    return chef;
+    // Include address (full string), latitude, longitude, and structured address fields
+    const chefData = {
+      id,
+      name: data.name,
+      description: data.description,
+      image: data.image,
+      rating: data.rating,
+      reviewCount: data.reviewCount,
+      categoryId: data.categoryId,
+      address: (data as any).address || null, // Full address string
+      addressBuilding: (data as any).addressBuilding || null,
+      addressStreet: (data as any).addressStreet || null,
+      addressArea: (data as any).addressArea || null,
+      addressCity: (data as any).addressCity || "Mumbai",
+      addressPincode: (data as any).addressPincode || null,
+      latitude: (data as any).latitude ?? 19.0728,
+      longitude: (data as any).longitude ?? 72.8826,
+      isActive: (data as any).isActive !== false,
+      defaultDeliveryFee: (data as any).defaultDeliveryFee ?? 20,
+      deliveryFeePerKm: (data as any).deliveryFeePerKm ?? 5,
+      freeDeliveryThreshold: (data as any).freeDeliveryThreshold ?? 200,
+    };
+    
+    await db.insert(chefs).values(chefData as any);
+    const created = await this.getChefById(id);
+    return created || (chefData as any as Chef);
   }
 
   async updateChef(id: string, data: Partial<Chef>): Promise<Chef | undefined> {
-    await db.update(chefs).set(data).where(eq(chefs.id, id));
+    // Filter out undefined values and prepare update data
+    const updateData: any = {};
+    if (data.name !== undefined) updateData.name = data.name;
+    if (data.description !== undefined) updateData.description = data.description;
+    if (data.image !== undefined) updateData.image = data.image;
+    if (data.rating !== undefined) updateData.rating = data.rating;
+    if (data.reviewCount !== undefined) updateData.reviewCount = data.reviewCount;
+    if (data.categoryId !== undefined) updateData.categoryId = data.categoryId;
+    if ((data as any).address !== undefined) updateData.address = (data as any).address;
+    if ((data as any).addressBuilding !== undefined) updateData.addressBuilding = (data as any).addressBuilding;
+    if ((data as any).addressStreet !== undefined) updateData.addressStreet = (data as any).addressStreet;
+    if ((data as any).addressArea !== undefined) updateData.addressArea = (data as any).addressArea;
+    if ((data as any).addressCity !== undefined) updateData.addressCity = (data as any).addressCity;
+    if ((data as any).addressPincode !== undefined) updateData.addressPincode = (data as any).addressPincode;
+    if ((data as any).latitude !== undefined) updateData.latitude = (data as any).latitude;
+    if ((data as any).longitude !== undefined) updateData.longitude = (data as any).longitude;
+    if (data.isActive !== undefined) updateData.isActive = data.isActive;
+    if ((data as any).defaultDeliveryFee !== undefined) updateData.defaultDeliveryFee = (data as any).defaultDeliveryFee;
+    if ((data as any).deliveryFeePerKm !== undefined) updateData.deliveryFeePerKm = (data as any).deliveryFeePerKm;
+    if ((data as any).freeDeliveryThreshold !== undefined) updateData.freeDeliveryThreshold = (data as any).freeDeliveryThreshold;
+    
+    await db.update(chefs).set(updateData).where(eq(chefs.id, id));
     const chef = await this.getChefById(id);
     return chef || undefined;
   }
@@ -928,6 +998,21 @@ export class MemStorage implements IStorage {
 
   async getSubscription(id: string): Promise<Subscription | undefined> {
     const sub = await db.query.subscriptions.findFirst({ where: (s, { eq }) => eq(s.id, id) });
+    
+    // DEBUG: Log raw database response to understand date field types
+    if (sub) {
+      console.log(`\n[DB-DEBUG] getSubscription(${id}) - Raw DB response:`);
+      console.log(`  startDate: type=${typeof sub.startDate}, value=${sub.startDate}, isDate=${sub.startDate instanceof Date}`);
+      console.log(`  nextDeliveryDate: type=${typeof sub.nextDeliveryDate}, value=${sub.nextDeliveryDate}, isDate=${sub.nextDeliveryDate instanceof Date}`);
+      console.log(`  originalPrice: type=${typeof sub.originalPrice}, value=${sub.originalPrice}`);
+      if (sub.startDate instanceof Date) {
+        console.log(`  startDate getTime()=${sub.startDate.getTime()}, year=${sub.startDate.getFullYear()}`);
+      }
+      if (sub.nextDeliveryDate instanceof Date) {
+        console.log(`  nextDeliveryDate getTime()=${sub.nextDeliveryDate.getTime()}, year=${sub.nextDeliveryDate.getFullYear()}`);
+      }
+    }
+    
     return sub ? serializeSubscription(sub) : undefined;
   }
 
@@ -1861,6 +1946,65 @@ export class MemStorage implements IStorage {
     await db.update(users)
       .set({ walletBalance: sql`${users.walletBalance} + ${amount}` })
       .where(eq(users.id, userId));
+  }
+
+  /**
+   * Calculate delivery fee based on location availability and order amount
+   * 
+   * Logic:
+   * 1. If user has location → Calculate fee based on distance
+   * 2. If location not available → Use default delivery fee from chef settings
+   * 3. Apply free delivery threshold if order amount qualifies
+   * 
+   * @param hasLocation - Whether geolocation is available
+   * @param distance - Distance in km (null if no location)
+   * @param orderAmount - Total order amount before delivery
+   * @param chef - Chef object with delivery fee settings
+   * @returns Delivery fee and free delivery flag
+   */
+  async calculateDeliveryFee(
+    hasLocation: boolean,
+    distance: number | null,
+    orderAmount: number,
+    chef: Chef
+  ): Promise<{ deliveryFee: number; isFreeDelivery: boolean }> {
+    // Get chef's delivery settings (with defaults)
+    const defaultFee = (chef as any).defaultDeliveryFee || 20; // Default ₹20
+    const feePerKm = (chef as any).deliveryFeePerKm || 5; // Default ₹5 per km
+    const freeDeliveryThreshold = (chef as any).freeDeliveryThreshold || 200; // Default ₹200
+
+    let deliveryFee = defaultFee;
+    let isFreeDelivery = false;
+
+    // Calculate fee based on location availability
+    if (hasLocation && distance !== null && distance > 0) {
+      // Distance-based fee calculation
+      deliveryFee = Math.ceil(distance * feePerKm);
+    } else {
+      // No location - use default fee
+      deliveryFee = defaultFee;
+    }
+
+    // Check if order qualifies for free delivery
+    if (orderAmount >= freeDeliveryThreshold) {
+      isFreeDelivery = true;
+      deliveryFee = 0;
+    }
+
+    console.log(`💰 [DELIVERY FEE] Calculated for order ₹${orderAmount}:`, {
+      hasLocation,
+      distance: distance ? `${distance.toFixed(1)} km` : 'N/A',
+      defaultFee,
+      feePerKm,
+      calculatedFee: isFreeDelivery ? 0 : deliveryFee,
+      freeDeliveryThreshold,
+      isFreeDelivery,
+    });
+
+    return {
+      deliveryFee,
+      isFreeDelivery,
+    };
   }
 
   async createWalletTransaction(transaction: {

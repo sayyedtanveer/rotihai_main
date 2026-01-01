@@ -1,4 +1,5 @@
 import type { Express } from "express";
+import jwt from "jsonwebtoken";
 import { storage } from "./storage";
 import {
   hashPassword,
@@ -181,11 +182,14 @@ export function registerAdminRoutes(app: Express) {
       const accessToken = generateAccessToken(admin);
       const refreshToken = generateRefreshToken(admin);
 
+      // Verify the token is valid before sending it
+      const tokenPayload = jwt.verify(accessToken, process.env.JWT_SECRET || "admin-jwt-secret-change-in-production");
       console.log('[Admin Login Success]', {
         ...loginAttempt,
         success: true,
         adminId: admin.id,
-        role: admin.role
+        role: admin.role,
+        tokenPayload: tokenPayload
       });
 
       res.cookie("refreshToken", refreshToken, {
@@ -862,6 +866,28 @@ export function registerAdminRoutes(app: Express) {
 
   app.post("/api/admin/chefs", requireAdminOrManager(), async (req, res) => {
     try {
+      const { name, description, image, categoryId, address, latitude, longitude } = req.body;
+      
+      // Validate required fields
+      if (!name || !description || !image || !categoryId) {
+        res.status(400).json({ message: "Name, description, image, and category are required" });
+        return;
+      }
+      
+      // Validate coordinates if address was provided
+      if (address) {
+        if (typeof latitude !== "number" || typeof longitude !== "number") {
+          res.status(400).json({ message: "Valid coordinates (latitude/longitude) required when address is provided" });
+          return;
+        }
+        
+        // Validate coordinate ranges
+        if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+          res.status(400).json({ message: "Invalid coordinates: latitude must be -90 to 90, longitude must be -180 to 180" });
+          return;
+        }
+      }
+      
       const chef = await storage.createChef(req.body);
       res.status(201).json(chef);
     } catch (error) {
@@ -873,6 +899,22 @@ export function registerAdminRoutes(app: Express) {
   app.patch("/api/admin/chefs/:id", requireAdminOrManager(), async (req, res) => {
     try {
       const { id } = req.params;
+      const { address, latitude, longitude } = req.body;
+      
+      // Validate coordinates if address was provided in update
+      if (address) {
+        if (typeof latitude !== "number" || typeof longitude !== "number") {
+          res.status(400).json({ message: "Valid coordinates (latitude/longitude) required when address is provided" });
+          return;
+        }
+        
+        // Validate coordinate ranges
+        if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+          res.status(400).json({ message: "Invalid coordinates: latitude must be -90 to 90, longitude must be -180 to 180" });
+          return;
+        }
+      }
+      
       const chef = await storage.updateChef(id, req.body);
       if (!chef) {
         res.status(404).json({ message: "Chef not found" });
