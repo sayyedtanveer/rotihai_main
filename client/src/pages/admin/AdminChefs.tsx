@@ -743,7 +743,7 @@ export default function AdminChefs() {
                 <Input
                   id="edit-address"
                   value={formData.address}
-                  onChange={(e) => handleAddressChange(e.target.value)}
+                  onChange={(e) => handleAddressChange("address", e.target.value)}
                   placeholder="e.g., 18/20, Liguardo, Kurla West, Mumbai"
                   disabled={isGeocodingAddress}
                 />
