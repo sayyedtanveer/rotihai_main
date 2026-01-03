@@ -1170,7 +1170,7 @@ app.post("/api/orders", async (req: any, res) => {
     const customerLongitude = sanitizeNumber(body.customerLongitude);
     
     // We must have ADDRESS coordinates to validate delivery zone
-    if (!customerLatitude || !customerLongitude) {
+    if (customerLatitude === undefined || customerLongitude === undefined || isNaN(customerLatitude) || isNaN(customerLongitude)) {
       console.log(`🚫 Order blocked - no delivery coordinates provided`);
       return res.status(400).json({
         message: "Delivery address coordinates required. Please enter and confirm your delivery address.",

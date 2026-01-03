@@ -15,6 +15,7 @@ import { adminApiRequest } from "@/hooks/useAdminAuth";
 import { queryClient } from "@/lib/queryClient";
 import type { Chef, Category } from "@shared/schema";
 import { Star, Pencil, Trash2, Plus, Store, Loader2, MapPin } from "lucide-react";
+import { ImageUploader } from "@/components/ImageUploader";
 
 export default function AdminChefs() {
   const { toast } = useToast();
@@ -440,13 +441,37 @@ export default function AdminChefs() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="image">Image URL</Label>
-              <Input
-                id="image"
-                value={formData.image}
-                onChange={(e) => setFormData({ ...formData, image: e.target.value })}
-                data-testid="input-chef-image"
-              />
+              <Label htmlFor="image">Chef Image</Label>
+              <div className="space-y-2">
+                <div className="flex gap-2">
+                  <Input
+                    id="image"
+                    value={formData.image}
+                    onChange={(e) => setFormData({ ...formData, image: e.target.value })}
+                    placeholder="https://... or /uploads/..."
+                    data-testid="input-chef-image"
+                    className="flex-1"
+                  />
+                  <ImageUploader
+                    onImageUpload={(url) => setFormData({ ...formData, image: url })}
+                  />
+                </div>
+                {formData.image && (
+                  <div className="flex gap-2">
+                    <img
+                      src={formData.image}
+                      alt="Chef preview"
+                      className="w-20 h-20 object-cover rounded-md border"
+                      onError={() => {
+                        console.warn("Failed to load image preview");
+                      }}
+                    />
+                    <div className="flex-1 text-xs text-gray-500 break-all pt-1">
+                      {formData.image}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
             <div className="space-y-2">
               <Label htmlFor="category">Category</Label>
@@ -642,12 +667,34 @@ export default function AdminChefs() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="edit-image">Image URL</Label>
-              <Input
-                id="edit-image"
-                value={formData.image}
-                onChange={(e) => setFormData({ ...formData, image: e.target.value })}
-                data-testid="input-edit-image"
-              />
+              <div className="flex gap-2">
+                <Input
+                  id="edit-image"
+                  value={formData.image}
+                  onChange={(e) => setFormData({ ...formData, image: e.target.value })}
+                  placeholder="https://... or /uploads/..."
+                  data-testid="input-edit-image"
+                  className="flex-1"
+                />
+                <ImageUploader
+                  onImageUpload={(url) => setFormData({ ...formData, image: url })}
+                />
+              </div>
+              {formData.image && (
+                <div className="flex gap-2">
+                  <img
+                    src={formData.image}
+                    alt="Chef preview"
+                    className="w-20 h-20 object-cover rounded-md border"
+                    onError={() => {
+                      console.warn("Failed to load image preview");
+                    }}
+                  />
+                  <div className="flex-1 text-xs text-gray-500 break-all pt-1">
+                    {formData.image}
+                  </div>
+                </div>
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="edit-category">Category</Label>

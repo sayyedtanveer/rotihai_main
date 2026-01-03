@@ -27,7 +27,7 @@ export default function Landing() {
             <h1 className="text-5xl sm:text-6xl font-bold mb-6" data-testid="text-hero-title">
               Fresh Rotis Delivered
               <br />
-              <span className="text-primary">Ghar Jaisa Swaad</span>
+              <span className="text-primary">Ghar Ka Khana, Apno Ka Swaad</span>
             </h1>
             <p className="text-xl text-muted-foreground mb-8 max-w-2xl mx-auto" data-testid="text-hero-subtitle">
               Warm, fresh rotis and homestyle meals delivered in 30 minutes

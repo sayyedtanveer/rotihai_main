@@ -126,8 +126,14 @@ export const reducer = (state: State, action: Action): State => {
   }
 }
 
-const listeners: Array<(state: State) => void> = []
+// Create a React Context for toast state
+const ToastContext = React.createContext<{
+  state: State
+  dispatch: (action: Action) => void
+} | null>(null)
 
+// Use this to dispatch outside of React components
+const listeners: Array<(state: State) => void> = []
 let memoryState: State = { toasts: [] }
 
 function dispatch(action: Action) {
@@ -179,7 +185,7 @@ function useToast() {
         listeners.splice(index, 1)
       }
     }
-  }, [state])
+  }, [])
 
   return {
     ...state,

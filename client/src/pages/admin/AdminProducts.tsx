@@ -18,6 +18,7 @@ import { Plus, Pencil, Trash2, Grid3x3, List } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertProductSchema } from "@shared/schema";
+import { ImageUploader } from "@/components/ImageUploader";
 
 export default function AdminProducts() {
   const { toast } = useToast();
@@ -421,10 +422,37 @@ export default function AdminProducts() {
                       name="image"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Image URL</FormLabel>
-                          <FormControl>
-                            <Input {...field} placeholder="https://..." data-testid="input-product-image" />
-                          </FormControl>
+                          <FormLabel>Product Image</FormLabel>
+                          <div className="space-y-2">
+                            <div className="flex gap-2">
+                              <FormControl className="flex-1">
+                                <Input
+                                  {...field}
+                                  placeholder="https://... or /uploads/..."
+                                  data-testid="input-product-image"
+                                />
+                              </FormControl>
+                              <ImageUploader
+                                onImageUpload={(url) => field.onChange(url)}
+                                disabled={field.disabled}
+                              />
+                            </div>
+                            {field.value && (
+                              <div className="flex gap-2">
+                                <img
+                                  src={field.value}
+                                  alt="Product preview"
+                                  className="w-20 h-20 object-cover rounded-md border"
+                                  onError={() => {
+                                    console.warn("Failed to load image preview");
+                                  }}
+                                />
+                                <div className="flex-1 text-xs text-gray-500 break-all pt-1">
+                                  {field.value}
+                                </div>
+                              </div>
+                            )}
+                          </div>
                           <FormMessage />
                         </FormItem>
                       )}

@@ -16,7 +16,7 @@ export default function AdminSettings() {
   // Site Information
   const [siteInfo, setSiteInfo] = useState({
     siteName: "RotiHai",
-    tagline: "Fresh Rotis Delivered Ghar Jaisa Swaad",
+    tagline: "Fresh Rotis Delivered - Ghar Ka Khana, Apno Ka Swaad",
     contactEmail: "support@rotihai.com",
     contactPhone: "+91 98765 43210",
     supportHours: "9:00 AM - 10:00 PM",

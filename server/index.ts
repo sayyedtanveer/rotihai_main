@@ -1,10 +1,14 @@
 import "./env";
 import express, { type Request, Response, NextFunction } from "express";
 import cookieParser from "cookie-parser";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { generateAccessToken, generateRefreshToken, verifyPassword, hashPassword, requirePartner, type AuthenticatedPartnerRequest } from "./partnerAuth";
 import { storage } from "./storage";
+import { saveImageFile, getImagePath, imageExists } from "./imageService";
 
 const app = express();
 console.log("🚀 Server is starting...");
@@ -21,6 +25,22 @@ app.use(express.json({
 }));
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
+
+// Multer configuration for image uploads
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedMimes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+    if (allowedMimes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error(`Invalid file type: ${file.mimetype}`));
+    }
+  },
+});
 
 // CORS middleware
 app.use((req, res, next) => {
@@ -318,6 +338,71 @@ app.use((req, res, next) => {
     } catch (error) {
       console.error("Change partner password error:", error);
       res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // ===== IMAGE UPLOAD & SERVING =====
+  
+  // POST /api/upload - Upload image (Admin only)
+  app.post("/api/upload", upload.single("image"), async (req: Request, res: Response) => {
+    try {
+      // Check authorization - only admins can upload
+      const token = req.headers.authorization?.split(" ")[1];
+      if (!token) {
+        res.status(401).json({ message: "Unauthorized" });
+        return;
+      }
+
+      if (!req.file) {
+        res.status(400).json({ message: "No file uploaded" });
+        return;
+      }
+
+      // Save image file
+      const result = saveImageFile(req.file);
+      if (!result.success) {
+        res.status(400).json({ message: result.error });
+        return;
+      }
+
+      res.json({
+        success: true,
+        url: result.url,
+        filename: result.filename,
+        fileSize: result.fileSize,
+      });
+    } catch (error: any) {
+      console.error("Image upload error:", error);
+      res.status(500).json({ message: "Failed to upload image" });
+    }
+  });
+
+  // GET /uploads/:filename - Serve uploaded images (public)
+  app.get("/uploads/:filename", (req: Request, res: Response) => {
+    try {
+      const { filename } = req.params;
+
+      // Validate filename to prevent directory traversal
+      if (!filename || filename.includes("..") || filename.includes("/")) {
+        res.status(400).json({ message: "Invalid filename" });
+        return;
+      }
+
+      if (!imageExists(filename)) {
+        res.status(404).json({ message: "Image not found" });
+        return;
+      }
+
+      const filepath = getImagePath(filename);
+      
+      // Set cache headers for images
+      res.setHeader("Cache-Control", "public, max-age=86400"); // 24 hours
+      res.setHeader("Content-Type", "image/*");
+      
+      res.sendFile(filepath);
+    } catch (error: any) {
+      console.error("Image serving error:", error);
+      res.status(500).json({ message: "Failed to serve image" });
     }
   });
 

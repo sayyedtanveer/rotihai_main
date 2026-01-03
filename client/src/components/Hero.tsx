@@ -166,7 +166,7 @@ export default function Hero() {
         >
           Fresh Rotis Delivered
           <br />
-          <span className="text-primary-foreground/90">Ghar Jaisa Swaad</span>
+          <span className="text-primary-foreground/90">Ghar Ka Khana, Apno Ka Swaad</span>
         </h2>
         <p className="text-sm sm:text-lg lg:text-xl text-white/90 mb-6 sm:mb-8 max-w-2xl px-4 drop-shadow" data-testid="text-hero-subtitle">
           Fresh rotis, homestyle meals, and restaurant specials in 30 minutes

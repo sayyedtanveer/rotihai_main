@@ -542,7 +542,10 @@ export default function CheckoutDialog({
       setCustomerName(user.name || "");
       setPhone(user.phone || "");
       setEmail(user.email || "");
-      setAddress(user.address || "");
+      // Parse structured address if available
+      if (user.address) {
+        setAddressBuilding(user.address);
+      }
       setActiveTab("checkout");
     }
   }, [user, isAuthenticated, isOpen]);
@@ -1096,7 +1099,7 @@ export default function CheckoutDialog({
     // Fee = base fee + (distance * per km rate)
     const baseFee = defaultDeliveryFee;
     const additionalFee = Math.max(0, distance - 0.5) * deliveryFeePerKm; // 0.5km grace radius
-    const calculatedFee = baseFee + additionalFee;
+    const calculatedFee = Math.round(baseFee + additionalFee);
 
     // Check if order is eligible for free delivery (only if subtotal >= threshold)
     const isFreeDelivery = subtotal >= freeDeliveryThreshold;
@@ -1139,10 +1142,10 @@ export default function CheckoutDialog({
     }
 
     // ENFORCE: Location must be enabled to place order
-    if (!cart.distance || cart.deliveryFee === 0 || !cart.chefLatitude || !cart.chefLongitude) {
+    if (customerLatitude === null || customerLongitude === null || !addressZoneValidated || !addressInDeliveryZone) {
       toast({
-        title: "Location Required",
-        description: "Please enable location services to calculate delivery fees and place your order.",
+        title: "Address Validation Required",
+        description: "Please enter and confirm a delivery address within our service zone.",
         variant: "destructive",
       });
       return;
@@ -1224,6 +1227,8 @@ export default function CheckoutDialog({
         subtotal,
         deliveryFee,
         discount,
+        customerLatitude,
+        customerLongitude,
         couponCode: appliedCoupon?.code,
         referralCode: referralCode && !userToken ? referralCode.trim().toUpperCase() : undefined,
         total,
@@ -1414,7 +1419,11 @@ export default function CheckoutDialog({
       setCustomerName("");
       setPhone("");
       setEmail("");
-      setAddress("");
+      setAddressBuilding("");
+      setAddressStreet("");
+      setAddressArea("");
+      setAddressCity("Mumbai");
+      setAddressPincode("");
       setCouponCode("");
       setReferralCode("");
       setAppliedCoupon(null);
@@ -1475,7 +1484,10 @@ export default function CheckoutDialog({
       setCustomerName(data.user.name || "");
       setPhone(data.user.phone || "");
       setEmail(data.user.email || "");
-      setAddress(data.user.address || "");
+      // Parse structured address if available
+      if (data.user.address) {
+        setAddressBuilding(data.user.address);
+      }
 
       toast({
         title: "✓ Login successful",
