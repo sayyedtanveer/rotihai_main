@@ -1,6 +1,6 @@
 import { useState } from "react";
+import api from "@/lib/apiClient";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
 import {
   Dialog,
   DialogContent,
@@ -62,43 +62,25 @@ export function ChangePasswordDialog({ open, onOpenChange }: ChangePasswordDialo
     setIsSubmitting(true);
 
     try {
-      const userToken = localStorage.getItem("userToken");
-      
-      const response = await fetch("/api/user/change-password", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${userToken}`,
-        },
-        body: JSON.stringify({
-          currentPassword,
-          newPassword,
-        }),
+      const response = await api.post("/api/user/change-password", {
+        currentPassword,
+        newPassword,
       });
 
-      if (response.ok) {
-        toast({
-          title: "Success!",
-          description: "Your password has been changed successfully",
-        });
-        
-        setCurrentPassword("");
-        setNewPassword("");
-        setConfirmPassword("");
-        onOpenChange(false);
-      } else {
-        const data = await response.json();
-        toast({
-          title: "Error",
-          description: data.message || "Failed to change password",
-          variant: "destructive",
-        });
-      }
-    } catch (error) {
+      toast({
+        title: "Success!",
+        description: "Your password has been changed successfully",
+      });
+      
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      onOpenChange(false);
+    } catch (error: any) {
       console.error("Change password error:", error);
       toast({
         title: "Error",
-        description: "Failed to change password. Please try again.",
+        description: error.response?.data?.message || "Failed to change password",
         variant: "destructive",
       });
     } finally {

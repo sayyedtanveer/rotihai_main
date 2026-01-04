@@ -1,5 +1,6 @@
 
 import { useQuery, useMutation } from "@tanstack/react-query";
+import api from "@/lib/apiClient";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -43,12 +44,8 @@ export default function AdminPartners() {
   const { data: chefs } = useQuery<Chef[]>({
     queryKey: ["/api/admin/chefs"],
     queryFn: async () => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch("/api/admin/chefs", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) throw new Error("Failed to fetch chefs");
-      return response.json();
+      const response = await api.get("/api/admin/chefs");
+      return response.data;
     },
   });
 
@@ -56,32 +53,16 @@ export default function AdminPartners() {
   const { data: partners, isLoading } = useQuery<Partner[]>({
     queryKey: ["/api/admin/partners"],
     queryFn: async () => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch("/api/admin/partners", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) throw new Error("Failed to fetch partners");
-      return response.json();
+      const response = await api.get("/api/admin/partners");
+      return response.data;
     },
   });
 
   // Create partner mutation
   const createPartnerMutation = useMutation({
     mutationFn: async (data: typeof newPartner) => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch("/api/admin/partners", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(data),
-      });
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || "Failed to create partner");
-      }
-      return response.json();
+      const response = await api.post("/api/admin/partners", data);
+      return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/partners"] });
@@ -103,13 +84,8 @@ export default function AdminPartners() {
   // Delete partner mutation
   const deletePartnerMutation = useMutation({
     mutationFn: async (id: string) => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch(`/api/admin/partners/${id}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) throw new Error("Failed to delete partner");
-      return response.json();
+      const response = await api.delete(`/api/admin/partners/${id}`);
+      return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/partners"] });

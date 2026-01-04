@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import api from "@/lib/apiClient";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,26 +35,15 @@ export default function PartnerProfile() {
   const { data: profile, isLoading } = useQuery<PartnerProfile>({
     queryKey: ["/api/partner/profile"],
     queryFn: async () => {
-      const response = await fetch("/api/partner/profile", {
-        headers: { Authorization: `Bearer ${partnerToken}` },
-      });
-      if (!response.ok) throw new Error("Failed to fetch profile");
-      return response.json();
+      const response = await api.get("/api/partner/profile");
+      return response.data;
     },
   });
 
   const updateProfileMutation = useMutation({
     mutationFn: async (data: { email?: string; profilePictureUrl?: string }) => {
-      const response = await fetch("/api/partner/profile", {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${partnerToken}`,
-        },
-        body: JSON.stringify(data),
-      });
-      if (!response.ok) throw new Error("Failed to update profile");
-      return response.json();
+      const response = await api.put("/api/partner/profile", data);
+      return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/partner/profile"] });
@@ -75,16 +65,8 @@ export default function PartnerProfile() {
 
   const changePasswordMutation = useMutation({
     mutationFn: async (data: { currentPassword: string; newPassword: string }) => {
-      const response = await fetch("/api/partner/change-password", {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${partnerToken}`,
-        },
-        body: JSON.stringify(data),
-      });
-      if (!response.ok) throw new Error("Failed to change password");
-      return response.json();
+      const response = await api.put("/api/partner/change-password", data);
+      return response.data;
     },
     onSuccess: () => {
       toast({

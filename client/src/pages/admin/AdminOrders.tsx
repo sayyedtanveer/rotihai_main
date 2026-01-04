@@ -1,4 +1,5 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
+import api from "@/lib/apiClient";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -29,12 +30,8 @@ export default function AdminOrders() {
   const { data: orders, isLoading } = useQuery<Order[]>({
     queryKey: ["/api/admin", "orders"],
     queryFn: async () => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch("/api/admin/orders", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) throw new Error("Failed to fetch orders");
-      const allOrders = await response.json();
+      const response = await api.get("/api/admin/orders");
+      const allOrders = response.data;
       // Sort by latest first (descending order by createdAt)
       return allOrders.sort((a: Order, b: Order) =>
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
@@ -45,40 +42,23 @@ export default function AdminOrders() {
   const { data: chefs } = useQuery({
     queryKey: ["/api/admin", "chefs"],
     queryFn: async () => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch("/api/admin/chefs", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) throw new Error("Failed to fetch chefs");
-      return response.json();
+      const response = await api.get("/api/admin/chefs");
+      return response.data;
     },
   });
 
   const { data: deliveryPersonnel } = useQuery<DeliveryPersonnel[]>({
     queryKey: ["/api/admin", "delivery-personnel"],
     queryFn: async () => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch("/api/admin/delivery-personnel", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) throw new Error("Failed to fetch delivery personnel");
-      return response.json();
+      const response = await api.get("/api/admin/delivery-personnel");
+      return response.data;
     },
   });
 
   const updateStatusMutation = useMutation({
     mutationFn: async ({ orderId, status }: { orderId: string; status: string }) => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch(`/api/admin/orders/${orderId}/status`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ status }),
-      });
-      if (!response.ok) throw new Error("Failed to update order status");
-      return response.json();
+      const response = await api.patch(`/api/admin/orders/${orderId}/status`, { status });
+      return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin", "orders"] });
@@ -99,17 +79,8 @@ export default function AdminOrders() {
 
   const assignDeliveryMutation = useMutation({
     mutationFn: async ({ orderId, deliveryPersonId }: { orderId: string; deliveryPersonId: string }) => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch(`/api/admin/orders/${orderId}/assign`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ deliveryPersonId }),
-      });
-      if (!response.ok) throw new Error("Failed to assign delivery person");
-      return response.json();
+      const response = await api.post(`/api/admin/orders/${orderId}/assign`, { deliveryPersonId });
+      return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin", "orders"] });

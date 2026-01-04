@@ -1,4 +1,5 @@
 import { useState } from "react";
+import api from "@/lib/apiClient";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { Upload, Loader2, Check } from "lucide-react";
@@ -42,21 +43,13 @@ export function ImageUploader({ onImageUpload, disabled = false }: ImageUploader
     formData.append("image", file);
 
     try {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch("/api/upload", {
-        method: "POST",
+      const response = await api.post("/api/upload", formData, {
         headers: {
-          Authorization: `Bearer ${token}`,
+          "Content-Type": "multipart/form-data",
         },
-        body: formData,
       });
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || "Upload failed");
-      }
-
-      const data = await response.json();
+      const data = response.data;
       setUploadedFileName(data.filename);
       onImageUpload(data.url); // Pass the URL back to form
 
