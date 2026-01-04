@@ -1,5 +1,6 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useState } from "react";
+import api from "@/lib/apiClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -47,28 +48,15 @@ export default function PromotionalBannersDrawer({ isOpen, onOpenChange }: Promo
   const { data: banners, isLoading } = useQuery<PromotionalBanner[]>({
     queryKey: ["/api/admin/promotional-banners"],
     queryFn: async () => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch("/api/admin/promotional-banners", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) throw new Error("Failed to fetch banners");
-      return response.json();
+      const response = await api.get("/api/admin/promotional-banners");
+      return response.data;
     },
   });
 
   const createMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch("/api/admin/promotional-banners", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(data),
-      });
-      if (!response.ok) throw new Error("Failed to create banner");
-      return response.json();
+      const response = await api.post("/api/admin/promotional-banners", data);
+      return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/promotional-banners"] });
@@ -81,17 +69,8 @@ export default function PromotionalBannersDrawer({ isOpen, onOpenChange }: Promo
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: typeof formData }) => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch(`/api/admin/promotional-banners/${id}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(data),
-      });
-      if (!response.ok) throw new Error("Failed to update banner");
-      return response.json();
+      const response = await api.patch(`/api/admin/promotional-banners/${id}`, data);
+      return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/promotional-banners"] });
@@ -105,13 +84,8 @@ export default function PromotionalBannersDrawer({ isOpen, onOpenChange }: Promo
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch(`/api/admin/promotional-banners/${id}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) throw new Error("Failed to delete banner");
-      return response.json();
+      const response = await api.delete(`/api/admin/promotional-banners/${id}`);
+      return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/promotional-banners"] });

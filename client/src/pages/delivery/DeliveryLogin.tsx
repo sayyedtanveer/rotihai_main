@@ -1,6 +1,7 @@
 
 import { useState } from "react";
 import { useLocation } from "wouter";
+import api from "@/lib/apiClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,17 +21,9 @@ export default function DeliveryLogin() {
     setIsLoading(true);
 
     try {
-      const response = await fetch("/api/delivery/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone, password }),
-      });
+      const response = await api.post("/api/delivery/login", { phone, password });
 
-      if (!response.ok) {
-        throw new Error("Invalid credentials");
-      }
-
-      const data = await response.json();
+      const data = response.data;
       localStorage.setItem("deliveryToken", data.token);
       localStorage.setItem("deliveryPersonId", data.deliveryPerson.id);
       localStorage.setItem("deliveryPersonName", data.deliveryPerson.name);

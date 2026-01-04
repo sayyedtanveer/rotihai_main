@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
+import api from "@/lib/apiClient";
 import { Redirect, useLocation } from "wouter";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -64,40 +65,35 @@ export default function MyOrders() {
     queryKey: ["/api/orders", userToken],
     enabled: !!userToken,
     queryFn: async () => {
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (userToken) headers.Authorization = `Bearer ${userToken}`;
-      const res = await fetch("/api/orders", { headers });
-      if (res.status === 401) {
-        localStorage.removeItem("userToken");
-        localStorage.removeItem("userData");
-        throw new Error("Session expired. Please log in again.");
+      try {
+        const response = await api.get("/api/orders");
+        return response.data;
+      } catch (err: any) {
+        if (err.response?.status === 401) {
+          localStorage.removeItem("userToken");
+          localStorage.removeItem("userData");
+          throw new Error("Session expired. Please log in again.");
+        }
+        throw err;
       }
-      if (!res.ok) {
-        const text = await res.text();
-        console.error("Failed to fetch orders:", text);
-        throw new Error("Failed to fetch orders");
-      }
-      return res.json();
     },
   });
 
-  // 🧩 Fetch categories
+  // Categories query
   const { data: categories = [] } = useQuery<Category[]>({
     queryKey: ["/api/categories"],
     queryFn: async () => {
-      const res = await fetch("/api/categories");
-      if (!res.ok) throw new Error("Failed to fetch categories");
-      return res.json();
+      const response = await api.get("/api/categories");
+      return response.data;
     },
   });
 
-  // 🧩 Fetch chefs
+  // Chefs query
   const { data: chefs = [] } = useQuery<Chef[]>({
     queryKey: ["/api/chefs"],
     queryFn: async () => {
-      const res = await fetch("/api/chefs");
-      if (!res.ok) throw new Error("Failed to fetch chefs");
-      return res.json();
+      const response = await api.get("/api/chefs");
+      return response.data;
     },
   });
 
