@@ -1,0 +1,17 @@
+.git
+.gitignore
+README.md
+.env.example
+.local
+.replit
+.vs/
+.vscode/
+node_modules/
+.next/
+out/
+database-backups/
+migrations/
+scripts/
+attached_assets/seed_images/
+*.log
+*.sql
