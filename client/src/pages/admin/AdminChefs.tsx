@@ -2,6 +2,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { AdminLayout } from "@/components/admin/AdminLayout";
+import api from "@/lib/apiClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -203,20 +204,9 @@ export default function AdminChefs() {
     geocodeTimeoutRef.current = setTimeout(async () => {
       try {
         setIsGeocodingAddress(true);
-        const response = await fetch("/api/geocode", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ address: fullAddress }),
-        });
+        const response = await api.post("/api/geocode", { address: fullAddress });
 
-        if (!response.ok) {
-          const data = await response.json();
-          setGeocodeError(data.message || "Failed to geocode address");
-          setIsGeocodingAddress(false);
-          return;
-        }
-
-        const data = await response.json();
+        const data = response.data;
         if (data.success) {
           setFormData(prev => ({
             ...prev,

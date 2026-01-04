@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import api from "@/lib/apiClient";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import {
   Card,
@@ -53,24 +54,16 @@ export default function AdminDeliveryTimeSlots() {
   const { data: slots = [], isLoading } = useQuery({
     queryKey: ["/api/admin/delivery-slots"],
     queryFn: async () => {
-      const response = await fetch("/api/admin/delivery-slots", {
-        headers: buildHeaders(),
-      });
-      if (!response.ok) throw new Error("Failed to fetch slots");
-      return response.json();
+      const response = await api.get("/api/admin/delivery-slots");
+      return response.data;
     },
   });
 
   // Create slot mutation
   const createMutation = useMutation({
     mutationFn: async (data: any) => {
-      const response = await fetch("/api/admin/delivery-slots", {
-        method: "POST",
-        headers: buildHeaders(true),
-        body: JSON.stringify(data),
-      });
-      if (!response.ok) throw new Error("Failed to create slot");
-      return response.json();
+      const response = await api.post("/api/admin/delivery-slots", data);
+      return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({
@@ -98,13 +91,8 @@ export default function AdminDeliveryTimeSlots() {
   // Update slot mutation
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: any) => {
-      const response = await fetch(`/api/admin/delivery-slots/${id}`, {
-        method: "PATCH",
-        headers: buildHeaders(true),
-        body: JSON.stringify(data),
-      });
-      if (!response.ok) throw new Error("Failed to update slot");
-      return response.json();
+      const response = await api.patch(`/api/admin/delivery-slots/${id}`, data);
+      return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({
@@ -124,12 +112,8 @@ export default function AdminDeliveryTimeSlots() {
   // Delete slot mutation
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const response = await fetch(`/api/admin/delivery-slots/${id}`, {
-        method: "DELETE",
-        headers: buildHeaders(),
-      });
-      if (!response.ok) throw new Error("Failed to delete slot");
-      return response.json();
+      const response = await api.delete(`/api/admin/delivery-slots/${id}`);
+      return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({

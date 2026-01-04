@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
+import api from "@/lib/apiClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -39,21 +40,12 @@ export default function PartnerLogin() {
     setIsLoading(true);
 
     try {
-      const response = await fetch("/api/partner/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          username: username.trim(), 
-          password 
-        }),
-        credentials: "include",
+      const response = await api.post("/api/partner/auth/login", {
+        username: username.trim(),
+        password
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || "Invalid credentials");
-      }
+      const data = response.data;
 
       if (!data.accessToken || !data.partner) {
         throw new Error("Invalid response from server");

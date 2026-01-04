@@ -1,6 +1,7 @@
 
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useState } from "react";
+import api from "@/lib/apiClient";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -24,12 +25,8 @@ export default function AdminCategories() {
   const { data: categories, isLoading } = useQuery<Category[]>({
     queryKey: ["/api/admin", "categories"],
     queryFn: async () => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch("/api/admin/categories", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) throw new Error("Failed to fetch categories");
-      return response.json();
+      const response = await api.get("/api/admin/categories");
+      return response.data;
     },
   });
 
@@ -46,17 +43,8 @@ export default function AdminCategories() {
 
   const createMutation = useMutation({
     mutationFn: async (data: InsertCategory) => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch("/api/admin/categories", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(data),
-      });
-      if (!response.ok) throw new Error("Failed to create category");
-      return response.json();
+      const response = await api.post("/api/admin/categories", data);
+      return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin", "categories"] });
@@ -71,17 +59,8 @@ export default function AdminCategories() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: InsertCategory }) => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch(`/api/admin/categories/${id}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(data),
-      });
-      if (!response.ok) throw new Error("Failed to update category");
-      return response.json();
+      const response = await api.patch(`/api/admin/categories/${id}`, data);
+      return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin", "categories"] });
@@ -94,13 +73,8 @@ export default function AdminCategories() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch(`/api/admin/categories/${id}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) throw new Error("Failed to delete category");
-      return response.json();
+      const response = await api.delete(`/api/admin/categories/${id}`);
+      return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin", "categories"] });

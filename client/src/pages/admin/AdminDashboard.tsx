@@ -48,12 +48,8 @@ export default function AdminDashboard() {
   const { data: deliveryPersonnel } = useQuery({
     queryKey: ["/api/admin/delivery-personnel"],
     queryFn: async () => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch("/api/admin/delivery-personnel", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) throw new Error("Failed to fetch delivery personnel");
-      return response.json();
+      const response = await api.get("/api/admin/delivery-personnel");
+      return response.data;
     },
   });
 

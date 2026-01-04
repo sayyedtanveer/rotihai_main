@@ -1,5 +1,6 @@
 
 import { useQuery, useMutation } from "@tanstack/react-query";
+import api from "@/lib/apiClient";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -34,12 +35,8 @@ export default function AdminDeliverySettings() {
   const { data: settings, isLoading: settingsLoading } = useQuery<DeliverySetting[]>({
     queryKey: ["/api/admin", "delivery-settings"],
     queryFn: async () => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch("/api/admin/delivery-settings", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) throw new Error("Failed to fetch delivery settings");
-      return response.json();
+      const response = await api.get("/api/admin/delivery-settings");
+      return response.data;
     },
   });
 
@@ -47,36 +44,23 @@ export default function AdminDeliverySettings() {
   const { data: deliveryPersonnel, isLoading: personnelLoading } = useQuery<DeliveryPersonnel[]>({
     queryKey: ["/api/admin", "delivery-personnel"],
     queryFn: async () => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch("/api/admin/delivery-personnel", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) throw new Error("Failed to fetch delivery personnel");
-      return response.json();
+      const response = await api.get("/api/admin/delivery-personnel");
+      return response.data;
     },
   });
 
   // Delivery Settings Mutations
   const createSettingMutation = useMutation({
     mutationFn: async (data: any) => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch("/api/admin/delivery-settings", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          name: data.name,
-          minDistance: parseFloat(data.minDistance),
-          maxDistance: parseFloat(data.maxDistance),
-          price: parseInt(data.price),
-          minOrderAmount: parseInt(data.minOrderAmount) || 0,
-          isActive: true,
-        }),
+      const response = await api.post("/api/admin/delivery-settings", {
+        name: data.name,
+        minDistance: parseFloat(data.minDistance),
+        maxDistance: parseFloat(data.maxDistance),
+        price: parseInt(data.price),
+        minOrderAmount: parseInt(data.minOrderAmount) || 0,
+        isActive: true,
       });
-      if (!response.ok) throw new Error("Failed to create delivery setting");
-      return response.json();
+      return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin", "delivery-settings"] });
@@ -97,17 +81,8 @@ export default function AdminDeliverySettings() {
 
   const updateSettingMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: Partial<DeliverySetting> }) => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch(`/api/admin/delivery-settings/${id}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(data),
-      });
-      if (!response.ok) throw new Error("Failed to update delivery setting");
-      return response.json();
+      const response = await api.patch(`/api/admin/delivery-settings/${id}`, data);
+      return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin", "delivery-settings"] });
@@ -127,13 +102,8 @@ export default function AdminDeliverySettings() {
 
   const deleteSettingMutation = useMutation({
     mutationFn: async (id: string) => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch(`/api/admin/delivery-settings/${id}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) throw new Error("Failed to delete delivery setting");
-      return response.json();
+      const response = await api.delete(`/api/admin/delivery-settings/${id}`);
+      return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin", "delivery-settings"] });
@@ -154,17 +124,8 @@ export default function AdminDeliverySettings() {
   // Delivery Personnel Mutations
   const createPersonnelMutation = useMutation({
     mutationFn: async (data: any) => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch("/api/admin/delivery-personnel", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(data),
-      });
-      if (!response.ok) throw new Error("Failed to create delivery person");
-      return response.json();
+      const response = await api.post("/api/admin/delivery-personnel", data);
+      return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin", "delivery-personnel"] });
@@ -185,17 +146,8 @@ export default function AdminDeliverySettings() {
 
   const updatePersonnelMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: Partial<DeliveryPersonnel> }) => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch(`/api/admin/delivery-personnel/${id}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(data),
-      });
-      if (!response.ok) throw new Error("Failed to update delivery person");
-      return response.json();
+      const response = await api.patch(`/api/admin/delivery-personnel/${id}`, data);
+      return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin", "delivery-personnel"] });
@@ -215,13 +167,8 @@ export default function AdminDeliverySettings() {
 
   const deletePersonnelMutation = useMutation({
     mutationFn: async (id: string) => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch(`/api/admin/delivery-personnel/${id}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) throw new Error("Failed to delete delivery person");
-      return response.json();
+      const response = await api.delete(`/api/admin/delivery-personnel/${id}`);
+      return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin", "delivery-personnel"] });

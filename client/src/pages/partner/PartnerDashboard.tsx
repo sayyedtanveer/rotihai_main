@@ -1,4 +1,5 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
+import api from "@/lib/apiClient";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Package, DollarSign, Clock, CheckCircle, Bell, Wifi, WifiOff, TrendingUp, Calendar, UserCircle, LogOut, Store, UtensilsCrossed, ToggleLeft, ToggleRight, Repeat, Truck, Loader2, Star, MapPin, Phone, AlertCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -50,17 +51,10 @@ export default function PartnerDashboard() {
   useEffect(() => {
     const refreshToken = async () => {
       try {
-        const response = await fetch("/api/partner/auth/refresh", {
-          method: "POST",
-          credentials: "include",
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          localStorage.setItem("partnerToken", data.accessToken);
+        const response = await api.post("/api/partner/auth/refresh");
+        if (response.data && response.data.accessToken) {
+          localStorage.setItem("partnerToken", response.data.accessToken);
           console.log("✅ Partner token refreshed successfully");
-        } else {
-          console.warn("⚠️ Token refresh failed, user may need to re-login");
         }
       } catch (error) {
         console.error("❌ Token refresh failed:", error);
@@ -88,22 +82,16 @@ export default function PartnerDashboard() {
   const { data: metrics } = useQuery({
     queryKey: ["/api/partner/dashboard/metrics"],
     queryFn: async () => {
-      const response = await fetch("/api/partner/dashboard/metrics", {
-        headers: { Authorization: `Bearer ${partnerToken}` },
-      });
-      if (!response.ok) throw new Error("Failed to fetch metrics");
-      return response.json();
+      const response = await api.get("/api/partner/dashboard/metrics");
+      return response.data;
     },
   });
 
   const { data: orders = [], isLoading: ordersLoading } = useQuery<Order[]>({
     queryKey: ["/api/partner/orders"],
     queryFn: async () => {
-      const response = await fetch("/api/partner/orders", {
-        headers: { Authorization: `Bearer ${partnerToken}` },
-      });
-      if (!response.ok) throw new Error("Failed to fetch orders");
-      const allOrders = await response.json();
+      const response = await api.get("/api/partner/orders");
+      const allOrders = response.data;
       console.log(`📦 Partner Dashboard - Received ${allOrders.length} orders:`,
         allOrders.map((o: any) => ({ id: o.id.slice(0, 8), status: o.status, assignedTo: o.assignedTo }))
       );
@@ -118,15 +106,8 @@ export default function PartnerDashboard() {
   const { data: subscriptions = [], isLoading: subscriptionsLoading } = useQuery({
     queryKey: ["/api/partner/subscriptions"],
     queryFn: async () => {
-      const token = localStorage.getItem("partnerToken");
-      const response = await fetch("/api/partner/subscriptions", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) {
-        console.error("Failed to fetch subscriptions:", response.status);
-        throw new Error("Failed to fetch subscriptions");
-      }
-      const data = await response.json();
+      const response = await api.get("/api/partner/subscriptions");
+      const data = response.data;
       console.log(`📦 Partner - Received ${data.length} subscriptions:`, data);
       return data;
     },
@@ -136,11 +117,8 @@ export default function PartnerDashboard() {
   const { data: incomeReport } = useQuery({
     queryKey: ["/api/partner/income-report"],
     queryFn: async () => {
-      const response = await fetch("/api/partner/income-report", {
-        headers: { Authorization: `Bearer ${partnerToken}` },
-      });
-      if (!response.ok) throw new Error("Failed to fetch income report");
-      return response.json();
+      const response = await api.get("/api/partner/income-report");
+      return response.data;
     },
   });
 
@@ -151,31 +129,24 @@ export default function PartnerDashboard() {
   const { data: rotiSettings } = useQuery({
     queryKey: ["/api/roti-settings"],
     queryFn: async () => {
-      const response = await fetch("/api/roti-settings");
-      if (!response.ok) throw new Error("Failed to fetch roti settings");
-      return response.json();
+      const response = await api.get("/api/roti-settings");
+      return response.data;
     },
   });
 
   const { data: chefDetails } = useQuery<Chef>({
     queryKey: ["/api/partner/chef"],
     queryFn: async () => {
-      const response = await fetch("/api/partner/chef", {
-        headers: { Authorization: `Bearer ${partnerToken}` },
-      });
-      if (!response.ok) throw new Error("Failed to fetch chef details");
-      return response.json();
+      const response = await api.get("/api/partner/chef");
+      return response.data;
     },
   });
 
   const { data: products = [] } = useQuery<Product[]>({
     queryKey: ["/api/partner/products"],
     queryFn: async () => {
-      const response = await fetch("/api/partner/products", {
-        headers: { Authorization: `Bearer ${partnerToken}` },
-      });
-      if (!response.ok) throw new Error("Failed to fetch products");
-      return response.json();
+      const response = await api.get("/api/partner/products");
+      return response.data;
     },
   });
 
@@ -183,27 +154,16 @@ export default function PartnerDashboard() {
   const { data: subscriptionDeliveries, isLoading: subscriptionDeliveriesLoading } = useQuery({
     queryKey: ["/api/partner/subscription-deliveries"],
     queryFn: async () => {
-      const response = await fetch("/api/partner/subscription-deliveries", {
-        headers: { Authorization: `Bearer ${partnerToken}` },
-      });
-      if (!response.ok) throw new Error("Failed to fetch subscription deliveries");
-      return response.json();
+      const response = await api.get("/api/partner/subscription-deliveries");
+      return response.data;
     },
   });
 
   // Update subscription delivery status mutation
   const updateSubscriptionStatusMutation = useMutation({
     mutationFn: async ({ subscriptionId, status }: { subscriptionId: string; status: string }) => {
-      const response = await fetch(`/api/partner/subscription-deliveries/${subscriptionId}/status`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${partnerToken}`,
-        },
-        body: JSON.stringify({ status }),
-      });
-      if (!response.ok) throw new Error("Failed to update delivery status");
-      return response.json();
+      const response = await api.patch(`/api/partner/subscription-deliveries/${subscriptionId}/status`, { status });
+      return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/partner/subscription-deliveries"] });
@@ -223,16 +183,8 @@ export default function PartnerDashboard() {
 
   const toggleChefStatusMutation = useMutation({
     mutationFn: async (isActive: boolean) => {
-      const response = await fetch("/api/partner/chef/status", {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${partnerToken}`,
-        },
-        body: JSON.stringify({ isActive }),
-      });
-      if (!response.ok) throw new Error("Failed to update status");
-      return response.json();
+      const response = await api.patch("/api/partner/chef/status", { isActive });
+      return response.data;
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/partner/chef"] });
@@ -254,16 +206,8 @@ export default function PartnerDashboard() {
 
   const toggleProductAvailabilityMutation = useMutation({
     mutationFn: async ({ productId, isAvailable }: { productId: string; isAvailable: boolean }) => {
-      const response = await fetch(`/api/partner/products/${productId}/availability`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${partnerToken}`,
-        },
-        body: JSON.stringify({ isAvailable }),
-      });
-      if (!response.ok) throw new Error("Failed to update product availability");
-      return response.json();
+      const response = await api.patch(`/api/partner/products/${productId}/availability`, { isAvailable });
+      return response.data;
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/partner/products"] });
@@ -285,12 +229,8 @@ export default function PartnerDashboard() {
 
   const acceptOrderMutation = useMutation({
     mutationFn: async (orderId: string) => {
-      const response = await fetch(`/api/partner/orders/${orderId}/accept`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${partnerToken}` },
-      });
-      if (!response.ok) throw new Error("Failed to accept order");
-      return response.json();
+      const response = await api.post(`/api/partner/orders/${orderId}/accept`);
+      return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/partner/orders"] });
@@ -305,16 +245,8 @@ export default function PartnerDashboard() {
 
   const rejectOrderMutation = useMutation({
     mutationFn: async ({ orderId, reason }: { orderId: string; reason: string }) => {
-      const response = await fetch(`/api/partner/orders/${orderId}/reject`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${partnerToken}`,
-        },
-        body: JSON.stringify({ reason }),
-      });
-      if (!response.ok) throw new Error("Failed to reject order");
-      return response.json();
+      const response = await api.post(`/api/partner/orders/${orderId}/reject`, { reason });
+      return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/partner/orders"] });
@@ -335,16 +267,8 @@ export default function PartnerDashboard() {
 
   const updateStatusMutation = useMutation({
     mutationFn: async ({ orderId, status }: { orderId: string; status: string }) => {
-      const response = await fetch(`/api/partner/orders/${orderId}/status`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${partnerToken}`,
-        },
-        body: JSON.stringify({ status }),
-      });
-      if (!response.ok) throw new Error("Failed to update order status");
-      return response.json();
+      const response = await api.patch(`/api/partner/orders/${orderId}/status`, { status });
+      return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/partner/orders"] });
