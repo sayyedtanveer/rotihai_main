@@ -5,7 +5,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import { registerRoutes } from "./routes";
-import { setupVite, serveStatic, log } from "./vite";
+import {  log } from "./vite";
 import { generateAccessToken, generateRefreshToken, verifyPassword, hashPassword, requirePartner, type AuthenticatedPartnerRequest } from "./partnerAuth";
 import { storage } from "./storage";
 import { saveImageFile, getImagePath, imageExists } from "./imageService";
@@ -429,11 +429,16 @@ app.use((req, res, next) => {
   // importantly only setup vite in development and after
   // setting up all the other routes so the catch-all route
   // doesn't interfere with the other routes
-  if (app.get("env") === "development") {
+if (process.env.NODE_ENV === "development") {
+  const { setupVite } = await import("./vite.js");
   await setupVite(app, server);
+
 } else if (process.env.SERVE_CLIENT === "true") {
+  const { serveStatic } = await import("./vite.js");
   serveStatic(app);
 }
+
+
 
 
   // ALWAYS serve the app on the port specified in the environment variable PORT
