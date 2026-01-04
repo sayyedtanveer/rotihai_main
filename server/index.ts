@@ -5,10 +5,21 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import { registerRoutes } from "./routes";
-import {  log } from "./vite";
 import { generateAccessToken, generateRefreshToken, verifyPassword, hashPassword, requirePartner, type AuthenticatedPartnerRequest } from "./partnerAuth";
 import { storage } from "./storage";
 import { saveImageFile, getImagePath, imageExists } from "./imageService";
+
+// Simple logger function - avoid importing from vite which is dev-only
+const log = (message: string, source = "express") => {
+  const formattedTime = new Date().toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  });
+
+  console.log(`${formattedTime} [${source}] ${message}`);
+};
 
 const app = express();
 console.log("🚀 Server is starting...");
