@@ -35,6 +35,7 @@ import { useWalletUpdates } from "@/hooks/useWalletUpdates";
 import { useApplyReferral } from "@/hooks/useApplyReferral";
 import { Loader2, Clock, MapPin } from "lucide-react";
 import { getDeliveryMessage, calculateDistance } from "@/lib/locationUtils";
+import api from "@/lib/apiClient";
 
 // Hook to check for mobile viewport
 function useIsMobile() {
@@ -707,29 +708,19 @@ export default function CheckoutDialog({
 
     setIsCheckingBonusEligibility(true);
     try {
-      const response = await fetch("/api/user/check-bonus-eligibility", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${userToken}`,
-        },
-        body: JSON.stringify({ orderTotal: total }),
+      const response = await api.post("/api/user/check-bonus-eligibility", {
+        orderTotal: total,
       });
 
-      if (response.ok) {
-        const result = await response.json();
-        setBonusEligible(result.eligible);
-        if (result.eligible) {
-          setBonusEligibilityMsg(`✓ You can claim ₹${result.bonus} bonus!`);
-        } else {
-          setBonusEligibilityMsg(
-            result.reason ||
-              `Minimum order of ₹${result.minOrderAmount} required for bonus`,
-          );
-        }
+      const result = response.data;
+      setBonusEligible(result.eligible);
+      if (result.eligible) {
+        setBonusEligibilityMsg(`✓ You can claim ₹${result.bonus} bonus!`);
       } else {
-        setBonusEligible(false);
-        setBonusEligibilityMsg("Unable to check bonus eligibility");
+        setBonusEligibilityMsg(
+          result.reason ||
+            `Minimum order of ₹${result.minOrderAmount} required for bonus`,
+        );
       }
     } catch (error) {
       console.error("Error checking bonus eligibility:", error);
@@ -745,12 +736,10 @@ export default function CheckoutDialog({
       setIsCheckingPhone(true);
       setPhoneExists(null); // Reset previous state
       try {
-        const response = await fetch("/api/user/check-phone", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ phone: value }),
+        const response = await api.post("/api/user/check-phone", {
+          phone: value,
         });
-        const data = await response.json();
+        const data = response.data;
         setPhoneExists(data.exists);
         if (data.exists && !userToken) {
           toast({
@@ -782,35 +771,28 @@ export default function CheckoutDialog({
     setCouponError("");
 
     try {
-      const response = await fetch("/api/coupons/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: couponCode }),
+      const response = await api.post("/api/coupons/verify", {
+        code: couponCode,
       });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        console.log("[COUPON] Coupon verification failed:", errorData);
-        setCouponError(errorData.message || "Invalid coupon code");
-        setAppliedCoupon(null);
-      } else {
-        const data = await response.json();
-        console.log("[COUPON] Coupon verified successfully:", {
-          code: couponCode,
-          discountAmount: data.discountAmount,
-        });
-        // Only set appliedCoupon - let useEffect handle discount recalculation
-        // This prevents double state updates and ensures consistent batching
-        setAppliedCoupon({
-          code: couponCode,
-          discountAmount: data.discountAmount,
-        });
-        console.log("[COUPON] Applied coupon state updated, awaiting useEffect to recalculate discount");
-      }
+      const data = response.data;
+      console.log("[COUPON] Coupon verified successfully:", {
+        code: couponCode,
+        discountAmount: data.discountAmount,
+      });
+      // Only set appliedCoupon - let useEffect handle discount recalculation
+      // This prevents double state updates and ensures consistent batching
+      setAppliedCoupon({
+        code: couponCode,
+        discountAmount: data.discountAmount,
+      });
+      console.log("[COUPON] Applied coupon state updated, awaiting useEffect to recalculate discount");
     } catch (error) {
-      console.error("Coupon application error:", error);
-      setCouponError("Failed to apply coupon. Please try again later.");
+      const errorData = error instanceof Error ? error.message : "Invalid coupon code";
+      console.log("[COUPON] Coupon verification failed:", errorData);
+      setCouponError(errorData || "Invalid coupon code");
       setAppliedCoupon(null);
+      console.error("Coupon application error:", error);
     } finally {
       setIsVerifyingCoupon(false);
     }
@@ -941,25 +923,12 @@ export default function CheckoutDialog({
     try {
       console.log("[LOCATION] Starting auto-geocoding for:", addressToGeocode.trim());
       
-      const response = await fetch("/api/geocode", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ address: addressToGeocode.trim() }),
-        signal: AbortSignal.timeout(10000), // 10 second timeout
-      });
+      const response = await api.post("/api/geocode", 
+        { address: addressToGeocode.trim() },
+        { timeout: 10000 }
+      );
 
-      if (!response.ok) {
-        console.error("[LOCATION] Geocode API error:", response.status, response.statusText);
-        const errorData = await response.json().catch(() => ({}));
-        setLocationError(
-          errorData.message || `Location detection failed (${response.status}). Please try again.`
-        );
-        setAddressZoneValidated(false);
-        setIsGeocodingAddress(false);
-        return;
-      }
-
-      const data = await response.json();
+      const data = response.data;
       
       if (!data.success) {
         console.warn("[LOCATION] Geocode returned success=false:", data);
@@ -983,22 +952,20 @@ export default function CheckoutDialog({
       if (cart?.chefId) {
         try {
           console.log("[LOCATION] Fetching chef details for ID:", cart.chefId);
-          const chefResponse = await fetch(`/api/chefs/${cart.chefId}`, {
-            signal: AbortSignal.timeout(5000),
+          const chefResponse = await api.get(`/api/chefs/${cart.chefId}`, {
+            timeout: 5000,
           });
-          if (chefResponse.ok) {
-            const chefData = await chefResponse.json();
-            console.log("[LOCATION] Chef details fetched:", {
-              chefId: chefData.id,
-              chefName: chefData.name,
-              latitude: chefData.latitude,
-              longitude: chefData.longitude,
-            });
-            chefLat = chefData.latitude ?? 19.0728;
-            chefLon = chefData.longitude ?? 72.8826;
-            chefName = chefData.name || "Kurla West Kitchen";
-            console.log("[DELIVERY-ZONE] Chef coordinates fetched:", { chefLat, chefLon, chefName });
-          }
+          const chefData = chefResponse.data;
+          console.log("[LOCATION] Chef details fetched:", {
+            chefId: chefData.id,
+            chefName: chefData.name,
+            latitude: chefData.latitude,
+            longitude: chefData.longitude,
+          });
+          chefLat = chefData.latitude ?? 19.0728;
+          chefLon = chefData.longitude ?? 72.8826;
+          chefName = chefData.name || "Kurla West Kitchen";
+          console.log("[DELIVERY-ZONE] Chef coordinates fetched:", { chefLat, chefLon, chefName });
         } catch (chefError) {
           console.warn("[DELIVERY-ZONE] Could not fetch chef details, using defaults:", chefError);
         }
@@ -1258,28 +1225,17 @@ export default function CheckoutDialog({
       console.log("Sending order data:", orderData);
       console.log("================");
 
-      const headers: HeadersInit = {
-        "Content-Type": "application/json",
-      };
+      const response = await api.post("/api/orders", orderData);
 
-      // Add auth token if user is logged in
-      if (userToken) {
-        headers.Authorization = `Bearer ${userToken}`;
-      }
-
-      const response = await fetch("/api/orders", {
-        method: "POST",
-        headers,
-        body: JSON.stringify(orderData),
-      });
-
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
-        if (error.requiresLogin) {
+      try {
+        const result = response.data;
+      } catch (error: any) {
+        const errorData = error.response?.data || {};
+        if (errorData.requiresLogin) {
           toast({
             title: "Login Required",
             description:
-              error.message ||
+              errorData.message ||
               "This phone number is already registered. Please login.",
             variant: "destructive",
           });
@@ -1288,15 +1244,15 @@ export default function CheckoutDialog({
         }
 
         // Handle server telling client to reschedule due to cutoff
-        if (error.requiresReschedule) {
+        if (errorData.requiresReschedule) {
           setSuggestedReschedule({
             slotId: orderData.deliverySlotId as string,
-            nextAvailableDate: error.nextAvailableDate,
+            nextAvailableDate: errorData.nextAvailableDate,
           });
           toast({
             title: "Selected slot passed cutoff",
             description:
-              error.message ||
+              errorData.message ||
               "Selected delivery slot missed the ordering cutoff. Please schedule for the next available date.",
             variant: "destructive",
           });
@@ -1304,10 +1260,10 @@ export default function CheckoutDialog({
           return;
         }
 
-        throw new Error(error.message || "Failed to create order");
+        throw new Error(errorData.message || "Failed to create order");
       }
 
-      const result = await response.json();
+      const result = response.data;
 
       console.log("Order created successfully:", result);
 
@@ -1320,32 +1276,21 @@ export default function CheckoutDialog({
         pendingBonus > 0
       ) {
         try {
-          const bonusResponse = await fetch(
+          const bonusResponse = await api.post(
             "/api/user/claim-bonus-at-checkout",
             {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${userToken}`,
-              },
-              body: JSON.stringify({
-                orderTotal: total,
-                orderId: result.id,
-              }),
+              orderTotal: total,
+              orderId: result.id,
             },
           );
 
-          if (bonusResponse.ok) {
-            const bonusResult = await bonusResponse.json();
-            if (bonusResult.bonusClaimed) {
-              toast({
-                title: "✓ Referral bonus claimed!",
-                description: `₹${bonusResult.amount} bonus has been added to your wallet.`,
-                duration: 5000,
-              });
-            }
-          } else {
-            console.error("Failed to claim bonus at checkout");
+          const bonusResult = bonusResponse.data;
+          if (bonusResult.bonusClaimed) {
+            toast({
+              title: "✓ Referral bonus claimed!",
+              description: `₹${bonusResult.amount} bonus has been added to your wallet.`,
+              duration: 5000,
+            });
           }
         } catch (err) {
           console.error("Error claiming bonus:", err);
@@ -1453,18 +1398,9 @@ export default function CheckoutDialog({
     setIsLoading(true); // Changed from setIsSubmitting to setIsLoading
 
     try {
-      const response = await fetch("/api/user/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone, password }),
-      });
+      const response = await api.post("/api/user/login", { phone, password });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || "Login failed");
-      }
-
-      const data = await response.json();
+      const data = response.data;
 
       // Store token and user data
       localStorage.setItem("userToken", data.accessToken);
@@ -1520,17 +1456,9 @@ export default function CheckoutDialog({
     }
 
     try {
-      const response = await fetch("/api/user/reset-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone }),
-      });
+      const response = await api.post("/api/user/reset-password", { phone });
 
-      if (!response.ok) {
-        throw new Error("Failed to reset password");
-      }
-
-      const data = await response.json();
+      const data = response.data;
 
       toast({
         title: "✓ Password Reset Successful",

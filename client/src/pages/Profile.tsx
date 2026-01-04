@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
+import api from "@/lib/apiClient";
 import { Redirect, useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { useWalletUpdates } from "@/hooks/useWalletUpdates";
@@ -51,11 +52,8 @@ export default function Profile() {
   const { data: phoneUser, isLoading: phoneUserLoading } = useQuery<ProfileUser>({
     queryKey: ["/api/user/profile", userToken],
     queryFn: async () => {
-      const res = await fetch("/api/user/profile", {
-        headers: { Authorization: `Bearer ${userToken}` },
-      });
-      if (!res.ok) throw new Error("Failed to load user");
-      return res.json();
+      const response = await api.get("/api/user/profile");
+      return response.data;
     },
     enabled: !!userToken && !replitUser,
   });
@@ -64,8 +62,8 @@ export default function Profile() {
   const { data: categories = [] } = useQuery<Category[]>({
     queryKey: ["/api/categories"],
     queryFn: async () => {
-      const res = await fetch("/api/categories");
-      return res.json();
+      const response = await api.get("/api/categories");
+      return response.data;
     },
   });
 
@@ -73,9 +71,8 @@ export default function Profile() {
   const { data: chefs = [] } = useQuery<FrontendChef[]>({
     queryKey: ["/api/chefs"],
     queryFn: async () => {
-      const res = await fetch("/api/chefs");
-      if (!res.ok) throw new Error("Failed to fetch chefs");
-      const data = await res.json();
+      const response = await api.get("/api/chefs");
+      const data = response.data;
 
       return data.map((chef: any) => ({
         ...chef,
@@ -95,11 +92,8 @@ export default function Profile() {
   const { data: referralCode } = useQuery<{ referralCode: string }>({
     queryKey: ["/api/user/referral-code", userToken],
     queryFn: async () => {
-      const res = await fetch("/api/user/referral-code", {
-        headers: { Authorization: `Bearer ${userToken}` },
-      });
-      if (!res.ok) throw new Error("Failed to load referral code");
-      return res.json();
+      const response = await api.get("/api/user/referral-code");
+      return response.data;
     },
     enabled: !!userToken,
   });
@@ -108,11 +102,8 @@ export default function Profile() {
   const { data: referrals = [] } = useQuery<any[]>({
     queryKey: ["/api/user/referrals", userToken],
     queryFn: async () => {
-      const res = await fetch("/api/user/referrals", {
-        headers: { Authorization: `Bearer ${userToken}` },
-      });
-      if (!res.ok) throw new Error("Failed to load referrals");
-      return res.json();
+      const response = await api.get("/api/user/referrals");
+      return response.data;
     },
     enabled: !!userToken,
   });
@@ -121,11 +112,8 @@ export default function Profile() {
   const { data: walletBalance } = useQuery<{ balance: number }>({
     queryKey: ["/api/user/wallet", userToken],
     queryFn: async () => {
-      const res = await fetch("/api/user/wallet", {
-        headers: { Authorization: `Bearer ${userToken}` },
-      });
-      if (!res.ok) throw new Error("Failed to load wallet balance");
-      return res.json();
+      const response = await api.get("/api/user/wallet");
+      return response.data;
     },
     enabled: !!userToken,
   });
@@ -149,11 +137,8 @@ export default function Profile() {
   const { data: referralEligibility } = useQuery<{ eligible: boolean; reason?: string }>({
     queryKey: ["/api/user/referral-eligibility", userToken],
     queryFn: async () => {
-      const res = await fetch("/api/user/referral-eligibility", {
-        headers: { Authorization: `Bearer ${userToken}` },
-      });
-      if (!res.ok) throw new Error("Failed to check eligibility");
-      return res.json();
+      const response = await api.get("/api/user/referral-eligibility");
+      return response.data;
     },
     enabled: !!userToken,
   });
@@ -164,19 +149,8 @@ export default function Profile() {
   // Profile update mutation
   const updateProfileMutation = useMutation({
     mutationFn: async (data: { name?: string; email?: string; address?: string }) => {
-      const response = await fetch("/api/user/profile", {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${userToken}`,
-        },
-        body: JSON.stringify(data),
-      });
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || "Failed to update profile");
-      }
-      return response.json();
+      const response = await api.put("/api/user/profile", data);
+      return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/user/profile"] });

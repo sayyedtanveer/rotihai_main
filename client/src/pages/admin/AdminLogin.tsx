@@ -52,14 +52,15 @@ export default function AdminLogin() {
 
       toast({
         title: "Login successful",
-        description: `Welcome back, ${result.admin.username}!`,
+        description: `Welcome back, ${response.data.admin.username}!`,
       });
 
       setLocation("/admin/dashboard");
-    } catch (error) {
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.message || error.message || "Invalid credentials";
       toast({
         title: "Login failed",
-        description: error instanceof Error ? error.message : "Invalid credentials",
+        description: errorMessage,
         variant: "destructive",
       });
     } finally {
@@ -201,7 +202,7 @@ export default function AdminLogin() {
 
                   toast({
                     title: "Test login successful",
-                    description: `Logged in as ${result.admin.username}`,
+                    description: `Logged in as ${response.data.admin.username}`,
                   });
 
                   setLocation("/admin/dashboard");
