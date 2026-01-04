@@ -60,6 +60,11 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   const handleLogout = async () => {
     try {
       await api.post("/api/admin/auth/logout");
+    } catch (error) {
+      console.error("Logout error:", error);
+      // Continue with logout even if API call fails (token might be expired)
+    } finally {
+      // Always clear local storage and redirect
       localStorage.removeItem("adminToken");
       localStorage.removeItem("adminUser");
       toast({
@@ -67,8 +72,6 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         description: "You have been logged out successfully",
       });
       setLocation("/admin/login");
-    } catch (error) {
-      console.error("Logout error:", error);
     }
   };
 

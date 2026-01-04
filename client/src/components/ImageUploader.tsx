@@ -13,6 +13,11 @@ export function ImageUploader({ onImageUpload, disabled = false }: ImageUploader
   const [isUploading, setIsUploading] = useState(false);
   const [uploadedFileName, setUploadedFileName] = useState<string>();
   const { toast } = useToast();
+  
+  // Debug logging
+  if (typeof window !== 'undefined') {
+    console.log('ImageUploader component loaded', { onImageUpload: !!onImageUpload, disabled });
+  }
 
   const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
