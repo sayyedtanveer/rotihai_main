@@ -43,11 +43,9 @@ export function ImageUploader({ onImageUpload, disabled = false }: ImageUploader
     formData.append("image", file);
 
     try {
-      const response = await api.post("/api/upload", formData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      });
+      // axios automatically detects and sets proper multipart/form-data header with boundary
+      // DO NOT manually set Content-Type header - let axios handle it
+      const response = await api.post("/api/upload", formData);
 
       const data = response.data;
       setUploadedFileName(data.filename);
@@ -63,9 +61,10 @@ export function ImageUploader({ onImageUpload, disabled = false }: ImageUploader
         event.target.value = "";
       }
     } catch (error: any) {
+      console.error("Upload error:", error.response?.data || error.message);
       toast({
         title: "Upload failed",
-        description: error.message || "Failed to upload image",
+        description: error.response?.data?.message || error.message || "Failed to upload image",
         variant: "destructive",
       });
     } finally {
