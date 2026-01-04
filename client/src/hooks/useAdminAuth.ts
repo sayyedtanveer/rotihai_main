@@ -55,17 +55,26 @@ export async function adminApiRequest(url: string, options: RequestInit = {}) {
     ...options.headers,
   };
 
-  const response = await fetch(url, {
-    ...options,
-    headers,
-  });
-
-  if (response.status === 401) {
-    localStorage.removeItem("adminToken");
-    localStorage.removeItem("adminUser");
-    window.location.href = "/admin/login";
-    throw new Error("Unauthorized");
+  try {
+    const response = await api({
+      url,
+      method: (options.method as any) || "GET",
+      headers,
+      data: options.body ? JSON.parse(options.body as string) : undefined,
+    });
+    
+    return {
+      ok: true,
+      status: response.status,
+      json: async () => response.data,
+    } as Response;
+  } catch (error: any) {
+    if (error.response?.status === 401) {
+      localStorage.removeItem("adminToken");
+      localStorage.removeItem("adminUser");
+      window.location.href = "/admin/login";
+      throw new Error("Unauthorized");
+    }
+    throw error;
   }
-
-  return response;
 }

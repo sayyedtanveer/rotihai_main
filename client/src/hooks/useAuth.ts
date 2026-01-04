@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
+import api from "@/lib/apiClient";
 
 // Centralized 401 error handler for all user types
 export function handle401Error(userType: "user" | "admin" | "partner" | "delivery" = "user") {
@@ -66,21 +67,20 @@ export function useAuth(): UseAuthReturn {
         throw new Error('Not authenticated');
       }
 
-      const response = await fetch('/api/user/profile', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-
-      if (!response.ok) {
-        if (response.status === 401) {
+      try {
+        const response = await api.get('/api/user/profile', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        return response.data;
+      } catch (err: any) {
+        if (err.response?.status === 401) {
           handle401Error("user");
           throw new Error('Session expired');
         }
         throw new Error('Failed to fetch user profile');
       }
-
-      return response.json();
     },
     retry: false,
     staleTime: 1000 * 60 * 5,
@@ -90,24 +90,14 @@ export function useAuth(): UseAuthReturn {
   const isAuthenticated = !!user && !!localStorage.getItem('userToken');
 
   const login = async (phone: string, password: string) => {
-    const response = await fetch('/api/user/login', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ phone, password }),
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || 'Invalid phone number or password');
-    }
-
-    const data = await response.json();
-    
-    // Store the access token (backend returns accessToken, not token)
-    localStorage.setItem('userToken', data.accessToken);
-    if (data.refreshToken) {
+    try {
+      const response = await api.post('/api/user/login', { phone, password });
+      
+      const data = response.data;
+      
+      // Store the access token (backend returns accessToken, not token)
+      localStorage.setItem('userToken', data.accessToken);
+      if (data.refreshToken) {
       localStorage.setItem('refreshToken', data.refreshToken);
     }
     if (data.user) {
@@ -118,6 +108,9 @@ export function useAuth(): UseAuthReturn {
     await queryClient.invalidateQueries({ queryKey: ['/api/user/profile'] });
 
     return data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'Invalid phone number or password');
+    }
   };
 
   const logout = () => {

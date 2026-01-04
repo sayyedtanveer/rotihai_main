@@ -1,4 +1,5 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
+import api from "./apiClient";
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
@@ -59,20 +60,34 @@ export async function apiRequest(
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
-  const headers = {
-    ...getAuthHeaders(),
-    ...(data ? { "Content-Type": "application/json" } : {}),
-  };
-  
-  const res = await fetch(url, {
-    method,
-    headers,
-    body: data ? JSON.stringify(data) : undefined,
-    credentials: "include",
-  });
-
-  await throwIfResNotOk(res);
-  return res;
+  try {
+    const response = await api({
+      method: method as any,
+      url,
+      data,
+      headers: getAuthHeaders(),
+    });
+    
+    // Convert axios response to Response-like object for compatibility
+    return {
+      ok: response.status >= 200 && response.status < 300,
+      status: response.status,
+      statusText: response.statusText,
+      json: async () => response.data,
+      text: async () => JSON.stringify(response.data),
+    } as Response;
+  } catch (error: any) {
+    const response = error.response;
+    if (!response) throw error;
+    
+    return {
+      ok: false,
+      status: response.status,
+      statusText: response.statusText,
+      json: async () => response.data,
+      text: async () => JSON.stringify(response.data),
+    } as Response;
+  }
 }
 
 type UnauthorizedBehavior = "returnNull" | "throw";
@@ -81,17 +96,17 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const res = await fetch(queryKey.join("/") as string, {
-      headers: getAuthHeaders(),
-      credentials: "include",
-    });
-
-    if (unauthorizedBehavior === "returnNull" && res.status === 401) {
-      return null;
+    try {
+      const response = await api.get(queryKey.join("/") as string, {
+        headers: getAuthHeaders(),
+      });
+      return response.data;
+    } catch (error: any) {
+      if (unauthorizedBehavior === "returnNull" && error.response?.status === 401) {
+        return null;
+      }
+      throw error;
     }
-
-    await throwIfResNotOk(res);
-    return await res.json();
   };
 
 export const queryClient = new QueryClient({
