@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { calculateDistance, calculateDelivery, type DeliverySetting } from "@shared/deliveryUtils";
+import apiClient from "@/lib/apiClient";
 
 interface CartItem {
   id: string;
@@ -89,10 +90,9 @@ export const useCart = create<CartStore>()(
 
       fetchDeliverySettings: async () => {
         try {
-          const response = await fetch("/api/delivery-settings");
-          if (response.ok) {
-            const settings = await response.json();
-            set({ deliverySettings: settings });
+          const response = await apiClient.get("/api/delivery-settings");
+          if (response.status === 200) {
+            set({ deliverySettings: response.data });
           }
         } catch (error) {
           console.error("Failed to fetch delivery settings:", error);
@@ -115,9 +115,9 @@ export const useCart = create<CartStore>()(
 
       fetchChefStatuses: async () => {
         try {
-          const response = await fetch("/api/chefs");
-          if (response.ok) {
-            const chefs = await response.json();
+          const response = await apiClient.get("/api/chefs");
+          if (response.status === 200) {
+            const chefs = response.data;
             const statuses: ChefStatus[] = chefs.map((chef: { id: string; isActive: boolean }) => ({
               chefId: chef.id,
               isActive: chef.isActive ?? true,

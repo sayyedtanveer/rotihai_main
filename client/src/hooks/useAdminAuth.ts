@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
+import api from "@/lib/apiClient";
 
 export function useAdminAuth() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -18,14 +19,9 @@ export function useAdminAuth() {
     // Auto-refresh admin token every 10 minutes (before 15min expiry)
     const refreshToken = async () => {
       try {
-        const response = await fetch("/api/admin/auth/refresh", {
-          method: "POST",
-          credentials: "include",
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          localStorage.setItem("adminToken", data.accessToken);
+        const response = await api.post("/api/admin/auth/refresh");
+        if (response.status === 200) {
+          localStorage.setItem("adminToken", response.data.accessToken);
         }
       } catch (error) {
         console.error("Admin token refresh failed:", error);
