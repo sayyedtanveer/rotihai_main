@@ -16,6 +16,7 @@ import { Plus, Pencil, Trash2 } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertCategorySchema } from "@shared/schema";
+import { ImageUploader } from "@/components/ImageUploader";
 
 export default function AdminCategories() {
   const { toast } = useToast();
@@ -156,7 +157,13 @@ export default function AdminCategories() {
                       <FormItem>
                         <FormLabel>Image URL</FormLabel>
                         <FormControl>
-                          <Input {...field} placeholder="https://..." data-testid="input-category-image" />
+                          <div className="flex gap-2">
+                            <Input {...field} placeholder="https://..." data-testid="input-category-image" className="flex-1" />
+                            <ImageUploader
+                              onImageUpload={(url) => field.onChange(url)}
+                              disabled={field.disabled}
+                            />
+                          </div>
                         </FormControl>
                         <FormMessage />
                       </FormItem>
