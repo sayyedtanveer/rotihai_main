@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { adminLoginSchema, type AdminLogin } from "@shared/schema";
+import api from "@/lib/apiClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -39,25 +40,15 @@ export default function AdminLogin() {
   const onSubmit = async (data: AdminLogin) => {
     setIsLoading(true);
     try {
-      const response = await fetch("/api/admin/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
+      const response = await api.post("/api/admin/auth/login", data);
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || "Login failed");
-      }
-
-      const result = await response.json();
       // Ensure token is trimmed of any whitespace
-      const cleanToken = (result.accessToken || "").trim();
+      const cleanToken = (response.data.accessToken || "").trim();
       if (!cleanToken) {
         throw new Error("No authentication token received from server");
       }
       localStorage.setItem("adminToken", cleanToken);
-      localStorage.setItem("adminUser", JSON.stringify(result.admin));
+      localStorage.setItem("adminUser", JSON.stringify(response.data.admin));
 
       toast({
         title: "Login successful",
@@ -98,25 +89,15 @@ export default function AdminLogin() {
     setIsResettingPassword(true);
     try {
       const tempPassword = generateRandomPassword();
-      const response = await fetch("/api/admin/auth/reset-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          username: forgotUsername,
-          newPassword: tempPassword,
-        }),
+      const response = await api.post("/api/admin/auth/reset-password", {
+        username: forgotUsername,
+        newPassword: tempPassword,
       });
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || "Password reset failed");
-      }
-
-      const result = await response.json();
       setNewPassword(tempPassword);
       toast({
         title: "Password reset successful",
-        description: result.emailSent 
+        description: response.data.emailSent 
           ? "📧 A temporary password has been sent to the admin's email"
           : "Your temporary password has been generated",
       });
@@ -208,24 +189,15 @@ export default function AdminLogin() {
               onClick={async () => {
                 setIsLoading(true);
                 try {
-                  const response = await fetch("/api/admin/auth/test-login", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                  });
+                  const response = await api.post("/api/admin/auth/test-login");
 
-                  if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.message || "Test login failed");
-                  }
-
-                  const result = await response.json();
                   // Ensure token is trimmed of any whitespace
-                  const cleanToken = (result.accessToken || "").trim();
+                  const cleanToken = (response.data.accessToken || "").trim();
                   if (!cleanToken) {
                     throw new Error("No authentication token received from server");
                   }
                   localStorage.setItem("adminToken", cleanToken);
-                  localStorage.setItem("adminUser", JSON.stringify(result.admin));
+                  localStorage.setItem("adminUser", JSON.stringify(response.data.admin));
 
                   toast({
                     title: "Test login successful",

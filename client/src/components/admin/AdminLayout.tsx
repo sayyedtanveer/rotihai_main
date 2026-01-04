@@ -1,6 +1,7 @@
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import api from "@/lib/apiClient";
 import {
   LayoutDashboard,
   ShoppingBag,
@@ -58,7 +59,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
 
   const handleLogout = async () => {
     try {
-      await fetch("/api/admin/auth/logout", { method: "POST" });
+      await api.post("/api/admin/auth/logout");
       localStorage.removeItem("adminToken");
       localStorage.removeItem("adminUser");
       toast({

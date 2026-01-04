@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { AdminLayout } from "@/components/admin/AdminLayout";
+import api from "@/lib/apiClient";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { DollarSign, ShoppingCart, Users, Clock, TrendingUp, Package, UserCog, Truck, ShoppingBag, CheckCircle, Eye } from "lucide-react";
 
@@ -23,38 +24,24 @@ export default function AdminDashboard() {
   const { data: metrics, isLoading } = useQuery<DashboardMetrics>({
     queryKey: ["/api/admin/dashboard/metrics"],
     queryFn: async () => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch("/api/admin/dashboard/metrics", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      if (!response.ok) throw new Error("Failed to fetch metrics");
-      return response.json();
+      const response = await api.get("/api/admin/dashboard/metrics");
+      return response.data;
     },
   });
 
   const { data: visitorReport, isLoading: visitorsLoading } = useQuery<VisitorReport>({
     queryKey: ["/api/admin/reports/visitors"],
     queryFn: async () => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch("/api/admin/reports/visitors", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) throw new Error("Failed to fetch visitors report");
-      return response.json();
+      const response = await api.get("/api/admin/reports/visitors");
+      return response.data;
     },
   });
 
   const { data: partners } = useQuery({
     queryKey: ["/api/admin/partners"],
     queryFn: async () => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch("/api/admin/partners", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) throw new Error("Failed to fetch partners");
-      return response.json();
+      const response = await api.get("/api/admin/partners");
+      return response.data;
     },
   });
 
