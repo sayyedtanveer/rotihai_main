@@ -1,17 +1,7 @@
 {
   "buildCommand": "npm run build",
-  "outputDirectory": "dist",
+  "devCommand": "npm run dev",
   "env": {
     "NODE_ENV": "production"
-  },
-  "routes": [
-    {
-      "src": "^/api/.*",
-      "dest": "/index.js"
-    },
-    {
-      "src": "^(?!.*\\.\\w+$).*$",
-      "dest": "/index.js"
-    }
-  ]
+  }
 }
