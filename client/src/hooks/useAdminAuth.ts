@@ -49,19 +49,35 @@ export function useAdminAuth() {
 export async function adminApiRequest(url: string, options: RequestInit = {}) {
   const token = localStorage.getItem("adminToken");
   
-  const headers = {
+  const headers: any = {
     "Content-Type": "application/json",
     ...(token && { Authorization: `Bearer ${token}` }),
     ...options.headers,
   };
 
   try {
-    const response = await api({
-      url,
-      method: (options.method as any) || "GET",
-      headers,
-      data: options.body ? JSON.parse(options.body as string) : undefined,
-    });
+    const method = (options.method as string || "GET").toUpperCase();
+    let response;
+    
+    if (method === "GET") {
+      response = await api.get(url, { headers });
+    } else if (method === "POST") {
+      const data = options.body ? JSON.parse(options.body as string) : undefined;
+      response = await api.post(url, data, { headers });
+    } else if (method === "PUT") {
+      const data = options.body ? JSON.parse(options.body as string) : undefined;
+      response = await api.put(url, data, { headers });
+    } else if (method === "DELETE") {
+      response = await api.delete(url, { headers });
+    } else {
+      const data = options.body ? JSON.parse(options.body as string) : undefined;
+      response = await api.request({
+        url,
+        method,
+        headers,
+        data,
+      });
+    }
     
     return {
       ok: true,

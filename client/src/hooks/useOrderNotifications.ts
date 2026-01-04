@@ -4,6 +4,7 @@ import { queryClient } from "@/lib/queryClient";
 import { useNotificationStore } from "@/store/notificationStore";
 import { playNotificationSoundTwoTone } from "@/lib/notificationSound";
 import { useToast } from "./use-toast";
+import api from "@/lib/apiClient";
 import type { Order } from "@/types/order";
 
 // Get notification message based on order status
@@ -85,12 +86,11 @@ export function useOrderNotifications() {
     // Fetch orders first
     const fetchOrders = async () => {
       try {
-        const headers: Record<string, string> = { "Content-Type": "application/json" };
-        if (userToken) headers.Authorization = `Bearer ${userToken}`;
-        const res = await fetch("/api/orders", { headers });
-        if (!res.ok) return;
+        const response = await api.get("/api/orders", {
+          headers: { "Content-Type": "application/json" },
+        });
         
-        const orders: Order[] = await res.json();
+        const orders: Order[] = response.data;
         
         // Find active orders (not delivered or cancelled)
         const activeOrders = orders.filter(

@@ -61,12 +61,28 @@ export async function apiRequest(
   data?: unknown | undefined,
 ): Promise<Response> {
   try {
-    const response = await api({
-      method: method as any,
-      url,
-      data,
-      headers: getAuthHeaders(),
-    });
+    let response;
+    const methodUpper = (method as string).toUpperCase();
+    const config = { headers: getAuthHeaders() };
+
+    if (methodUpper === "GET") {
+      response = await api.get(url, config);
+    } else if (methodUpper === "POST") {
+      response = await api.post(url, data, config);
+    } else if (methodUpper === "PUT") {
+      response = await api.put(url, data, config);
+    } else if (methodUpper === "DELETE") {
+      response = await api.delete(url, config);
+    } else if (methodUpper === "PATCH") {
+      response = await api.patch(url, data, config);
+    } else {
+      response = await api.request({
+        method: methodUpper,
+        url,
+        data,
+        headers: getAuthHeaders(),
+      });
+    }
     
     // Convert axios response to Response-like object for compatibility
     return {

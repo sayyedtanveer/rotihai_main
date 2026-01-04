@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { toast } from "@/hooks/use-toast";
+import api from "@/lib/apiClient";
 import type { Order } from "@shared/schema";
 
 export function useAdminNotifications() {
@@ -13,15 +14,18 @@ export function useAdminNotifications() {
     queryKey: ["/api/admin", "orders", "pending-payments"],
     queryFn: async () => {
       const token = localStorage.getItem("adminToken");
-      const response = await fetch("/api/admin/orders", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) throw new Error("Failed to fetch orders");
-      const allOrders = await response.json();
-      return allOrders.filter(
-        (order: Order) =>
-          order.paymentStatus === "pending" || order.paymentStatus === "paid"
-      );
+      try {
+        const response = await api.get("/api/admin/orders", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const allOrders = response.data;
+        return allOrders.filter(
+          (order: Order) =>
+            order.paymentStatus === "pending" || order.paymentStatus === "paid"
+        );
+      } catch (error) {
+        throw new Error("Failed to fetch orders");
+      }
     },
     refetchInterval: 10000,
   });

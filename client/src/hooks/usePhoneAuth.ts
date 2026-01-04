@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
 import { useToast } from "./use-toast";
+import api from "@/lib/apiClient";
 
 interface User {
   id: string;
@@ -46,18 +47,17 @@ export function usePhoneAuth() {
   const { data: user, refetch } = useQuery<User>({
     queryKey: ["/api/user/profile", userToken],
     queryFn: async () => {
-      const res = await fetch("/api/user/profile", {
-        headers: { Authorization: `Bearer ${userToken}` },
-      });
-      if (!res.ok) {
-        if (res.status === 401) {
+      try {
+        const response = await api.get("/api/user/profile");
+        return response.data;
+      } catch (error: any) {
+        if (error.response?.status === 401) {
           localStorage.removeItem("userToken");
           localStorage.removeItem("refreshToken");
           localStorage.removeItem("userData");
         }
         throw new Error("Failed to fetch user profile");
       }
-      return res.json();
     },
     enabled: !!userToken,
     retry: false,
@@ -73,29 +73,8 @@ export function usePhoneAuth() {
       const startTime = Date.now();
 
       try {
-        const response = await fetch("/api/user/login", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ phone, password }),
-        });
-
-        if (!response.ok) {
-          const error = await response.json();
-          const errorMessage = error.message || "Login failed";
-
-          // Log failed attempt
-          logLoginAttempt({
-            timestamp: new Date().toISOString(),
-            phone,
-            success: false,
-            errorMessage,
-            userAgent: navigator.userAgent,
-          });
-
-          throw new Error(errorMessage);
-        }
-
-        const data = await response.json();
+        const response = await api.post("/api/user/login", { phone, password });
+        const data = response.data;
 
         // Log successful attempt
         logLoginAttempt({
@@ -106,11 +85,19 @@ export function usePhoneAuth() {
         });
 
         return data;
-      } catch (error) {
-        if (error instanceof Error) {
-          throw error;
-        }
-        throw new Error("Network error during login");
+      } catch (error: any) {
+        const errorMessage = error.response?.data?.message || "Login failed";
+        
+        // Log failed attempt
+        logLoginAttempt({
+          timestamp: new Date().toISOString(),
+          phone,
+          success: false,
+          errorMessage,
+          userAgent: navigator.userAgent,
+        });
+
+        throw new Error(errorMessage);
       }
     },
     onSuccess: async (data) => {

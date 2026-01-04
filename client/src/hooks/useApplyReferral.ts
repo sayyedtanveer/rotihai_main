@@ -1,6 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import api from "@/lib/apiClient";
 
 interface ApplyReferralParams {
   referralCode: string;
@@ -12,21 +13,18 @@ export function useApplyReferral() {
 
   return useMutation({
     mutationFn: async ({ referralCode, userToken }: ApplyReferralParams) => {
-      const response = await fetch("/api/user/apply-referral", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${userToken}`,
-        },
-        body: JSON.stringify({ referralCode }),
-      });
+      try {
+        const response = await api.post("/api/user/apply-referral", { referralCode }, {
+          headers: {
+            Authorization: `Bearer ${userToken}`,
+          },
+        });
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || "Failed to apply referral code");
+        return response.data;
+      } catch (error: any) {
+        const errorMessage = error.response?.data?.message || "Failed to apply referral code";
+        throw new Error(errorMessage);
       }
-
-      return response.json();
     },
     onSuccess: (data) => {
       // Invalidate all related queries
