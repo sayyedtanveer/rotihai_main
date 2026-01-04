@@ -89,11 +89,12 @@ import { useState, useEffect } from "react";
 
     // DELIVERY ZONE DETECTION (Zomato-style)
     const [deliveryZoneDetected, setDeliveryZoneDetected] = useState(false);
-    const [userInDeliveryZone, setUserInDeliveryZone] = useState(false);
+    const [userInDeliveryZone, setUserInDeliveryZone] = useState(true); // Default to true to hide message initially
     const [isDetectingLocation, setIsDetectingLocation] = useState(true);
     const [showAddressModal, setShowAddressModal] = useState(false);
     const [detectedAddress, setDetectedAddress] = useState("");
     const [manualAddress, setManualAddress] = useState("");
+    const [locationPermissionDenied, setLocationPermissionDenied] = useState(false);
 
     // Use WebSocket for real-time chef status and product availability updates
     const { chefStatuses, productAvailability, wsConnected } = useCustomerNotifications();
@@ -140,9 +141,11 @@ import { useState, useEffect } from "react";
                 
                 if (distance <= MAX_DELIVERY_DISTANCE) {
                   setUserInDeliveryZone(true);
+                  setLocationPermissionDenied(false);
                   console.log("[LOCATION-DETECTION] ✅ User is in delivery zone");
                 } else {
                   setUserInDeliveryZone(false);
+                  setLocationPermissionDenied(true);
                   console.log("[LOCATION-DETECTION] ❌ User is OUTSIDE delivery zone");
                 }
                 
@@ -150,21 +153,25 @@ import { useState, useEffect } from "react";
               },
               (error) => {
                 console.log("[LOCATION-DETECTION] Location permission denied or unavailable:", error);
-                // If location denied, we'll show address modal when user tries to order
+                // If location denied, hide the banner but remember user denied permission
+                // Only show the banner if they try to checkout
                 setDeliveryZoneDetected(true);
-                setUserInDeliveryZone(false); // Default to false if can't get location
+                setUserInDeliveryZone(true); // Hide banner on initial page load
+                setLocationPermissionDenied(true);
               },
               { timeout: 8000, enableHighAccuracy: false }
             );
           } else {
             console.log("[LOCATION-DETECTION] Geolocation not supported");
             setDeliveryZoneDetected(true);
-            setUserInDeliveryZone(false);
+            setUserInDeliveryZone(true); // Hide banner if geo not supported
+            setLocationPermissionDenied(true);
           }
         } catch (error) {
           console.error("[LOCATION-DETECTION] Error detecting location:", error);
           setDeliveryZoneDetected(true);
-          setUserInDeliveryZone(false);
+          setUserInDeliveryZone(true); // Hide banner on error
+          setLocationPermissionDenied(true);
         } finally {
           setIsDetectingLocation(false);
         }
@@ -576,8 +583,8 @@ import { useState, useEffect } from "react";
           }}
         />
 
-        {/* ZOMATO-STYLE: Show "Not Available" banner if user is outside delivery zone */}
-        {deliveryZoneDetected && !userInDeliveryZone && (
+        {/* ZOMATO-STYLE: Show "Not Available" banner only if user denied location AND is outside zone */}
+        {deliveryZoneDetected && !userInDeliveryZone && locationPermissionDenied && (
           <div className="bg-orange-50 border-b-2 border-orange-200 py-4 px-4">
             <div className="max-w-7xl mx-auto">
               <div className="flex items-start gap-3">
