@@ -1,5 +1,6 @@
 
 import { useQuery, useMutation } from "@tanstack/react-query";
+import api from "@/lib/apiClient";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -23,40 +24,23 @@ export default function AdminCartSettings() {
   const { data: settings, isLoading: loadingSettings } = useQuery({
     queryKey: ["/api/admin/cart-settings"],
     queryFn: async () => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch("/api/admin/cart-settings", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) throw new Error("Failed to fetch cart settings");
-      return response.json();
+      const response = await api.get("/api/admin/cart-settings");
+      return response.data;
     },
   });
 
   const { data: categories } = useQuery({
     queryKey: ["/api/admin/categories"],
     queryFn: async () => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch("/api/admin/categories", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) throw new Error("Failed to fetch categories");
-      return response.json();
+      const response = await api.get("/api/admin/categories");
+      return response.data;
     },
   });
 
   const createMutation = useMutation({
     mutationFn: async (data: any) => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch("/api/admin/cart-settings", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(data),
-      });
-      if (!response.ok) throw new Error("Failed to create cart setting");
-      return response.json();
+      const response = await api.post("/api/admin/cart-settings", data);
+      return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/cart-settings"] });
@@ -71,17 +55,8 @@ export default function AdminCartSettings() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: any }) => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch(`/api/admin/cart-settings/${id}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(data),
-      });
-      if (!response.ok) throw new Error("Failed to update cart setting");
-      return response.json();
+      const response = await api.patch(`/api/admin/cart-settings/${id}`, data);
+      return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/cart-settings"] });
@@ -96,12 +71,8 @@ export default function AdminCartSettings() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch(`/api/admin/cart-settings/${id}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) throw new Error("Failed to delete cart setting");
+      const response = await api.delete(`/api/admin/cart-settings/${id}`);
+      return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/cart-settings"] });

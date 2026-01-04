@@ -1,6 +1,7 @@
 
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useState } from "react";
+import api from "@/lib/apiClient";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -34,12 +35,8 @@ export default function AdminManagement() {
   const { data: admins, isLoading } = useQuery<AdminUser[]>({
     queryKey: ["/api/admin", "admins"],
     queryFn: async () => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch("/api/admin/admins", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) throw new Error("Failed to fetch admins");
-      return response.json();
+      const response = await api.get("/api/admin/admins");
+      return response.data;
     },
   });
 
@@ -56,51 +53,27 @@ export default function AdminManagement() {
 
   const createMutation = useMutation({
     mutationFn: async (data: InsertAdminUser) => {
-      console.log("🚀 Creating admin with data:", data);
-      const token = localStorage.getItem("adminToken");
-      console.log("🔑 Token:", token ? "Present" : "Missing");
-      const response = await fetch("/api/admin/admins", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(data),
-      });
-      console.log("📡 Response status:", response.status);
-      if (!response.ok) {
-        const error = await response.json();
-        console.error("❌ API Error:", error);
-        throw new Error(error.message || "Failed to create admin");
-      }
-      return response.json();
+      console.log("Creating admin with data:", data);
+      const response = await api.post("/api/admin/admins", data);
+      return response.data;
     },
     onSuccess: (data) => {
-      console.log("✅ Admin created successfully:", data);
+      console.log("Admin created successfully:", data);
       queryClient.invalidateQueries({ queryKey: ["/api/admin", "admins"] });
       setCreatedAdmin({ username: data.username, email: data.email, password: data.password });
       setIsDialogOpen(false);
       form.reset();
     },
     onError: (error: Error) => {
-      console.error("❌ Creation error:", error);
+      console.error("Creation error:", error);
       toast({ title: "Creation failed", description: error.message, variant: "destructive" });
     },
   });
 
   const updateRoleMutation = useMutation({
     mutationFn: async ({ id, role }: { id: string; role: string }) => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch(`/api/admin/admins/${id}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ role }),
-      });
-      if (!response.ok) throw new Error("Failed to update admin role");
-      return response.json();
+      const response = await api.patch(`/api/admin/admins/${id}`, { role });
+      return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin", "admins"] });
@@ -114,16 +87,8 @@ export default function AdminManagement() {
 
   const deleteAdminMutation = useMutation({
     mutationFn: async (id: string) => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch(`/api/admin/admins/${id}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || "Failed to delete admin");
-      }
-      return response.json();
+      const response = await api.delete(`/api/admin/admins/${id}`);
+      return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin", "admins"] });
@@ -137,19 +102,8 @@ export default function AdminManagement() {
 
   const resetPasswordMutation = useMutation({
     mutationFn: async (id: string) => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch(`/api/admin/admins/${id}/reset-password`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || "Failed to reset password");
-      }
-      return response.json();
+      const response = await api.patch(`/api/admin/admins/${id}/reset-password`);
+      return response.data;
     },
     onSuccess: (data) => {
       setResetPasswordResult({
