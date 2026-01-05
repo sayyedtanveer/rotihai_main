@@ -14,13 +14,53 @@ const api = axios.create({
   timeout: 30000,
 });
 
+// Request interceptor to add authorization headers
+api.interceptors.request.use((config) => {
+  const path = window.location.pathname;
+  let token: string | null = null;
+
+  // Get appropriate token based on current path
+  if (path.startsWith('/admin')) {
+    token = localStorage.getItem('adminToken');
+  } else if (path.startsWith('/partner')) {
+    token = localStorage.getItem('partnerToken');
+  } else if (path.startsWith('/delivery')) {
+    token = localStorage.getItem('deliveryToken');
+  } else {
+    token = localStorage.getItem('userToken');
+  }
+
+  // Add authorization header if token exists
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+
+  return config;
+}, (error) => Promise.reject(error));
+
 // Response interceptor for better error handling
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      // Handle unauthorized
-      console.error('Unauthorized - redirecting to login');
+      // Handle unauthorized - redirect to appropriate login
+      const path = window.location.pathname;
+      
+      if (path.startsWith('/admin')) {
+        localStorage.removeItem('adminToken');
+        window.location.href = '/admin/login';
+      } else if (path.startsWith('/partner')) {
+        localStorage.removeItem('partnerToken');
+        window.location.href = '/partner/login';
+      } else if (path.startsWith('/delivery')) {
+        localStorage.removeItem('deliveryToken');
+        window.location.href = '/delivery/login';
+      } else {
+        localStorage.removeItem('userToken');
+        window.location.href = '/login';
+      }
+      
+      console.error('Session expired - redirecting to login');
     }
     return Promise.reject(error);
   }
