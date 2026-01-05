@@ -1,31 +1,41 @@
-// Detect if running in development mode
-const isDev = typeof navigator !== 'undefined' && 
-              (self.location.hostname === 'localhost' || 
-               self.location.hostname === '127.0.0.1');
-
-const OFFLINE_CACHE = 'rotihai-offline-v1';
+// Service Worker version - increment this to force cache invalidation
+const SW_VERSION = 'v1-' + new Date().toISOString().split('T')[0]; // Changes daily
+const OFFLINE_CACHE = 'rotihai-offline-' + SW_VERSION;
 
 // Install event - skip waiting to activate immediately
 self.addEventListener('install', event => {
+  console.log('🔧 Service Worker installing, version:', SW_VERSION);
   event.waitUntil(
     caches.open(OFFLINE_CACHE)
-      .then(() => self.skipWaiting())
+      .then(() => {
+        console.log('✅ Cache storage ready');
+        // Force this SW to become active immediately
+        return self.skipWaiting();
+      })
   );
 });
 
-// Activate event - cleanup old caches
+// Activate event - cleanup old caches and take control
 self.addEventListener('activate', event => {
+  console.log('🚀 Service Worker activating, version:', SW_VERSION);
   event.waitUntil(
     caches.keys().then(cacheNames => {
       return Promise.all(
         cacheNames
-          .filter(cacheName => cacheName !== OFFLINE_CACHE)
-          .map(cacheName => {
-            console.log('🗑️ Clearing old cache:', cacheName);
-            return caches.delete(cacheName);
+          .filter(cacheName => {
+            // Delete all old version caches
+            const isOldCache = !cacheName.includes(SW_VERSION);
+            if (isOldCache) {
+              console.log('🗑️ Clearing old cache:', cacheName);
+            }
+            return isOldCache;
           })
+          .map(cacheName => caches.delete(cacheName))
       );
-    }).then(() => self.clients.claim())
+    }).then(() => {
+      console.log('✅ Old caches cleared, taking control...');
+      return self.clients.claim(); // Take control of all clients immediately
+    })
   );
 });
 
@@ -35,6 +45,10 @@ self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') {
     return;
   }
+
+  // Detect if running in development mode
+  const isDev = self.location.hostname === 'localhost' || 
+                self.location.hostname === '127.0.0.1';
 
   // DEVELOPMENT: Network-first strategy (always fresh)
   if (isDev) {
