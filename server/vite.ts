@@ -21,7 +21,10 @@ const loadVite = async () => {
   }
 };
 
-const viteLogger = createLogger ? createLogger() : { error: console.error };
+const getViteLogger = async () => {
+  await loadVite();
+  return createLogger ? createLogger() : { error: console.error, info: console.log, warn: console.warn };
+};
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -37,6 +40,8 @@ export function log(message: string, source = "express") {
 export async function setupVite(app: Express, server: Server) {
   // Lazy load vite only when actually needed
   await loadVite();
+  
+  const viteLogger = await getViteLogger();
   
   const serverOptions = {
     middlewareMode: true,

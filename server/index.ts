@@ -37,6 +37,32 @@ app.use(express.json({
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
 
+// Set Cache-Control headers based on environment
+app.use((req, res, next) => {
+  if (process.env.NODE_ENV === 'development') {
+    // Development: Never cache - always fresh
+    res.set({
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+    });
+  } else {
+    // Production: Cache static assets, not HTML/API
+    if (req.path.match(/\.(js|css|png|jpg|jpeg|gif|svg|woff|woff2|ttf|eot)$/i)) {
+      // Static assets: cache for 1 year (hashed in build)
+      res.set('Cache-Control', 'public, max-age=31536000, immutable');
+    } else {
+      // HTML and API: no cache
+      res.set({
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+      });
+    }
+  }
+  next();
+});
+
 // Multer configuration for image uploads
 const upload = multer({
   storage: multer.memoryStorage(),
