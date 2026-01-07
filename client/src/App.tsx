@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect } from "react";
 import { Route, Switch, Redirect } from "wouter";
+import { Analytics } from "@vercel/analytics/react";
 import api from "@/lib/apiClient";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -198,6 +199,7 @@ function AppContent() {
       <Toaster />
       <NotificationsWrapper />
       <Router />
+      <Analytics />
     </TooltipProvider>
   );
 }
