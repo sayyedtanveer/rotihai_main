@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { getWebSocketURL } from "@/lib/fetchClient";
 import { queryClient } from "@/lib/queryClient";
 import type { Order } from "@shared/schema";
 
@@ -10,8 +11,7 @@ export function useDeliveryNotifications() {
     const token = localStorage.getItem("deliveryToken");
     if (!token) return;
 
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/ws?type=delivery&token=${encodeURIComponent(token)}`;
+    const wsUrl = getWebSocketURL(`/ws?type=delivery&token=${encodeURIComponent(token)}`);
 
     console.log("Delivery WebSocket connecting to:", wsUrl);
     const ws = new WebSocket(wsUrl);

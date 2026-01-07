@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { getWebSocketURL } from "@/lib/fetchClient";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "./useAuth";
 
@@ -48,8 +49,7 @@ export function useWalletUpdates(options?: UseWalletUpdatesOptions) {
     }
 
     // Connect to WebSocket for wallet updates (authenticated users only)
-    const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${wsProtocol}//${window.location.host}/ws?type=customer&userId=${user.id}`;
+    const wsUrl = getWebSocketURL(`/ws?type=customer&userId=${user.id}`);
 
     console.log(`📡 useWalletUpdates: Connecting to WebSocket for authenticated user`);
     console.log(`   User ID: ${user.id}, URL: ${wsUrl}`);

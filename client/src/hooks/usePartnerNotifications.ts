@@ -1,5 +1,6 @@
 
 import { useEffect, useState, useRef } from "react";
+import { getWebSocketURL } from "@/lib/fetchClient";
 import { queryClient } from "@/lib/queryClient";
 import type { Order } from "@shared/schema";
 import { toast } from "@/hooks/use-toast";
@@ -13,8 +14,7 @@ export function usePartnerNotifications() {
     const token = localStorage.getItem("partnerToken");
     if (!token) return;
 
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/ws?type=chef&token=${encodeURIComponent(token)}`;
+    const wsUrl = getWebSocketURL(`/ws?type=chef&token=${encodeURIComponent(token)}`);
 
     console.log("Partner WebSocket connecting to:", wsUrl);
     const ws = new WebSocket(wsUrl);

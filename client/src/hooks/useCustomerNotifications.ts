@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { getWebSocketURL } from "@/lib/fetchClient";
 import { queryClient } from "@/lib/queryClient";
 import { toast } from "@/hooks/use-toast";
 
@@ -59,9 +60,7 @@ class CustomerNotificationsManager {
     if (this.ws || this.connecting) return;
     this.connecting = true;
 
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const host = window.location.host;
-    const wsUrl = `${protocol}//${host}/ws?type=browser`;
+    const wsUrl = getWebSocketURL('/ws?type=browser');
 
     console.log("Customer WebSocket connecting to:", wsUrl);
     this.ws = new WebSocket(wsUrl);

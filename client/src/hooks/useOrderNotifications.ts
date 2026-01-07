@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { getWebSocketURL } from "@/lib/fetchClient";
 import { useAuth } from "./useAuth";
 import { queryClient } from "@/lib/queryClient";
 import { useNotificationStore } from "@/store/notificationStore";
@@ -99,11 +100,10 @@ export function useOrderNotifications() {
 
         if (activeOrders.length === 0) return;
 
-        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
         const wsConnections: WebSocket[] = [];
 
         activeOrders.forEach((order) => {
-          const wsUrl = `${protocol}//${window.location.host}/ws?type=customer&orderId=${order.id}`;
+          const wsUrl = getWebSocketURL(`/ws?type=customer&orderId=${order.id}`);
           const ws = new WebSocket(wsUrl);
 
           ws.onopen = () => {

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { getWebSocketURL } from "@/lib/fetchClient";
 import { useQuery } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { toast } from "@/hooks/use-toast";
@@ -38,8 +39,7 @@ export function useAdminNotifications() {
     const token = localStorage.getItem("adminToken");
     if (!token) return;
 
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/ws?type=admin&token=${encodeURIComponent(token)}`;
+    const wsUrl = getWebSocketURL(`/ws?type=admin&token=${encodeURIComponent(token)}`);
     const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {

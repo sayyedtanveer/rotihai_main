@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { getWebSocketURL } from "@/lib/fetchClient";
 import { useRoute } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -50,8 +51,7 @@ export default function OrderTracking() {
   useEffect(() => {
     if (!orderId) return;
 
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/ws?type=customer&orderId=${orderId}`;
+    const wsUrl = getWebSocketURL(`/ws?type=customer&orderId=${orderId}`);
     const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
