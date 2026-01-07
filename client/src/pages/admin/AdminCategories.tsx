@@ -13,6 +13,7 @@ import type { Category, InsertCategory } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 import { Plus, Pencil, Trash2 } from "lucide-react";
+import { getImageUrl, handleImageError } from "@/lib/imageUrl";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertCategorySchema } from "@shared/schema";
@@ -222,7 +223,7 @@ export default function AdminCategories() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {categories.map((category) => (
               <Card key={category.id} data-testid={`card-category-${category.id}`}>
-                <img src={category.image} alt={category.name} className="w-full aspect-video object-cover rounded-t-lg" />
+                <img src={getImageUrl(category.image)} alt={category.name} className="w-full aspect-video object-cover rounded-t-lg" onError={handleImageError} />
                 <CardContent className="p-4">
                   <h3 className="font-semibold text-lg mb-1 text-slate-900 dark:text-slate-100">{category.name}</h3>
                   <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">{category.description}</p>

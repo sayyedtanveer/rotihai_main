@@ -2,6 +2,7 @@
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ArrowRight, Sparkles } from "lucide-react";
+import { getImageUrl, handleImageError } from "@/lib/imageUrl";
 
 interface CategoryCardProps {
   id?: string;
@@ -44,8 +45,9 @@ export default function CategoryCard({
           
           <div className="relative w-32 h-32 sm:w-40 sm:h-40 rounded-full overflow-hidden ring-4 ring-primary/10 group-hover:ring-primary/40 group-hover:ring-8 transition-all duration-500 shadow-xl group-hover:shadow-2xl">
             <img
-              src={image}
+              src={getImageUrl(image)}
               alt={title}
+              onError={handleImageError}
               className="w-full h-full object-cover transition-all duration-700 group-hover:scale-125 group-hover:rotate-2"
             />
             {/* Overlay gradient */}

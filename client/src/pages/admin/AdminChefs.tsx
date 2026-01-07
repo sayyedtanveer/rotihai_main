@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { getImageUrl, handleImageError } from "@/lib/imageUrl";
 import { adminApiRequest } from "@/hooks/useAdminAuth";
 import { queryClient } from "@/lib/queryClient";
 import type { Chef, Category } from "@shared/schema";
@@ -449,12 +450,10 @@ export default function AdminChefs() {
                 {formData.image && (
                   <div className="flex gap-2">
                     <img
-                      src={formData.image}
+                      src={getImageUrl(formData.image)}
                       alt="Chef preview"
                       className="w-20 h-20 object-cover rounded-md border"
-                      onError={() => {
-                        console.warn("Failed to load image preview");
-                      }}
+                      onError={handleImageError}
                     />
                     <div className="flex-1 text-xs text-gray-500 break-all pt-1">
                       {formData.image}
@@ -673,12 +672,10 @@ export default function AdminChefs() {
               {formData.image && (
                 <div className="flex gap-2">
                   <img
-                    src={formData.image}
+                    src={getImageUrl(formData.image)}
                     alt="Chef preview"
                     className="w-20 h-20 object-cover rounded-md border"
-                    onError={() => {
-                      console.warn("Failed to load image preview");
-                    }}
+                    onError={handleImageError}
                   />
                   <div className="flex-1 text-xs text-gray-500 break-all pt-1">
                     {formData.image}

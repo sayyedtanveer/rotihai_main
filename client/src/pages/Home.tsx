@@ -15,6 +15,7 @@ import { useState, useEffect } from "react";
   import Footer from "@/components/Footer";
   import PromotionalBannersSection from "@/components/PromotionalBannersSection";
   import { LocationPermissionModal } from "@/components/LocationPermissionModal";
+  import { getImageUrl, handleImageError } from "@/lib/imageUrl";
   import { Button } from "@/components/ui/button";
   import { Badge } from "@/components/ui/badge";
   import { Card } from "@/components/ui/card";
@@ -989,8 +990,9 @@ import { useState, useEffect } from "react";
                           >
                             <div className="relative h-36 sm:h-44 overflow-hidden">
                               <img
-                                src={chef.image}
+                                src={getImageUrl(chef.image)}
                                 alt={chef.name}
+                                onError={handleImageError}
                                 className={`w-full h-full object-cover transition-transform duration-300 ${
                                   isChefActive ? "group-hover:scale-105" : "grayscale"
                                 }`}

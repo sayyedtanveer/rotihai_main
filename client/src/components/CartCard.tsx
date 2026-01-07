@@ -4,6 +4,7 @@ import { Separator } from "@/components/ui/separator";
 import { Progress } from "@/components/ui/progress";
 import { MapPin, Package, Plus, Minus } from "lucide-react";
 import { Card, CardHeader, CardContent, CardFooter } from "@/components/ui/card";
+import { getImageUrl, handleImageError } from "@/lib/imageUrl";
 
 interface CartItem {
   id: string;
@@ -140,9 +141,10 @@ export default function CartCard({
                 data-testid={`item-${item.id}`}
               >
                 <img
-                  src={item.image}
+                  src={getImageUrl(item.image)}
                   alt={item.name}
                   className={`w-12 h-12 object-cover rounded-md ${isUnavailable ? 'grayscale' : ''}`}
+                  onError={handleImageError}
                   data-testid={`img-item-${item.id}`}
                 />
                 <div className="flex-1 min-w-0">

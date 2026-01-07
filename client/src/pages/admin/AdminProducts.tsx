@@ -19,6 +19,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertProductSchema } from "@shared/schema";
 import { ImageUploader } from "@/components/ImageUploader";
+import { getImageUrl, handleImageError } from "@/lib/imageUrl";
 import { fetchAPI, fetchPost, fetchPatch, fetchDelete } from "@/lib/fetchClient";
 
 export default function AdminProducts() {
@@ -587,9 +588,10 @@ export default function AdminProducts() {
                         <TableCell>
                           <div className="flex items-center gap-3">
                             <img
-                              src={product.image}
+                              src={getImageUrl(product.image)}
                               alt={product.name}
                               className="w-12 h-12 rounded object-cover"
+                              onError={handleImageError}
                             />
                             <div>
                               <div className="font-medium">{product.name}</div>
@@ -684,9 +686,10 @@ export default function AdminProducts() {
               >
                 <div className="relative">
                   <img 
-                    src={product.image} 
+                    src={getImageUrl(product.image)}
                     alt={product.name} 
-                    className={`w-full aspect-video object-cover rounded-t-lg ${product.isAvailable === false ? "grayscale" : ""}`} 
+                    className={`w-full aspect-video object-cover rounded-t-lg ${product.isAvailable === false ? "grayscale" : ""}`}
+                    onError={handleImageError}
                   />
                   {product.isAvailable === false && (
                     <div className="absolute inset-0 bg-black/40 flex items-center justify-center rounded-t-lg">

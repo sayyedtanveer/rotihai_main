@@ -4,6 +4,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import type { Category, Product } from "@shared/schema";
 import { useCustomerNotifications } from "@/hooks/useCustomerNotifications";
+import { getImageUrl, handleImageError } from "@/lib/imageUrl";
 
 interface CategoryMenuDrawerProps {
   isOpen: boolean;
@@ -167,8 +168,9 @@ export default function CategoryMenuDrawer({
                       <div className="flex gap-4">
                         <div className="relative">
                           <img
-                            src={product.image}
+                            src={getImageUrl(product.image)}
                             alt={product.name}
+                            onError={handleImageError}
                             className={`w-20 h-20 rounded-lg object-cover ${!isProductAvailable ? "grayscale" : ""}`}
                             data-testid={`img-product-${product.id}`}
                           />
