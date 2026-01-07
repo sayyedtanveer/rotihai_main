@@ -46,18 +46,27 @@ api.interceptors.response.use(
       // Handle unauthorized - redirect to appropriate login
       const path = window.location.pathname;
       
-      if (path.startsWith('/admin')) {
-        localStorage.removeItem('adminToken');
-        window.location.href = '/admin/login';
-      } else if (path.startsWith('/partner')) {
-        localStorage.removeItem('partnerToken');
-        window.location.href = '/partner/login';
-      } else if (path.startsWith('/delivery')) {
-        localStorage.removeItem('deliveryToken');
-        window.location.href = '/delivery/login';
-      } else {
-        localStorage.removeItem('userToken');
-        window.location.href = '/login';
+      // Don't redirect if already on a login/auth page
+      const isOnLoginPage = 
+        path.includes('/login') || 
+        path.includes('/signup') || 
+        path.includes('/auth') ||
+        path === '/';
+      
+      if (!isOnLoginPage) {
+        if (path.startsWith('/admin')) {
+          localStorage.removeItem('adminToken');
+          window.location.href = '/admin/login';
+        } else if (path.startsWith('/partner')) {
+          localStorage.removeItem('partnerToken');
+          window.location.href = '/partner/login';
+        } else if (path.startsWith('/delivery')) {
+          localStorage.removeItem('deliveryToken');
+          window.location.href = '/delivery/login';
+        } else {
+          localStorage.removeItem('userToken');
+          window.location.href = '/';
+        }
       }
       
       console.error('Session expired - redirecting to login');

@@ -57,20 +57,29 @@ export async function fetchAPI(
     credentials: 'include', // Include cookies for same-origin requests
   });
   
-  // Handle 401 - redirect to appropriate login
+  // Handle 401 - redirect to appropriate login (but don't redirect if already on a login page)
   if (response.status === 401 && typeof window !== 'undefined') {
-    if (currentPath.startsWith('/admin')) {
-      localStorage.removeItem('adminToken');
-      window.location.href = '/admin/login';
-    } else if (currentPath.startsWith('/partner')) {
-      localStorage.removeItem('partnerToken');
-      window.location.href = '/partner/login';
-    } else if (currentPath.startsWith('/delivery')) {
-      localStorage.removeItem('deliveryToken');
-      window.location.href = '/delivery/login';
-    } else {
-      localStorage.removeItem('userToken');
-      window.location.href = '/login';
+    const isOnLoginPage = 
+      currentPath.includes('/login') || 
+      currentPath.includes('/signup') || 
+      currentPath.includes('/auth') ||
+      currentPath === '/';
+    
+    // Only redirect if not already on a login/auth page
+    if (!isOnLoginPage) {
+      if (currentPath.startsWith('/admin')) {
+        localStorage.removeItem('adminToken');
+        window.location.href = '/admin/login';
+      } else if (currentPath.startsWith('/partner')) {
+        localStorage.removeItem('partnerToken');
+        window.location.href = '/partner/login';
+      } else if (currentPath.startsWith('/delivery')) {
+        localStorage.removeItem('deliveryToken');
+        window.location.href = '/delivery/login';
+      } else {
+        localStorage.removeItem('userToken');
+        window.location.href = '/';
+      }
     }
   }
   
