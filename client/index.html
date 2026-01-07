@@ -43,31 +43,26 @@
     
     <!-- Version check - forces hard refresh when app is updated -->
     <script>
-      // Store the current build version
-      const CURRENT_VERSION = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
-      const VERSION_KEY = 'app_version';
-      const storedVersion = localStorage.getItem(VERSION_KEY);
+      // Dynamic version based on build manifest or current timestamp
+      // In development: uses incremental ID (won't trigger reloads)
+      // In production: Service Worker handles cache busting
+      const isDevelopment = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
       
-      // If stored version is different from current, it means app was updated
-      if (storedVersion && storedVersion !== CURRENT_VERSION) {
-        console.log('🔄 New version detected, clearing cache and reloading...');
-        // Clear all caches
-        if ('caches' in window) {
-          caches.keys().then(cacheNames => {
-            cacheNames.forEach(cacheName => caches.delete(cacheName));
-          });
-        }
-        // Clear Service Worker
+      if (!isDevelopment) {
+        // Production: Use Service Worker for cache management
+        // Load dynamic version from meta tag if available, otherwise use SW timestamp
+        const VERSION_KEY = 'app_build_version';
+        
+        // Get version from build (if using Vite, this would be from env)
+        // For now, let Service Worker handle updates
         if ('serviceWorker' in navigator) {
-          navigator.serviceWorker.getRegistrations().then(registrations => {
-            registrations.forEach(registration => registration.unregister());
+          navigator.serviceWorker.addEventListener('message', (event) => {
+            if (event.data && event.data.type === 'CACHE_UPDATED') {
+              console.log('🔄 New cache version detected, reloading...');
+              window.location.reload();
+            }
           });
         }
-        // Force hard refresh
-        window.location.reload(true);
-      } else {
-        // Store current version
-        localStorage.setItem(VERSION_KEY, CURRENT_VERSION);
       }
     </script>
     
