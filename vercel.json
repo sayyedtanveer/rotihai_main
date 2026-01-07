@@ -2,6 +2,10 @@
   "framework": "vite",
   "buildCommand": "npm run build",
   "outputDirectory": "dist/public",
+  "env": {
+    "VITE_API_URL": "@rotihai_backend_url",
+    "VITE_WS_URL": "@rotihai_ws_url"
+  },
   "routes": [
     { "src": "/assets/(.*)", "dest": "/assets/$1" },
     { "src": "/(.*)\\.(js|css|png|jpg|svg|ico)", "dest": "/$1.$2" },

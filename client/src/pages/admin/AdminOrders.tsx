@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import type { Order, DeliveryPersonnel } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
+import { getWebSocketURL } from "@/lib/fetchClient";
 import { format } from "date-fns";
 import { Search, Filter, Truck, User } from "lucide-react";
 import { useState, useEffect } from "react";
@@ -145,7 +146,8 @@ export default function AdminOrders() {
   // Listen for WebSocket order updates
   useEffect(() => {
     const token = localStorage.getItem("adminToken");
-    const ws = new WebSocket(`ws://localhost:5000?token=${token}&type=admin`);
+    const wsUrl = getWebSocketURL(`?token=${token}&type=admin`);
+    const ws = new WebSocket(wsUrl);
 
     ws.onmessage = (event) => {
       try {

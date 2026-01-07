@@ -19,6 +19,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertProductSchema } from "@shared/schema";
 import { ImageUploader } from "@/components/ImageUploader";
+import { fetchAPI, fetchPost, fetchPatch, fetchDelete } from "@/lib/fetchClient";
 
 export default function AdminProducts() {
   const { toast } = useToast();
@@ -29,10 +30,7 @@ export default function AdminProducts() {
   const { data: products, isLoading } = useQuery<Product[]>({
     queryKey: ["/api/admin", "products"],
     queryFn: async () => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch("/api/admin/products", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await fetchAPI("/api/admin/products");
       if (!response.ok) throw new Error("Failed to fetch products");
       return response.json();
     },
@@ -41,10 +39,7 @@ export default function AdminProducts() {
   const { data: categories } = useQuery<Category[]>({
     queryKey: ["/api/admin", "categories"],
     queryFn: async () => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch("/api/admin/categories", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await fetchAPI("/api/admin/categories");
       if (!response.ok) throw new Error("Failed to fetch categories");
       return response.json();
     },
@@ -53,10 +48,7 @@ export default function AdminProducts() {
   const { data: chefs } = useQuery<Chef[]>({
     queryKey: ["/api/admin", "chefs"],
     queryFn: async () => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch("/api/admin/chefs", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await fetchAPI("/api/admin/chefs");
       if (!response.ok) throw new Error("Failed to fetch chefs");
       return response.json();
     },
@@ -90,24 +82,15 @@ export default function AdminProducts() {
 
   const createMutation = useMutation({
     mutationFn: async (data: any) => {
-      const token = localStorage.getItem("adminToken");
-      console.log("➕ CREATE REQUEST - Token length:", token?.length, "Starts with:", token?.substring(0, 20)); // ← DEBUG TOKEN
-      console.log("➕ CREATE REQUEST - Sending data:", data); // ← DEBUG
-      const response = await fetch("/api/admin/products", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(data),
-      });
+      console.log("➕ CREATE REQUEST - Sending data:", data);
+      const response = await fetchPost("/api/admin/products", data);
       if (!response.ok) {
         const errorText = await response.text();
         console.error("❌ CREATE FAILED - Status:", response.status, "Response:", errorText);
         throw new Error(`Failed to create product: ${response.status}`);
       }
       const result = await response.json();
-      console.log("✅ CREATE RESPONSE - Received data:", result); // ← DEBUG
+      console.log("✅ CREATE RESPONSE - Received data:", result);
       return result;
     },
     onSuccess: () => {
@@ -123,24 +106,15 @@ export default function AdminProducts() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: any }) => {
-      const token = localStorage.getItem("adminToken");
-      console.log("🔄 UPDATE REQUEST - Token length:", token?.length, "Starts with:", token?.substring(0, 20)); // ← DEBUG TOKEN
-      console.log("🔄 UPDATE REQUEST - Sending data:", data); // ← DEBUG
-      const response = await fetch(`/api/admin/products/${id}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(data),
-      });
+      console.log("🔄 UPDATE REQUEST - Sending data:", data);
+      const response = await fetchPatch(`/api/admin/products/${id}`, data);
       if (!response.ok) {
         const errorText = await response.text();
         console.error("❌ UPDATE FAILED - Status:", response.status, "Response:", errorText);
         throw new Error(`Failed to update product: ${response.status}`);
       }
       const result = await response.json();
-      console.log("✅ UPDATE RESPONSE - Received data:", result); // ← DEBUG
+      console.log("✅ UPDATE RESPONSE - Received data:", result);
       return result;
     },
     onSuccess: () => {
@@ -151,18 +125,14 @@ export default function AdminProducts() {
       form.reset();
     },
     onError: (error: any) => {
-      console.error("❌ UPDATE ERROR:", error); // ← DEBUG
+      console.error("❌ UPDATE ERROR:", error);
       toast({ title: "Update failed", description: "Failed to update product", variant: "destructive" });
     },
   });
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch(`/api/admin/products/${id}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await fetchDelete(`/api/admin/products/${id}`);
       if (!response.ok) throw new Error("Failed to delete product");
       return response.json();
     },
@@ -174,15 +144,7 @@ export default function AdminProducts() {
 
   const toggleAvailabilityMutation = useMutation({
     mutationFn: async ({ id, isAvailable }: { id: string; isAvailable: boolean }) => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch(`/api/admin/products/${id}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ isAvailable }),
-      });
+      const response = await fetchPatch(`/api/admin/products/${id}`, { isAvailable });
       if (!response.ok) throw new Error("Failed to update availability");
       return response.json();
     },
