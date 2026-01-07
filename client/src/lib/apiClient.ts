@@ -5,11 +5,19 @@ const apiUrl = import.meta.env.VITE_API_URL;
 
 if (!apiUrl) {
   console.warn('⚠️ VITE_API_URL environment variable is not set!');
+  console.log('Available env vars:', Object.keys(import.meta.env).filter(k => k.includes('VITE')));
 }
+
+console.log('🔧 API Configuration:', {
+  apiUrl: apiUrl || 'NOT SET',
+  isDev: import.meta.env.DEV,
+  isProd: import.meta.env.PROD,
+  mode: import.meta.env.MODE,
+});
 
 // Create axios instance with VITE_API_URL
 const api = axios.create({
-  baseURL: apiUrl,
+  baseURL: apiUrl || undefined, // If not set, will use relative paths
   withCredentials: true,
   timeout: 30000,
 });
