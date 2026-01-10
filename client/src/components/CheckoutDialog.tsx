@@ -579,11 +579,12 @@ export default function CheckoutDialog({
           // NO zone validation blocking based on GPS
         },
         { 
-          timeout: 10000,
-          enableHighAccuracy: false,
+          timeout: 15000, // Longer timeout for Safari
+          enableHighAccuracy: false, // False for faster response on mobile
           maximumAge: 0,
         }
       );
+
     }
   }, [isOpen, customerLatitude, customerLongitude, hasLocationPermission, addressArea]);
 
@@ -635,7 +636,7 @@ export default function CheckoutDialog({
     } else {
       console.log("[DELIVERY-FEE-CALC] Conditions not met - skipping fee calculation");
     }
-  }, [customerLatitude, customerLongitude, cart?.chefLatitude, cart?.chefLongitude, subtotal]);
+  }, [customerLatitude, customerLongitude, cart?.chefLatitude, cart?.chefLongitude, subtotal, addressZoneValidated, addressInDeliveryZone]);
 
   // Auto-validate delivery on dialog open - use chef's coordinates if area is empty
   useEffect(() => {
@@ -818,35 +819,56 @@ export default function CheckoutDialog({
         return;
       }
 
-      navigator.geolocation.getCurrentPosition(
+      // For Safari compatibility: Use watchPosition with timeout instead of just getCurrentPosition
+      let watchId: number | null = null;
+      let timeoutId: NodeJS.Timeout | null = null;
+
+      const clearWatch = () => {
+        if (watchId !== null) {
+          navigator.geolocation.clearWatch(watchId);
+        }
+        if (timeoutId !== null) {
+          clearTimeout(timeoutId);
+        }
+      };
+
+      watchId = navigator.geolocation.watchPosition(
         (position) => {
           const lat = position.coords.latitude;
           const lon = position.coords.longitude;
-          console.log("[LOCATION] GPS location captured manually:", { latitude: lat, longitude: lon });
+          console.log("[LOCATION] ✓ GPS location captured (watchPosition):", { latitude: lat, longitude: lon, accuracy: position.coords.accuracy });
           setCustomerLatitude(lat);
           setCustomerLongitude(lon);
           setHasLocationPermission(true);
           setLocationError("");
+          setIsRequestingLocation(false);
+          clearWatch();
           toast({
             title: "✓ GPS Location Captured",
-            description: `Your location: ${lat.toFixed(4)}°, ${lon.toFixed(4)}° - Delivery fee will be calculated for this exact location (${deliveryDistance !== null ? deliveryDistance.toFixed(1) : '?'} km away)`,
+            description: `Accuracy: ${position.coords.accuracy?.toFixed(0)}m - Delivery fee calculated`,
           });
         },
         (error) => {
-          console.error("[LOCATION] Geolocation error:", error);
+          console.error("[LOCATION] Geolocation error:", { code: error.code, message: error.message });
+          setIsRequestingLocation(false);
+          
+          // Safari-specific error handling
+          let errorMsg = "Could not get your location. ";
           switch (error.code) {
             case error.PERMISSION_DENIED:
-              setLocationError("Please enable location permission in your browser settings");
+              errorMsg = "Location permission denied. Go to Settings → Privacy → Location Services to enable it.";
               break;
             case error.POSITION_UNAVAILABLE:
-              setLocationError("Location information is unavailable");
+              errorMsg = "Location not available. Please check signal strength and try again.";
               break;
             case error.TIMEOUT:
-              setLocationError("Location request timeout. Please try again");
+              errorMsg = "Location detection timed out. Please try again or enter address manually.";
               break;
             default:
-              setLocationError("Could not get your location. Please try again.");
+              errorMsg = "Could not detect location. You can still enter your address manually.";
           }
+          setLocationError(errorMsg);
+          clearWatch();
         },
         { 
           timeout: 10000,

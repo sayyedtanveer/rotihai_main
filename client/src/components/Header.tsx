@@ -118,9 +118,9 @@ export default function Header({ cartItemCount = 0, onCartClick, onMenuClick, se
   };
 
   const handleManualAddress = () => {
-    const addressLower = manualAddress.toLowerCase().trim();
+    const addressTrimmed = manualAddress.trim();
 
-    if (!addressLower) {
+    if (!addressTrimmed) {
       toast({
         title: "Address Required",
         description: "Please enter your delivery address",
@@ -129,13 +129,19 @@ export default function Header({ cartItemCount = 0, onCartClick, onMenuClick, se
       return;
     }
 
-    const isKurlaArea = addressLower.includes("kurla") 
-    // || 
-    //                     addressLower.includes("chunabhatti") ||
-    //                     addressLower.includes("sion") ||
-    //                     addressLower.includes("bkc");
+    // Simplified validation - allow any address, backend will validate delivery zone
+    // This prevents false rejections on Safari and other browsers
+    if (addressTrimmed.length < 3) {
+      toast({
+        title: "Invalid Address",
+        description: "Please enter a valid address with at least 3 characters",
+        variant: "destructive",
+      });
+      return;
+    }
 
-    if (isKurlaArea) {
+    // Accept address - it will be geocoded and validated server-side
+    if (true) {
       setCurrentLocation(manualAddress);
       setIsServiceable(true);
       localStorage.setItem('userLatitude', '19.0728');

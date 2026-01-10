@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import QRCode from "qrcode";
 import { useLocation } from "wouter";
 import { generateUPIIntent, getPaymentAppDeepLink, isMobileDevice } from "@/lib/upi-payment";
+import { PAYMENT_CONFIG } from "@/lib/paymentConfig";
 
 interface PaymentQRDialogProps {
   isOpen: boolean;
@@ -41,7 +42,7 @@ export default function PaymentQRDialog({
   isSubmitting = false  // External loading state
 }: PaymentQRDialogProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [upiId] = useState("rotihai@paytm");
+  const [upiId] = useState(PAYMENT_CONFIG.upiId);
   const [hasPaid, setHasPaid] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
   const [upiIntent, setUpiIntent] = useState("");
@@ -67,7 +68,7 @@ export default function PaymentQRDialog({
     if (isOpen) {
       const intent = generateUPIIntent({
         upiId: upiId,
-        name: "RotiHai",
+        name: PAYMENT_CONFIG.merchantName,
         amount: amount,
         transactionNote: `Order #${orderId.slice(0, 8)}`,
       });

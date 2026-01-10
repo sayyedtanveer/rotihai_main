@@ -100,17 +100,13 @@ export default function Hero() {
       return;
     }
 
-    const locationLower = location.toLowerCase();
-    const isKurlaArea = 
-      locationLower.includes('kurla') || 
-      locationLower.includes('chunabhatti') ||
-      locationLower.includes('sion') ||
-      locationLower.includes('bkc');
-
-    if (!isKurlaArea) {
+    // Simplified validation - allow any address, geocoding will validate if it's in delivery zone
+    // This prevents false rejections on Safari and other browsers where address format might differ
+    const addressLength = location.trim().length;
+    if (addressLength < 3) {
       toast({
-        title: "Outside Delivery Zone",
-        description: "We currently deliver only in Kurla West, Mumbai area. Please enter a Kurla address.",
+        title: "Invalid Address",
+        description: "Please enter a valid address with at least 3 characters",
         variant: "destructive",
       });
       return;
