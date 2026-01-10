@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import type { Order } from "@shared/schema";
+import type { Order } from "@/types/order";
 import { format } from "date-fns";
 import {
   CheckCircle,
@@ -423,7 +423,13 @@ export default function OrderTracking() {
                   </div>
                   <div className="flex justify-between text-xs md:text-sm text-muted-foreground">
                     <span>Delivery Fee</span>
-                    <span>₹{order.deliveryFee}</span>
+                    {!order.isBelowDeliveryMinimum ? (
+                      <span className="text-green-600 dark:text-green-400">
+                        <span className="line-through text-gray-400 dark:text-gray-500">₹{order.deliveryFee}</span> FREE
+                      </span>
+                    ) : (
+                      <span>₹{order.deliveryFee}</span>
+                    )}
                   </div>
                   <div className="flex justify-between font-semibold text-sm md:text-base mt-1">
                     <span>Total</span>

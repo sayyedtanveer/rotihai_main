@@ -90,12 +90,13 @@ import { useState, useEffect } from "react";
 
     // DELIVERY ZONE DETECTION (Zomato-style)
     const [deliveryZoneDetected, setDeliveryZoneDetected] = useState(false);
-    const [userInDeliveryZone, setUserInDeliveryZone] = useState(true); // Default to true to hide message initially
+    const [userInDeliveryZone, setUserInDeliveryZone] = useState(false); // Default to false - REQUIRE location before showing categories
     const [isDetectingLocation, setIsDetectingLocation] = useState(true);
     const [showAddressModal, setShowAddressModal] = useState(false);
     const [detectedAddress, setDetectedAddress] = useState("");
     const [manualAddress, setManualAddress] = useState("");
     const [locationPermissionDenied, setLocationPermissionDenied] = useState(false);
+    const [isSafariOnIOS, setIsSafariOnIOS] = useState(false); // Detect Safari on iPhone
 
     // Use WebSocket for real-time chef status and product availability updates
     const { chefStatuses, productAvailability, wsConnected } = useCustomerNotifications();
@@ -114,10 +115,22 @@ import { useState, useEffect } from "react";
 
     // ZOMATO-STYLE LOCATION DETECTION ON PAGE LOAD
     // Auto-detect user location and check if they're in delivery zone
+    // DO NOT show categories until location confirmed
     useEffect(() => {
       const detectLocationAndZone = async () => {
         try {
           setIsDetectingLocation(true);
+          
+          // FIRST: Detect if user is on Safari/iPhone
+          const userAgent = navigator.userAgent.toLowerCase();
+          const isSafari = /safari/.test(userAgent) && !/chrome/.test(userAgent);
+          const isIOS = /iphone|ipad|ipod/.test(userAgent);
+          const onSafariIOS = isSafari && isIOS;
+          
+          if (onSafariIOS) {
+            console.log("[LOCATION-DETECTION] ⚠️ Safari on iOS detected - showing browser recommendation");
+            setIsSafariOnIOS(true);
+          }
           
           // Try to get user's GPS location
           if (navigator.geolocation) {
@@ -132,7 +145,7 @@ import { useState, useEffect } from "react";
                 setUserLocation(lat, lng);
                 
                 // Check if location is in delivery zone (within 2.5km of chef)
-                // Assuming chef is at Kurla West, Mumbai (19.068604, 72.87658)
+                // Chef is at Kurla West, Mumbai (19.068604, 72.87658)
                 const CHEF_LAT = 19.068604;
                 const CHEF_LNG = 72.87658;
                 const MAX_DELIVERY_DISTANCE = 2.5; // km
@@ -143,7 +156,7 @@ import { useState, useEffect } from "react";
                 if (distance <= MAX_DELIVERY_DISTANCE) {
                   setUserInDeliveryZone(true);
                   setLocationPermissionDenied(false);
-                  console.log("[LOCATION-DETECTION] ✅ User is in delivery zone");
+                  console.log("[LOCATION-DETECTION] ✅ User is in delivery zone - NOW SHOWING CATEGORIES");
                 } else {
                   setUserInDeliveryZone(false);
                   setLocationPermissionDenied(true);
@@ -154,24 +167,23 @@ import { useState, useEffect } from "react";
               },
               (error) => {
                 console.log("[LOCATION-DETECTION] Location permission denied or unavailable:", error);
-                // If location denied, hide the banner but remember user denied permission
-                // Only show the banner if they try to checkout
+                // Location NOT detected - BLOCK categories
                 setDeliveryZoneDetected(true);
-                setUserInDeliveryZone(true); // Hide banner on initial page load
+                setUserInDeliveryZone(false); // BLOCK categories
                 setLocationPermissionDenied(true);
               },
               { timeout: 8000, enableHighAccuracy: false }
             );
           } else {
-            console.log("[LOCATION-DETECTION] Geolocation not supported");
+            console.log("[LOCATION-DETECTION] Geolocation not supported - BLOCKING categories");
             setDeliveryZoneDetected(true);
-            setUserInDeliveryZone(true); // Hide banner if geo not supported
+            setUserInDeliveryZone(false); // BLOCK categories if geo not supported
             setLocationPermissionDenied(true);
           }
         } catch (error) {
           console.error("[LOCATION-DETECTION] Error detecting location:", error);
           setDeliveryZoneDetected(true);
-          setUserInDeliveryZone(true); // Hide banner on error
+          setUserInDeliveryZone(false); // BLOCK categories on error
           setLocationPermissionDenied(true);
         } finally {
           setIsDetectingLocation(false);
@@ -191,16 +203,20 @@ import { useState, useEffect } from "react";
       }
     };
 
+    // ZOMATO-STYLE: Only load categories/chefs/products if location is detected!
     const { data: categories = [], isLoading: categoriesLoading } = useQuery<Category[]>({
       queryKey: ["/api/categories"],
+      enabled: userInDeliveryZone && deliveryZoneDetected, // Only load if location confirmed
     });
 
     const { data: chefs = [], isLoading: chefsLoading } = useQuery<Chef[]>({
       queryKey: ["/api/chefs"],
+      enabled: userInDeliveryZone && deliveryZoneDetected, // Only load if location confirmed
     });
 
     const { data: products = [], isLoading: productsLoading } = useQuery<Product[]>({
       queryKey: ["/api/products"],
+      enabled: userInDeliveryZone && deliveryZoneDetected, // Only load if location confirmed
     });
 
     const handleAddToCart = (product: Product) => {
@@ -584,17 +600,50 @@ import { useState, useEffect } from "react";
           }}
         />
 
-        {/* ZOMATO-STYLE: Show "Not Available" banner only if user denied location AND is outside zone */}
-        {deliveryZoneDetected && !userInDeliveryZone && locationPermissionDenied && (
-          <div className="bg-orange-50 border-b-2 border-orange-200 py-4 px-4">
+        {/* ZOMATO-STYLE: Show location required banner if not detected */}
+        {deliveryZoneDetected && !userInDeliveryZone && (
+          <div className={`${isSafariOnIOS ? 'bg-red-50 border-red-200' : 'bg-orange-50 border-orange-200'} border-b-2 py-4 px-4`}>
             <div className="max-w-7xl mx-auto">
               <div className="flex items-start gap-3">
-                <AlertCircle className="h-5 w-5 text-orange-600 flex-shrink-0 mt-0.5" />
+                <AlertCircle className={`h-5 w-5 flex-shrink-0 mt-0.5 ${isSafariOnIOS ? 'text-red-600' : 'text-orange-600'}`} />
                 <div className="flex-1">
-                  <h3 className="font-semibold text-orange-900">We don't deliver to your area yet</h3>
-                  <p className="text-sm text-orange-800 mt-1">
-                    We're currently available only in Kurla West and nearby areas. Enter your delivery address below to check if we can serve you.
-                  </p>
+                  {isSafariOnIOS ? (
+                    <>
+                      <h3 className="font-semibold text-red-900">📱 Switch to Chrome for Better Location Access</h3>
+                      <p className="text-sm text-red-800 mt-1">
+                        We detected Safari on iPhone. Chrome provides better location detection. Please open in Chrome for the best experience.
+                      </p>
+                      <div className="mt-2 flex gap-2 flex-wrap">
+                        <a 
+                          href="https://apps.apple.com/app/chrome/id535886823" 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="text-sm font-semibold text-red-700 hover:text-red-900 underline"
+                        >
+                          Get Chrome
+                        </a>
+                        <button 
+                          onClick={() => setShowAddressModal(true)}
+                          className="text-sm font-semibold text-red-700 hover:text-red-900 underline"
+                        >
+                          Or Enter Address
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <h3 className="font-semibold text-orange-900">📍 Enable Location to See Our Menu</h3>
+                      <p className="text-sm text-orange-800 mt-1">
+                        We need your location to show delivery availability. Or enter your address manually.
+                      </p>
+                      <button 
+                        onClick={() => setShowAddressModal(true)}
+                        className="text-sm font-semibold text-orange-700 hover:text-orange-900 underline mt-2"
+                      >
+                        Enter Address →
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
