@@ -641,21 +641,20 @@ import { useState, useEffect } from "react";
                     <button
                       key={category.id}
                       onClick={() => handleBrowseCategory(category.id)}
-                      className={`flex flex-col items-center gap-2 min-w-[70px] group transition-all ${
-                        selectedCategoryTab === category.id ? "scale-105" : ""
-                      }`}
+                      className={`flex flex-col items-center gap-2 min-w-[70px] sm:min-w-[80px] group transition-all ${selectedCategoryTab === category.id ? "scale-105" : ""}`}
                       data-testid={`button-category-${category.id}`}
                     >
-                      <div className={`relative w-16 h-16 sm:w-18 sm:h-18 rounded-full overflow-hidden shadow-md group-hover:shadow-lg transition-all group-hover:scale-105 ${
+                      <div className={`relative w-16 h-16 sm:w-18 sm:h-18 md:w-20 md:h-20 rounded-full overflow-hidden shadow-md group-hover:shadow-lg transition-all group-hover:scale-105 flex-shrink-0 ${
                         selectedCategoryTab === category.id ? "ring-2 ring-primary ring-offset-2" : ""
                       }`}>
                         <img
                           src={category.image}
                           alt={category.name}
-                          className="w-full h-full object-cover"
+                          className="w-full h-full object-cover object-center"
+                          loading="lazy"
                         />
                       </div>
-                      <span className={`text-xs font-medium text-center whitespace-nowrap max-w-[70px] truncate ${
+                      <span className={`text-xs font-medium text-center whitespace-nowrap max-w-[70px] sm:max-w-[80px] truncate ${
                         selectedCategoryTab === category.id ? "text-primary font-bold" : "text-muted-foreground"
                       }`}>{category.name}</span>
                     </button>
@@ -1252,8 +1251,8 @@ import { useState, useEffect } from "react";
 
         {/* ZOMATO-STYLE ADDRESS ENTRY MODAL */}
         <Dialog open={showAddressModal} onOpenChange={setShowAddressModal}>
-          <DialogContent className="sm:max-w-[400px]">
-            <DialogHeader>
+          <DialogContent className="w-[95vw] sm:w-full sm:max-w-[400px] max-h-[80vh] flex flex-col overflow-y-auto">
+            <DialogHeader className="sticky top-0 bg-background z-10">
               <DialogTitle className="flex items-center gap-2">
                 <MapPin className="h-5 w-5 text-orange-600" />
                 Delivery Address
@@ -1263,19 +1262,20 @@ import { useState, useEffect } from "react";
               </DialogDescription>
             </DialogHeader>
             
-            <div className="space-y-4 py-4">
-              <div>
+            <div className="space-y-4 py-4 px-1">
+              <div className="space-y-2">
                 <label className="text-sm font-medium">Full Address</label>
                 <Input
                   placeholder="e.g., 18/20, M.I.G, Kurla West, Mumbai, 400070"
                   value={manualAddress}
                   onChange={(e) => setManualAddress(e.target.value)}
-                  className="mt-1"
+                  className="mt-1 h-10 text-sm"
+                  autoFocus
                 />
               </div>
 
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                <p className="text-xs text-blue-800">
+              <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+                <p className="text-xs text-blue-800 dark:text-blue-200">
                   💡 Tip: Click "Detect Location" to use your GPS, or enter your address manually above.
                 </p>
               </div>

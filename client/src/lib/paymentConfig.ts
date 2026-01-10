@@ -1,18 +1,20 @@
 /**
  * Payment Configuration
  * Centralized config for all payment-related settings
+ * 
+ * Note: Uses import.meta.env for Vite (not process.env which is Node.js only)
  */
 
 // UPI Details for payment
 export const PAYMENT_CONFIG = {
   // UPI ID for receiving payments
-  upiId: process.env.REACT_APP_UPI_ID || import.meta.env.VITE_UPI_ID || "sayyedtanveer1410-1@oksbi",
+  upiId: import.meta.env.VITE_UPI_ID || "sayyedtanveer1410-1@oksbi",
   
   // Merchant name to display in payment apps
   merchantName: "RotiHai",
   
   // Merchant phone number for callbacks (optional but recommended for some apps)
-  merchantPhone: process.env.REACT_APP_MERCHANT_PHONE || import.meta.env.VITE_MERCHANT_PHONE || "9773765103",
+  merchantPhone: import.meta.env.VITE_MERCHANT_PHONE || "9773765103",
   
   // Support phone number
   supportPhone: "918169020290",
