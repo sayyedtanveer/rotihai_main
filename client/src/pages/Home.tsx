@@ -38,6 +38,7 @@ import { useState, useEffect } from "react";
   import { useCustomerNotifications } from "@/hooks/useCustomerNotifications";
   import { useAuth } from "@/hooks/useAuth";
   import { calculateDistance } from "@/lib/locationUtils";
+  import { useDeliveryLocation } from "@/contexts/DeliveryLocationContext";
 
   const iconMap: Record<string, React.ReactNode> = {
     UtensilsCrossed: <UtensilsCrossed className="h-6 w-6 text-primary" />,
@@ -98,6 +99,9 @@ import { useState, useEffect } from "react";
     const [locationPermissionDenied, setLocationPermissionDenied] = useState(false);
     const [isSafariOnIOS, setIsSafariOnIOS] = useState(false); // Detect Safari on iPhone
 
+    // Get delivery location from Context (syncs with CheckoutDialog)
+    const { location: deliveryLocation } = useDeliveryLocation();
+
     // Use WebSocket for real-time chef status and product availability updates
     const { chefStatuses, productAvailability, wsConnected } = useCustomerNotifications();
 
@@ -121,7 +125,17 @@ import { useState, useEffect } from "react";
         try {
           setIsDetectingLocation(true);
           
-          // FIRST: Detect if user is on Safari/iPhone
+          // FIRST: Check if address was already validated in checkout (from Context)
+          if (deliveryLocation.isInZone && deliveryLocation.address) {
+            console.log("[LOCATION-DETECTION] ✅ Using previously validated address from Context:", deliveryLocation.address);
+            setUserInDeliveryZone(true);
+            setDeliveryZoneDetected(true);
+            setLocationPermissionDenied(false);
+            setIsDetectingLocation(false);
+            return; // Use context location, no need for GPS
+          }
+          
+          // SECOND: Detect if user is on Safari/iPhone
           const userAgent = navigator.userAgent.toLowerCase();
           const isSafari = /safari/.test(userAgent) && !/chrome/.test(userAgent);
           const isIOS = /iphone|ipad|ipod/.test(userAgent);
@@ -204,19 +218,22 @@ import { useState, useEffect } from "react";
     };
 
     // ZOMATO-STYLE: Only load categories/chefs/products if location is detected!
+    // Can be from GPS OR validated address from Context
+    const shouldLoadMenu = userInDeliveryZone && deliveryZoneDetected;
+    
     const { data: categories = [], isLoading: categoriesLoading } = useQuery<Category[]>({
       queryKey: ["/api/categories"],
-      enabled: userInDeliveryZone && deliveryZoneDetected, // Only load if location confirmed
+      enabled: shouldLoadMenu, // Only load if location confirmed
     });
 
     const { data: chefs = [], isLoading: chefsLoading } = useQuery<Chef[]>({
       queryKey: ["/api/chefs"],
-      enabled: userInDeliveryZone && deliveryZoneDetected, // Only load if location confirmed
+      enabled: shouldLoadMenu, // Only load if location confirmed
     });
 
     const { data: products = [], isLoading: productsLoading } = useQuery<Product[]>({
       queryKey: ["/api/products"],
-      enabled: userInDeliveryZone && deliveryZoneDetected, // Only load if location confirmed
+      enabled: shouldLoadMenu, // Only load if location confirmed
     });
 
     const handleAddToCart = (product: Product) => {

@@ -3490,4 +3490,48 @@ export function registerAdminRoutes(app: Express) {
       res.status(500).json({ message: "Failed to fetch wallet stats" });
     }
   });
+
+  // ============================================
+  // DELIVERY AREAS MANAGEMENT
+  // ============================================
+  // Get all configured delivery areas (used by frontend for suggestions)
+  app.get("/api/admin/delivery-areas", async (req, res) => {
+    try {
+      const areas = storage.getDeliveryAreas();
+      res.json({ areas });
+    } catch (error) {
+      console.error("Error fetching delivery areas:", error);
+      res.status(500).json({ message: "Failed to fetch delivery areas" });
+    }
+  });
+
+  // Update delivery areas (admin only)
+  app.put("/api/admin/delivery-areas", requireAdmin(), async (req: AuthenticatedAdminRequest, res) => {
+    try {
+      const { areas } = req.body;
+
+      if (!Array.isArray(areas) || areas.length === 0) {
+        res.status(400).json({ message: "Areas must be a non-empty array" });
+        return;
+      }
+
+      // Validate each area is a string
+      if (!areas.every((area: any) => typeof area === "string" && area.trim().length > 0)) {
+        res.status(400).json({ message: "Each area must be a non-empty string" });
+        return;
+      }
+
+      const trimmedAreas = areas.map((a: string) => a.trim());
+      storage.updateDeliveryAreas(trimmedAreas);
+
+      console.log(`[ADMIN] Updated delivery areas:`, trimmedAreas);
+      res.json({
+        message: "Delivery areas updated successfully",
+        areas: trimmedAreas,
+      });
+    } catch (error) {
+      console.error("Error updating delivery areas:", error);
+      res.status(500).json({ message: "Failed to update delivery areas" });
+    }
+  });
 }

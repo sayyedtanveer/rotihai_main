@@ -36,6 +36,7 @@ import { useApplyReferral } from "@/hooks/useApplyReferral";
 import { Loader2, Clock, MapPin } from "lucide-react";
 import { getDeliveryMessage, calculateDistance } from "@/lib/locationUtils";
 import api from "@/lib/apiClient";
+import { useDeliveryLocation, getAreaSuggestions } from "@/contexts/DeliveryLocationContext";
 
 // Hook to check for mobile viewport
 function useIsMobile() {
@@ -201,6 +202,13 @@ export default function CheckoutDialog({
   const [addressZoneValidated, setAddressZoneValidated] = useState(false);
   const [addressZoneDistance, setAddressZoneDistance] = useState<number>(0);
   const autoGeocodeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Get delivery location context (syncs with Home.tsx)
+  const { location: contextDeliveryLocation, setDeliveryLocation } = useDeliveryLocation();
+
+  // Area suggestions for autocomplete
+  const [areaSuggestions, setAreaSuggestions] = useState<string[]>([]);
+  const [showAreaSuggestions, setShowAreaSuggestions] = useState(false);
   
   const { toast } = useToast();
   const { user, isAuthenticated, userToken } = useAuth();
@@ -551,6 +559,48 @@ export default function CheckoutDialog({
     }
   }, [user, isAuthenticated, isOpen]);
 
+  // Restore saved address fields from Context and localStorage when checkout opens
+  useEffect(() => {
+    if (isOpen && contextDeliveryLocation.address) {
+      console.log("[CHECKOUT] Restoring address from Context:", contextDeliveryLocation.address);
+      
+      // Try to restore from localStorage - it has the structured fields
+      const stored = localStorage.getItem("lastValidatedDeliveryAddress");
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          console.log("[CHECKOUT] Found structured address in localStorage:", parsed);
+          
+          // Try to get from the full address string as fallback
+          // localStorage stores the full address, we need to break it down
+          // Check if we have structured fields stored separately
+          const structuredStored = localStorage.getItem("lastValidatedAddressStructured");
+          if (structuredStored) {
+            try {
+              const structured = JSON.parse(structuredStored);
+              console.log("[CHECKOUT] Restoring structured fields:", structured);
+              setAddressBuilding(structured.building || "");
+              setAddressStreet(structured.street || "");
+              setAddressArea(structured.area || "");
+              setAddressCity(structured.city || "Mumbai");
+              setAddressPincode(structured.pincode || "");
+              // Also restore coordinates for delivery fee calculation
+              setCustomerLatitude(parsed.latitude);
+              setCustomerLongitude(parsed.longitude);
+              setAddressZoneValidated(true);
+              setAddressInDeliveryZone(parsed.isInZone);
+              return;
+            } catch (e) {
+              console.log("[CHECKOUT] Could not parse structured address, will use full address");
+            }
+          }
+        } catch (e) {
+          console.warn("[CHECKOUT] Error parsing localStorage address:", e);
+        }
+      }
+    }
+  }, [isOpen, contextDeliveryLocation.address]);
+
   // Auto-request geolocation when checkout opens for DELIVERY FEE CALCULATION ONLY
   // GPS is NOT used for zone validation - only for accurate delivery fee
   // BUT: Address geocoding is preferred over GPS when available (more accurate in urban areas)
@@ -895,6 +945,15 @@ export default function CheckoutDialog({
         break;
       case 'area':
         setAddressArea(value);
+        // Show area suggestions if user is typing
+        if (value.trim().length > 0) {
+          const suggestions = getAreaSuggestions(value);
+          setAreaSuggestions(suggestions);
+          setShowAreaSuggestions(suggestions.length > 0);
+        } else {
+          setShowAreaSuggestions(false);
+          setAreaSuggestions([]);
+        }
         break;
       case 'city':
         setAddressCity(value);
@@ -1034,11 +1093,48 @@ export default function CheckoutDialog({
         );
         setAddressInDeliveryZone(false);
         setAddressZoneValidated(true);
+        // Update Context to BLOCK menu
+        setDeliveryLocation({
+          isInZone: false,
+          address: addressToGeocode.trim(),
+          latitude: data.latitude,
+          longitude: data.longitude,
+          distance: distanceFromChef,
+          validatedAt: new Date().toISOString(),
+          source: 'manual',
+        });
+        // Also save structured address fields for rebinding
+        localStorage.setItem("lastValidatedAddressStructured", JSON.stringify({
+          building: addressBuilding,
+          street: addressStreet,
+          area: addressArea,
+          city: addressCity,
+          pincode: addressPincode,
+        }));
       } else {
         console.log("[DELIVERY-ZONE] ✅ IN ZONE - Address validated");
         setLocationError("");
         setAddressInDeliveryZone(true);
         setAddressZoneValidated(true);
+        // Update Context to SHOW menu (this triggers Home.tsx to load categories!)
+        setDeliveryLocation({
+          isInZone: true,
+          address: addressToGeocode.trim(),
+          latitude: data.latitude,
+          longitude: data.longitude,
+          distance: distanceFromChef,
+          validatedAt: new Date().toISOString(),
+          source: 'manual',
+        });
+        // Also save structured address fields for rebinding
+        localStorage.setItem("lastValidatedAddressStructured", JSON.stringify({
+          building: addressBuilding,
+          street: addressStreet,
+          area: addressArea,
+          city: addressCity,
+          pincode: addressPincode,
+        }));
+        console.log("[CONTEXT] Updated delivery location - Home.tsx will now show menu!");
       }
     } catch (error) {
       console.error("[LOCATION] Auto-geocoding failed:", {
@@ -1673,6 +1769,13 @@ export default function CheckoutDialog({
                             id="area"
                             value={addressArea}
                             onChange={(e) => handleAddressChange('area', e.target.value)}
+                            onFocus={() => {
+                              if (addressArea.trim().length > 0) {
+                                const suggestions = getAreaSuggestions(addressArea);
+                                setAreaSuggestions(suggestions);
+                                setShowAreaSuggestions(suggestions.length > 0);
+                              }
+                            }}
                             placeholder="e.g., Kurla West"
                             className="text-sm"
                             required
@@ -1682,9 +1785,37 @@ export default function CheckoutDialog({
                               <Loader2 className="h-4 w-4 animate-spin text-primary" />
                             </div>
                           )}
+                          
+                          {/* Area Suggestions Dropdown */}
+                          {showAreaSuggestions && areaSuggestions.length > 0 && (
+                            <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg z-50">
+                              {areaSuggestions.map((suggestion, idx) => (
+                                <button
+                                  key={idx}
+                                  type="button"
+                                  onClick={() => {
+                                    setAddressArea(suggestion);
+                                    setShowAreaSuggestions(false);
+                                    setAreaSuggestions([]);
+                                    // Trigger geocoding for this complete area
+                                    const fullAddress = [addressBuilding, addressStreet, suggestion, addressCity, addressPincode]
+                                      .filter(Boolean)
+                                      .join(", ");
+                                    console.log("[LOCATION] Selected suggestion, will geocode:", fullAddress);
+                                    setTimeout(() => {
+                                      autoGeocodeAddress(fullAddress);
+                                    }, 100);
+                                  }}
+                                  className="w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm border-b border-gray-200 dark:border-gray-700 last:border-0"
+                                >
+                                  {suggestion}
+                                </button>
+                              ))}
+                            </div>
+                          )}
                         </div>
                         <p className="text-xs text-muted-foreground mt-0.5">
-                          Area is required to validate delivery
+                          Area is required to validate delivery • Type to see suggestions
                         </p>
                       </div>
 

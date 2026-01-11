@@ -5,6 +5,7 @@ import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@radix-ui/react-tooltip";
+import { DeliveryLocationProvider } from "@/contexts/DeliveryLocationContext";
 import { useAuth } from "@/hooks/useAuth";
 import { useOrderNotifications } from "@/hooks/useOrderNotifications";
 import Home from "@/pages/Home";
@@ -26,6 +27,7 @@ import AdminChefs from "@/pages/admin/AdminChefs";
 import AdminUsers from "@/pages/admin/AdminUsers";
 import AdminManagement from "@/pages/admin/AdminManagement";
 import AdminDeliverySettings from "@/pages/admin/AdminDeliverySettings";
+import AdminDeliveryAreas from "@/pages/admin/AdminDeliveryAreas";
 import AdminPayments from "./pages/admin/AdminPayments";
 import AdminPartners from "./pages/admin/AdminPartners";
 import PartnerLogin from "@/pages/partner/PartnerLogin";
@@ -99,6 +101,7 @@ function Router() {
       <Route path="/admin/users" component={AdminUsers} />
       <Route path="/admin/admins" component={AdminManagement} />
       <Route path="/admin/delivery-settings" component={AdminDeliverySettings} />
+      <Route path="/admin/delivery-areas" component={AdminDeliveryAreas} />
       <Route path="/admin/wallet-settings" component={AdminWalletSettings} />
       <Route path="/admin/delivery-time-slots" component={AdminDeliveryTimeSlots} />
       <Route path="/admin/referrals" component={AdminReferrals} />
@@ -205,7 +208,9 @@ function AppContent() {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <AppContent />
+      <DeliveryLocationProvider>
+        <AppContent />
+      </DeliveryLocationProvider>
     </QueryClientProvider>
   );
 }
