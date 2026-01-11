@@ -1806,6 +1806,162 @@ app.post("/api/orders", async (req: any, res) => {
     }
   });
 
+  // 🔴 CRITICAL: Get chefs by delivery area - Only show chefs that serve the selected area
+  app.get("/api/chefs/by-area/:areaName", async (req, res) => {
+    try {
+      const { areaName } = req.params;
+      
+      if (!areaName || areaName.trim().length === 0) {
+        return res.status(400).json({ message: "Area name is required" });
+      }
+
+      const allChefs = await storage.getChefs();
+      
+      // Filter chefs that serve this delivery area
+      // Chef serves area if:
+      // 1. Chef's address_area matches the selected area (exact match) - Kurla West chef only in Kurla West
+      // 2. Or chef has no area restriction (address_area is null/empty) - serves everywhere
+      const filteredChefs = allChefs.filter(chef => {
+        const chefArea = (chef as any).addressArea || (chef as any).address_area;
+        
+        // If chef has no area restriction, they serve everywhere
+        if (!chefArea) return true;
+        
+        // If chef has area restriction, must match selected area exactly
+        return chefArea.toLowerCase().trim() === areaName.toLowerCase().trim();
+      });
+
+      console.log(`📍 [DELIVERY AREA] Area="${areaName}": Found ${filteredChefs.length}/${allChefs.length} chefs`);
+      filteredChefs.forEach(c => {
+        const area = (c as any).addressArea || (c as any).address_area || "No restriction";
+        console.log(`  ✅ ${c.name} (${area})`);
+      });
+      
+      res.json(filteredChefs);
+    } catch (error) {
+      console.error("❌ Error fetching chefs by area:", error);
+      res.status(500).json({ message: "Failed to fetch chefs for delivery area" });
+    }
+  });
+
+  // ============================================
+  // PHASE 1.1: Reverse geocoding - Detect area from GPS coordinates
+  // ============================================
+  app.get("/api/areas/by-coordinates", async (req, res) => {
+    try {
+      const { latitude, longitude } = req.query;
+      
+      if (!latitude || !longitude) {
+        return res.status(400).json({ error: "Missing latitude or longitude" });
+      }
+
+      const lat = parseFloat(latitude as string);
+      const lon = parseFloat(longitude as string);
+
+      // Validate coordinates
+      if (isNaN(lat) || isNaN(lon)) {
+        return res.status(400).json({ error: "Invalid coordinates" });
+      }
+
+      const allChefs = await storage.getChefs();
+      
+      // Get all unique areas and their center points
+      const areaMap = new Map<string, { count: number; totalLat: number; totalLon: number }>();
+      
+      allChefs.forEach(chef => {
+        const area = (chef as any).addressArea || (chef as any).address_area;
+        if (area) {
+          const existing = areaMap.get(area) || { count: 0, totalLat: 0, totalLon: 0 };
+          existing.count++;
+          existing.totalLat += (chef.latitude || 19.0728); // Default to Kurla West
+          existing.totalLon += (chef.longitude || 72.8826);
+          areaMap.set(area, existing);
+        }
+      });
+
+      // Calculate center point for each area
+      const areas: Array<{ name: string; centerLat: number; centerLon: number }> = [];
+      areaMap.forEach((data, area) => {
+        areas.push({
+          name: area,
+          centerLat: data.totalLat / data.count,
+          centerLon: data.totalLon / data.count,
+        });
+      });
+
+      // Find closest area
+      let closestArea: { name: string; centerLat: number; centerLon: number } | null = null;
+      let closestDistance = Infinity;
+
+      areas.forEach((area) => {
+        // Haversine distance calculation
+        const dLat = (area.centerLat - lat) * Math.PI / 180;
+        const dLon = (area.centerLon - lon) * Math.PI / 180;
+        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                  Math.cos(lat * Math.PI / 180) * Math.cos(area.centerLat * Math.PI / 180) *
+                  Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        const distance = 6371 * c; // Earth radius in km
+
+        if (distance < closestDistance) {
+          closestDistance = distance;
+          closestArea = area;
+        }
+      });
+
+      if (!closestArea) {
+        return res.json({ area: null, distance: null, confidence: "none" });
+      }
+
+      // High confidence if within 5km, low confidence otherwise
+      const confidence = closestDistance < 5 ? "high" : "low";
+      
+      const areaName = (closestArea as any).name;
+      console.log(`📍 [AREA DETECTION] Coordinates (${lat.toFixed(2)}, ${lon.toFixed(2)}) → Area: ${areaName} (${closestDistance.toFixed(2)}km, ${confidence})`);
+
+      res.json({
+        area: areaName,
+        distance: closestDistance,
+        confidence,
+      });
+    } catch (error) {
+      console.error("❌ Error detecting area from coordinates:", error);
+      res.status(500).json({ error: "Failed to detect area" });
+    }
+  });
+
+  // ============================================
+  // PHASE 1.2: Get all available delivery areas
+  // ============================================
+  app.get("/api/areas", async (req, res) => {
+    try {
+      const allChefs = await storage.getChefs();
+      
+      // Get all unique areas from chefs
+      const areas = new Set<string>();
+      allChefs.forEach(chef => {
+        const area = (chef as any).addressArea || (chef as any).address_area;
+        if (area && area.trim()) {
+          areas.add(area.trim());
+        }
+      });
+
+      // Convert to sorted array
+      const areaList = Array.from(areas).sort();
+      
+      console.log(`📍 [AREAS LIST] Returning ${areaList.length} areas: ${areaList.join(", ")}`);
+
+      res.json(areaList.map(name => ({
+        name,
+        latitude: 19.0728, // Default to Kurla West as reference
+        longitude: 72.8826,
+      })));
+    } catch (error) {
+      console.error("❌ Error fetching areas:", error);
+      res.status(500).json({ error: "Failed to fetch areas" });
+    }
+  });
+
   // Get specific chef by ID
   app.get("/api/chefs/:chefId", async (req, res) => {
     try {

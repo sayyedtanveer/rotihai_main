@@ -186,3 +186,126 @@ export const refreshDeliveryAreas = async (): Promise<string[]> => {
   cacheTimestamp = 0;
   return getDeliveryAreas();
 };
+
+// ============================================
+// PHASE 2: SMART AREA DETECTION - MULTI-TIER FALLBACK
+// ============================================
+
+export interface DetectedArea {
+  name: string;
+  confidence: 'high' | 'low';
+  source: 'address' | 'gps' | 'fallback';
+}
+
+/**
+ * TIER 1: Try to extract area from address string
+ * Example: "Kurla West, Mumbai" → "Kurla West"
+ */
+async function detectAreaFromAddress(address: string): Promise<DetectedArea | null> {
+  if (!address || !address.includes(",")) {
+    return null;
+  }
+
+  const area = address.split(",")[0].trim();
+  
+  if (area.length < 2) {
+    return null;
+  }
+
+  try {
+    // Verify area exists by checking if chefs are available
+    const response = await fetch(`/api/chefs/by-area/${encodeURIComponent(area)}`);
+    if (response.ok) {
+      const chefs = await response.json();
+      if (Array.isArray(chefs) && chefs.length > 0) {
+        console.log(`✅ Tier 1 SUCCESS: Area detected from address: ${area}`);
+        return {
+          name: area,
+          confidence: 'high',
+          source: 'address'
+        };
+      }
+    }
+  } catch (error) {
+    console.warn(`⚠️ Tier 1 FAILED: Error validating area ${area}:`, error);
+  }
+
+  return null;
+}
+
+/**
+ * TIER 2: Detect area from GPS coordinates using reverse geocoding
+ * Calls /api/areas/by-coordinates to find nearest delivery area
+ */
+async function detectAreaFromGPS(
+  latitude: number | null,
+  longitude: number | null
+): Promise<DetectedArea | null> {
+  if (latitude === null || longitude === null) {
+    return null;
+  }
+
+  try {
+    const response = await fetch(
+      `/api/areas/by-coordinates?latitude=${latitude}&longitude=${longitude}`
+    );
+    
+    if (response.ok) {
+      const data = await response.json();
+      if (data.area) {
+        console.log(
+          `✅ Tier 2 SUCCESS: Area detected from GPS: ${data.area} (${data.distance?.toFixed(2) || '?'}km, ${data.confidence})`
+        );
+        return {
+          name: data.area,
+          confidence: data.confidence === 'high' ? 'high' : 'low',
+          source: 'gps'
+        };
+      }
+    }
+  } catch (error) {
+    console.warn("⚠️ Tier 2 FAILED: Error detecting area from GPS:", error);
+  }
+
+  return null;
+}
+
+/**
+ * MULTI-TIER AREA DETECTION
+ * 
+ * Tries three methods in order:
+ * 1. Parse address string for area
+ * 2. Use GPS coordinates for reverse geocoding
+ * 3. Return null (caller will show area selector)
+ * 
+ * @param address Full address string (e.g., "Kurla West, Mumbai")
+ * @param latitude User's latitude coordinate
+ * @param longitude User's longitude coordinate
+ * @returns Detected area or null if no detection successful
+ */
+export async function detectDeliveryArea(
+  address: string | null,
+  latitude: number | null,
+  longitude: number | null
+): Promise<DetectedArea | null> {
+  
+  // ============ TIER 1: ADDRESS-BASED DETECTION ============
+  if (address) {
+    const detected = await detectAreaFromAddress(address);
+    if (detected) {
+      return detected;
+    }
+  }
+  
+  // ============ TIER 2: GPS-BASED DETECTION ============
+  if (latitude !== null && longitude !== null) {
+    const detected = await detectAreaFromGPS(latitude, longitude);
+    if (detected) {
+      return detected;
+    }
+  }
+  
+  // ============ TIER 3: FALLBACK ============
+  console.log("⚠️ Tier 3 FALLBACK: No area detected, will show area selector");
+  return null;
+}

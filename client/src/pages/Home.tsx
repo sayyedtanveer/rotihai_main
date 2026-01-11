@@ -39,6 +39,8 @@ import { useState, useEffect } from "react";
   import { useAuth } from "@/hooks/useAuth";
   import { calculateDistance } from "@/lib/locationUtils";
   import { useDeliveryLocation } from "@/contexts/DeliveryLocationContext";
+  import { detectDeliveryArea } from "@/lib/deliveryAreas";
+  import { AreaSelector } from "@/components/AreaSelector";
 
   const iconMap: Record<string, React.ReactNode> = {
     UtensilsCrossed: <UtensilsCrossed className="h-6 w-6 text-primary" />,
@@ -221,13 +223,69 @@ import { useState, useEffect } from "react";
     // Can be from GPS OR validated address from Context
     const shouldLoadMenu = userInDeliveryZone && deliveryZoneDetected;
     
+    // ============================================
+    // PHASE 4: SMART AREA DETECTION WITH FALLBACK
+    // ============================================
+    const [detectedArea, setDetectedArea] = useState<string | null>(null);
+    const [detectionSource, setDetectionSource] = useState<'address' | 'gps' | 'fallback' | 'manual' | null>(null);
+    
+    // Smart detection: Try Tier 1 (address) → Tier 2 (GPS) → Tier 3 (fallback/selector)
+    useEffect(() => {
+      const detectArea = async () => {
+        const contextLocation = deliveryLocation as any;
+        if (!contextLocation?.address && !contextLocation?.latitude && !contextLocation?.longitude) {
+          return; // No location data available
+        }
+
+        const detected = await detectDeliveryArea(
+          contextLocation?.address || null,
+          contextLocation?.latitude || null,
+          contextLocation?.longitude || null
+        );
+        
+        if (detected) {
+          setDetectedArea(detected.name);
+          setDetectionSource(detected.source);
+          console.log(`🎯 Area detected: ${detected.name} (source: ${detected.source})`);
+        } else {
+          setDetectedArea(null);
+          setDetectionSource('fallback');
+          console.log("🎯 Area detection failed, showing selector");
+        }
+      };
+      
+      detectArea();
+    }, [deliveryLocation]);
+    
     const { data: categories = [], isLoading: categoriesLoading } = useQuery<Category[]>({
       queryKey: ["/api/categories"],
       enabled: shouldLoadMenu, // Only load if location confirmed
     });
 
+    // Use smart detected area, fallback to context address parsing
+    const contextLocation = deliveryLocation as any;
+    const selectedArea = detectedArea || (contextLocation?.address 
+      ? contextLocation.address.split(",")[0].trim() 
+      : null);
+
     const { data: chefs = [], isLoading: chefsLoading } = useQuery<Chef[]>({
-      queryKey: ["/api/chefs"],
+      // 🔴 CRITICAL FIX: Query chefs by delivery area to show only area-specific chefs
+      // E.g., if user selects Kurla West, show ONLY Kurla West chefs, NOT Mahim chefs
+      queryKey: selectedArea ? ["/api/chefs/by-area", selectedArea] : ["/api/chefs"],
+      queryFn: async () => {
+        if (selectedArea) {
+          console.log(`📍 Loading chefs for delivery area: ${selectedArea}`);
+          const res = await fetch(`/api/chefs/by-area/${encodeURIComponent(selectedArea)}`);
+          if (!res.ok) throw new Error("Failed to fetch chefs for area");
+          const data = await res.json();
+          console.log(`✅ Loaded ${data.length} chefs for ${selectedArea}`);
+          return data;
+        }
+        // Fallback to all chefs if no area selected
+        const res = await fetch("/api/chefs");
+        if (!res.ok) throw new Error("Failed to fetch chefs");
+        return res.json();
+      },
       enabled: shouldLoadMenu, // Only load if location confirmed
     });
 
@@ -765,6 +823,33 @@ import { useState, useEffect } from "react";
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
           />
+
+          {/* PHASE 4: Area Selector - Show when area detection fails (fallback mode) */}
+          {detectionSource === 'fallback' && (
+            <div className="max-w-7xl mx-auto px-3 py-2">
+              <AreaSelector
+                selectedArea={selectedArea}
+                onAreaChange={(area) => {
+                  setDetectedArea(area);
+                  setDetectionSource('manual');
+                  console.log(`🎯 User manually selected area: ${area}`);
+                }}
+              />
+            </div>
+          )}
+
+          {/* Area detection indicator for debugging (optional) */}
+          {selectedArea && detectionSource && (
+            <div className="max-w-7xl mx-auto px-3 py-1">
+              <div className="text-xs text-gray-500 dark:text-gray-400">
+                📍 Showing chefs for: {selectedArea}
+                {detectionSource === 'gps' && " (GPS detected)"}
+                {detectionSource === 'address' && " (Address detected)"}
+                {detectionSource === 'manual' && " (You selected)"}
+                {detectionSource === 'fallback' && " (Select above)"}
+              </div>
+            </div>
+          )}
 
           {/* Main Content Section */}
           <section className="max-w-7xl mx-auto px-3 py-4" id="products-section">

@@ -31,7 +31,7 @@ export default function OrderTracking() {
   const [wsConnected, setWsConnected] = useState(false);
   const userToken = localStorage.getItem("userToken");
 
-  const { data: order, isLoading } = useQuery<Order>({
+  const { data: rawOrder, isLoading } = useQuery<Order>({
     queryKey: ["/api/orders", orderId],
     queryFn: async () => {
       // Don't send auth headers for order tracking - it's publicly accessible by order ID
@@ -47,6 +47,9 @@ export default function OrderTracking() {
     enabled: !!orderId,
     refetchInterval: 5000,
   });
+
+  // Cast to any to access all properties (including extended ones from backend)
+  const order = rawOrder as any;
 
   useEffect(() => {
     if (!orderId) return;

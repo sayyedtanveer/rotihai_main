@@ -458,7 +458,9 @@ export default function CheckoutDialog({
       const deliveryMin = cart?.minOrderAmount || 0;
       const isBelowMin = deliveryMin > 0 && calculatedSubtotal < deliveryMin;
       
-      // Only charge delivery fee if below minimum order amount
+      // ⚠️ CRITICAL FIX: Charge delivery fee ONLY if BELOW minimum order amount
+      // If order meets minimum threshold, delivery is FREE (deliveryFee = 0)
+      // If order is below minimum, user MUST pay delivery fee
       const actualDeliveryFee = isBelowMin ? calculatedDeliveryFee : 0;
 
       const calculatedDiscount = appliedCoupon
@@ -753,6 +755,50 @@ export default function CheckoutDialog({
       checkBonusEligibility();
     }
   }, [total, isOpen]);
+
+  // ============================================
+  // PHASE 5: CHECKOUT SAFETY - AUTO-FILL AREA IF USER CLEARS IT
+  // ============================================
+  useEffect(() => {
+    // Only run if area field becomes empty after user had other address fields filled
+    if (addressArea === "" && (addressBuilding.trim() || addressStreet.trim())) {
+      // Wait 1 second to see if user is still typing
+      const timer = setTimeout(async () => {
+        // Check if area is STILL empty
+        if (addressArea === "") {
+          console.log("[CHECKOUT-SAFETY] Area field is empty, attempting auto-detection");
+          
+          // Try to detect area from coordinates if available
+          if (customerLatitude !== null && customerLongitude !== null) {
+            try {
+              const response = await fetch(
+                `/api/areas/by-coordinates?latitude=${customerLatitude}&longitude=${customerLongitude}`
+              );
+              
+              if (response.ok) {
+                const data = await response.json();
+                if (data.area) {
+                  setAddressArea(data.area);
+                  console.log(`✅ [CHECKOUT-SAFETY] Auto-filled area at checkout: ${data.area}`);
+                  
+                  // Trigger re-geocoding with the newly filled area
+                  const fullAddress = [addressBuilding, addressStreet, data.area, addressCity, addressPincode]
+                    .filter(Boolean)
+                    .join(", ");
+                  autoGeocodeAddress(fullAddress);
+                }
+              }
+            } catch (error) {
+              console.warn("[CHECKOUT-SAFETY] Area auto-fill failed:", error);
+              // Gracefully fail - user can still manually enter area
+            }
+          }
+        }
+      }, 1000); // 1 second debounce
+      
+      return () => clearTimeout(timer);
+    }
+  }, [addressArea, addressBuilding, addressStreet, customerLatitude, customerLongitude]);
 
   const checkBonusEligibility = async () => {
     if (!userToken || pendingBonus <= 0) return;

@@ -19,10 +19,16 @@ export interface Order {
   paymentStatus: string;  
   rejectionReason?: string;
   deliveryPersonName?: string;
+  deliveryPersonPhone?: string;
   chefName?: string;
   chefId?: string;
   deliveryTime?: string;
   deliverySlotId?: string;
   categoryName?: string;
   isBelowDeliveryMinimum?: boolean;
+  approvedAt?: string;
+  pickedUpAt?: string;
+  deliveredAt?: string;
+  customerName?: string;
+  assignedTo?: string;
 }
