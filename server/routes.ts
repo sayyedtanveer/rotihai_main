@@ -1149,20 +1149,9 @@ app.post("/api/orders", async (req: any, res) => {
     const isRotiCategory = sanitized.categoryName?.toLowerCase() === 'roti' || 
                            sanitized.categoryName?.toLowerCase().includes('roti');
     
-    // 🔒 ENFORCE: Delivery fee MUST be greater than 0
-    // This ensures user has provided either:
-    // 1. Valid customer location (geolocation coordinates)
-    // 2. Valid customer address
-    // Without at least one of these, delivery cannot be calculated/validated
-    if (sanitized.deliveryFee <= 0) {
-      console.log(`🚫 Order blocked - deliveryFee is ₹${sanitized.deliveryFee} (location/address required)`);
-      return res.status(400).json({
-        message: "Valid delivery location required to place order. Please provide either your location or delivery address.",
-        requiresLocation: true,
-        deliveryFeeInvalid: true,
-        currentDeliveryFee: sanitized.deliveryFee,
-      });
-    }
+    // NOTE: Do not trust client-provided `deliveryFee` — we will recompute it on the server
+    // to prevent clients from bypassing delivery charges. The sanitized.deliveryFee value
+    // will be overwritten after we compute distance from chef to customer below.
 
     // 🔒 CRITICAL: Validate DELIVERY ADDRESS is in service zone (NOT customer GPS location)
     // Address-based validation ensures orders can only be delivered to Kurla West area
@@ -1185,9 +1174,10 @@ app.post("/api/orders", async (req: any, res) => {
     let chefLat = 19.0728;
     let chefLon = 72.8826;
     let chefName = "Kurla West Kitchen";
-    
+    let chef: any = null;
+
     if (sanitized.chefId) {
-      const chef = await db.query.chefs.findFirst({ 
+      chef = await db.query.chefs.findFirst({ 
         where: (c: any, { eq }: any) => eq(c.id, sanitized.chefId) 
       });
       if (chef) {
@@ -1232,6 +1222,22 @@ app.post("/api/orders", async (req: any, res) => {
         distanceFromChef: addressDistance.toFixed(2),
         withinZone: true,
       });
+    }
+    
+    // Recompute delivery fee server-side to ensure correct enforcement
+    try {
+      const feeResult = await storage.calculateDeliveryFee(true, addressDistance, sanitized.subtotal || 0, chef as any);
+      const expectedDeliveryFee = feeResult.isFreeDelivery ? 0 : feeResult.deliveryFee;
+      console.log("[SERVER] Recomputed delivery fee:", { expectedDeliveryFee, isFreeDelivery: feeResult.isFreeDelivery, addressDistance });
+
+      // Overwrite any client-supplied deliveryFee with server-calculated value
+      (sanitized as any).deliveryFee = expectedDeliveryFee;
+
+      // Recompute total to reflect server-side fee and discount
+      (sanitized as any).total = (sanitized.subtotal || 0) + (sanitized.deliveryFee || 0) - (sanitized.discount || 0);
+    } catch (feeErr) {
+      console.error("Error computing delivery fee on server:", feeErr);
+      return res.status(500).json({ message: "Failed to compute delivery fee" });
     }
     
     if (isRotiCategory) {
@@ -1419,9 +1425,9 @@ app.post("/api/orders", async (req: any, res) => {
     }
 
     // Get chef name and add to order
-    const chef = await storage.getChefById(orderPayload.chefId);
-    if (chef) {
-      orderPayload.chefName = chef.name;
+    const chefFromDb = await storage.getChefById(orderPayload.chefId);
+    if (chefFromDb) {
+      orderPayload.chefName = chefFromDb.name;
     }
 
     // Enrich items with hotelPrice (partner's cost price) from products table
@@ -1817,6 +1823,13 @@ app.post("/api/orders", async (req: any, res) => {
 
       const allChefs = await storage.getChefs();
       
+      console.log(`\n🔍 [DEBUG] /api/chefs/by-area called:`);
+      console.log(`   Requested area: "${areaName}"`);
+      console.log(`   All chefs in database:`);
+      allChefs.forEach(c => {
+        console.log(`     - ${c.name}: addressArea="${(c as any).addressArea || (c as any).address_area || 'null'}"`);
+      });
+      
       // Filter chefs that serve this delivery area
       // Chef serves area if:
       // 1. Chef's address_area matches the selected area (exact match) - Kurla West chef only in Kurla West
@@ -1831,11 +1844,12 @@ app.post("/api/orders", async (req: any, res) => {
         return chefArea.toLowerCase().trim() === areaName.toLowerCase().trim();
       });
 
-      console.log(`📍 [DELIVERY AREA] Area="${areaName}": Found ${filteredChefs.length}/${allChefs.length} chefs`);
+      console.log(`   Filtered result: ${filteredChefs.length} chef(s) found`);
       filteredChefs.forEach(c => {
         const area = (c as any).addressArea || (c as any).address_area || "No restriction";
-        console.log(`  ✅ ${c.name} (${area})`);
+        console.log(`     ✅ ${c.name} (${area})`);
       });
+      console.log('');
       
       res.json(filteredChefs);
     } catch (error) {

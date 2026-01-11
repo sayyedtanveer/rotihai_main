@@ -196,9 +196,7 @@ export async function sendScheduledOrder2HourNotifications(): Promise<void> {
         }
 
         // Send notification to all active admins
-        const admins = await db.query.adminUsers.findMany({
-          where: (a) => a.id,
-        });
+        const admins = await db.query.adminUsers.findMany();
 
         for (const admin of admins) {
           if (admin.phone) {

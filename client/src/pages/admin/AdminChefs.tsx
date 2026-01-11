@@ -18,6 +18,7 @@ import { queryClient } from "@/lib/queryClient";
 import type { Chef, Category } from "@shared/schema";
 import { Star, Pencil, Trash2, Plus, Store, Loader2, MapPin } from "lucide-react";
 import { ImageUploader } from "@/components/ImageUploader";
+import { getDeliveryAreas } from "@/lib/deliveryAreas";
 
 export default function AdminChefs() {
   const { toast } = useToast();
@@ -64,6 +65,21 @@ export default function AdminChefs() {
       return response.json();
     },
   });
+
+  // Load delivery areas for admin area select to avoid mismatched free-text areas
+  const [deliveryAreas, setDeliveryAreas] = useState<string[]>([]);
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const areas = await getDeliveryAreas();
+        if (mounted && Array.isArray(areas)) setDeliveryAreas(areas);
+      } catch (e) {
+        console.warn("Failed to load delivery areas for admin select", e);
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
 
   const createChefMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
@@ -571,14 +587,29 @@ export default function AdminChefs() {
                 <Label htmlFor="addressArea" className="text-xs font-semibold text-red-600 dark:text-red-400">
                   🔴 Area/Locality * (REQUIRED - Filters chefs for users)
                 </Label>
-                <Input
-                  id="addressArea"
-                  value={formData.addressArea}
-                  onChange={(e) => handleAddressChange("addressArea", e.target.value)}
-                  placeholder="e.g., Kurla West, Mahim, Andheri East"
-                  className={`text-sm ${!formData.addressArea.trim() ? 'border-red-300 dark:border-red-700' : ''}`}
-                  disabled={isGeocodingAddress}
-                />
+                {deliveryAreas.length > 0 ? (
+                  <Select value={formData.addressArea} onValueChange={(value) => setFormData({ ...formData, addressArea: value })}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select area" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {deliveryAreas.map((area) => (
+                        <SelectItem key={area} value={area}>
+                          {area}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input
+                    id="addressArea"
+                    value={formData.addressArea}
+                    onChange={(e) => handleAddressChange("addressArea", e.target.value)}
+                    placeholder="e.g., Kurla West, Mahim, Andheri East"
+                    className={`text-sm ${!formData.addressArea.trim() ? 'border-red-300 dark:border-red-700' : ''}`}
+                    disabled={isGeocodingAddress}
+                  />
+                )}
                 <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5 font-medium">
                   ⚠️ This area will be used to show chefs only to customers in this zone
                 </p>
@@ -792,14 +823,29 @@ export default function AdminChefs() {
                 <Label htmlFor="edit-addressArea" className="text-xs font-semibold text-red-600 dark:text-red-400">
                   🔴 Area/Locality * (REQUIRED - Filters chefs for users)
                 </Label>
-                <Input
-                  id="edit-addressArea"
-                  value={formData.addressArea}
-                  onChange={(e) => handleAddressChange("addressArea", e.target.value)}
-                  placeholder="e.g., Kurla West, Mahim, Andheri East"
-                  className={`text-sm ${!formData.addressArea.trim() ? 'border-red-300 dark:border-red-700' : ''}`}
-                  disabled={isGeocodingAddress}
-                />
+                {deliveryAreas.length > 0 ? (
+                  <Select value={formData.addressArea} onValueChange={(value) => setFormData({ ...formData, addressArea: value })}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select area" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {deliveryAreas.map((area) => (
+                        <SelectItem key={area} value={area}>
+                          {area}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input
+                    id="edit-addressArea"
+                    value={formData.addressArea}
+                    onChange={(e) => handleAddressChange("addressArea", e.target.value)}
+                    placeholder="e.g., Kurla West, Mahim, Andheri East"
+                    className={`text-sm ${!formData.addressArea.trim() ? 'border-red-300 dark:border-red-700' : ''}`}
+                    disabled={isGeocodingAddress}
+                  />
+                )}
                 <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5 font-medium">
                   ⚠️ This area will be used to show chefs only to customers in this zone
                 </p>
