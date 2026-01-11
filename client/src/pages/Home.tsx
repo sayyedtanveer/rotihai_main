@@ -294,6 +294,14 @@ import { useState, useEffect } from "react";
       enabled: shouldLoadMenu, // Only load if location confirmed
     });
 
+    // 🔴 FILTER CATEGORIES: Only show categories that have chefs available in selected area
+    const filteredCategories = selectedArea 
+      ? categories.filter(category => {
+          const chefsInCategory = chefs.filter(chef => chef.categoryId === category.id);
+          return chefsInCategory.length > 0;
+        })
+      : categories;
+
     const handleAddToCart = (product: Product) => {
       const category = categories.find(c => c.id === product.categoryId);
       const categoryName = category?.name || "Unknown";
@@ -554,6 +562,15 @@ import { useState, useEffect } from "react";
 
   // Filter products when showing "all" categories
   const filteredProducts = products.filter((product, index) => {
+      // 🔴 CRITICAL: Only show products from chefs available in selected area
+      if (selectedArea && product.chefId) {
+        const chefAvailable = chefs.find(c => c.id === product.chefId);
+        if (!chefAvailable) {
+          console.log(`[FILTER] Excluding product ${product.name} - chef not in ${selectedArea}`);
+          return false; // Chef not available in selected area
+        }
+      }
+
       const searchLower = searchQuery.trim().toLowerCase();
       const matchesSearch =
         !searchLower ||
@@ -761,7 +778,7 @@ import { useState, useEffect } from "react";
                     </div>
                   ))
                 ) : (
-                  categories.map(category => (
+                  filteredCategories.map(category => (
                     <button
                       key={category.id}
                       onClick={() => handleBrowseCategory(category.id)}

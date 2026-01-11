@@ -276,12 +276,44 @@ export default function AdminChefs() {
   };
 
   const handleUpdate = () => {
+    // Validate required fields
+    if (!formData.name.trim()) {
+      toast({ title: "Error", description: "Chef name is required", variant: "destructive" });
+      return;
+    }
+    if (!formData.categoryId.trim()) {
+      toast({ title: "Error", description: "Category is required", variant: "destructive" });
+      return;
+    }
+    if (!formData.addressArea.trim()) {
+      toast({ title: "Error", description: "Delivery area (address area) is required", variant: "destructive" });
+      return;
+    }
+    
     if (editingChef) {
       updateChefMutation.mutate({ id: editingChef.id, data: formData });
     }
   };
 
   const handleCreate = () => {
+    // Validate required fields
+    if (!formData.name.trim()) {
+      toast({ title: "Error", description: "Chef name is required", variant: "destructive" });
+      return;
+    }
+    if (!formData.categoryId.trim()) {
+      toast({ title: "Error", description: "Category is required", variant: "destructive" });
+      return;
+    }
+    if (!formData.addressArea.trim()) {
+      toast({ title: "Error", description: "Delivery area (address area) is required", variant: "destructive" });
+      return;
+    }
+    if (!formData.image.trim()) {
+      toast({ title: "Error", description: "Chef image is required", variant: "destructive" });
+      return;
+    }
+    
     createChefMutation.mutate(formData);
   };
 
@@ -536,19 +568,19 @@ export default function AdminChefs() {
 
               {/* Row 2: Area (Critical for validation) */}
               <div>
-                <Label htmlFor="addressArea" className="text-xs text-gray-600 font-semibold">
-                  Area/Locality * (Required)
+                <Label htmlFor="addressArea" className="text-xs font-semibold text-red-600 dark:text-red-400">
+                  🔴 Area/Locality * (REQUIRED - Filters chefs for users)
                 </Label>
                 <Input
                   id="addressArea"
                   value={formData.addressArea}
                   onChange={(e) => handleAddressChange("addressArea", e.target.value)}
-                  placeholder="e.g., Kurla West"
-                  className="text-sm"
+                  placeholder="e.g., Kurla West, Mahim, Andheri East"
+                  className={`text-sm ${!formData.addressArea.trim() ? 'border-red-300 dark:border-red-700' : ''}`}
                   disabled={isGeocodingAddress}
                 />
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Area will be auto-geocoded to find exact location
+                <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5 font-medium">
+                  ⚠️ This area will be used to show chefs only to customers in this zone
                 </p>
               </div>
 
@@ -720,23 +752,85 @@ export default function AdminChefs() {
               </div>
             </div>
             
-            {/* Chef Address & Location */}
+            {/* Chef Address & Location - Structured */}
             <div className="space-y-3 border-t pt-4">
-              <div className="space-y-2">
-                <Label htmlFor="edit-address" className="flex items-center gap-2">
-                  <MapPin className="w-4 h-4" />
-                  Chef Address (Optional)
+              <Label className="flex items-center gap-2 font-semibold">
+                <MapPin className="w-4 h-4" />
+                Chef Restaurant Address
+              </Label>
+
+              {/* Row 1: Building/House Number and Street */}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label htmlFor="edit-addressBuilding" className="text-xs text-gray-600">
+                    Building/House No
+                  </Label>
+                  <Input
+                    id="edit-addressBuilding"
+                    value={formData.addressBuilding}
+                    onChange={(e) => setFormData({ ...formData, addressBuilding: e.target.value })}
+                    placeholder="e.g., 18/20"
+                    className="text-sm"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="edit-addressStreet" className="text-xs text-gray-600">
+                    Street/Colony
+                  </Label>
+                  <Input
+                    id="edit-addressStreet"
+                    value={formData.addressStreet}
+                    onChange={(e) => setFormData({ ...formData, addressStreet: e.target.value })}
+                    placeholder="e.g., Liguardo"
+                    className="text-sm"
+                  />
+                </div>
+              </div>
+
+              {/* Row 2: Area (Critical for validation) */}
+              <div>
+                <Label htmlFor="edit-addressArea" className="text-xs font-semibold text-red-600 dark:text-red-400">
+                  🔴 Area/Locality * (REQUIRED - Filters chefs for users)
                 </Label>
                 <Input
-                  id="edit-address"
-                  value={formData.address}
-                  onChange={(e) => handleAddressChange("address", e.target.value)}
-                  placeholder="e.g., 18/20, Liguardo, Kurla West, Mumbai"
+                  id="edit-addressArea"
+                  value={formData.addressArea}
+                  onChange={(e) => handleAddressChange("addressArea", e.target.value)}
+                  placeholder="e.g., Kurla West, Mahim, Andheri East"
+                  className={`text-sm ${!formData.addressArea.trim() ? 'border-red-300 dark:border-red-700' : ''}`}
                   disabled={isGeocodingAddress}
                 />
-                <p className="text-xs text-muted-foreground">
-                  Address will be auto-geocoded to find exact location
+                <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5 font-medium">
+                  ⚠️ This area will be used to show chefs only to customers in this zone
                 </p>
+              </div>
+
+              {/* Row 3: City and Pincode */}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label htmlFor="edit-addressCity" className="text-xs text-gray-600">
+                    City
+                  </Label>
+                  <Input
+                    id="edit-addressCity"
+                    value={formData.addressCity}
+                    onChange={(e) => setFormData({ ...formData, addressCity: e.target.value })}
+                    placeholder="Mumbai"
+                    className="text-sm"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="edit-addressPincode" className="text-xs text-gray-600">
+                    Pincode
+                  </Label>
+                  <Input
+                    id="edit-addressPincode"
+                    value={formData.addressPincode}
+                    onChange={(e) => setFormData({ ...formData, addressPincode: e.target.value })}
+                    placeholder="e.g., 400070"
+                    className="text-sm"
+                  />
+                </div>
               </div>
               
               {/* Geocoding status/error */}
