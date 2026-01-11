@@ -228,6 +228,10 @@ export interface IStorage {
   // SMS Settings methods
   getSMSSettings(): Promise<any | undefined>;
   updateSMSSettings(settings: any): Promise<any>;
+
+  // Delivery Areas methods
+  getDeliveryAreas(): string[];
+  updateDeliveryAreas(areas: string[]): void;
 }
 
 /**
@@ -462,6 +466,12 @@ export class MemStorage implements IStorage {
 
   async createProduct(insertProduct: InsertProduct): Promise<Product> {
     const id = randomUUID();
+    const marginPercent = insertProduct.marginPercent !== undefined 
+      ? typeof insertProduct.marginPercent === 'number' 
+        ? insertProduct.marginPercent.toString() 
+        : insertProduct.marginPercent 
+      : "0";
+    
     const product: Product = {
       ...insertProduct,
       id,
@@ -474,13 +484,22 @@ export class MemStorage implements IStorage {
       lowStockThreshold: insertProduct.lowStockThreshold !== undefined ? insertProduct.lowStockThreshold : 20,
       isAvailable: insertProduct.isAvailable !== undefined ? insertProduct.isAvailable : true,
       offerPercentage: insertProduct.offerPercentage ?? 0,
+      hotelPrice: insertProduct.hotelPrice ?? 0,
+      marginPercent,
     };
     await db.insert(products).values(product);
     return product;
   }
 
   async updateProduct(id: string, updateData: Partial<InsertProduct>): Promise<Product | undefined> {
-    await db.update(products).set(updateData).where(eq(products.id, id));
+    const sanitizedData: any = { ...updateData };
+    
+    // Convert marginPercent to string if it's a number
+    if (sanitizedData.marginPercent !== undefined && typeof sanitizedData.marginPercent === 'number') {
+      sanitizedData.marginPercent = sanitizedData.marginPercent.toString();
+    }
+    
+    await db.update(products).set(sanitizedData).where(eq(products.id, id));
     return this.getProductById(id);
   }
 
@@ -2580,6 +2599,28 @@ export class MemStorage implements IStorage {
       console.error("Error getting visitors by date:", error);
       return [];
     }
+  }
+
+  // ============================================
+  // DELIVERY AREAS MANAGEMENT
+  // ============================================
+  private deliveryAreas: string[] = [
+    "Kurla West",
+    "Kurla East",
+    "Fort",
+    "Colaba",
+    "Bandra",
+    "Worli",
+    "Marine Drive",
+  ];
+
+  getDeliveryAreas(): string[] {
+    return [...this.deliveryAreas];
+  }
+
+  updateDeliveryAreas(areas: string[]): void {
+    this.deliveryAreas = areas;
+    console.log("[STORAGE] Delivery areas updated:", areas);
   }
 
   }
