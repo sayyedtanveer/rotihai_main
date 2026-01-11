@@ -1,9 +1,9 @@
-import { type Category, type InsertCategory, type Product, type InsertProduct, type Order, type InsertOrder, type User, type UpsertUser, type Chef, type AdminUser, type InsertAdminUser, type PartnerUser, type Subscription, type SubscriptionPlan, type DeliverySetting, type InsertDeliverySetting, type CartSetting, type InsertCartSetting, type DeliveryPersonnel, type InsertDeliveryPersonnel, type WalletTransaction, type ReferralReward, type PromotionalBanner, type InsertPromotionalBanner, type SubscriptionDeliveryLog, type InsertSubscriptionDeliveryLog, type DeliveryTimeSlot, type InsertDeliveryTimeSlot, type Coupon, type RotiSettings, type InsertRotiSettings, type Visitor } from "@shared/schema";
+import { type Category, type InsertCategory, type Product, type InsertProduct, type Order, type InsertOrder, type User, type UpsertUser, type Chef, type AdminUser, type InsertAdminUser, type PartnerUser, type Subscription, type SubscriptionPlan, type DeliverySetting, type InsertDeliverySetting, type CartSetting, type InsertCartSetting, type DeliveryPersonnel, type InsertDeliveryPersonnel, type WalletTransaction, type ReferralReward, type PromotionalBanner, type InsertPromotionalBanner, type SubscriptionDeliveryLog, type InsertSubscriptionDeliveryLog, type DeliveryTimeSlot, type InsertDeliveryTimeSlot, type Coupon, type RotiSettings, type InsertRotiSettings, type Visitor, type DeliveryArea, type InsertDeliveryArea } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { nanoid } from "nanoid";
 import { eq, and, gte, lte, desc, asc, or, isNull, sql, count, lt } from "drizzle-orm";
 import { db, users, categories, products, orders, chefs, adminUsers, partnerUsers, subscriptions,
-  subscriptionPlans, subscriptionDeliveryLogs, deliverySettings, cartSettings, deliveryPersonnel, coupons, couponUsages, referrals, walletTransactions, referralRewards, promotionalBanners, deliveryTimeSlots, rotiSettings, visitors } from "@shared/db";
+  subscriptionPlans, subscriptionDeliveryLogs, deliverySettings, cartSettings, deliveryPersonnel, coupons, couponUsages, referrals, walletTransactions, referralRewards, promotionalBanners, deliveryTimeSlots, rotiSettings, visitors, deliveryAreas } from "@shared/db";
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
@@ -230,8 +230,12 @@ export interface IStorage {
   updateSMSSettings(settings: any): Promise<any>;
 
   // Delivery Areas methods
-  getDeliveryAreas(): string[];
-  updateDeliveryAreas(areas: string[]): void;
+  getDeliveryAreas(): Promise<string[]>;
+  getAllDeliveryAreas(): Promise<DeliveryArea[]>;
+  addDeliveryArea(name: string): Promise<DeliveryArea | undefined>;
+  updateDeliveryAreas(areas: string[]): Promise<boolean>;
+  deleteDeliveryArea(id: string): Promise<boolean>;
+  toggleDeliveryAreaStatus(id: string, isActive: boolean): Promise<DeliveryArea | undefined>;
 }
 
 /**
@@ -2602,25 +2606,97 @@ export class MemStorage implements IStorage {
   }
 
   // ============================================
-  // DELIVERY AREAS MANAGEMENT
+  // DELIVERY AREAS MANAGEMENT (DB-backed)
   // ============================================
-  private deliveryAreas: string[] = [
-    "Kurla West",
-    "Kurla East",
-    "Fort",
-    "Colaba",
-    "Bandra",
-    "Worli",
-    "Marine Drive",
-  ];
-
-  getDeliveryAreas(): string[] {
-    return [...this.deliveryAreas];
+  async getDeliveryAreas(): Promise<string[]> {
+    try {
+      const result = await db.select({ name: deliveryAreas.name })
+        .from(deliveryAreas)
+        .where(eq(deliveryAreas.isActive, true))
+        .orderBy(asc(deliveryAreas.name));
+      return result.map(r => r.name);
+    } catch (error) {
+      console.error("[STORAGE] Error fetching delivery areas:", error);
+      // Return empty array instead of crashing
+      return [];
+    }
   }
 
-  updateDeliveryAreas(areas: string[]): void {
-    this.deliveryAreas = areas;
-    console.log("[STORAGE] Delivery areas updated:", areas);
+  async getAllDeliveryAreas(): Promise<DeliveryArea[]> {
+    try {
+      return await db.select()
+        .from(deliveryAreas)
+        .orderBy(asc(deliveryAreas.name));
+    } catch (error) {
+      console.error("[STORAGE] Error fetching all delivery areas:", error);
+      return [];
+    }
+  }
+
+  async addDeliveryArea(name: string): Promise<DeliveryArea | undefined> {
+    try {
+      const trimmedName = name.trim();
+      if (!trimmedName) return undefined;
+      
+      const result = await db.insert(deliveryAreas)
+        .values({ name: trimmedName, isActive: true })
+        .returning();
+      console.log("[STORAGE] Delivery area added:", trimmedName);
+      return result[0];
+    } catch (error) {
+      console.error("[STORAGE] Error adding delivery area:", error);
+      return undefined;
+    }
+  }
+
+  async updateDeliveryAreas(areaNames: string[]): Promise<boolean> {
+    try {
+      // Delete all existing areas
+      await db.delete(deliveryAreas);
+      
+      // Insert new areas
+      const trimmedAreas = areaNames
+        .map(a => a.trim())
+        .filter(a => a.length > 0);
+      
+      if (trimmedAreas.length > 0) {
+        await db.insert(deliveryAreas)
+          .values(trimmedAreas.map(name => ({ name, isActive: true })));
+      }
+      
+      console.log("[STORAGE] Delivery areas updated:", trimmedAreas);
+      return true;
+    } catch (error) {
+      console.error("[STORAGE] Error updating delivery areas:", error);
+      return false;
+    }
+  }
+
+  async deleteDeliveryArea(id: string): Promise<boolean> {
+    try {
+      const result = await db.delete(deliveryAreas)
+        .where(eq(deliveryAreas.id, id))
+        .returning();
+      console.log("[STORAGE] Delivery area deleted:", id);
+      return result.length > 0;
+    } catch (error) {
+      console.error("[STORAGE] Error deleting delivery area:", error);
+      return false;
+    }
+  }
+
+  async toggleDeliveryAreaStatus(id: string, isActive: boolean): Promise<DeliveryArea | undefined> {
+    try {
+      const result = await db.update(deliveryAreas)
+        .set({ isActive, updatedAt: new Date() })
+        .where(eq(deliveryAreas.id, id))
+        .returning();
+      console.log("[STORAGE] Delivery area status toggled:", id, isActive);
+      return result[0];
+    } catch (error) {
+      console.error("[STORAGE] Error toggling delivery area status:", error);
+      return undefined;
+    }
   }
 
   }

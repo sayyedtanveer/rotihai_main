@@ -43,5 +43,6 @@ export const {
   promotionalBanners,
   deliveryTimeSlots,
   rotiSettings,
-  visitors
+  visitors,
+  deliveryAreas
 } = schema;

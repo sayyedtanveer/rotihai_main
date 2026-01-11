@@ -20,7 +20,7 @@ import { hashPassword as hashDeliveryPassword } from "./deliveryAuth";
 import { eq } from "drizzle-orm";
 import { subscriptions } from "@shared/schema";
 import { sendEmail, createAdminPasswordResetEmail } from "./emailService";
-import { sendChefAssignmentNotification } from "./whatsappService";
+import { sendChefAssignmentNotification, sendDeliveryCompletedNotification } from "./whatsappService";
 
 export function registerAdminRoutes(app: Express) {
   // Admin Delivery Time Slots Management
@@ -1533,7 +1533,7 @@ export function registerAdminRoutes(app: Express) {
         broadcastSubscriptionAssignmentToPartner(updated, chef.name, plan?.name);
 
         // Send WhatsApp notification to chef
-        const planItems = plan?.items ? JSON.stringify(plan.items).substring(0, 200) : "Items";
+        const planItems = plan?.items ? (Array.isArray(plan.items) ? plan.items : []) : [];
         sendChefAssignmentNotification(chefId, id, planItems, chef.phone).catch(error => {
           console.warn(`⚠️ Failed to send WhatsApp to chef ${chef.name}:`, error);
         });
@@ -3497,7 +3497,7 @@ export function registerAdminRoutes(app: Express) {
   // Get all configured delivery areas (used by frontend for suggestions)
   app.get("/api/admin/delivery-areas", async (req, res) => {
     try {
-      const areas = storage.getDeliveryAreas();
+      const areas = await storage.getDeliveryAreas();
       res.json({ areas });
     } catch (error) {
       console.error("Error fetching delivery areas:", error);
@@ -3505,7 +3505,49 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  // Update delivery areas (admin only)
+  // Get all delivery areas with full details (including inactive)
+  app.get("/api/admin/delivery-areas/all", requireAdmin(), async (req, res) => {
+    try {
+      const areas = await storage.getAllDeliveryAreas();
+      res.json({ areas });
+    } catch (error) {
+      console.error("Error fetching all delivery areas:", error);
+      res.status(500).json({ message: "Failed to fetch delivery areas" });
+    }
+  });
+
+  // Add a single delivery area
+  app.post("/api/admin/delivery-areas", requireAdmin(), async (req: AuthenticatedAdminRequest, res) => {
+    try {
+      const { name } = req.body;
+
+      if (!name || typeof name !== "string" || name.trim().length === 0) {
+        res.status(400).json({ message: "Area name is required and must be a non-empty string" });
+        return;
+      }
+
+      const area = await storage.addDeliveryArea(name);
+      if (!area) {
+        res.status(400).json({ message: "Failed to add delivery area" });
+        return;
+      }
+
+      console.log(`[ADMIN] Added delivery area: ${name}`);
+      res.json({
+        message: "Delivery area added successfully",
+        area,
+      });
+    } catch (error) {
+      console.error("Error adding delivery area:", error);
+      if (error instanceof Error && error.message.includes("unique constraint")) {
+        res.status(400).json({ message: "This area already exists" });
+      } else {
+        res.status(500).json({ message: "Failed to add delivery area" });
+      }
+    }
+  });
+
+  // Update delivery areas (bulk replace)
   app.put("/api/admin/delivery-areas", requireAdmin(), async (req: AuthenticatedAdminRequest, res) => {
     try {
       const { areas } = req.body;
@@ -3521,17 +3563,69 @@ export function registerAdminRoutes(app: Express) {
         return;
       }
 
-      const trimmedAreas = areas.map((a: string) => a.trim());
-      storage.updateDeliveryAreas(trimmedAreas);
+      const success = await storage.updateDeliveryAreas(areas);
+      if (!success) {
+        res.status(500).json({ message: "Failed to update delivery areas" });
+        return;
+      }
 
-      console.log(`[ADMIN] Updated delivery areas:`, trimmedAreas);
+      const updatedAreas = await storage.getDeliveryAreas();
+
+      console.log(`[ADMIN] Updated delivery areas:`, updatedAreas);
       res.json({
         message: "Delivery areas updated successfully",
-        areas: trimmedAreas,
+        areas: updatedAreas,
       });
     } catch (error) {
       console.error("Error updating delivery areas:", error);
       res.status(500).json({ message: "Failed to update delivery areas" });
+    }
+  });
+
+  // Delete a single delivery area
+  app.delete("/api/admin/delivery-areas/:id", requireAdmin(), async (req: AuthenticatedAdminRequest, res) => {
+    try {
+      const { id } = req.params;
+
+      const success = await storage.deleteDeliveryArea(id);
+      if (!success) {
+        res.status(404).json({ message: "Delivery area not found" });
+        return;
+      }
+
+      console.log(`[ADMIN] Deleted delivery area: ${id}`);
+      res.json({ message: "Delivery area deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting delivery area:", error);
+      res.status(500).json({ message: "Failed to delete delivery area" });
+    }
+  });
+
+  // Toggle delivery area active status
+  app.patch("/api/admin/delivery-areas/:id/toggle", requireAdmin(), async (req: AuthenticatedAdminRequest, res) => {
+    try {
+      const { id } = req.params;
+      const { isActive } = req.body;
+
+      if (typeof isActive !== "boolean") {
+        res.status(400).json({ message: "isActive must be a boolean" });
+        return;
+      }
+
+      const area = await storage.toggleDeliveryAreaStatus(id, isActive);
+      if (!area) {
+        res.status(404).json({ message: "Delivery area not found" });
+        return;
+      }
+
+      console.log(`[ADMIN] Toggled delivery area status: ${id} → ${isActive}`);
+      res.json({
+        message: "Delivery area status updated successfully",
+        area,
+      });
+    } catch (error) {
+      console.error("Error toggling delivery area status:", error);
+      res.status(500).json({ message: "Failed to toggle delivery area status" });
     }
   });
 }

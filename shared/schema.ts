@@ -781,3 +781,21 @@ export const insertVisitorSchema = createInsertSchema(visitors).omit({
 
 export type InsertVisitor = z.infer<typeof insertVisitorSchema>;
 export type Visitor = typeof visitors.$inferSelect;
+
+// Delivery Areas table - stores configurable delivery areas
+export const deliveryAreas = pgTable("delivery_areas", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull().unique(),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertDeliveryAreasSchema = createInsertSchema(deliveryAreas).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertDeliveryArea = z.infer<typeof insertDeliveryAreasSchema>;
+export type DeliveryArea = typeof deliveryAreas.$inferSelect;
