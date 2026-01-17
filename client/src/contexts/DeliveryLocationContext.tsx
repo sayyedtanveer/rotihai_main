@@ -10,6 +10,9 @@ export interface DeliveryLocation {
   latitude: number | null;
   longitude: number | null;
 
+  // Pincode (for early validation on Home page)
+  pincode: string | null;
+
   // Validated Address
   address: string | null;
   isInZone: boolean;
@@ -17,7 +20,7 @@ export interface DeliveryLocation {
 
   // Metadata
   validatedAt: string | null;
-  source: "gps" | "manual" | null; // How was location detected?
+  source: "gps" | "manual" | "pincode" | null; // How was location detected?
 }
 
 // ============================================
@@ -58,6 +61,7 @@ export function DeliveryLocationProvider({ children }: { children: ReactNode }) 
             gpsDetected: parsed.gpsDetected || false,
             latitude: parsed.latitude || null,
             longitude: parsed.longitude || null,
+            pincode: parsed.pincode || null,
             address: parsed.address || null,
             isInZone: parsed.isInZone || false,
             distance: parsed.distance || null,
@@ -75,6 +79,7 @@ export function DeliveryLocationProvider({ children }: { children: ReactNode }) 
       gpsDetected: false,
       latitude: null,
       longitude: null,
+      pincode: null,
       address: null,
       isInZone: false,
       distance: null,
@@ -104,11 +109,12 @@ export function DeliveryLocationProvider({ children }: { children: ReactNode }) 
       const updated = { ...prev, ...newLocation };
 
       // Auto-save to localStorage
-      if (newLocation.isInZone || newLocation.address) {
+      if (newLocation.isInZone || newLocation.address || newLocation.pincode) {
         const toStore = {
           gpsDetected: updated.gpsDetected,
           latitude: updated.latitude,
           longitude: updated.longitude,
+          pincode: updated.pincode,
           address: updated.address,
           isInZone: updated.isInZone,
           distance: updated.distance,
@@ -116,7 +122,7 @@ export function DeliveryLocationProvider({ children }: { children: ReactNode }) 
           source: updated.source,
         };
         localStorage.setItem("lastValidatedDeliveryAddress", JSON.stringify(toStore));
-        console.log("[DELIVERY-CONTEXT] Saved location to localStorage:", updated.address);
+        console.log("[DELIVERY-CONTEXT] Saved location to localStorage:", updated.address || updated.pincode);
       }
 
       console.log("[DELIVERY-CONTEXT] Updated location:", {
@@ -138,6 +144,7 @@ export function DeliveryLocationProvider({ children }: { children: ReactNode }) 
       gpsDetected: false,
       latitude: null,
       longitude: null,
+      pincode: null,
       address: null,
       isInZone: false,
       distance: null,

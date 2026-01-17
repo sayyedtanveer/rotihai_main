@@ -15,6 +15,7 @@ import { useState, useEffect } from "react";
   import Footer from "@/components/Footer";
   import PromotionalBannersSection from "@/components/PromotionalBannersSection";
   import { LocationPermissionModal } from "@/components/LocationPermissionModal";
+  import { DeliveryAddressSelector } from "@/components/DeliveryAddressSelector";
   import { getImageUrl, handleImageError } from "@/lib/imageUrl";
   import { Button } from "@/components/ui/button";
   import { Badge } from "@/components/ui/badge";
@@ -86,6 +87,7 @@ import { useState, useEffect } from "react";
     const [mobileNavTab, setMobileNavTab] = useState<string>("delivery");
     const [vegOnly, setVegOnly] = useState(false);
     const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
+    const [isPincodeModalOpen, setIsPincodeModalOpen] = useState(false);
     const { user } = useAuth();
 
     const { carts, addToCart: cartAddToCart, canAddItem, clearCart, getTotalItems, setUserLocation, getAllCartsWithDelivery, updateChefStatus, fetchChefStatuses, userLatitude, userLongitude, updateQuantity, removeFromCart } = useCart();
@@ -653,10 +655,14 @@ import { useState, useEffect } from "react";
       setIsLocationModalOpen(false);
     };
 
-    // Show toast notifications for chef status changes
-    useEffect(() => {
-      requestLocationPermission();
-    }, []);
+    const { setDeliveryLocation } = useDeliveryLocation();
+
+    const handlePincodeSubmitted = (pincode: string) => {
+      console.log("[Home] Pincode submitted:", pincode);
+      // Store pincode in delivery location context
+      setDeliveryLocation({ pincode, source: "pincode" });
+      setIsPincodeModalOpen(false);
+    };
 
     // Listen for chef status updates and show notifications
     useEffect(() => {
@@ -1432,7 +1438,18 @@ import { useState, useEffect } from "react";
         <LocationPermissionModal
           isOpen={isLocationModalOpen}
           onLocationGranted={handleLocationGranted}
-          onClose={() => setIsLocationModalOpen(false)}
+          onClose={() => {
+            setIsLocationModalOpen(false);
+            // Show pincode modal as fallback if GPS is denied
+            setIsPincodeModalOpen(true);
+          }}
+        />
+
+        {/* Pincode Selector for Home Page */}
+        <DeliveryAddressSelector
+          isOpen={isPincodeModalOpen}
+          onPincodeSubmitted={handlePincodeSubmitted}
+          onClose={() => setIsPincodeModalOpen(false)}
         />
 
         {/* ZOMATO-STYLE ADDRESS ENTRY MODAL */}

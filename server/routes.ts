@@ -1995,6 +1995,47 @@ app.post("/api/orders", async (req: any, res) => {
   });
 
   // ============================================
+  // Get chefs by pincode - Filter chefs serving the given pincode
+  // ============================================
+  app.get("/api/chefs/by-pincode/:pincode", async (req, res) => {
+    try {
+      const { pincode } = req.params;
+
+      // Validate pincode format
+      if (!pincode || !/^\d{5,6}$/.test(pincode)) {
+        return res.status(400).json({ error: "Invalid pincode format. Must be 5-6 digits." });
+      }
+
+      const allChefs = await storage.getChefs();
+
+      console.log(`\n📍 [DEBUG] /api/chefs/by-pincode called with pincode: ${pincode}`);
+
+      // Filter chefs that serve this pincode
+      const chefsServingPincode = allChefs.filter(chef => {
+        if (!chef.isActive) return false;
+        
+        // Check if chef's servicePincodes includes this pincode
+        const servicePincodes = (chef.servicePincodes || []) as string[];
+        const servesThisPincode = servicePincodes.includes(pincode);
+        
+        if (servesThisPincode) {
+          console.log(`   ✅ ${(chef as any).name} serves pincode ${pincode}`);
+        }
+        
+        return servesThisPincode;
+      });
+
+      console.log(`   Found ${chefsServingPincode.length} chef(s) serving pincode ${pincode}`);
+      console.log('');
+
+      res.json(chefsServingPincode);
+    } catch (error) {
+      console.error("❌ Error fetching chefs by pincode:", error);
+      res.status(500).json({ message: "Failed to fetch chefs for pincode" });
+    }
+  });
+
+  // ============================================
   // PHASE 1.1: Reverse geocoding - Detect area from GPS coordinates
   // ============================================
   app.get("/api/areas/by-coordinates", async (req, res) => {

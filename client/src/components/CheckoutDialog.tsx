@@ -573,6 +573,12 @@ export default function CheckoutDialog({
 
   // Restore saved address fields from Context and localStorage when checkout opens
   useEffect(() => {
+    // Check if pincode is available in delivery context
+    if (isOpen && deliveryLocation.pincode) {
+      console.log("[CHECKOUT] Prepopulating pincode from Context:", deliveryLocation.pincode);
+      setAddressPincode(deliveryLocation.pincode);
+    }
+
     if (isOpen && deliveryLocation.address) {
       console.log("[CHECKOUT] Restoring address from Context:", deliveryLocation.address);
       
@@ -595,7 +601,10 @@ export default function CheckoutDialog({
               setAddressStreet(structured.street || "");
               setAddressArea(structured.area || "");
               setAddressCity(structured.city || "Mumbai");
-              setAddressPincode(structured.pincode || "");
+              // Don't override pincode if it came from context
+              if (!deliveryLocation.pincode) {
+                setAddressPincode(structured.pincode || "");
+              }
               // Also restore coordinates for delivery fee calculation
               setCustomerLatitude(parsed.latitude);
               setCustomerLongitude(parsed.longitude);
@@ -614,7 +623,7 @@ export default function CheckoutDialog({
         }
       }
     }
-  }, [isOpen, deliveryLocation.address]);
+  }, [isOpen, deliveryLocation.address, deliveryLocation.pincode]);
 
   // Auto-request geolocation when checkout opens for DELIVERY FEE CALCULATION ONLY
   // GPS is NOT used for zone validation - only for accurate delivery fee

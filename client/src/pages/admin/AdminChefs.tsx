@@ -45,6 +45,9 @@ export default function AdminChefs() {
     servicePincodes: null as string[] | null, // NEW: Service pincodes
   });
   
+  // Separate state for servicePincodes input display (allows partial typing)
+  const [servicePincodesInput, setServicePincodesInput] = useState("");
+  
   // Geocoding states
   const [isGeocodingAddress, setIsGeocodingAddress] = useState(false);
   const [geocodeError, setGeocodeError] = useState("");
@@ -193,6 +196,7 @@ export default function AdminChefs() {
       maxDeliveryDistanceKm: 5,
       servicePincodes: null, // NEW: Initialize service pincodes
     });
+    setServicePincodesInput(""); // Reset display input
     setGeocodeError("");
   };
 
@@ -301,6 +305,9 @@ export default function AdminChefs() {
       maxDeliveryDistanceKm: (chef as any).maxDeliveryDistanceKm || 5,
       servicePincodes: (chef as any).servicePincodes || null, // NEW: Load service pincodes
     });
+    // Initialize servicePincodes input field with comma-separated values
+    const servicePincodes = (chef as any).servicePincodes;
+    setServicePincodesInput(Array.isArray(servicePincodes) ? servicePincodes.join(", ") : "");
     setGeocodeError("");
   };
 
@@ -681,16 +688,18 @@ export default function AdminChefs() {
                 </Label>
                 <Input
                   id="servicePincodes"
-                  value={
-                    Array.isArray((formData as any).servicePincodes)
-                      ? ((formData as any).servicePincodes as string[]).join(", ")
-                      : ""
-                  }
+                  value={servicePincodesInput}
                   onChange={(e) => {
-                    const pincodes = e.target.value
+                    const inputValue = e.target.value;
+                    setServicePincodesInput(inputValue);
+                    
+                    // Parse and validate only complete pincodes
+                    const pincodes = inputValue
                       .split(",")
                       .map(p => p.trim())
                       .filter(p => /^\d{5,6}$/.test(p));
+                    
+                    // Update formData only with validated pincodes
                     setFormData({ ...formData, servicePincodes: pincodes.length > 0 ? pincodes : null });
                   }}
                   placeholder="e.g., 400070, 400086, 400025"
@@ -961,16 +970,18 @@ export default function AdminChefs() {
                 </Label>
                 <Input
                   id="edit-servicePincodes"
-                  value={
-                    Array.isArray((formData as any).servicePincodes)
-                      ? ((formData as any).servicePincodes as string[]).join(", ")
-                      : ""
-                  }
+                  value={servicePincodesInput}
                   onChange={(e) => {
-                    const pincodes = e.target.value
+                    const inputValue = e.target.value;
+                    setServicePincodesInput(inputValue);
+                    
+                    // Parse and validate only complete pincodes
+                    const pincodes = inputValue
                       .split(",")
                       .map(p => p.trim())
                       .filter(p => /^\d{5,6}$/.test(p));
+                    
+                    // Update formData only with validated pincodes
                     setFormData({ ...formData, servicePincodes: pincodes.length > 0 ? pincodes : null });
                   }}
                   placeholder="e.g., 400070, 400086, 400025"
