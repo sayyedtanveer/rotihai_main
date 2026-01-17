@@ -99,6 +99,8 @@ export interface IStorage {
   // Delivery settings methods
   getDeliverySettings(): Promise<DeliverySetting[]>;
   getDeliverySetting(id: string): Promise<DeliverySetting | undefined>;
+  getDeliverySettingsByPincode(pincode: string): Promise<DeliverySetting[]>;
+  getDeliverySettingByPincodeAndDistance(pincode: string, distance: number): Promise<DeliverySetting | undefined>;
   createDeliverySetting(data: Omit<DeliverySetting, "id" | "createdAt" | "updatedAt">): Promise<DeliverySetting>;
   updateDeliverySetting(id: string, data: Partial<DeliverySetting>): Promise<DeliverySetting | undefined>;
   deleteDeliverySetting(id: string): Promise<void>;
@@ -667,6 +669,9 @@ export class MemStorage implements IStorage {
     if ((data as any).defaultDeliveryFee !== undefined) updateData.defaultDeliveryFee = (data as any).defaultDeliveryFee;
     if ((data as any).deliveryFeePerKm !== undefined) updateData.deliveryFeePerKm = (data as any).deliveryFeePerKm;
     if ((data as any).freeDeliveryThreshold !== undefined) updateData.freeDeliveryThreshold = (data as any).freeDeliveryThreshold;
+    if ((data as any).maxDeliveryDistanceKm !== undefined) updateData.maxDeliveryDistanceKm = (data as any).maxDeliveryDistanceKm;
+    
+    console.log("🔥 updateChef() - Received data:", { id, incomingMaxDeliveryDistanceKm: (data as any).maxDeliveryDistanceKm, updateData });
     
     await db.update(chefs).set(updateData).where(eq(chefs.id, id));
     const chef = await this.getChefById(id);
@@ -1392,6 +1397,41 @@ export class MemStorage implements IStorage {
 
   async getDeliverySetting(id: string): Promise<DeliverySetting | undefined> {
     return db.query.deliverySettings.findFirst({ where: (ds, { eq }) => eq(ds.id, id) });
+  }
+
+  // NEW: Get delivery settings filtered by pincode
+  async getDeliverySettingsByPincode(pincode: string): Promise<DeliverySetting[]> {
+    return db.query.deliverySettings.findMany({ 
+      where: (ds, { eq, and, or, isNull }) => and(
+        eq(ds.isActive, true),
+        or(
+          eq(ds.pincode, pincode),  // Exact pincode match
+          isNull(ds.pincode)         // Settings with no pincode (apply to all)
+        )
+      )
+    });
+  }
+
+  // NEW: Get best matching delivery setting for pincode and distance
+  async getDeliverySettingByPincodeAndDistance(pincode: string, distance: number): Promise<DeliverySetting | undefined> {
+    const settings = await this.getDeliverySettingsByPincode(pincode);
+    
+    // Find the setting where distance falls within minDistance and maxDistance
+    for (const setting of settings) {
+      const minDist = parseFloat(String(setting.minDistance));
+      const maxDist = parseFloat(String(setting.maxDistance));
+      
+      if (distance >= minDist && distance <= maxDist) {
+        return setting;
+      }
+    }
+    
+    // If no exact match found, return the closest one (useful for edge cases)
+    if (settings.length > 0) {
+      return settings[0];
+    }
+    
+    return undefined;
   }
 
   async createDeliverySetting(data: Omit<DeliverySetting, "id" | "createdAt" | "updatedAt">): Promise<DeliverySetting> {

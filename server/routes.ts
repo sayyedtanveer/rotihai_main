@@ -1122,6 +1122,12 @@ app.post("/api/orders", async (req: any, res) => {
       phone: body.phone?.trim(),
       email: body.email || "",
       address: body.address?.trim(),
+      // Structured address fields (NEW: for pincode validation)
+      addressBuilding: body.addressBuilding?.trim() || "",
+      addressStreet: body.addressStreet?.trim() || "",
+      addressArea: body.addressArea?.trim() || "",
+      addressCity: body.addressCity?.trim() || "Mumbai",
+      addressPincode: body.addressPincode?.trim() || "",
       items: Array.isArray(body.items)
   ? body.items.map((i: any) => ({
       id: i.id,
@@ -1174,6 +1180,7 @@ app.post("/api/orders", async (req: any, res) => {
     let chefLat = 19.0728;
     let chefLon = 72.8826;
     let chefName = "Kurla West Kitchen";
+    let maxDeliveryDistance = 5; // Default fallback
     let chef: any = null;
 
     if (sanitized.chefId) {
@@ -1184,10 +1191,10 @@ app.post("/api/orders", async (req: any, res) => {
         chefLat = chef.latitude ?? 19.0728;
         chefLon = chef.longitude ?? 72.8826;
         chefName = chef.name;
+        // Use chef's specific delivery distance limit, not hardcoded 2.5km!
+        maxDeliveryDistance = chef.maxDeliveryDistanceKm ?? 5;
       }
     }
-    
-    const MAX_DELIVERY_DISTANCE_KM = 2.5; // 2.5km delivery zone from chef location
     
     const addressDistance = calculateDistance(chefLat, chefLon, customerLatitude, customerLongitude);
     
@@ -1198,31 +1205,70 @@ app.post("/api/orders", async (req: any, res) => {
       chefName: chefName,
       chefLocation: `${chefLat.toFixed(4)}, ${chefLon.toFixed(4)}`,
       distanceFromChef: addressDistance.toFixed(2),
-      maxDistance: MAX_DELIVERY_DISTANCE_KM,
+      maxDeliveryDistance: maxDeliveryDistance,
     });
 
-    if (addressDistance > MAX_DELIVERY_DISTANCE_KM) {
+    if (addressDistance > maxDeliveryDistance) {
       console.log(`🚫 Order blocked - delivery address outside service zone:`, {
         address: sanitized.address,
         chef: chefName,
         distanceFromChef: addressDistance.toFixed(2),
-        maxDistance: MAX_DELIVERY_DISTANCE_KM,
+        maxDistance: maxDeliveryDistance,
       });
       return res.status(400).json({
-        message: `Delivery not available to this address. ${chefName} delivers within ${MAX_DELIVERY_DISTANCE_KM}km. This address is ${addressDistance.toFixed(1)}km away.`,
+        message: `Delivery not available to this address. ${chefName} delivers within ${maxDeliveryDistance}km. This address is ${addressDistance.toFixed(1)}km away.`,
         outsideDeliveryZone: true,
         addressDistance: addressDistance.toFixed(1),
-        maxDistance: MAX_DELIVERY_DISTANCE_KM,
+        maxDistance: maxDeliveryDistance,
         address: sanitized.address,
-      });
-    } else {
-      console.log(`✅ Delivery address validated successfully:`, {
-        address: sanitized.address,
-        chef: chefName,
-        distanceFromChef: addressDistance.toFixed(2),
-        withinZone: true,
       });
     }
+    
+    // NEW: PINCODE VALIDATION (if available)
+    // Validate that order address pincode is in chef's service_pincodes
+    const customerPincode = sanitized.addressPincode;
+    if (customerPincode && chef && chef.servicePincodes && chef.servicePincodes.length > 0) {
+      const pincodeValid = chef.servicePincodes.includes(customerPincode);
+      
+      console.log(`[PINCODE-VALIDATION] Chef service pincodes:`, {
+        chef: chefName,
+        servicePincodes: chef.servicePincodes,
+        customerPincode: customerPincode,
+        isValid: pincodeValid,
+      });
+      
+      if (!pincodeValid) {
+        console.log(`🚫 Order blocked - customer pincode not in chef's service pincodes:`, {
+          chef: chefName,
+          customerPincode: customerPincode,
+          servicePincodes: chef.servicePincodes,
+        });
+        return res.status(400).json({
+          message: `${chefName} does not deliver to pincode ${customerPincode}. Served pincodes: ${chef.servicePincodes.join(", ")}`,
+          pincodeNotInServiceArea: true,
+          customerPincode: customerPincode,
+          servicePincodes: chef.servicePincodes,
+        });
+      }
+      
+      console.log(`✅ Pincode validated:`, {
+        chef: chefName,
+        pincode: customerPincode,
+      });
+    } else if (customerPincode && (!chef || !chef.servicePincodes || chef.servicePincodes.length === 0)) {
+      // Chef has no pincode restrictions - backward compatible
+      console.log(`[PINCODE-VALIDATION] Chef has no pincode restrictions (backward compatible):`, {
+        chef: chefName,
+        customerPincode: customerPincode,
+      });
+    }
+    
+    console.log(`✅ Delivery address validated successfully:`, {
+      address: sanitized.address,
+      chef: chefName,
+      distanceFromChef: addressDistance.toFixed(2),
+      withinZone: true,
+    });
     
     // Recompute delivery fee server-side to ensure correct enforcement
     try {
@@ -1373,18 +1419,20 @@ app.post("/api/orders", async (req: any, res) => {
             }
           }
 
-          // Send welcome email if provided
+          // Send welcome email if provided (non-blocking)
           if (sanitized.email && generatedPassword) {
             const emailHtml = createWelcomeEmail(sanitized.customerName, sanitized.phone, generatedPassword);
-            emailSent = await sendEmail({
+            // Fire and forget - don't block response waiting for email
+            sendEmail({
               to: sanitized.email,
               subject: '🍽️ Welcome to RotiHai - Your Account Details',
               html: emailHtml,
-            });
-
-            if (emailSent) {
+            }).then(() => {
               console.log(`✅ Welcome email sent to ${sanitized.email}`);
-            }
+              emailSent = true;
+            }).catch((err) => {
+              console.error(`⚠️ Failed to send welcome email to ${sanitized.email}:`, err);
+            });
           }
         } catch (createUserError: any) {
           console.error("Error creating user:", createUserError);
@@ -1465,76 +1513,6 @@ app.post("/api/orders", async (req: any, res) => {
     console.log("✅ Order created successfully:", order.id);
     console.log(`📋 Order Details: userId=${userId}, walletAmountUsed=${order.walletAmountUsed}`);
 
-      // Record coupon usage with per-user tracking
-      if (orderPayload.couponCode && userId) {
-        await storage.recordCouponUsage(orderPayload.couponCode, userId, order.id);
-      } else if (orderPayload.couponCode) {
-        await storage.incrementCouponUsage(orderPayload.couponCode);
-      }
-
-      // Complete referral bonus if this is user's first order
-      if (userId) {
-        const { db: database } = await import("@shared/db");
-        const { referrals: referralsTable } = await import("@shared/db");
-        const { eq, and } = await import("drizzle-orm");
-
-        const pendingReferral = await database.query.referrals.findFirst({
-          where: (r, { eq, and }) => and(
-            eq(r.referredId, userId),
-            eq(r.status, "pending")
-          ),
-        });
-
-        if (pendingReferral) {
-          // Execute referral completion in a database transaction
-          await database.transaction(async (tx) => {
-            // Get referred user info using transaction client
-            const referredUser = await tx.query.users.findFirst({
-              where: (u, { eq }) => eq(u.id, userId),
-            });
-
-            // Mark referral as completed
-            await tx.update(referralsTable)
-              .set({
-                status: "completed",
-                referredOrderCompleted: true,
-                completedAt: new Date()
-              })
-              .where(eq(referralsTable.id, pendingReferral.id));
-
-            // Add bonus to referrer's wallet with proper wallet transaction
-            await storage.createWalletTransaction({
-              userId: pendingReferral.referrerId,
-              amount: pendingReferral.referrerBonus,
-              type: "referral_bonus",
-              description: `Referral bonus: ${referredUser?.name || 'User'} completed their first order using your code`,
-              referenceId: pendingReferral.id,
-              referenceType: "referral",
-            }, tx);
-          });
-        }
-      }
-
-    // 📱 Send WhatsApp notification to admin about new order (non-blocking)
-    try {
-      // For now, using a default admin phone - in production, fetch from admin settings
-      // TODO: Update this to fetch actual admin phone from database settings
-      const adminPhone = process.env.ADMIN_PHONE_NUMBER;
-      await sendOrderPlacedAdminNotification(
-        order.id,
-        order.customerName,
-        order.total,
-        adminPhone
-      );
-    } catch (notificationError) {
-      console.error("⚠️ Error sending admin WhatsApp notification (non-critical):", notificationError);
-      // Don't fail the order creation if notification fails
-    }
-
-    broadcastNewOrder(order);
-
-    console.log("✅ Order created successfully:", order.id);
-
     // Generate access token for newly created users
     let accessToken: string | undefined;
     if (accountCreated && userId) {
@@ -1544,6 +1522,7 @@ app.post("/api/orders", async (req: any, res) => {
       }
     }
 
+    // 🚀 SEND RESPONSE IMMEDIATELY - Move heavy operations to background
     res.status(201).json({
       ...order,
       accountCreated,
@@ -1552,6 +1531,91 @@ app.post("/api/orders", async (req: any, res) => {
       accessToken: accountCreated ? accessToken : undefined,
       appliedReferralBonus: appliedReferralBonus > 0 ? appliedReferralBonus : undefined,
     });
+
+    // ============================================
+    // BACKGROUND OPERATIONS (non-blocking)
+    // ============================================
+
+    // Record coupon usage with per-user tracking (background)
+    (async () => {
+      try {
+        if (orderPayload.couponCode && userId) {
+          await storage.recordCouponUsage(orderPayload.couponCode, userId, order.id);
+        } else if (orderPayload.couponCode) {
+          await storage.incrementCouponUsage(orderPayload.couponCode);
+        }
+      } catch (err) {
+        console.error("⚠️ Error recording coupon usage:", err);
+      }
+    })();
+
+    // Complete referral bonus if this is user's first order (background)
+    (async () => {
+      try {
+        if (userId) {
+          const { db: database } = await import("@shared/db");
+          const { referrals: referralsTable } = await import("@shared/db");
+          const { eq, and } = await import("drizzle-orm");
+
+          const pendingReferral = await database.query.referrals.findFirst({
+            where: (r, { eq, and }) => and(
+              eq(r.referredId, userId),
+              eq(r.status, "pending")
+            ),
+          });
+
+          if (pendingReferral) {
+            // Execute referral completion in a database transaction
+            await database.transaction(async (tx) => {
+              // Get referred user info using transaction client
+              const referredUser = await tx.query.users.findFirst({
+                where: (u, { eq }) => eq(u.id, userId),
+              });
+
+              // Mark referral as completed
+              await tx.update(referralsTable)
+                .set({
+                  status: "completed",
+                  referredOrderCompleted: true,
+                  completedAt: new Date()
+                })
+                .where(eq(referralsTable.id, pendingReferral.id));
+
+              // Add bonus to referrer's wallet with proper wallet transaction
+              await storage.createWalletTransaction({
+                userId: pendingReferral.referrerId,
+                amount: pendingReferral.referrerBonus,
+                type: "referral_bonus",
+                description: `Referral bonus: ${referredUser?.name || 'User'} completed their first order using your code`,
+                referenceId: pendingReferral.id,
+                referenceType: "referral",
+              }, tx);
+            });
+          }
+        }
+      } catch (err) {
+        console.error("⚠️ Error processing referral bonus:", err);
+      }
+    })();
+
+    // Send WhatsApp notification to admin and broadcast (background)
+    (async () => {
+      try {
+        // Broadcast to WebSocket clients
+        broadcastNewOrder(order);
+        
+        // Send admin notification
+        const adminPhone = process.env.ADMIN_PHONE_NUMBER;
+        await sendOrderPlacedAdminNotification(
+          order.id,
+          order.customerName,
+          order.total,
+          adminPhone
+        );
+      } catch (err) {
+        console.error("⚠️ Error in background notification tasks:", err);
+      }
+    })();
   } catch (error: any) {
     console.error("❌ Create order error:", error);
     res.status(500).json({ message: error.message || "Failed to create order" });
@@ -1855,6 +1919,78 @@ app.post("/api/orders", async (req: any, res) => {
     } catch (error) {
       console.error("❌ Error fetching chefs by area:", error);
       res.status(500).json({ message: "Failed to fetch chefs for delivery area" });
+    }
+  });
+
+  // ============================================
+  // Distance-based chef filtering (Zomato-style)
+  // ============================================
+  app.get("/api/chefs/by-location", async (req, res) => {
+    try {
+      const { latitude, longitude, maxDistance } = req.query;
+      
+      // Validate input
+      if (!latitude || !longitude) {
+        return res.status(400).json({ error: "Missing latitude or longitude" });
+      }
+
+      const userLat = parseFloat(latitude as string);
+      const userLon = parseFloat(longitude as string);
+      const maxDistanceKm = maxDistance ? parseFloat(maxDistance as string) : 15; // Default 15km radius
+
+      if (isNaN(userLat) || isNaN(userLon) || isNaN(maxDistanceKm)) {
+        return res.status(400).json({ error: "Invalid coordinates or distance" });
+      }
+
+      const allChefs = await storage.getChefs();
+
+      console.log(`\n🗺️ [DEBUG] /api/chefs/by-location called:`);
+      console.log(`   User location: (${userLat}, ${userLon})`);
+      console.log(`   Max search radius: ${maxDistanceKm}km`);
+
+      // Calculate distance to each chef and filter
+      type ChefWithDistance = (typeof allChefs[0]) & { distanceFromUser?: number };
+
+      const chefsWithDistance: ChefWithDistance[] = allChefs.map(chef => {
+        // Haversine formula to calculate distance
+        const R = 6371; // Earth's radius in km
+        const lat1 = userLat * (Math.PI / 180);
+        const lat2 = (chef.latitude || 19.0728) * (Math.PI / 180);
+        const deltaLat = ((chef.latitude || 19.0728) - userLat) * (Math.PI / 180);
+        const deltaLon = ((chef.longitude || 72.8826) - userLon) * (Math.PI / 180);
+
+        const a = Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
+                  Math.cos(lat1) * Math.cos(lat2) *
+                  Math.sin(deltaLon / 2) * Math.sin(deltaLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        const distance = R * c;
+
+        return {
+          ...chef,
+          distanceFromUser: parseFloat(distance.toFixed(2))
+        } as ChefWithDistance;
+      });
+
+      // Filter chefs within max delivery distance
+      const maxDeliveryDistance = (chef: ChefWithDistance) => {
+        const chefMaxDistance = (chef as any).maxDeliveryDistanceKm || 5;
+        return (chef.distanceFromUser || 0) <= chefMaxDistance;
+      };
+
+      const nearbyChefs = chefsWithDistance
+        .filter(chef => (chef as any).isActive !== false && maxDeliveryDistance(chef))
+        .sort((a, b) => (a.distanceFromUser || 0) - (b.distanceFromUser || 0));
+
+      console.log(`   Found ${nearbyChefs.length} nearby chef(s):`);
+      nearbyChefs.forEach(c => {
+        console.log(`     ✅ ${(c as any).name} - ${c.distanceFromUser}km away (max: ${(c as any).maxDeliveryDistanceKm || 5}km)`);
+      });
+      console.log('');
+
+      res.json(nearbyChefs);
+    } catch (error) {
+      console.error("❌ Error fetching chefs by location:", error);
+      res.status(500).json({ message: "Failed to fetch nearby chefs" });
     }
   });
 
@@ -3665,7 +3801,7 @@ app.post("/api/orders", async (req: any, res) => {
         }
       }
 
-      // If we got a result, return it
+      // If we got a result, verify it matches the requested area and pincode
       if (result) {
         const latitude = parseFloat(result.lat);
         const longitude = parseFloat(result.lon);
@@ -3673,11 +3809,169 @@ app.post("/api/orders", async (req: any, res) => {
 
         console.log(`✅ [GEOCODE] Successfully geocoded: ${query} -> (${latitude}, ${longitude})`);
 
+        // PINCODE VALIDATION (NEW): Validate pincode if provided
+        // This is a NEW layer of validation BEFORE area validation
+        if (pincode) {
+          const pincodeRegex = /^\d{5,6}$/;
+          if (!pincodeRegex.test(pincode)) {
+            console.warn(`🚫 [PINCODE-VALIDATION] Invalid pincode format:`, pincode);
+            return res.status(400).json({
+              success: false,
+              message: "Pincode must be 5-6 digits",
+              invalidPincode: true,
+            });
+          }
+
+          console.log(`[PINCODE-VALIDATION] Validating pincode: ${pincode}`);
+          
+          // Extract pincode from geocoded address if available
+          const geocodedPostcode = result.address?.postcode;
+          console.log(`[PINCODE-VALIDATION] Geocoded postcode: ${geocodedPostcode}, User pincode: ${pincode}`);
+          
+          // Note: We store user's provided pincode for validation against chef's service_pincodes
+          // The geocoded postcode is informational but user's pincode is authoritative
+          console.log(`✅ [PINCODE-VALIDATION] Pincode format validated: ${pincode}`);
+        }
+
+        // DESIGN CHOICE: Stricter area validation
+        // If user specifies a SUB-AREA (Kurla East), we validate against that exact sub-area
+        // We DON'T allow "close enough" - the area name MUST match the geocoded location
+        // This prevents orders going to wrong service zones even if distance permits
+        
+        if (address) {
+          const areaKeywords = [
+            "kurla", "bandra", "andheri", "dadar", "colaba", "mahim",
+            "worli", "powai", "thane", "airoli", "mulund", "borivali",
+            "malad", "kandivali", "goregaon", "dombivli", "navi", "vile parle",
+            "santacruz", "chembur", "vikhroli", "ghatkopar", "kanjurmarg"
+          ];
+
+          const addressLower = address.toLowerCase();
+          
+          // Find which area keyword(s) the user mentioned
+          const mentionedAreas: string[] = [];
+          for (const keyword of areaKeywords) {
+            if (addressLower.includes(keyword)) {
+              mentionedAreas.push(keyword);
+            }
+          }
+
+          // Known area centers for validation
+          const areaCoordinates: Record<string, { lat: number; lon: number; name: string }> = {
+            "kurla": { lat: 19.0686, lon: 72.8817, name: "Kurla" },
+            "kurla west": { lat: 19.0728, lon: 72.8826, name: "Kurla West" },
+            "kurla east": { lat: 19.0644, lon: 72.8877, name: "Kurla East" },
+            "worli": { lat: 19.0176, lon: 72.8194, name: "Worli" },
+            "bandra": { lat: 19.0596, lon: 72.8295, name: "Bandra" },
+            "andheri": { lat: 19.1136, lon: 72.8697, name: "Andheri" },
+            "dadar": { lat: 19.0176, lon: 72.8388, name: "Dadar" },
+          };
+
+          if (mentionedAreas.length > 0) {
+            // Calculate distance from geocoded point to each known area
+            const calculateDist = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+              const R = 6371;
+              const dLat = ((lat2 - lat1) * Math.PI) / 180;
+              const dLon = ((lon2 - lon1) * Math.PI) / 180;
+              const a = Math.sin(dLat / 2) ** 2 + Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+              const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+              return R * c;
+            };
+
+            // Find which area the geocoded coordinates actually belong to
+            const areaDistances = Object.entries(areaCoordinates)
+              .map(([key, val]) => ({
+                area: key,
+                name: val.name,
+                distance: calculateDist(latitude, longitude, val.lat, val.lon),
+              }))
+              .sort((a, b) => a.distance - b.distance);
+            
+            const closestArea = areaDistances[0];
+
+            // Check for EXACT area match first (stricter validation)
+            // User said "Kurla East" and we geocoded to "Kurla East" = OK
+            // User said "Kurla East" and we geocoded to "Kurla West" = REJECT (even if 1.9km away)
+            // User said "Kurla" and we geocoded to "Kurla West" = OK (generic kurla matches kurla west)
+            
+            const exactAreaMatch = mentionedAreas.some(mentioned => {
+              // Exact match (e.g., "kurla west" == "kurla west")
+              if (mentioned === closestArea.area) return true;
+              
+              // Partial match for generic areas (e.g., user said "kurla", got "kurla west")
+              if (mentioned === "kurla" && closestArea.area.startsWith("kurla")) return true;
+              
+              return false;
+            });
+
+            if (!exactAreaMatch) {
+              // Area mismatch - reject regardless of distance
+              console.warn(`🚫 [GEOCODE-VERIFY] Area mismatch - rejecting address!`, {
+                requestedArea: mentionedAreas[0],
+                detectedArea: closestArea.name,
+                distance: closestArea.distance.toFixed(2),
+                note: "User specified different area than geocoded result",
+              });
+
+              return res.status(400).json({
+                success: false,
+                message: `The address you entered is in ${closestArea.name}, not ${mentionedAreas[0]}. Please use an address in ${mentionedAreas[0]} or select a different area.`,
+                detectedArea: closestArea.name,
+                requestedArea: mentionedAreas[0],
+                areaMismatch: true,
+              });
+            }
+
+            console.log(`✅ [GEOCODE-VERIFY] Area verified - matches requested area:`, {
+              requested: mentionedAreas[0],
+              detected: closestArea.name,
+              distance: closestArea.distance.toFixed(2),
+            });
+            
+            // THIRD VALIDATION: Check if this area is in admin's approved delivery-areas list
+            try {
+              const adminAreas = await storage.getDeliveryAreas();
+              const adminAreaNames = adminAreas.map(a => a.toLowerCase());
+              
+              const areaInDeliveryList = adminAreaNames.some(adminArea => {
+                // Check if detected area is in admin's delivery list
+                // E.g., "Kurla West" matches "kurla west" in admin list
+                return adminArea === closestArea.name.toLowerCase() || 
+                       adminArea.includes(closestArea.name.toLowerCase());
+              });
+              
+              if (!areaInDeliveryList) {
+                console.warn(`🚫 [GEOCODE-VERIFY] Area not in admin delivery-areas list!`, {
+                  detectedArea: closestArea.name,
+                  adminAreas: adminAreaNames,
+                });
+                
+                return res.status(400).json({
+                  success: false,
+                  message: `Sorry, we don't deliver to ${closestArea.name} yet. We deliver to: ${adminAreaNames.join(", ")}. Please select a different area.`,
+                  detectedArea: closestArea.name,
+                  availableAreas: adminAreaNames,
+                  notInDeliveryList: true,
+                });
+              }
+              
+              console.log(`✅ [GEOCODE-VERIFY] Area is in admin delivery-areas list:`, {
+                area: closestArea.name,
+                adminAreas: adminAreaNames,
+              });
+            } catch (err) {
+              console.error("[GEOCODE-VERIFY] Error checking admin areas:", err);
+              // Don't fail - let order proceed if we can't check admin list
+            }
+          }
+        }
+
         res.json({
           success: true,
           latitude,
           longitude,
           formattedAddress,
+          pincode: pincode || undefined, // Return pincode if provided
         });
       } else {
         console.warn(`❌ [GEOCODE] Could not geocode: ${query}`);

@@ -41,6 +41,8 @@ export default function AdminChefs() {
     addressPincode: "",
     latitude: 19.0728,
     longitude: 72.8826,
+    maxDeliveryDistanceKm: 5, // Default 5km delivery radius
+    servicePincodes: null as string[] | null, // NEW: Service pincodes
   });
   
   // Geocoding states
@@ -80,6 +82,13 @@ export default function AdminChefs() {
     })();
     return () => { mounted = false; };
   }, []);
+
+  // When editing a chef, sync the form data when the dialog opens
+  useEffect(() => {
+    if (editingChef) {
+      handleEdit(editingChef);
+    }
+  }, [editingChef?.id]); // Re-sync only when chef ID changes
 
   const createChefMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
@@ -181,6 +190,8 @@ export default function AdminChefs() {
       addressPincode: "",
       latitude: 19.0728,
       longitude: 72.8826,
+      maxDeliveryDistanceKm: 5,
+      servicePincodes: null, // NEW: Initialize service pincodes
     });
     setGeocodeError("");
   };
@@ -287,6 +298,8 @@ export default function AdminChefs() {
       addressPincode,
       latitude: (chef as any).latitude || 19.0728,
       longitude: (chef as any).longitude || 72.8826,
+      maxDeliveryDistanceKm: (chef as any).maxDeliveryDistanceKm || 5,
+      servicePincodes: (chef as any).servicePincodes || null, // NEW: Load service pincodes
     });
     setGeocodeError("");
   };
@@ -307,6 +320,7 @@ export default function AdminChefs() {
     }
     
     if (editingChef) {
+      console.log("🔥 Updating chef with data:", { id: editingChef.id, data: formData, maxDeliveryDistanceKm: formData.maxDeliveryDistanceKm });
       updateChefMutation.mutate({ id: editingChef.id, data: formData });
     }
   };
@@ -643,6 +657,50 @@ export default function AdminChefs() {
                 </div>
               </div>
 
+              {/* Max Delivery Distance */}
+              <div>
+                <Label htmlFor="maxDeliveryDistanceKm" className="text-xs text-gray-600">
+                  Max Delivery Distance (km)
+                </Label>
+                <Input
+                  id="maxDeliveryDistanceKm"
+                  type="number"
+                  min="1"
+                  max="20"
+                  value={(formData as any).maxDeliveryDistanceKm || 5}
+                  onChange={(e) => setFormData({ ...formData, maxDeliveryDistanceKm: parseInt(e.target.value) || 5 })}
+                  placeholder="5"
+                  className="text-sm"
+                />
+              </div>
+
+              {/* Service Pincodes - NEW FIELD */}
+              <div>
+                <Label htmlFor="servicePincodes" className="text-xs text-gray-600">
+                  Service Pincodes <span className="text-gray-500">(comma-separated, optional)</span>
+                </Label>
+                <Input
+                  id="servicePincodes"
+                  value={
+                    Array.isArray((formData as any).servicePincodes)
+                      ? ((formData as any).servicePincodes as string[]).join(", ")
+                      : ""
+                  }
+                  onChange={(e) => {
+                    const pincodes = e.target.value
+                      .split(",")
+                      .map(p => p.trim())
+                      .filter(p => /^\d{5,6}$/.test(p));
+                    setFormData({ ...formData, servicePincodes: pincodes.length > 0 ? pincodes : null });
+                  }}
+                  placeholder="e.g., 400070, 400086, 400025"
+                  className="text-sm"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Chef will only accept orders from these pincodes. Leave empty to serve all pincodes.
+                </p>
+              </div>
+
               {/* Geocoding status/error */}
               {isGeocodingAddress && (
                 <div className="flex items-center gap-2 text-sm text-blue-600">
@@ -670,7 +728,7 @@ export default function AdminChefs() {
                     Longitude: {formData.longitude.toFixed(4)}
                   </p>
                   <p className="text-xs text-blue-700 dark:text-blue-300 mt-2">
-                    Delivery zone: 2.5km from this location
+                    Delivery zone: {(formData as any).maxDeliveryDistanceKm || 5}km from this location (distance-based filtering)
                   </p>
                 </div>
               )}
@@ -878,6 +936,50 @@ export default function AdminChefs() {
                   />
                 </div>
               </div>
+
+              {/* Max Delivery Distance */}
+              <div>
+                <Label htmlFor="edit-maxDeliveryDistanceKm" className="text-xs text-gray-600">
+                  Max Delivery Distance (km)
+                </Label>
+                <Input
+                  id="edit-maxDeliveryDistanceKm"
+                  type="number"
+                  min="1"
+                  max="20"
+                  value={(formData as any).maxDeliveryDistanceKm || 5}
+                  onChange={(e) => setFormData({ ...formData, maxDeliveryDistanceKm: parseInt(e.target.value) || 5 })}
+                  placeholder="5"
+                  className="text-sm"
+                />
+              </div>
+
+              {/* Service Pincodes - NEW FIELD */}
+              <div>
+                <Label htmlFor="edit-servicePincodes" className="text-xs text-gray-600">
+                  Service Pincodes <span className="text-gray-500">(comma-separated, optional)</span>
+                </Label>
+                <Input
+                  id="edit-servicePincodes"
+                  value={
+                    Array.isArray((formData as any).servicePincodes)
+                      ? ((formData as any).servicePincodes as string[]).join(", ")
+                      : ""
+                  }
+                  onChange={(e) => {
+                    const pincodes = e.target.value
+                      .split(",")
+                      .map(p => p.trim())
+                      .filter(p => /^\d{5,6}$/.test(p));
+                    setFormData({ ...formData, servicePincodes: pincodes.length > 0 ? pincodes : null });
+                  }}
+                  placeholder="e.g., 400070, 400086, 400025"
+                  className="text-sm"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Chef will only accept orders from these pincodes. Leave empty to serve all pincodes.
+                </p>
+              </div>
               
               {/* Geocoding status/error */}
               {isGeocodingAddress && (
@@ -906,7 +1008,7 @@ export default function AdminChefs() {
                     Longitude: {formData.longitude.toFixed(4)}
                   </p>
                   <p className="text-xs text-blue-700 dark:text-blue-300 mt-2">
-                    Delivery zone: 2.5km from this location
+                    Delivery zone: {(formData as any).maxDeliveryDistanceKm || 5}km from this location (distance-based filtering)
                   </p>
                 </div>
               )}

@@ -19,7 +19,7 @@ console.log('🔧 API Configuration:', {
 const api = axios.create({
   baseURL: apiUrl || undefined, // If not set, will use relative paths
   withCredentials: true,
-  timeout: 30000,
+  timeout: 60000, // Increased from 30s to 60s for slower operations
 });
 
 // Request interceptor to add authorization headers

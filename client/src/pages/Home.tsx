@@ -269,10 +269,23 @@ import { useState, useEffect } from "react";
       : null);
 
     const { data: chefs = [], isLoading: chefsLoading } = useQuery<Chef[]>({
-      // 🔴 CRITICAL FIX: Query chefs by delivery area to show only area-specific chefs
-      // E.g., if user selects Kurla West, show ONLY Kurla West chefs, NOT Mahim chefs
-      queryKey: selectedArea ? ["/api/chefs/by-area", selectedArea] : ["/api/chefs"],
+      // 🔴 CRITICAL FIX: Query chefs by location if coordinates available (Zomato-style)
+      // Otherwise fallback to area-based filtering
+      queryKey: userLatitude && userLongitude 
+        ? ["/api/chefs/by-location", userLatitude, userLongitude]
+        : (selectedArea ? ["/api/chefs/by-area", selectedArea] : ["/api/chefs"]),
       queryFn: async () => {
+        // Primary: Distance-based filtering when user location is available
+        if (userLatitude && userLongitude) {
+          console.log(`🗺️ Loading chefs by distance from (${userLatitude}, ${userLongitude})`);
+          const res = await fetch(`/api/chefs/by-location?latitude=${userLatitude}&longitude=${userLongitude}&maxDistance=15`);
+          if (!res.ok) throw new Error("Failed to fetch chefs by location");
+          const data = await res.json();
+          console.log(`✅ Loaded ${data.length} nearby chefs`);
+          return data;
+        }
+        
+        // Fallback: Area-based filtering if location not available
         if (selectedArea) {
           console.log(`📍 Loading chefs for delivery area: ${selectedArea}`);
           const res = await fetch(`/api/chefs/by-area/${encodeURIComponent(selectedArea)}`);
@@ -281,12 +294,14 @@ import { useState, useEffect } from "react";
           console.log(`✅ Loaded ${data.length} chefs for ${selectedArea}`);
           return data;
         }
-        // Fallback to all chefs if no area selected
+        
+        // Last resort: all chefs
         const res = await fetch("/api/chefs");
         if (!res.ok) throw new Error("Failed to fetch chefs");
         return res.json();
       },
-      enabled: shouldLoadMenu, // Only load if location confirmed
+      // Enable query when: location confirmed AND we have either location coordinates or selected area
+      enabled: shouldLoadMenu && (!!userLatitude || !!selectedArea),
     });
 
     const { data: products = [], isLoading: productsLoading } = useQuery<Product[]>({
@@ -693,7 +708,7 @@ import { useState, useEffect } from "react";
         />
 
         {/* ZOMATO-STYLE: Show location required banner if not detected */}
-        {deliveryZoneDetected && !userInDeliveryZone && (
+        {!userInDeliveryZone && isDetectingLocation === false && (
           <div className={`${isSafariOnIOS ? 'bg-red-50 border-red-200' : 'bg-orange-50 border-orange-200'} border-b-2 py-4 px-4`}>
             <div className="max-w-7xl mx-auto">
               <div className="flex items-start gap-3">
@@ -1024,9 +1039,12 @@ import { useState, useEffect } from "react";
                                   ({chef.reviewCount} reviews)
                                 </span>
                               </div>
-                              {distance !== null && (
-                                <span className="text-white text-xs">
-                                  {distance} km
+                              {(chef.distanceFromUser !== undefined || distance !== null) && (
+                                <span className="text-white text-xs bg-black/60 px-2 py-1 rounded">
+                                  {(chef.distanceFromUser !== undefined 
+                                    ? chef.distanceFromUser 
+                                    : distance) || 0
+                                  } km
                                 </span>
                               )}
                             </div>

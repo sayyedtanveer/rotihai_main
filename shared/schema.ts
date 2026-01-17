@@ -84,6 +84,9 @@ export const chefs = pgTable("chefs", {
   defaultDeliveryFee: integer("default_delivery_fee").notNull().default(20), // Fallback fee when no location
   deliveryFeePerKm: integer("delivery_fee_per_km").notNull().default(5), // ₹ per km
   freeDeliveryThreshold: integer("free_delivery_threshold").notNull().default(200), // Free delivery above this amount
+  maxDeliveryDistanceKm: integer("max_delivery_distance_km").notNull().default(5), // Max delivery distance in km
+  // Service pincodes - which pincodes this chef serves (pincode-based filtering)
+  servicePincodes: text("service_pincodes").array(), // Array of valid pincodes like ["400070", "400086", "400025"]
 });
 
 
@@ -176,6 +179,8 @@ export const deliverySettings = pgTable("delivery_settings", {
   maxDistance: decimal("max_distance", { precision: 5, scale: 2 }).notNull(),
   price: integer("price").notNull(),
   minOrderAmount: integer("min_order_amount").default(0), // Minimum order for this range
+  // Pincode field - which pincode this delivery setting applies to
+  pincode: varchar("pincode", { length: 6 }), // Optional: specific pincode (e.g., "400070", "400086")
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -364,7 +369,9 @@ export const insertProductSchema = createInsertSchema(products).omit({
   updatedAt: z.date().or(z.string()).optional(),
 });
 
-export const insertChefSchema = createInsertSchema(chefs).omit({
+export const insertChefSchema = createInsertSchema(chefs, {
+  servicePincodes: z.array(z.string().regex(/^\d{5,6}$/, "Pincode must be 5-6 digits")).optional().nullable(),
+}).omit({
   id: true,
 });
 
@@ -421,7 +428,7 @@ export const insertOrderSchema = createInsertSchema(orders, {
 export type InsertCategory = z.infer<typeof insertCategorySchema>;
 export type Category = typeof categories.$inferSelect;
 export type InsertChef = z.infer<typeof insertChefSchema>;
-export type Chef = typeof chefs.$inferSelect;
+export type Chef = typeof chefs.$inferSelect & { distanceFromUser?: number }; // distanceFromUser added by distance-based endpoint
 export type InsertProduct = z.infer<typeof insertProductSchema>;
 export type Product = typeof products.$inferSelect;
 
@@ -559,6 +566,7 @@ export const insertDeliverySettingSchema = createInsertSchema(deliverySettings, 
   minDistance: z.number({ message: "Minimum distance is required" }),
   maxDistance: z.number({ message: "Maximum distance is required" }),
   price: z.number({ message: "Price is required" }),
+  pincode: z.string().regex(/^\d{5,6}$/, { message: "Pincode must be 5-6 digits" }).optional().nullable(),
   isActive: z.boolean().default(true),
 }).omit({
   id: true,

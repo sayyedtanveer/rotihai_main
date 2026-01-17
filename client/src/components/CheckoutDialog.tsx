@@ -203,8 +203,17 @@ export default function CheckoutDialog({
   const [addressZoneDistance, setAddressZoneDistance] = useState<number>(0);
   const autoGeocodeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Get delivery location context (syncs with Home.tsx)
-  const { location: contextDeliveryLocation, setDeliveryLocation } = useDeliveryLocation();
+  // Listen to cart changes and clear validation when cart/chef changes
+  // This forces user to re-validate address when selecting a different chef
+  useEffect(() => {
+    if (cart?.chefId) {
+      // Chef changed - require address re-validation
+      setAddressZoneValidated(false);
+      setAddressInDeliveryZone(false);
+      setLocationError("");
+      console.log("[CHECKOUT] Chef changed - cleared address validation. User must re-validate.");
+    }
+  }, [cart?.chefId]);
 
   // Area suggestions for autocomplete
   const [areaSuggestions, setAreaSuggestions] = useState<string[]>([]);
@@ -212,6 +221,7 @@ export default function CheckoutDialog({
   
   const { toast } = useToast();
   const { user, isAuthenticated, userToken } = useAuth();
+  const { location: deliveryLocation, setDeliveryLocation } = useDeliveryLocation();
   const applyReferralMutation = useApplyReferral();
   const isMobile = useIsMobile();
 
@@ -563,8 +573,8 @@ export default function CheckoutDialog({
 
   // Restore saved address fields from Context and localStorage when checkout opens
   useEffect(() => {
-    if (isOpen && contextDeliveryLocation.address) {
-      console.log("[CHECKOUT] Restoring address from Context:", contextDeliveryLocation.address);
+    if (isOpen && deliveryLocation.address) {
+      console.log("[CHECKOUT] Restoring address from Context:", deliveryLocation.address);
       
       // Try to restore from localStorage - it has the structured fields
       const stored = localStorage.getItem("lastValidatedDeliveryAddress");
@@ -589,8 +599,11 @@ export default function CheckoutDialog({
               // Also restore coordinates for delivery fee calculation
               setCustomerLatitude(parsed.latitude);
               setCustomerLongitude(parsed.longitude);
-              setAddressZoneValidated(true);
-              setAddressInDeliveryZone(parsed.isInZone);
+              // ⚠️ DO NOT restore validation status - force re-validation with new chef!
+              // This ensures we validate against the CURRENT chef, not a previous one
+              console.log("[CHECKOUT] Address restored BUT validation cleared - user must re-validate with this chef");
+              setAddressZoneValidated(false);
+              setAddressInDeliveryZone(false);
               return;
             } catch (e) {
               console.log("[CHECKOUT] Could not parse structured address, will use full address");
@@ -601,7 +614,7 @@ export default function CheckoutDialog({
         }
       }
     }
-  }, [isOpen, contextDeliveryLocation.address]);
+  }, [isOpen, deliveryLocation.address]);
 
   // Auto-request geolocation when checkout opens for DELIVERY FEE CALCULATION ONLY
   // GPS is NOT used for zone validation - only for accurate delivery fee
@@ -979,9 +992,10 @@ export default function CheckoutDialog({
     }
   };
 
-  // Handle any address field change - triggers geocoding for full address
+  // Handle any address field change - NO AUTO-GEOCODING anymore
+  // User must click "Validate Address" button to trigger validation
   const handleAddressChange = (field: string, value: string) => {
-    // Update the specific field
+    // Update the specific field - text input NEVER gets cleared
     switch(field) {
       case 'building':
         setAddressBuilding(value);
@@ -1009,38 +1023,47 @@ export default function CheckoutDialog({
         break;
     }
 
+    // Clear validation status when user edits address (they need to re-validate)
+    // But DON'T clear the text input fields
     setAddressZoneValidated(false);
     setLocationError("");
 
-    // Clear previous timeout
+    // Clear previous timeout if any
     if (autoGeocodeTimeoutRef.current) {
       clearTimeout(autoGeocodeTimeoutRef.current);
     }
+  };
 
-    // Build full address with updated values
-    const updatedAddress = {
-      building: field === 'building' ? value : addressBuilding,
-      street: field === 'street' ? value : addressStreet,
-      area: field === 'area' ? value : addressArea,
-      city: field === 'city' ? value : addressCity,
-      pincode: field === 'pincode' ? value : addressPincode,
-    };
-
-    const fullAddress = [updatedAddress.building, updatedAddress.street, updatedAddress.area, updatedAddress.city, updatedAddress.pincode]
+  // Manual validation function - called only when user clicks "Validate Address" button
+  const handleValidateAddressClick = async () => {
+    const fullAddress = [addressBuilding, addressStreet, addressArea, addressCity, addressPincode]
       .filter(Boolean)
       .join(", ");
 
-    // Only geocode if we have meaningful address (area is required minimum)
-    if (!updatedAddress.area.trim() || updatedAddress.area.trim().length < 3) {
+    // Validate that pincode is provided
+    if (!addressPincode || addressPincode.trim().length === 0) {
+      setLocationError("Pincode is required for delivery validation");
+      setAddressZoneValidated(false);
       return;
     }
 
-    console.log("[LOCATION] Address field changed, will geocode:", fullAddress);
+    // Validate pincode format (5-6 digits)
+    const pincodeRegex = /^\d{5,6}$/;
+    if (!pincodeRegex.test(addressPincode)) {
+      setLocationError("Pincode must be 5-6 digits (e.g., 400070)");
+      setAddressZoneValidated(false);
+      return;
+    }
 
-    // Set new timeout for auto-geocoding (1 second debounce)
-    autoGeocodeTimeoutRef.current = setTimeout(() => {
-      autoGeocodeAddress(fullAddress);
-    }, 1000);
+    // Require at least area
+    if (!addressArea.trim() || addressArea.trim().length < 2) {
+      setLocationError("Please enter at least the area/locality name");
+      setAddressZoneValidated(false);
+      return;
+    }
+
+    console.log("[LOCATION] User clicked Validate Address button, will geocode:", fullAddress);
+    await autoGeocodeAddress(fullAddress);
   };
 
   const autoGeocodeAddress = async (addressToGeocode: string) => {
@@ -1051,7 +1074,7 @@ export default function CheckoutDialog({
       console.log("[LOCATION] Starting auto-geocoding for:", addressToGeocode.trim());
       
       const response = await api.post("/api/geocode", 
-        { address: addressToGeocode.trim() },
+        { address: addressToGeocode.trim(), pincode: addressPincode },
         { timeout: 10000 }
       );
 
@@ -1059,7 +1082,14 @@ export default function CheckoutDialog({
       
       if (!data.success) {
         console.warn("[LOCATION] Geocode returned success=false:", data);
-        setLocationError(data.message || "Could not find this address. Try a different one.");
+        // Handle area mismatch or other geocoding errors
+        if (data.distanceMismatch && data.detectedArea && data.requestedArea) {
+          setLocationError(
+            `The address you entered appears to be in ${data.detectedArea}, not ${data.requestedArea}. Please verify and try again.`
+          );
+        } else {
+          setLocationError(data.message || "Could not find this address. Try a different one.");
+        }
         setAddressZoneValidated(false);
         setIsGeocodingAddress(false);
         return;
@@ -1075,6 +1105,7 @@ export default function CheckoutDialog({
       let chefLat = 19.0728;
       let chefLon = 72.8826;
       let chefName = "Kurla West Kitchen";
+      let maxDeliveryDistance = 5; // Default fallback
 
       if (cart?.chefId) {
         try {
@@ -1088,17 +1119,18 @@ export default function CheckoutDialog({
             chefName: chefData.name,
             latitude: chefData.latitude,
             longitude: chefData.longitude,
+            maxDeliveryDistanceKm: chefData.maxDeliveryDistanceKm,
           });
           chefLat = chefData.latitude ?? 19.0728;
           chefLon = chefData.longitude ?? 72.8826;
           chefName = chefData.name || "Kurla West Kitchen";
-          console.log("[DELIVERY-ZONE] Chef coordinates fetched:", { chefLat, chefLon, chefName });
+          maxDeliveryDistance = chefData.maxDeliveryDistanceKm ?? 5; // Use chef's specific limit!
+          console.log("[DELIVERY-ZONE] Chef coordinates fetched:", { chefLat, chefLon, chefName, maxDeliveryDistance });
         } catch (chefError) {
           console.warn("[DELIVERY-ZONE] Could not fetch chef details, using defaults:", chefError);
         }
       }
 
-      const MAX_DELIVERY_DISTANCE = 2.5;
       const distanceFromChef = calculateDistance(
         chefLat,
         chefLon,
@@ -1106,14 +1138,14 @@ export default function CheckoutDialog({
         data.longitude
       );
 
-      const isInZone = distanceFromChef <= MAX_DELIVERY_DISTANCE;
+      const isInZone = distanceFromChef <= maxDeliveryDistance;
       const areaName = addressToGeocode.trim().split(",")[0].trim();
 
       console.log("[DELIVERY-ZONE] Auto-validation completed:", {
         address: addressToGeocode.trim(),
         areaName,
         distance: distanceFromChef.toFixed(3),
-        maxDistance: MAX_DELIVERY_DISTANCE,
+        maxDistance: maxDeliveryDistance,
         isInZone,
         chef: chefName,
       });
@@ -1135,7 +1167,7 @@ export default function CheckoutDialog({
       if (!isInZone) {
         console.log("[DELIVERY-ZONE] ❌ OUT OF ZONE - Address blocked");
         setLocationError(
-          `${areaName} is ${distanceFromChef.toFixed(1)}km away. ${chefName} delivers within ${MAX_DELIVERY_DISTANCE}km.`
+          `${areaName} is ${distanceFromChef.toFixed(1)}km away. ${chefName} delivers within ${maxDeliveryDistance}km.`
         );
         setAddressInDeliveryZone(false);
         setAddressZoneValidated(true);
@@ -1182,15 +1214,27 @@ export default function CheckoutDialog({
         }));
         console.log("[CONTEXT] Updated delivery location - Home.tsx will now show menu!");
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("[LOCATION] Auto-geocoding failed:", {
         error,
         message: error instanceof Error ? error.message : "Unknown error",
+        response: error?.response?.data,
         type: error instanceof TypeError ? "Network/Fetch Error" : "Other Error",
       });
 
-      // More helpful error messages based on error type
-      if (error instanceof TypeError) {
+      // Check if it's an axios error with response data (e.g., area mismatch)
+      if (error?.response?.data) {
+        const errData = error.response.data;
+        if (errData.distanceMismatch && errData.detectedArea && errData.requestedArea) {
+          setLocationError(
+            `The address you entered appears to be in ${errData.detectedArea}, not ${errData.requestedArea}. Please verify and try again.`
+          );
+        } else if (errData.message) {
+          setLocationError(errData.message);
+        } else {
+          setLocationError("Could not validate address. Please try again.");
+        }
+      } else if (error instanceof TypeError) {
         // Network error (fetch failed)
         setLocationError(
           "Location service unavailable. Please check your internet connection and try again."
@@ -1881,7 +1925,7 @@ export default function CheckoutDialog({
                         </div>
                         <div>
                           <Label htmlFor="pincode" className="text-xs text-gray-600">
-                            Pincode
+                            Pincode <span className="text-red-500">*</span>
                           </Label>
                           <Input
                             id="pincode"
@@ -1889,7 +1933,11 @@ export default function CheckoutDialog({
                             onChange={(e) => handleAddressChange('pincode', e.target.value)}
                             placeholder="e.g., 400070"
                             className="text-sm"
+                            required
                           />
+                          {addressPincode && !/^\d{5,6}$/.test(addressPincode) && (
+                            <p className="text-xs text-red-500 mt-0.5">Pincode must be 5-6 digits</p>
+                          )}
                         </div>
                       </div>
 
@@ -1898,6 +1946,35 @@ export default function CheckoutDialog({
                         <p className="font-semibold">Full Address:</p>
                         <p>{address || "(Enter details above)"}</p>
                       </div>
+
+                      {/* Validate Address Button */}
+                      {!addressZoneValidated && (
+                        <Button
+                          type="button"
+                          onClick={handleValidateAddressClick}
+                          disabled={
+                            isGeocodingAddress || 
+                            !addressArea.trim() || 
+                            addressArea.trim().length < 2 ||
+                            !addressPincode.trim() ||
+                            !/^\d{5,6}$/.test(addressPincode)
+                          }
+                          className="w-full"
+                          variant="outline"
+                        >
+                          {isGeocodingAddress ? (
+                            <>
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              Validating Address...
+                            </>
+                          ) : (
+                            <>
+                              <MapPin className="h-4 w-4 mr-2" />
+                              Validate Address
+                            </>
+                          )}
+                        </Button>
+                      )}
                     </div>
 
                     {/* Smart Location Validation Feedback - Zomato Style */}
