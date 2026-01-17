@@ -794,6 +794,7 @@ export type Visitor = typeof visitors.$inferSelect;
 export const deliveryAreas = pgTable("delivery_areas", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull().unique(),
+  pincodes: text("pincodes").array().default(sql`ARRAY[]::text[]`),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),

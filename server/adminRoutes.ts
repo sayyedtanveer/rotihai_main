@@ -3547,7 +3547,7 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  // Update delivery areas (bulk replace)
+  // Update delivery areas (bulk replace) - Now with pincodes support
   app.put("/api/admin/delivery-areas", requireAdmin(), async (req: AuthenticatedAdminRequest, res) => {
     try {
       const { areas } = req.body;
@@ -3557,21 +3557,34 @@ export function registerAdminRoutes(app: Express) {
         return;
       }
 
-      // Validate each area is a string
-      if (!areas.every((area: any) => typeof area === "string" && area.trim().length > 0)) {
-        res.status(400).json({ message: "Each area must be a non-empty string" });
-        return;
+      // Validate and update each area with pincodes
+      for (const area of areas) {
+        if (!area.name || typeof area.name !== "string" || area.name.trim().length === 0) {
+          res.status(400).json({ message: "Each area must have a non-empty name" });
+          return;
+        }
+
+        const pincodes = Array.isArray(area.pincodes) 
+          ? area.pincodes.filter((p: any) => /^\d{5,6}$/.test(String(p).trim()))
+          : [];
+
+        try {
+          if (area.id) {
+            // Update existing area
+            await storage.updateDeliveryArea(area.id, area.name.trim(), pincodes);
+          } else {
+            // Add new area
+            await storage.addDeliveryArea(area.name.trim(), pincodes);
+          }
+        } catch (err) {
+          console.error(`Error updating area ${area.name}:`, err);
+          // Continue with next area
+        }
       }
 
-      const success = await storage.updateDeliveryAreas(areas);
-      if (!success) {
-        res.status(500).json({ message: "Failed to update delivery areas" });
-        return;
-      }
+      const updatedAreas = await storage.getAllDeliveryAreas();
 
-      const updatedAreas = await storage.getDeliveryAreas();
-
-      console.log(`[ADMIN] Updated delivery areas:`, updatedAreas);
+      console.log(`[ADMIN] Updated delivery areas with pincodes:`, updatedAreas);
       res.json({
         message: "Delivery areas updated successfully",
         areas: updatedAreas,

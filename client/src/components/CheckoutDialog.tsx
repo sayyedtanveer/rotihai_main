@@ -201,6 +201,7 @@ export default function CheckoutDialog({
   const [addressInDeliveryZone, setAddressInDeliveryZone] = useState(true);
   const [addressZoneValidated, setAddressZoneValidated] = useState(false);
   const [addressZoneDistance, setAddressZoneDistance] = useState<number>(0);
+  const [isReValidatingPincode, setIsReValidatingPincode] = useState(false);
   const autoGeocodeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Listen to cart changes and clear validation when cart/chef changes
@@ -1029,6 +1030,8 @@ export default function CheckoutDialog({
         break;
       case 'pincode':
         setAddressPincode(value);
+        // 🔥 PINCODE CHANGED: Trigger comprehensive re-validation
+        handlePincodeChange(value);
         break;
     }
 
@@ -1040,6 +1043,181 @@ export default function CheckoutDialog({
     // Clear previous timeout if any
     if (autoGeocodeTimeoutRef.current) {
       clearTimeout(autoGeocodeTimeoutRef.current);
+    }
+  };
+
+  // 🔥 NEW: Comprehensive pincode change handler
+  // Re-validates everything when user changes pincode at checkout
+  const handlePincodeChange = async (newPincode: string) => {
+    console.log("[PINCODE-CHANGE] User changed pincode to:", newPincode);
+
+    // Only proceed if pincode is valid format
+    if (!newPincode || !/^\d{5,6}$/.test(newPincode)) {
+      console.log("[PINCODE-CHANGE] Invalid pincode format, skipping validation");
+      setAddressZoneValidated(false);
+      setLocationError("Pincode must be 5-6 digits");
+      setIsReValidatingPincode(false);
+      return;
+    }
+
+    setIsReValidatingPincode(true);
+
+    // STEP 1: Validate pincode format and existence
+    console.log("[PINCODE-CHANGE] Step 1: Validating pincode format and existence...");
+    try {
+      const pincodeValidationResponse = await api.post("/api/validate-pincode", {
+        pincode: newPincode,
+      }, { timeout: 8000 });
+
+      if (!pincodeValidationResponse.data.success) {
+        console.warn("[PINCODE-CHANGE] ❌ Pincode validation failed:", pincodeValidationResponse.data.message);
+        setLocationError(pincodeValidationResponse.data.message || "Pincode not available in delivery areas");
+        setAddressZoneValidated(false);
+        setIsReValidatingPincode(false);
+        return;
+      }
+
+      const pincodeData = pincodeValidationResponse.data;
+      console.log("[PINCODE-CHANGE] ✅ Pincode validated:", {
+        pincode: newPincode,
+        area: pincodeData.area,
+        latitude: pincodeData.latitude,
+        longitude: pincodeData.longitude,
+      });
+
+      // STEP 2: Check if chef serves this pincode (Layer 2 validation)
+      console.log("[PINCODE-CHANGE] Step 2: Checking if chef serves this pincode...");
+      if (cart?.chefId) {
+        try {
+          const chefResponse = await api.get(`/api/chefs/${cart.chefId}`, { timeout: 5000 });
+          const chefData = chefResponse.data;
+          
+          // Check Layer 2: Chef's service pincodes
+          if (chefData.servicePincodes && Array.isArray(chefData.servicePincodes) && chefData.servicePincodes.length > 0) {
+            const pincodeValid = chefData.servicePincodes.includes(newPincode);
+            console.log("[PINCODE-CHANGE] Chef service pincodes check:", {
+              chefId: chefData.id,
+              chefName: chefData.name,
+              servicePincodes: chefData.servicePincodes,
+              userPincode: newPincode,
+              valid: pincodeValid,
+            });
+
+            if (!pincodeValid) {
+              console.warn("[PINCODE-CHANGE] ❌ Chef does not serve this pincode");
+              setLocationError(
+                `${chefData.name} does not deliver to pincode ${newPincode}. Served pincodes: ${chefData.servicePincodes.join(", ")}`
+              );
+              setAddressZoneValidated(false);
+              setIsReValidatingPincode(false);
+              return;
+            }
+            console.log("[PINCODE-CHANGE] ✅ Chef serves this pincode");
+          }
+        } catch (chefError) {
+          console.warn("[PINCODE-CHANGE] Could not fetch chef details for pincode validation:", chefError);
+          // Don't block, let user proceed with address validation
+        }
+      }
+
+      // STEP 3: Recalculate distance from pincode coordinates
+      console.log("[PINCODE-CHANGE] Step 3: Recalculating distance...");
+      if (cart?.chefId) {
+        try {
+          const chefResponse = await api.get(`/api/chefs/${cart.chefId}`, { timeout: 5000 });
+          const chefData = chefResponse.data;
+          const chefLat = chefData.latitude ?? 19.0728;
+          const chefLon = chefData.longitude ?? 72.8826;
+          const maxDeliveryDistance = chefData.maxDeliveryDistanceKm ?? 5;
+
+          const newDistance = calculateDistance(
+            chefLat,
+            chefLon,
+            pincodeData.latitude,
+            pincodeData.longitude
+          );
+
+          const isInZone = newDistance <= maxDeliveryDistance;
+          console.log("[PINCODE-CHANGE] Distance recalculated:", {
+            distance: newDistance.toFixed(2),
+            maxDistance: maxDeliveryDistance,
+            inZone: isInZone,
+          });
+
+          if (!isInZone) {
+            console.warn("[PINCODE-CHANGE] ❌ Pincode is outside delivery zone");
+            setLocationError(
+              `Pincode ${newPincode} is ${newDistance.toFixed(1)}km away. ${chefData.name} delivers within ${maxDeliveryDistance}km.`
+            );
+            setAddressZoneValidated(false);
+            setAddressInDeliveryZone(false);
+            setAddressZoneDistance(newDistance);
+            setIsReValidatingPincode(false);
+            return;
+          }
+
+          // STEP 4: Recalculate delivery fee
+          console.log("[PINCODE-CHANGE] Step 4: Recalculating delivery fee...");
+          const newDeliveryFee = calculateDynamicDeliveryFee(
+            pincodeData.latitude,
+            pincodeData.longitude,
+            chefLat,
+            chefLon
+          );
+
+          console.log("[PINCODE-CHANGE] ✅ All validations passed!", {
+            pincode: newPincode,
+            area: pincodeData.area,
+            distance: newDistance.toFixed(2),
+            deliveryFee: newDeliveryFee,
+          });
+
+          // Update all state with new validated data
+          setCustomerLatitude(pincodeData.latitude);
+          setCustomerLongitude(pincodeData.longitude);
+          setAddressZoneDistance(newDistance);
+          setAddressInDeliveryZone(true);
+          setAddressZoneValidated(true);
+          setLocationError("");
+
+          // Update Context
+          setDeliveryLocation({
+            isInZone: true,
+            address: `${pincodeData.area}, ${newPincode}`,
+            latitude: pincodeData.latitude,
+            longitude: pincodeData.longitude,
+            distance: newDistance,
+            pincode: newPincode,
+            areaName: pincodeData.area,
+            validatedAt: new Date().toISOString(),
+            source: 'pincode',
+          });
+
+          // Also save structured address fields
+          localStorage.setItem("lastValidatedAddressStructured", JSON.stringify({
+            building: addressBuilding,
+            street: addressStreet,
+            area: pincodeData.area,
+            city: addressCity,
+            pincode: newPincode,
+          }));
+
+          console.log("[PINCODE-CHANGE] ✅ State updated - checkout ready!");
+
+        } catch (error) {
+          console.warn("[PINCODE-CHANGE] Error during re-validation:", error);
+          setLocationError("Could not validate pincode. Please try again.");
+          setAddressZoneValidated(false);
+        }
+      }
+    } catch (error: any) {
+      console.error("[PINCODE-CHANGE] Pincode validation request failed:", error);
+      setLocationError(
+        error?.response?.data?.message || "Could not validate pincode. Please check your internet connection."
+      );
+      setAddressZoneValidated(false);
+    } finally {
+      setIsReValidatingPincode(false);
     }
   };
 
@@ -1936,16 +2114,29 @@ export default function CheckoutDialog({
                           <Label htmlFor="pincode" className="text-xs text-gray-600">
                             Pincode <span className="text-red-500">*</span>
                           </Label>
-                          <Input
-                            id="pincode"
-                            value={addressPincode}
-                            onChange={(e) => handleAddressChange('pincode', e.target.value)}
-                            placeholder="e.g., 400070"
-                            className="text-sm"
-                            required
-                          />
+                          <div className="relative">
+                            <Input
+                              id="pincode"
+                              value={addressPincode}
+                              onChange={(e) => handleAddressChange('pincode', e.target.value)}
+                              placeholder="e.g., 400070"
+                              className={`text-sm ${isReValidatingPincode ? 'border-blue-500 border-2' : ''}`}
+                              required
+                            />
+                            {isReValidatingPincode && (
+                              <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
+                                <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+                              </div>
+                            )}
+                          </div>
                           {addressPincode && !/^\d{5,6}$/.test(addressPincode) && (
                             <p className="text-xs text-red-500 mt-0.5">Pincode must be 5-6 digits</p>
+                          )}
+                          {addressZoneValidated && addressInDeliveryZone && addressPincode && (
+                            <p className="text-xs text-green-600 mt-0.5">✅ Valid pincode for this delivery area</p>
+                          )}
+                          {addressZoneValidated && !addressInDeliveryZone && addressPincode && (
+                            <p className="text-xs text-red-600 mt-0.5">❌ Pincode outside delivery zone</p>
                           )}
                         </div>
                       </div>

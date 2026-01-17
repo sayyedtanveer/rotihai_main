@@ -641,6 +641,8 @@ export class MemStorage implements IStorage {
       defaultDeliveryFee: (data as any).defaultDeliveryFee ?? 20,
       deliveryFeePerKm: (data as any).deliveryFeePerKm ?? 5,
       freeDeliveryThreshold: (data as any).freeDeliveryThreshold ?? 200,
+      servicePincodes: (data as any).servicePincodes || null,
+      maxDeliveryDistanceKm: (data as any).maxDeliveryDistanceKm ?? 5,
     };
     
     await db.insert(chefs).values(chefData as any);
@@ -670,8 +672,9 @@ export class MemStorage implements IStorage {
     if ((data as any).deliveryFeePerKm !== undefined) updateData.deliveryFeePerKm = (data as any).deliveryFeePerKm;
     if ((data as any).freeDeliveryThreshold !== undefined) updateData.freeDeliveryThreshold = (data as any).freeDeliveryThreshold;
     if ((data as any).maxDeliveryDistanceKm !== undefined) updateData.maxDeliveryDistanceKm = (data as any).maxDeliveryDistanceKm;
+    if ((data as any).servicePincodes !== undefined) updateData.servicePincodes = (data as any).servicePincodes;
     
-    console.log("🔥 updateChef() - Received data:", { id, incomingMaxDeliveryDistanceKm: (data as any).maxDeliveryDistanceKm, updateData });
+    console.log("🔥 updateChef() - Received data:", { id, incomingMaxDeliveryDistanceKm: (data as any).maxDeliveryDistanceKm, servicePincodes: (data as any).servicePincodes, updateData });
     
     await db.update(chefs).set(updateData).where(eq(chefs.id, id));
     const chef = await this.getChefById(id);
@@ -2673,18 +2676,41 @@ export class MemStorage implements IStorage {
     }
   }
 
-  async addDeliveryArea(name: string): Promise<DeliveryArea | undefined> {
+  async addDeliveryArea(name: string, pincodes?: string[]): Promise<DeliveryArea | undefined> {
     try {
       const trimmedName = name.trim();
       if (!trimmedName) return undefined;
       
       const result = await db.insert(deliveryAreas)
-        .values({ name: trimmedName, isActive: true })
+        .values({ 
+          name: trimmedName, 
+          isActive: true,
+          pincodes: pincodes && pincodes.length > 0 ? pincodes : []
+        })
         .returning();
-      console.log("[STORAGE] Delivery area added:", trimmedName);
+      console.log("[STORAGE] Delivery area added:", trimmedName, "with pincodes:", pincodes);
       return result[0];
     } catch (error) {
       console.error("[STORAGE] Error adding delivery area:", error);
+      return undefined;
+    }
+  }
+
+  async updateDeliveryArea(id: string, name?: string, pincodes?: string[]): Promise<DeliveryArea | undefined> {
+    try {
+      const updateData: any = {};
+      if (name !== undefined) updateData.name = name.trim();
+      if (pincodes !== undefined) updateData.pincodes = pincodes;
+      
+      const result = await db.update(deliveryAreas)
+        .set(updateData)
+        .where(eq(deliveryAreas.id, id))
+        .returning();
+      
+      console.log("[STORAGE] Delivery area updated:", id, updateData);
+      return result[0];
+    } catch (error) {
+      console.error("[STORAGE] Error updating delivery area:", error);
       return undefined;
     }
   }

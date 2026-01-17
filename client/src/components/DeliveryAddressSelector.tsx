@@ -4,6 +4,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
+import { useToast } from "@/hooks/use-toast";
 
 interface DeliveryAddressSelectorProps {
   isOpen: boolean;
@@ -20,8 +21,10 @@ export function DeliveryAddressSelector({
   const [isValidating, setIsValidating] = useState(false);
   const [error, setError] = useState("");
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [validatedArea, setValidatedArea] = useState("");
+  const { toast } = useToast();
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     setError("");
 
     // Validate pincode format (5-6 digits)
@@ -31,19 +34,46 @@ export function DeliveryAddressSelector({
     }
 
     setIsValidating(true);
-    console.log("[DeliveryAddressSelector] Submitting pincode:", pincode);
+    console.log("[DeliveryAddressSelector] Validating pincode:", pincode);
 
-    // Simulate validation delay
-    setTimeout(() => {
-      setIsValidating(false);
+    try {
+      // Call the API to validate pincode
+      const response = await fetch("/api/validate-pincode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pincode: pincode.trim() }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        setIsValidating(false);
+        setError(data.message || "Pincode validation failed. Please try again.");
+        console.warn("[DeliveryAddressSelector] Validation failed:", data.message);
+        return;
+      }
+
+      // Validation successful!
+      console.log("[DeliveryAddressSelector] ✅ Pincode validated successfully:", {
+        pincode: data.pincode,
+        area: data.area,
+        lat: data.latitude,
+        lon: data.longitude,
+      });
+
+      setValidatedArea(data.area);
       setIsSubmitted(true);
-      console.log("[DeliveryAddressSelector] Pincode accepted:", pincode);
 
       // Auto-proceed after showing success
       setTimeout(() => {
-        onPincodeSubmitted(pincode.trim());
-      }, 500);
-    }, 800);
+        onPincodeSubmitted(data.pincode);
+      }, 1000);
+
+    } catch (error) {
+      setIsValidating(false);
+      console.error("[DeliveryAddressSelector] Error:", error);
+      setError("Could not validate pincode. Please check your internet connection.");
+    }
   };
 
   const handleClose = () => {
@@ -87,11 +117,11 @@ export function DeliveryAddressSelector({
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="w-5 h-5 text-green-500" />
                   <span className="text-sm font-medium text-gray-700">
-                    Location confirmed! ✓
+                    ✓ Delivery Available
                   </span>
                 </div>
                 <p className="text-xs text-gray-600 ml-7">
-                  Loading available restaurants...
+                  Pincode confirmed for {validatedArea}
                 </p>
               </div>
             )}

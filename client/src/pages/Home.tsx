@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
   import { useQuery, useQueryClient } from "@tanstack/react-query";
   import Header from "@/components/Header";
   import Hero from "@/components/Hero";
@@ -211,6 +211,25 @@ import { useState, useEffect } from "react";
       detectLocationAndZone();
     }, [setUserLocation]);
 
+    // Auto-open location permission modal on page load (ONLY if location is actually needed)
+    useEffect(() => {
+      // Don't auto-open if already in delivery zone or if modals are already open
+      if (userInDeliveryZone || isLocationModalOpen || isPincodeModalOpen) {
+        return;
+      }
+      
+      // Don't auto-open if we're still detecting on initial load
+      if (!deliveryZoneDetected) {
+        return;
+      }
+      
+      // Only open if location was actually needed but denied/failed
+      if (deliveryZoneDetected && !userInDeliveryZone && locationPermissionDenied) {
+        console.log("[HOME] Location detection failed, showing modal");
+        setIsLocationModalOpen(true);
+      }
+    }, [deliveryZoneDetected, userInDeliveryZone, locationPermissionDenied, isLocationModalOpen, isPincodeModalOpen]);
+
     const handleCategoryTabChange = (value: string) => {
       setSelectedCategoryTab(value);
       setIsChefListOpen(false);
@@ -306,6 +325,38 @@ import { useState, useEffect } from "react";
       enabled: shouldLoadMenu && (!!userLatitude || !!selectedArea),
     });
 
+    // 🔴 NEW: Filter chefs by pincode if pincode is set from context
+    // This adds an extra layer of validation when user provides pincode
+    const chefsFilteredByPincode = useMemo(() => {
+      if (!deliveryLocation.pincode) {
+        // No pincode filtering needed - return all chefs
+        return chefs;
+      }
+
+      const userPincode = deliveryLocation.pincode;
+      console.log(`[HOME] Filtering ${chefs.length} chefs for pincode: ${userPincode}`);
+      
+      const filtered = chefs.filter(chef => {
+        // If chef has servicePincodes defined, check if pincode matches
+        const servicePincodes = (chef as any).servicePincodes as string[] | null | undefined;
+        
+        if (!servicePincodes || servicePincodes.length === 0) {
+          // Chef has no pincode restrictions - serves all pincodes
+          return true;
+        }
+        
+        // Chef has pincode restrictions - only show if pincode matches
+        const serves = servicePincodes.includes(userPincode);
+        if (!serves) {
+          console.log(`[HOME] ❌ Chef ${(chef as any).name} doesn't serve pincode ${userPincode}`);
+        }
+        return serves;
+      });
+
+      console.log(`[HOME] ✅ After pincode filter: ${filtered.length}/${chefs.length} chefs`);
+      return filtered;
+    }, [chefs, deliveryLocation.pincode]);
+
     const { data: products = [], isLoading: productsLoading } = useQuery<Product[]>({
       queryKey: ["/api/products"],
       enabled: shouldLoadMenu, // Only load if location confirmed
@@ -314,7 +365,7 @@ import { useState, useEffect } from "react";
     // 🔴 FILTER CATEGORIES: Only show categories that have chefs available in selected area
     const filteredCategories = selectedArea 
       ? categories.filter(category => {
-          const chefsInCategory = chefs.filter(chef => chef.categoryId === category.id);
+          const chefsInCategory = chefsFilteredByPincode.filter(chef => chef.categoryId === category.id);
           return chefsInCategory.length > 0;
         })
       : categories;
@@ -325,6 +376,24 @@ import { useState, useEffect } from "react";
 
       // Get chef location if available
       const chef = product.chefId ? chefs.find(c => c.id === product.chefId) : null;
+
+      // 🔴 NEW: Validate chef serves user's pincode
+      if (deliveryLocation.pincode && chef) {
+        const servicePincodes = (chef as any).servicePincodes as string[] | null | undefined;
+        
+        // If chef has pincode restrictions, verify they serve user's pincode
+        if (servicePincodes && servicePincodes.length > 0) {
+          if (!servicePincodes.includes(deliveryLocation.pincode)) {
+            console.log(`[HOME-CART] ❌ Chef ${chef.name} doesn't serve pincode ${deliveryLocation.pincode}`);
+            toast({
+              title: "Not Available",
+              description: `${chef.name} does not deliver to pincode ${deliveryLocation.pincode}`,
+              variant: "destructive"
+            });
+            return; // Don't add to cart
+          }
+        }
+      }
 
       // Calculate discounted price if offer exists
       const discountedPrice = product.offerPercentage && product.offerPercentage > 0
@@ -483,7 +552,7 @@ import { useState, useEffect } from "react";
     const [showOffersOnly, setShowOffersOnly] = useState(false);
 
     // Compute chef data with best offers and menu info
-  const chefsWithOffers = chefs.map(chef => {
+  const chefsWithOffers = chefsFilteredByPincode.map(chef => {
     const chefProducts = products.filter(p => p.chefId === chef.id);
     const bestOffer = chefProducts.reduce((max, p) => Math.max(max, p.offerPercentage || 0), 0);
     const hasVegItems = chefProducts.some(p => p.isVeg);
@@ -651,7 +720,27 @@ import { useState, useEffect } from "react";
     };
 
     const handleLocationGranted = (lat: number, lng: number) => {
+      console.log("[HOME] handleLocationGranted called with:", lat, lng);
+      // Update cart store with location
       setUserLocation(lat, lng);
+      
+      // Check if location is in delivery zone
+      const CHEF_LAT = 19.068604;
+      const CHEF_LNG = 72.87658;
+      const MAX_DELIVERY_DISTANCE = 2.5;
+      const distance = calculateDistance(lat, lng, CHEF_LAT, CHEF_LNG);
+      
+      if (distance <= MAX_DELIVERY_DISTANCE) {
+        console.log("[HOME] ✅ Location is in delivery zone");
+        setUserInDeliveryZone(true);
+        setLocationPermissionDenied(false);
+      } else {
+        console.log("[HOME] ❌ Location is outside delivery zone:", distance, "km");
+        setUserInDeliveryZone(false);
+        setLocationPermissionDenied(true);
+      }
+      
+      setDeliveryZoneDetected(true);
       setIsLocationModalOpen(false);
     };
 
@@ -661,6 +750,14 @@ import { useState, useEffect } from "react";
       console.log("[Home] Pincode submitted:", pincode);
       // Store pincode in delivery location context
       setDeliveryLocation({ pincode, source: "pincode" });
+      
+      // Assume pincode is verified (address selector already validates it)
+      // So we can allow browsing
+      console.log("[HOME] ✅ Pincode verified, allowing browsing");
+      setUserInDeliveryZone(true);
+      setLocationPermissionDenied(false);
+      setDeliveryZoneDetected(true);
+      
       setIsPincodeModalOpen(false);
     };
 
@@ -1437,11 +1534,18 @@ import { useState, useEffect } from "react";
         {/* Location Permission Modal - Zomato Style */}
         <LocationPermissionModal
           isOpen={isLocationModalOpen}
-          onLocationGranted={handleLocationGranted}
+          onLocationGranted={(lat, lng) => {
+            console.log("[HOME] LocationPermissionModal.onLocationGranted triggered");
+            handleLocationGranted(lat, lng);
+          }}
           onClose={() => {
+            console.log("[HOME] LocationPermissionModal.onClose triggered");
             setIsLocationModalOpen(false);
-            // Show pincode modal as fallback if GPS is denied
-            setIsPincodeModalOpen(true);
+            // Delay showing pincode modal to avoid modal stacking
+            setTimeout(() => {
+              console.log("[HOME] Opening pincode modal");
+              setIsPincodeModalOpen(true);
+            }, 300);
           }}
         />
 

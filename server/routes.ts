@@ -4038,6 +4038,168 @@ app.post("/api/orders", async (req: any, res) => {
     }
   });
 
+  // POST /api/validate-pincode - Validate if pincode is in delivery zone
+  // PRIORITY 1: Check against admin-configured pincodes (direct lookup - no API call)
+  // PRIORITY 2: Fallback to geocoding if admin hasn't configured pincodes
+  app.post("/api/validate-pincode", async (req, res) => {
+    try {
+      const { pincode } = req.body;
+
+      if (!pincode || !/^\d{5,6}$/.test(String(pincode).trim())) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid pincode format. Please enter 5-6 digits.",
+        });
+      }
+
+      const pincodeStr = String(pincode).trim();
+      console.log(`[PINCODE-VALIDATION] Validating pincode: ${pincodeStr}`);
+
+      // LAYER 1: Check if pincode is in admin-configured delivery areas
+      const adminAreas = await storage.getAllDeliveryAreas();
+      const activeAreas = adminAreas.filter((area: any) => area.isActive);
+
+      console.log(`[PINCODE-VALIDATION] Checking against ${activeAreas.length} active delivery areas with configured pincodes`);
+
+      // Find which area has this pincode
+      const matchingArea = activeAreas.find((area: any) => {
+        if (!area.pincodes || !Array.isArray(area.pincodes)) return false;
+        return area.pincodes.includes(pincodeStr);
+      });
+
+      if (matchingArea) {
+        console.log(`✅ [PINCODE-VALIDATION] Pincode ${pincodeStr} found in delivery area: ${matchingArea.name}`);
+        // Fetch coordinates for this area for distance-based filtering on frontend
+        // Use area center or admin-provided coordinates
+        return res.json({
+          success: true,
+          pincode: pincodeStr,
+          area: matchingArea.name,
+          areaId: matchingArea.id,
+          message: `Delivery available in ${matchingArea.name}`,
+          // Return approximate center coordinates for the area (can be enhanced with area geometry)
+          latitude: 19.0728, // Default Mumbai center, can be customized per area
+          longitude: 72.8826,
+        });
+      }
+
+      console.log(`[PINCODE-VALIDATION] Pincode ${pincodeStr} not found in admin-configured pincodes, falling back to geocoding...`);
+
+      // LAYER 2: Fallback to geocoding if admin hasn't configured this pincode
+      const query = `${pincodeStr}, Mumbai, India`;
+      
+      try {
+        const response = await axios.get("https://nominatim.openstreetmap.org/search", {
+          params: {
+            q: query,
+            format: "json",
+            limit: 1,
+            timeout: 10,
+          },
+          timeout: 10000,
+        });
+
+        if (!response.data || response.data.length === 0) {
+          console.warn(`[PINCODE-VALIDATION] Pincode not found in admin config or geocoding: ${pincodeStr}`);
+          return res.status(404).json({
+            success: false,
+            message: "Pincode not configured. Please enter a pincode in our delivery areas.",
+          });
+        }
+
+        const result = response.data[0];
+        const latitude = parseFloat(result.lat);
+        const longitude = parseFloat(result.lon);
+        const formattedAddress = result.display_name || "";
+
+        console.log(`[PINCODE-VALIDATION] Geocoded pincode ${pincodeStr} to:`, {
+          lat: latitude,
+          lon: longitude,
+          address: formattedAddress,
+        });
+
+        // Extract area from formatted address
+        const addressParts = formattedAddress.split(",").map((p: string) => p.trim().toLowerCase());
+        const mentionedAreas = addressParts.filter((part: string) =>
+          part.length > 0 && part !== "india" && part !== "mumbai" && !part.match(/^\d+$/)
+        );
+
+        console.log(`[PINCODE-VALIDATION] Extracted areas from address:`, mentionedAreas);
+
+        // Known area centers for validation
+        const areaCoordinates: Record<string, { lat: number; lon: number; name: string }> = {
+          "kurla": { lat: 19.0686, lon: 72.8817, name: "Kurla" },
+          "kurla west": { lat: 19.0728, lon: 72.8826, name: "Kurla West" },
+          "kurla east": { lat: 19.0644, lon: 72.8877, name: "Kurla East" },
+          "worli": { lat: 19.0176, lon: 72.8194, name: "Worli" },
+          "bandra": { lat: 19.0596, lon: 72.8295, name: "Bandra" },
+          "andheri": { lat: 19.1136, lon: 72.8697, name: "Andheri" },
+          "dadar": { lat: 19.0176, lon: 72.8388, name: "Dadar" },
+        };
+
+        // Calculate distance from geocoded point to each known area
+        const calculateDist = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+          const R = 6371;
+          const dLat = ((lat2 - lat1) * Math.PI) / 180;
+          const dLon = ((lon2 - lon1) * Math.PI) / 180;
+          const a = Math.sin(dLat / 2) ** 2 + Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+          const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+          return R * c;
+        };
+
+        // Find which area the geocoded coordinates belong to
+        const areaDistances = Object.entries(areaCoordinates)
+          .map(([key, val]) => ({
+            area: key,
+            name: val.name,
+            distance: calculateDist(latitude, longitude, val.lat, val.lon),
+          }))
+          .sort((a, b) => a.distance - b.distance);
+        
+        const closestArea = areaDistances[0];
+        const adminAreaNames = activeAreas.map((area: any) => area.name.toLowerCase());
+
+        // Check if closest area is in admin's approved delivery areas
+        const isInDeliveryZone = adminAreaNames.some((adminArea: string) =>
+          closestArea.area.includes(adminArea) || adminArea.includes(closestArea.area)
+        );
+
+        if (!isInDeliveryZone) {
+          console.warn(`[PINCODE-VALIDATION] ❌ Pincode ${pincodeStr} is outside delivery zone. Closest area: ${closestArea.name}`);
+          return res.status(403).json({
+            success: false,
+            message: `Sorry, we don't deliver to ${closestArea.name} yet. We currently deliver to: ${adminAreaNames.join(", ") || "Kurla West"}`,
+          });
+        }
+
+        console.log(`[PINCODE-VALIDATION] ✅ Pincode ${pincodeStr} is in delivery zone (via geocoding): ${closestArea.name}`);
+        return res.json({
+          success: true,
+          pincode: pincodeStr,
+          area: closestArea.name,
+          latitude,
+          longitude,
+          formattedAddress,
+          source: "geocoding",
+        });
+
+      } catch (geocodeError: any) {
+        console.error(`[PINCODE-VALIDATION] Geocoding error:`, geocodeError.message);
+        return res.status(500).json({
+          success: false,
+          message: "Could not validate pincode. Please try again.",
+        });
+      }
+
+    } catch (error: any) {
+      console.error("[PINCODE-VALIDATION] Error:", error.message);
+      res.status(500).json({
+        success: false,
+        message: "Validation failed. Please try again.",
+      });
+    }
+  });
+
   // POST /api/calculate-delivery-fee - Calculate delivery fee based on location and order amount
   app.post("/api/calculate-delivery-fee", async (req, res) => {
     try {

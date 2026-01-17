@@ -13,6 +13,9 @@ export interface DeliveryLocation {
   // Pincode (for early validation on Home page)
   pincode: string | null;
 
+  // Area Information
+  areaName: string | null; // Delivery area name (e.g., "Kurla West")
+
   // Validated Address
   address: string | null;
   isInZone: boolean;
@@ -62,6 +65,7 @@ export function DeliveryLocationProvider({ children }: { children: ReactNode }) 
             latitude: parsed.latitude || null,
             longitude: parsed.longitude || null,
             pincode: parsed.pincode || null,
+            areaName: parsed.areaName || null,
             address: parsed.address || null,
             isInZone: parsed.isInZone || false,
             distance: parsed.distance || null,
@@ -80,6 +84,7 @@ export function DeliveryLocationProvider({ children }: { children: ReactNode }) 
       latitude: null,
       longitude: null,
       pincode: null,
+      areaName: null,
       address: null,
       isInZone: false,
       distance: null,
@@ -145,6 +150,7 @@ export function DeliveryLocationProvider({ children }: { children: ReactNode }) 
       latitude: null,
       longitude: null,
       pincode: null,
+      areaName: null,
       address: null,
       isInZone: false,
       distance: null,
