@@ -749,6 +749,9 @@ import { useState, useEffect, useMemo } from "react";
     const handlePincodeSubmitted = (pincode: string, latitude: number, longitude: number) => {
       console.log("[Home] Pincode submitted:", pincode, "Coordinates:", latitude, longitude);
       
+      // CRITICAL: Close location permission modal if it's still open
+      setIsLocationModalOpen(false);
+      
       // Store pincode and coordinates in delivery location context
       setDeliveryLocation({ 
         pincode, 
@@ -769,6 +772,7 @@ import { useState, useEffect, useMemo } from "react";
       setLocationPermissionDenied(false);
       setDeliveryZoneDetected(true);
       
+      // Close pincode modal
       setIsPincodeModalOpen(false);
     };
 
