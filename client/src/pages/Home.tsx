@@ -746,14 +746,25 @@ import { useState, useEffect, useMemo } from "react";
 
     const { setDeliveryLocation } = useDeliveryLocation();
 
-    const handlePincodeSubmitted = (pincode: string) => {
-      console.log("[Home] Pincode submitted:", pincode);
-      // Store pincode in delivery location context
-      setDeliveryLocation({ pincode, source: "pincode" });
+    const handlePincodeSubmitted = (pincode: string, latitude: number, longitude: number) => {
+      console.log("[Home] Pincode submitted:", pincode, "Coordinates:", latitude, longitude);
+      
+      // Store pincode and coordinates in delivery location context
+      setDeliveryLocation({ 
+        pincode, 
+        latitude,
+        longitude,
+        source: "pincode" 
+      });
+      
+      // Store coordinates in localStorage for Hero component access
+      localStorage.setItem('userLatitude', latitude.toString());
+      localStorage.setItem('userLongitude', longitude.toString());
+      localStorage.setItem('userPincode', pincode);
       
       // Assume pincode is verified (address selector already validates it)
       // So we can allow browsing
-      console.log("[HOME] ✅ Pincode verified, allowing browsing");
+      console.log("[HOME] ✅ Pincode verified with coordinates, allowing browsing");
       setUserInDeliveryZone(true);
       setLocationPermissionDenied(false);
       setDeliveryZoneDetected(true);

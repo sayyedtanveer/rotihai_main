@@ -8,7 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 
 interface DeliveryAddressSelectorProps {
   isOpen: boolean;
-  onPincodeSubmitted: (pincode: string) => void;
+  onPincodeSubmitted: (pincode: string, latitude: number, longitude: number) => void;
   onClose?: () => void;
 }
 
@@ -66,7 +66,12 @@ export function DeliveryAddressSelector({
 
       // Auto-proceed after showing success
       setTimeout(() => {
-        onPincodeSubmitted(data.pincode);
+        onPincodeSubmitted(data.pincode, data.latitude, data.longitude);
+        // Close the modal immediately after submitting
+        setPincode("");
+        setError("");
+        setIsSubmitted(false);
+        onClose?.();
       }, 1000);
 
     } catch (error) {
@@ -77,7 +82,7 @@ export function DeliveryAddressSelector({
   };
 
   const handleClose = () => {
-    if (!isValidating && !isSubmitted) {
+    if (!isValidating) {
       setPincode("");
       setError("");
       setIsSubmitted(false);
