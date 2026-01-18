@@ -37,6 +37,7 @@ import { Loader2, Clock, MapPin } from "lucide-react";
 import { getDeliveryMessage, calculateDistance } from "@/lib/locationUtils";
 import api from "@/lib/apiClient";
 import { useDeliveryLocation, getAreaSuggestions } from "@/contexts/DeliveryLocationContext";
+import { getStoredPincodeValidation } from "@/lib/pincodeUtils";
 
 // Hook to check for mobile viewport
 function useIsMobile() {
@@ -253,6 +254,38 @@ export default function CheckoutDialog({
       }
     };
   }, [addressPincode, addressArea, isOpen, cart?.chefId]);
+
+  // ============================================
+  // AUTO-SYNC STORED PINCODE FROM HERO
+  // When dialog opens, auto-populate from localStorage if available
+  // This syncs the validated pincode from Hero to Checkout seamlessly
+  // ============================================
+  useEffect(() => {
+    if (!isOpen || !cart?.chefId) {
+      return;
+    }
+
+    // Only auto-fill if user hasn't already entered a pincode
+    if (addressPincode) {
+      console.log("[AUTO-SYNC-PINCODE] User already has pincode entered, skipping auto-sync");
+      return;
+    }
+
+    const storedPincode = getStoredPincodeValidation();
+    if (storedPincode) {
+      console.log("[AUTO-SYNC-PINCODE] Found stored pincode from Hero, auto-syncing:", storedPincode.pincode);
+      
+      // Pre-fill all fields from stored validation
+      setAddressPincode(storedPincode.pincode);
+      setAddressArea(storedPincode.area);
+      setCustomerLatitude(storedPincode.latitude);
+      setCustomerLongitude(storedPincode.longitude);
+      setAddressZoneValidated(true);
+      setAddressInDeliveryZone(true);
+      
+      console.log("[AUTO-SYNC-PINCODE] ✅ Pre-filled checkout form with stored pincode");
+    }
+  }, [isOpen, cart?.chefId, addressPincode]);
 
   // Area suggestions for autocomplete
   const [areaSuggestions, setAreaSuggestions] = useState<string[]>([]);

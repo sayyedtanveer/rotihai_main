@@ -44,5 +44,6 @@ export const {
   deliveryTimeSlots,
   rotiSettings,
   visitors,
-  deliveryAreas
+  deliveryAreas,
+  adminSettings
 } = schema;

@@ -795,6 +795,8 @@ export const deliveryAreas = pgTable("delivery_areas", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull().unique(),
   pincodes: text("pincodes").array().default(sql`ARRAY[]::text[]`),
+  latitude: real("latitude"),
+  longitude: real("longitude"),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -808,3 +810,22 @@ export const insertDeliveryAreasSchema = createInsertSchema(deliveryAreas).omit(
 
 export type InsertDeliveryArea = z.infer<typeof insertDeliveryAreasSchema>;
 export type DeliveryArea = typeof deliveryAreas.$inferSelect;
+
+// Admin Settings table - stores key-value admin configurations
+export const adminSettings = pgTable("admin_settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  key: varchar("key", { length: 255 }).notNull().unique(),
+  value: text("value").notNull(),
+  description: text("description"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertAdminSettingsSchema = createInsertSchema(adminSettings).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertAdminSettings = z.infer<typeof insertAdminSettingsSchema>;
+export type AdminSettings = typeof adminSettings.$inferSelect;
