@@ -216,6 +216,44 @@ export default function CheckoutDialog({
     }
   }, [cart?.chefId]);
 
+  // ============================================
+  // AUTO-VALIDATION ON DEBOUNCE (Zomato/Swiggy Style)
+  // Remove manual button - validate automatically when user stops typing
+  // ============================================
+  useEffect(() => {
+    // Only auto-validate if we have required fields and dialog is open
+    if (!isOpen || !cart?.chefId) {
+      return;
+    }
+
+    // Check if we have complete address to validate
+    const hasPincode = addressPincode && /^\d{5,6}$/.test(addressPincode);
+    const hasArea = addressArea.trim().length >= 2;
+
+    // If either is missing or invalid, don't attempt validation
+    if (!hasPincode || !hasArea) {
+      return;
+    }
+
+    // Clear any existing timeout
+    if (autoGeocodeTimeoutRef.current) {
+      clearTimeout(autoGeocodeTimeoutRef.current);
+    }
+
+    // Set new debounce timer
+    console.log("[AUTO-VALIDATE] Debounce triggered for:", { addressPincode, addressArea });
+    autoGeocodeTimeoutRef.current = setTimeout(() => {
+      console.log("[AUTO-VALIDATE] Debounce fired - starting auto-validation");
+      handlePincodeChange(addressPincode);
+    }, 600); // 600ms debounce
+
+    return () => {
+      if (autoGeocodeTimeoutRef.current) {
+        clearTimeout(autoGeocodeTimeoutRef.current);
+      }
+    };
+  }, [addressPincode, addressArea, isOpen, cart?.chefId]);
+
   // Area suggestions for autocomplete
   const [areaSuggestions, setAreaSuggestions] = useState<string[]>([]);
   const [showAreaSuggestions, setShowAreaSuggestions] = useState(false);
@@ -2147,33 +2185,12 @@ export default function CheckoutDialog({
                         <p>{address || "(Enter details above)"}</p>
                       </div>
 
-                      {/* Validate Address Button */}
-                      {!addressZoneValidated && (
-                        <Button
-                          type="button"
-                          onClick={handleValidateAddressClick}
-                          disabled={
-                            isGeocodingAddress || 
-                            !addressArea.trim() || 
-                            addressArea.trim().length < 2 ||
-                            !addressPincode.trim() ||
-                            !/^\d{5,6}$/.test(addressPincode)
-                          }
-                          className="w-full"
-                          variant="outline"
-                        >
-                          {isGeocodingAddress ? (
-                            <>
-                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                              Validating Address...
-                            </>
-                          ) : (
-                            <>
-                              <MapPin className="h-4 w-4 mr-2" />
-                              Validate Address
-                            </>
-                          )}
-                        </Button>
+                      {/* Auto-Validation Status - Shows automatically while validating */}
+                      {(isGeocodingAddress || isReValidatingPincode) && (
+                        <div className="w-full flex items-center justify-center gap-2 py-2 text-sm text-blue-600 dark:text-blue-400">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          <span>Validating address...</span>
+                        </div>
                       )}
                     </div>
 

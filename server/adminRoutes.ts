@@ -3497,7 +3497,7 @@ export function registerAdminRoutes(app: Express) {
   // Get all configured delivery areas (used by frontend for suggestions)
   app.get("/api/admin/delivery-areas", async (req, res) => {
     try {
-      const areas = await storage.getDeliveryAreas();
+      const areas = await storage.getAllDeliveryAreas();
       res.json({ areas });
     } catch (error) {
       console.error("Error fetching delivery areas:", error);

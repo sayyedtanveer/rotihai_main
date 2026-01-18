@@ -47,8 +47,13 @@ export const getDeliveryAreas = async (): Promise<string[]> => {
     // Try to fetch from admin API
     const response = await api.get("/api/admin/delivery-areas", { timeout: 5000 });
     if (response.data?.areas && Array.isArray(response.data.areas) && response.data.areas.length > 0) {
-      const areas = response.data.areas;
-      console.log("[DELIVERY-AREAS] Loaded from API:", areas);
+      const rawAreas = response.data.areas;
+      console.log("[DELIVERY-AREAS] Loaded from API:", rawAreas);
+      
+      // Extract just the area names (API returns full objects now with pincodes)
+      const areas = rawAreas.map((area: any) => 
+        typeof area === 'string' ? area : area.name
+      );
       
       // Cache in memory
       dynamicAreasCache = areas;
