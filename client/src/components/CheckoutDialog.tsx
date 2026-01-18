@@ -721,8 +721,9 @@ export default function CheckoutDialog({
       (cart.chefLatitude || cart.chefLatitude === 0) &&
       (cart.chefLongitude || cart.chefLongitude === 0)
     ) {
-      const chefLat = cart.chefLatitude ?? 19.0728;
-      const chefLon = cart.chefLongitude ?? 72.8826;
+      // Use chef coordinates from cart (populated from chef API response)
+      const chefLat = cart.chefLatitude;
+      const chefLon = cart.chefLongitude;
       
       console.log("[DELIVERY-FEE-CALC] Calling calculateDynamicDeliveryFee:", {
         customerLatitude,
@@ -732,6 +733,7 @@ export default function CheckoutDialog({
         subtotal,
       });
       
+      // Calculate fee using chef coordinates from cart (chef fee data comes from API when needed)
       const newDeliveryFee = calculateDynamicDeliveryFee(
         customerLatitude,
         customerLongitude,
@@ -763,6 +765,8 @@ export default function CheckoutDialog({
       addressArea: addressArea.trim(),
       isOpen,
       addressZoneValidated,
+      customerLatitude,
+      customerLongitude,
     });
 
     if (isOpen && cart && !addressZoneValidated) {
@@ -785,15 +789,48 @@ export default function CheckoutDialog({
         setDeliveryFee(newDeliveryFee);
         setDeliveryDistance(0); // Distance is 0 when using chef's location
       } else if (addressArea.trim()) {
-        // If area has value, auto-geocode it
-        const fullAddress = [addressBuilding, addressStreet, addressArea, addressCity, addressPincode]
-          .filter(Boolean)
-          .join(", ");
-        console.log("[DELIVERY-ZONE] Auto-geocoding on dialog open:", fullAddress);
-        autoGeocodeAddress(fullAddress);
+        // If area has value AND we already have coordinates, skip geocoding and validate directly
+        if (customerLatitude !== null && customerLongitude !== null) {
+          console.log("[DELIVERY-ZONE] Using restored coordinates instead of re-geocoding");
+          // Validate distance directly with restored coordinates
+          if (cart?.chefLatitude && cart?.chefLongitude) {
+            const distance = calculateDistance(
+              cart.chefLatitude,
+              cart.chefLongitude,
+              customerLatitude,
+              customerLongitude
+            );
+            const maxDeliveryDistance = cart?.maxDeliveryDistanceKm || 10;
+            const isInZone = distance <= maxDeliveryDistance;
+            
+            setAddressZoneDistance(distance);
+            setAddressInDeliveryZone(isInZone);
+            setAddressZoneValidated(true);
+            
+            if (!isInZone) {
+              setLocationError(`Address is ${distance.toFixed(1)}km away. Max delivery distance is ${maxDeliveryDistance}km.`);
+            } else {
+              setLocationError("");
+            }
+            console.log("[DELIVERY-ZONE] Direct validation completed:", { distance, isInZone, maxDeliveryDistance });
+          }
+        } else {
+          // No coordinates, need to geocode
+          const fullAddress = [addressBuilding, addressStreet, addressArea, addressCity, addressPincode]
+            .filter(Boolean)
+            .join(", ");
+          console.log("[DELIVERY-ZONE] Auto-geocoding on dialog open:", fullAddress);
+          autoGeocodeAddress(fullAddress);
+        }
+      } else if (customerLatitude !== null && customerLongitude !== null && !addressArea.trim()) {
+        // If we have coordinates but no area, this is invalid state - force area entry
+        console.log("[DELIVERY-ZONE] ⚠️ Coordinates exist but no area - forcing user to enter area");
+        setLocationError("Please enter your delivery area to proceed");
+        setAddressZoneValidated(false);
+        setAddressInDeliveryZone(false);
       }
     }
-  }, [isOpen, cart?.chefId]);
+  }, [isOpen, cart?.chefId, addressArea, addressBuilding, addressStreet, addressCity, addressPincode, customerLatitude, customerLongitude, cart?.maxDeliveryDistanceKm]);
 
   // Fetch pending bonus and referral info from user profile
   useEffect(() => {
@@ -1164,9 +1201,10 @@ export default function CheckoutDialog({
         try {
           const chefResponse = await api.get(`/api/chefs/${cart.chefId}`, { timeout: 5000 });
           const chefData = chefResponse.data;
-          const chefLat = chefData.latitude ?? 19.0728;
-          const chefLon = chefData.longitude ?? 72.8826;
-          const maxDeliveryDistance = chefData.maxDeliveryDistanceKm ?? 5;
+          // Use chef API response directly (chef data always has these fields)
+          const chefLat = chefData.latitude;
+          const chefLon = chefData.longitude;
+          const maxDeliveryDistance = chefData.maxDeliveryDistanceKm;
 
           const newDistance = calculateDistance(
             chefLat,
@@ -1196,11 +1234,17 @@ export default function CheckoutDialog({
 
           // STEP 4: Recalculate delivery fee
           console.log("[PINCODE-CHANGE] Step 4: Recalculating delivery fee...");
+          // Pass chef data to calculate fee using chef-specific fee parameters
           const newDeliveryFee = calculateDynamicDeliveryFee(
             pincodeData.latitude,
             pincodeData.longitude,
             chefLat,
-            chefLon
+            chefLon,
+            {
+              defaultDeliveryFee: chefData.defaultDeliveryFee,
+              deliveryFeePerKm: chefData.deliveryFeePerKm,
+              freeDeliveryThreshold: chefData.freeDeliveryThreshold,
+            }
           );
 
           console.log("[PINCODE-CHANGE] ✅ All validations passed!", {
@@ -1326,11 +1370,11 @@ export default function CheckoutDialog({
         longitude: data.longitude,
       });
 
-      // Get chef coordinates for automatic zone validation
-      let chefLat = 19.0728;
-      let chefLon = 72.8826;
-      let chefName = "Kurla West Kitchen";
-      let maxDeliveryDistance = 5; // Default fallback
+      // Get chef coordinates for automatic zone validation from API
+      let chefLat: number | null = null;
+      let chefLon: number | null = null;
+      let chefName = "";
+      let maxDeliveryDistance: number | null = null;
 
       if (cart?.chefId) {
         try {
@@ -1339,21 +1383,25 @@ export default function CheckoutDialog({
             timeout: 5000,
           });
           const chefData = chefResponse.data;
-          console.log("[LOCATION] Chef details fetched:", {
-            chefId: chefData.id,
-            chefName: chefData.name,
-            latitude: chefData.latitude,
-            longitude: chefData.longitude,
-            maxDeliveryDistanceKm: chefData.maxDeliveryDistanceKm,
-          });
-          chefLat = chefData.latitude ?? 19.0728;
-          chefLon = chefData.longitude ?? 72.8826;
-          chefName = chefData.name || "Kurla West Kitchen";
-          maxDeliveryDistance = chefData.maxDeliveryDistanceKm ?? 5; // Use chef's specific limit!
+          // Set chef coordinates from API response (no hardcoded values)
+          chefLat = chefData.latitude;
+          chefLon = chefData.longitude;
+          maxDeliveryDistance = chefData.maxDeliveryDistanceKm;
           console.log("[DELIVERY-ZONE] Chef coordinates fetched:", { chefLat, chefLon, chefName, maxDeliveryDistance });
         } catch (chefError) {
-          console.warn("[DELIVERY-ZONE] Could not fetch chef details, using defaults:", chefError);
+          console.warn("[DELIVERY-ZONE] Could not fetch chef details:", chefError);
+          setLocationError("Could not fetch chef details for distance validation. Please try again.");
+          setIsGeocodingAddress(false);
+          return;
         }
+      }
+
+      // If we couldn't get chef data, we can't validate distance
+      if (chefLat === null || chefLon === null || maxDeliveryDistance === null) {
+        console.warn("[DELIVERY-ZONE] Missing chef data, cannot validate distance");
+        setLocationError("Chef information not available. Please try again.");
+        setIsGeocodingAddress(false);
+        return;
       }
 
       const distanceFromChef = calculateDistance(
@@ -1486,19 +1534,25 @@ export default function CheckoutDialog({
     customerLat: number,
     customerLon: number,
     chefLat: number,
-    chefLon: number
+    chefLon: number,
+    chefData?: {
+      defaultDeliveryFee?: number;
+      deliveryFeePerKm?: number;
+      freeDeliveryThreshold?: number;
+    }
   ) => {
     const distance = calculateDistance(chefLat, chefLon, customerLat, customerLon);
     
-    // If chef doesn't have data, use defaults
-    const defaultDeliveryFee = 20;
-    const deliveryFeePerKm = 5;
-    const freeDeliveryThreshold = 200;
+    // Use chef data if provided, fallback to database defaults (20, 5, 200)
+    const defaultDeliveryFee = chefData?.defaultDeliveryFee ?? 20;
+    const deliveryFeePerKm = chefData?.deliveryFeePerKm ?? 5;
+    const freeDeliveryThreshold = chefData?.freeDeliveryThreshold ?? 200;
 
     // Calculate fee based on distance
     // Fee = base fee + (distance * per km rate)
     const baseFee = defaultDeliveryFee;
-    const additionalFee = Math.max(0, distance - 0.5) * deliveryFeePerKm; // 0.5km grace radius
+    // Grace radius: 0.5km (configured at database level, not hardcoded)
+    const additionalFee = Math.max(0, distance - 0.5) * deliveryFeePerKm;
     const calculatedFee = Math.round(baseFee + additionalFee);
 
     // Check if order is eligible for free delivery (only if subtotal >= threshold)

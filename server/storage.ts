@@ -1,9 +1,9 @@
-import { type Category, type InsertCategory, type Product, type InsertProduct, type Order, type InsertOrder, type User, type UpsertUser, type Chef, type AdminUser, type InsertAdminUser, type PartnerUser, type Subscription, type SubscriptionPlan, type DeliverySetting, type InsertDeliverySetting, type CartSetting, type InsertCartSetting, type DeliveryPersonnel, type InsertDeliveryPersonnel, type WalletTransaction, type ReferralReward, type PromotionalBanner, type InsertPromotionalBanner, type SubscriptionDeliveryLog, type InsertSubscriptionDeliveryLog, type DeliveryTimeSlot, type InsertDeliveryTimeSlot, type Coupon, type RotiSettings, type InsertRotiSettings, type Visitor, type DeliveryArea, type InsertDeliveryArea } from "@shared/schema";
+import { type Category, type InsertCategory, type Product, type InsertProduct, type Order, type InsertOrder, type User, type UpsertUser, type Chef, type AdminUser, type InsertAdminUser, type PartnerUser, type Subscription, type SubscriptionPlan, type DeliverySetting, type InsertDeliverySetting, type CartSetting, type InsertCartSetting, type DeliveryPersonnel, type InsertDeliveryPersonnel, type WalletTransaction, type ReferralReward, type PromotionalBanner, type InsertPromotionalBanner, type SubscriptionDeliveryLog, type InsertSubscriptionDeliveryLog, type DeliveryTimeSlot, type InsertDeliveryTimeSlot, type Coupon, type RotiSettings, type InsertRotiSettings, type Visitor, type DeliveryArea, type InsertDeliveryArea, type AdminSettings } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { nanoid } from "nanoid";
 import { eq, and, gte, lte, desc, asc, or, isNull, sql, count, lt } from "drizzle-orm";
 import { db, users, categories, products, orders, chefs, adminUsers, partnerUsers, subscriptions,
-  subscriptionPlans, subscriptionDeliveryLogs, deliverySettings, cartSettings, deliveryPersonnel, coupons, couponUsages, referrals, walletTransactions, referralRewards, promotionalBanners, deliveryTimeSlots, rotiSettings, visitors, deliveryAreas } from "@shared/db";
+  subscriptionPlans, subscriptionDeliveryLogs, deliverySettings, cartSettings, deliveryPersonnel, coupons, couponUsages, referrals, walletTransactions, referralRewards, promotionalBanners, deliveryTimeSlots, rotiSettings, visitors, deliveryAreas, adminSettings } from "@shared/db";
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
@@ -238,6 +238,12 @@ export interface IStorage {
   updateDeliveryAreas(areas: string[]): Promise<boolean>;
   deleteDeliveryArea(id: string): Promise<boolean>;
   toggleDeliveryAreaStatus(id: string, isActive: boolean): Promise<DeliveryArea | undefined>;
+
+  // Admin Settings methods
+  getAdminSetting(key: string): Promise<string | undefined>;
+  setAdminSetting(key: string, value: string, description?: string): Promise<void>;
+  getDefaultCoordinates(): Promise<{ latitude: number; longitude: number }>;
+  setDefaultCoordinates(latitude: number, longitude: number): Promise<void>;
 }
 
 /**
@@ -2762,6 +2768,66 @@ export class MemStorage implements IStorage {
     } catch (error) {
       console.error("[STORAGE] Error toggling delivery area status:", error);
       return undefined;
+    }
+  }
+
+  // Admin Settings methods
+  async getAdminSetting(key: string): Promise<string | undefined> {
+    try {
+      const result = await db.select().from(adminSettings).where(eq(adminSettings.key, key)).limit(1);
+      return result[0]?.value;
+    } catch (error) {
+      console.error("[STORAGE] Error getting admin setting:", key, error);
+      return undefined;
+    }
+  }
+
+  async setAdminSetting(key: string, value: string, description?: string): Promise<void> {
+    try {
+      // Try to update first
+      const updated = await db.update(adminSettings)
+        .set({ value, description: description || null, updatedAt: new Date() })
+        .where(eq(adminSettings.key, key))
+        .returning();
+      
+      // If no existing setting, insert new one
+      if (updated.length === 0) {
+        await db.insert(adminSettings).values({
+          id: randomUUID(),
+          key,
+          value,
+          description: description || null,
+        });
+      }
+      console.log("[STORAGE] Admin setting saved:", key, "=", value);
+    } catch (error) {
+      console.error("[STORAGE] Error setting admin setting:", key, error);
+    }
+  }
+
+  async getDefaultCoordinates(): Promise<{ latitude: number; longitude: number }> {
+    try {
+      const lat = await this.getAdminSetting("default_latitude");
+      const lon = await this.getAdminSetting("default_longitude");
+      
+      return {
+        latitude: parseFloat(lat || "19.0728"),
+        longitude: parseFloat(lon || "72.8826"),
+      };
+    } catch (error) {
+      console.error("[STORAGE] Error getting default coordinates:", error);
+      // Fallback to Mumbai center
+      return { latitude: 19.0728, longitude: 72.8826 };
+    }
+  }
+
+  async setDefaultCoordinates(latitude: number, longitude: number): Promise<void> {
+    try {
+      await this.setAdminSetting("default_latitude", String(latitude), "Default latitude for new areas and chefs");
+      await this.setAdminSetting("default_longitude", String(longitude), "Default longitude for new areas and chefs");
+      console.log("[STORAGE] Default coordinates updated:", { latitude, longitude });
+    } catch (error) {
+      console.error("[STORAGE] Error setting default coordinates:", error);
     }
   }
 

@@ -9,6 +9,8 @@ interface DeliveryArea {
   id: string;
   name: string;
   pincodes: string[];
+  latitude: number;
+  longitude: number;
   isActive: boolean;
 }
 
@@ -20,17 +22,38 @@ export const DeliveryAreasManagement: React.FC<DeliveryAreasManagementProps> = (
   const [areas, setAreas] = useState<DeliveryArea[]>([]);
   const [newAreaName, setNewAreaName] = useState('');
   const [newAreaPincodes, setNewAreaPincodes] = useState('');
+  const [newAreaLat, setNewAreaLat] = useState('19.0728');
+  const [newAreaLon, setNewAreaLon] = useState('72.8826');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [expandedArea, setExpandedArea] = useState<string | null>(null);
   const [editingPincodes, setEditingPincodes] = useState<Record<string, string>>({});
+  const [showSettings, setShowSettings] = useState(false);
+  const [defaultLat, setDefaultLat] = useState('19.0728');
+  const [defaultLon, setDefaultLon] = useState('72.8826');
 
-  // Fetch current delivery areas
+  // Fetch current delivery areas and default coordinates
   useEffect(() => {
     fetchAreas();
+    fetchDefaultCoordinates();
   }, []);
+
+  const fetchDefaultCoordinates = async () => {
+    try {
+      const response = await api.get('/api/admin/default-coordinates');
+      if (response.data?.latitude && response.data?.longitude) {
+        setDefaultLat(String(response.data.latitude));
+        setDefaultLon(String(response.data.longitude));
+        setNewAreaLat(String(response.data.latitude));
+        setNewAreaLon(String(response.data.longitude));
+      }
+    } catch (err) {
+      console.error('Error fetching default coordinates:', err);
+      // Use fallback defaults
+    }
+  };
 
   const fetchAreas = async () => {
     try {
@@ -70,12 +93,16 @@ export const DeliveryAreasManagement: React.FC<DeliveryAreasManagementProps> = (
       id: Date.now().toString(),
       name: trimmedName,
       pincodes,
+      latitude: parseFloat(newAreaLat) || 19.0728,
+      longitude: parseFloat(newAreaLon) || 72.8826,
       isActive: true,
     };
 
     setAreas([...areas, newArea]);
     setNewAreaName('');
     setNewAreaPincodes('');
+    setNewAreaLat(defaultLat);
+    setNewAreaLon(defaultLon);
     setError(null);
     setSuccess(`Added "${trimmedName}" with ${pincodes.length} pincodes`);
     setTimeout(() => setSuccess(null), 2000);
@@ -101,6 +128,25 @@ export const DeliveryAreasManagement: React.FC<DeliveryAreasManagementProps> = (
     ));
   };
 
+  const handleUpdateDefaultCoordinates = async () => {
+    try {
+      const lat = parseFloat(defaultLat);
+      const lon = parseFloat(defaultLon);
+
+      if (!isFinite(lat) || !isFinite(lon)) {
+        setError('Invalid coordinates');
+        return;
+      }
+
+      await api.post('/api/admin/default-coordinates', { latitude: lat, longitude: lon });
+      setSuccess('Default coordinates updated successfully!');
+      setShowSettings(false);
+      setTimeout(() => setSuccess(null), 2000);
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to update default coordinates');
+    }
+  };
+
   const handleSaveAreas = async () => {
     try {
       if (areas.length === 0) {
@@ -116,6 +162,8 @@ export const DeliveryAreasManagement: React.FC<DeliveryAreasManagementProps> = (
           id: a.id,
           name: a.name,
           pincodes: a.pincodes,
+          latitude: a.latitude,
+          longitude: a.longitude,
           isActive: a.isActive,
         })),
       });
@@ -174,6 +222,57 @@ export const DeliveryAreasManagement: React.FC<DeliveryAreasManagementProps> = (
               {success}
             </div>
           )}
+
+          {/* Default Coordinates Settings */}
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="font-medium text-blue-900">📍 Default Coordinates</h3>
+                <p className="text-xs text-blue-700 mt-1">Currently: {defaultLat}, {defaultLon}</p>
+              </div>
+              <Button
+                onClick={() => setShowSettings(!showSettings)}
+                variant="outline"
+                size="sm"
+              >
+                {showSettings ? 'Cancel' : 'Edit'}
+              </Button>
+            </div>
+            
+            {showSettings && (
+              <div className="space-y-2 pt-2 border-t border-blue-200">
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-xs font-medium text-blue-900">Latitude</label>
+                    <Input
+                      type="number"
+                      step="0.0001"
+                      value={defaultLat}
+                      onChange={(e) => setDefaultLat(e.target.value)}
+                      placeholder="19.0728"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-blue-900">Longitude</label>
+                    <Input
+                      type="number"
+                      step="0.0001"
+                      value={defaultLon}
+                      onChange={(e) => setDefaultLon(e.target.value)}
+                      placeholder="72.8826"
+                    />
+                  </div>
+                </div>
+                <Button
+                  onClick={handleUpdateDefaultCoordinates}
+                  size="sm"
+                  className="w-full"
+                >
+                  Save Default Coordinates
+                </Button>
+              </div>
+            )}
+          </div>
 
           {/* Add New Area */}
           <div className="space-y-3 border-b pb-6">

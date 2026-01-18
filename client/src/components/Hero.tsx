@@ -148,36 +148,36 @@ export default function Hero() {
   };
 
   return (
-    <section className="relative h-[50vh] sm:h-[60vh] min-h-[350px] sm:min-h-[400px] max-h-[600px] overflow-hidden">
+    <section className="relative h-[50vh] sm:h-[60vh] min-h-[480px] sm:min-h-[500px] lg:min-h-[600px] max-h-none overflow-hidden">
       <div
         className="absolute inset-0 bg-cover bg-center"
         style={{ backgroundImage: `url(${heroImage})` }}
       />
       <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/40 to-black/60" />
 
-      <div className="relative h-full max-w-7xl mx-auto px-3 sm:px-4 lg:px-8 flex flex-col items-center justify-center text-center">
+      <div className="relative h-full max-w-7xl mx-auto px-3 sm:px-4 lg:px-8 flex flex-col items-center justify-center text-center py-6 sm:py-8">
         <h2
-          className="text-3xl sm:text-4xl lg:text-6xl font-bold text-white mb-3 sm:mb-4 drop-shadow-lg"
+          className="text-3xl sm:text-4xl lg:text-6xl font-bold text-white mb-2 sm:mb-3 drop-shadow-lg"
           data-testid="text-hero-title"
         >
           Fresh Rotis Delivered
           <br />
           <span className="text-primary-foreground/90">Ghar Ka Khana, Apno Ka Swaad</span>
         </h2>
-        <p className="text-sm sm:text-lg lg:text-xl text-white/90 mb-6 sm:mb-8 max-w-2xl px-4 drop-shadow" data-testid="text-hero-subtitle">
+        <p className="text-xs sm:text-base lg:text-lg text-white/90 mb-4 sm:mb-6 max-w-2xl px-2 drop-shadow" data-testid="text-hero-subtitle">
           Fresh rotis, homestyle meals, and restaurant specials in 30 minutes
         </p>
 
-        <div className="w-full max-w-xl">
+        <div className="w-full max-w-xl px-2 sm:px-3">
           {location && hasLocation && !showManualInput ? (
             <div className="bg-white rounded-xl shadow-2xl overflow-hidden">
-              <div className="p-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                    <MapPin className="h-5 w-5 text-primary" />
+              <div className="p-3 sm:p-4">
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                    <MapPin className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
                   </div>
                   <div className="flex-1 min-w-0 text-left">
-                    <p className="text-sm font-semibold text-foreground truncate">{location}</p>
+                    <p className="text-xs sm:text-sm font-semibold text-foreground truncate">{location}</p>
                     <p className="text-xs text-muted-foreground">
                       {deliveryAvailable ? "Delivery available" : "Coming soon to your area"}
                     </p>
@@ -185,23 +185,23 @@ export default function Hero() {
                   <Button 
                     variant="ghost" 
                     size="sm"
-                    className="text-primary hover:text-primary hover:bg-primary/10 flex-shrink-0"
+                    className="text-primary hover:text-primary hover:bg-primary/10 flex-shrink-0 text-xs sm:text-sm"
                     onClick={handleChangeLocation}
                     data-testid="button-change-location"
                   >
                     Change
-                    <ChevronDown className="h-4 w-4 ml-1" />
+                    <ChevronDown className="h-3 w-3 sm:h-4 sm:w-4 ml-1" />
                   </Button>
                 </div>
               </div>
               {deliveryAvailable && (
-                <div className="border-t px-4 py-3 bg-primary/5">
+                <div className="border-t px-3 sm:px-4 py-2 sm:py-3 bg-primary/5">
                   <Button 
-                    className="w-full gap-2"
+                    className="w-full gap-2 text-sm sm:text-base h-9 sm:h-10"
                     onClick={scrollToProducts}
                     data-testid="button-browse-menu"
                   >
-                    <Search className="h-4 w-4" />
+                    <Search className="h-3 w-3 sm:h-4 sm:w-4" />
                     Browse Menu
                   </Button>
                 </div>
@@ -209,14 +209,14 @@ export default function Hero() {
             </div>
           ) : (
             <div className="bg-white rounded-xl shadow-2xl overflow-hidden">
-              <div className="p-4 sm:p-5">
-                <div className="flex flex-col gap-3">
-                  <div className="text-center pb-2">
-                    <MapPin className="h-8 w-8 mx-auto mb-2 text-primary" />
-                    <p className="text-sm font-medium text-foreground">
+              <div className="p-3 sm:p-4 lg:p-5">
+                <div className="flex flex-col gap-2 sm:gap-3">
+                  <div className="text-center pb-1 sm:pb-2">
+                    <MapPin className="h-7 w-7 sm:h-8 sm:w-8 mx-auto mb-1 sm:mb-2 text-primary" />
+                    <p className="text-xs sm:text-sm font-medium text-foreground">
                       Enable location access
                     </p>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-xs text-muted-foreground mt-0.5">
                       We'll detect your location automatically for faster delivery
                     </p>
                   </div>
@@ -226,17 +226,17 @@ export default function Hero() {
                     variant="default"
                     onClick={getUserLocation}
                     disabled={isGettingLocation}
-                    className="w-full gap-2"
+                    className="w-full gap-2 h-10 sm:h-11 text-sm sm:text-base"
                     data-testid="button-get-location"
                   >
                     {isGettingLocation ? (
                       <>
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <Loader2 className="h-3 w-3 sm:h-4 sm:w-4 animate-spin" />
                         Detecting Location...
                       </>
                     ) : (
                       <>
-                        <Navigation className="h-4 w-4" />
+                        <Navigation className="h-3 w-3 sm:h-4 sm:w-4" />
                         Detect My Location
                       </>
                     )}
@@ -245,22 +245,22 @@ export default function Hero() {
               </div>
 
               <div className="border-t">
-                <div className="relative py-3">
-                  <div className="absolute inset-0 flex items-center px-4">
+                <div className="relative py-2 sm:py-3">
+                  <div className="absolute inset-0 flex items-center px-3 sm:px-4">
                     <span className="w-full border-t" />
                   </div>
                   <div className="relative flex justify-center text-xs uppercase">
-                    <span className="bg-white px-3 text-muted-foreground">Or enter manually</span>
+                    <span className="bg-white px-2 sm:px-3 text-muted-foreground">Or enter manually</span>
                   </div>
                 </div>
 
-                <div className="px-4 pb-4">
+                <div className="px-3 sm:px-4 pb-3 sm:pb-4">
                   <div className="flex gap-2">
                     <div className="flex-1 relative">
-                      <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <MapPin className="absolute left-2 sm:left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 sm:h-4 sm:w-4 text-muted-foreground" />
                       <Input
                         placeholder="Enter Kurla address (e.g., Kurla West)"
-                        className="pl-10 h-11"
+                        className="pl-8 sm:pl-9 h-9 sm:h-10 text-sm"
                         data-testid="input-location"
                         value={location}
                         onChange={(e) => setLocation(e.target.value)}
@@ -270,11 +270,11 @@ export default function Hero() {
                     <Button 
                       size="default"
                       variant="default" 
-                      className="gap-2 h-11 px-5" 
+                      className="gap-1 sm:gap-2 h-9 sm:h-10 px-3 sm:px-5 text-xs sm:text-sm" 
                       data-testid="button-search-food"
                       onClick={handleSearchFood}
                     >
-                      <Search className="h-4 w-4" />
+                      <Search className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                       <span className="hidden sm:inline">Search</span>
                     </Button>
                   </div>
@@ -284,7 +284,7 @@ export default function Hero() {
                       size="sm"
                       onClick={getUserLocation}
                       disabled={isGettingLocation}
-                      className="w-full gap-2 mt-3"
+                      className="w-full gap-1 sm:gap-2 mt-2 h-8 sm:h-9 text-xs sm:text-sm"
                     >
                       {isGettingLocation ? (
                         <>
@@ -306,7 +306,7 @@ export default function Hero() {
         </div>
 
         {deliveryAvailable === false && (
-          <div className="mt-4 bg-amber-500/20 backdrop-blur-sm border border-amber-500/30 rounded-lg px-4 py-2 max-w-md">
+          <div className="mt-3 sm:mt-4 bg-amber-500/20 backdrop-blur-sm border border-amber-500/30 rounded-lg px-3 sm:px-4 py-2 max-w-md">
             <p className="text-xs sm:text-sm text-white font-medium">
               Coming soon to your area! Currently serving Kurla West, Mumbai.
             </p>

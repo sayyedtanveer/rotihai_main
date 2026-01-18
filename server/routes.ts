@@ -143,6 +143,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return result;
   };
 
+  // Helper function to get area coordinates from database (dynamic, not hardcoded)
+  // Used by both /api/geocode and /api/validate-pincode endpoints
+  const getAreaCoordinatesMap = async (): Promise<Record<string, { lat: number; lon: number; name: string }>> => {
+    try {
+      const areas = await storage.getAllDeliveryAreas();
+      const coordinatesMap: Record<string, { lat: number; lon: number; name: string }> = {};
+      
+      areas.forEach(area => {
+        const areaLower = area.name.toLowerCase();
+        const lat = typeof area.latitude === 'number' 
+          ? area.latitude 
+          : parseFloat(String(area.latitude || 19.0728));
+        const lon = typeof area.longitude === 'number' 
+          ? area.longitude 
+          : parseFloat(String(area.longitude || 72.8826));
+          
+        coordinatesMap[areaLower] = {
+          lat,
+          lon,
+          name: area.name
+        };
+      });
+      
+      return coordinatesMap;
+    } catch (err) {
+      console.error('[COORDINATES] Error fetching area coordinates from database:', err);
+      // Fallback to defaults if database fetch fails
+      return {
+        "kurla": { lat: 19.0686, lon: 72.8817, name: "Kurla" },
+        "kurla west": { lat: 19.0728, lon: 72.8826, name: "Kurla West" },
+        "kurla east": { lat: 19.0644, lon: 72.8877, name: "Kurla East" },
+        "worli": { lat: 19.0176, lon: 72.8194, name: "Worli" },
+        "bandra": { lat: 19.0596, lon: 72.8295, name: "Bandra" },
+        "andheri": { lat: 19.1136, lon: 72.8697, name: "Andheri" },
+        "dadar": { lat: 19.0176, lon: 72.8388, name: "Dadar" },
+      };
+    }
+  };
+
   // Coupon verification route (supports optional userId for per-user limit checking)
   app.post("/api/coupons/verify", async (req: any, res) => {
     try {
@@ -3897,16 +3936,8 @@ app.post("/api/orders", async (req: any, res) => {
             }
           }
 
-          // Known area centers for validation
-          const areaCoordinates: Record<string, { lat: number; lon: number; name: string }> = {
-            "kurla": { lat: 19.0686, lon: 72.8817, name: "Kurla" },
-            "kurla west": { lat: 19.0728, lon: 72.8826, name: "Kurla West" },
-            "kurla east": { lat: 19.0644, lon: 72.8877, name: "Kurla East" },
-            "worli": { lat: 19.0176, lon: 72.8194, name: "Worli" },
-            "bandra": { lat: 19.0596, lon: 72.8295, name: "Bandra" },
-            "andheri": { lat: 19.1136, lon: 72.8697, name: "Andheri" },
-            "dadar": { lat: 19.0176, lon: 72.8388, name: "Dadar" },
-          };
+          // Fetch dynamic area coordinates from database (not hardcoded)
+          const areaCoordinates = await getAreaCoordinatesMap();
 
           if (mentionedAreas.length > 0) {
             // Calculate distance from geocoded point to each known area
@@ -4069,17 +4100,26 @@ app.post("/api/orders", async (req: any, res) => {
 
       if (matchingArea) {
         console.log(`✅ [PINCODE-VALIDATION] Pincode ${pincodeStr} found in delivery area: ${matchingArea.name}`);
+        
+        // Get coordinates from database (admin configured)
+        const areaCoords = {
+          lat: typeof matchingArea.latitude === 'number' ? matchingArea.latitude : parseFloat(String(matchingArea.latitude || 19.0728)),
+          lon: typeof matchingArea.longitude === 'number' ? matchingArea.longitude : parseFloat(String(matchingArea.longitude || 72.8826))
+        };
+        
+        console.log(`[PINCODE-VALIDATION] Using dynamic coordinates for area "${matchingArea.name}":`, areaCoords);
+        
         // Fetch coordinates for this area for distance-based filtering on frontend
-        // Use area center or admin-provided coordinates
+        // Use area center coordinates for accurate distance calculation
         return res.json({
           success: true,
           pincode: pincodeStr,
           area: matchingArea.name,
           areaId: matchingArea.id,
           message: `Delivery available in ${matchingArea.name}`,
-          // Return approximate center coordinates for the area (can be enhanced with area geometry)
-          latitude: 19.0728, // Default Mumbai center, can be customized per area
-          longitude: 72.8826,
+          // Return actual area center coordinates for accurate distance calculation
+          latitude: areaCoords.lat,
+          longitude: areaCoords.lon,
         });
       }
 
@@ -4126,16 +4166,8 @@ app.post("/api/orders", async (req: any, res) => {
 
         console.log(`[PINCODE-VALIDATION] Extracted areas from address:`, mentionedAreas);
 
-        // Known area centers for validation
-        const areaCoordinates: Record<string, { lat: number; lon: number; name: string }> = {
-          "kurla": { lat: 19.0686, lon: 72.8817, name: "Kurla" },
-          "kurla west": { lat: 19.0728, lon: 72.8826, name: "Kurla West" },
-          "kurla east": { lat: 19.0644, lon: 72.8877, name: "Kurla East" },
-          "worli": { lat: 19.0176, lon: 72.8194, name: "Worli" },
-          "bandra": { lat: 19.0596, lon: 72.8295, name: "Bandra" },
-          "andheri": { lat: 19.1136, lon: 72.8697, name: "Andheri" },
-          "dadar": { lat: 19.0176, lon: 72.8388, name: "Dadar" },
-        };
+        // Fetch dynamic area coordinates from database (not hardcoded)
+        const areaCoordinates = await getAreaCoordinatesMap();
 
         // Calculate distance from geocoded point to each known area
         const calculateDist = (lat1: number, lon1: number, lat2: number, lon2: number) => {

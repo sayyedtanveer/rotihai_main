@@ -3641,4 +3641,56 @@ export function registerAdminRoutes(app: Express) {
       res.status(500).json({ message: "Failed to toggle delivery area status" });
     }
   });
+
+  // GET default coordinates (public - used by admin UI)
+  app.get("/api/admin/default-coordinates", async (req, res) => {
+    try {
+      const coords = await storage.getDefaultCoordinates();
+      res.json(coords);
+    } catch (error) {
+      console.error("Error fetching default coordinates:", error);
+      res.status(500).json({ message: "Failed to fetch default coordinates" });
+    }
+  });
+
+  // POST update default coordinates (admin only)
+  app.post("/api/admin/default-coordinates", requireAdmin(), async (req: AuthenticatedAdminRequest, res) => {
+    try {
+      const { latitude, longitude } = req.body;
+
+      if (typeof latitude !== "number" || typeof longitude !== "number") {
+        res.status(400).json({ message: "Latitude and longitude must be numbers" });
+        return;
+      }
+
+      if (!isFinite(latitude) || !isFinite(longitude)) {
+        res.status(400).json({ message: "Invalid coordinates" });
+        return;
+      }
+
+      // Validate latitude range (-90 to 90)
+      if (latitude < -90 || latitude > 90) {
+        res.status(400).json({ message: "Latitude must be between -90 and 90" });
+        return;
+      }
+
+      // Validate longitude range (-180 to 180)
+      if (longitude < -180 || longitude > 180) {
+        res.status(400).json({ message: "Longitude must be between -180 and 180" });
+        return;
+      }
+
+      await storage.setDefaultCoordinates(latitude, longitude);
+
+      console.log(`[ADMIN] Updated default coordinates: ${latitude}, ${longitude}`);
+      res.json({
+        message: "Default coordinates updated successfully",
+        latitude,
+        longitude,
+      });
+    } catch (error) {
+      console.error("Error updating default coordinates:", error);
+      res.status(500).json({ message: "Failed to update default coordinates" });
+    }
+  });
 }

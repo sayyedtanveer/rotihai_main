@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
-import { Loader2, Copy, Smartphone, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Loader2, Copy, Smartphone, AlertCircle, CheckCircle2, ChevronDown } from "lucide-react";
 import { SiGooglepay, SiPhonepe, SiPaytm } from "react-icons/si";
 import { useToast } from "@/hooks/use-toast";
 import QRCode from "qrcode";
@@ -46,6 +46,7 @@ export default function PaymentQRDialog({
   const [hasPaid, setHasPaid] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
   const [upiIntent, setUpiIntent] = useState("");
+  const [showQRCode, setShowQRCode] = useState(false); // Collapsible QR section
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const isMobile = isMobileDevice();
@@ -60,6 +61,7 @@ export default function PaymentQRDialog({
       console.log("[PAYMENT QR] Dialog closed - resetting state");
       setIsConfirming(false);
       setHasPaid(false);
+      setShowQRCode(false); // Reset collapsible state
     }
   }, [isOpen]);
 
@@ -261,14 +263,49 @@ export default function PaymentQRDialog({
         </DialogHeader>
 
         <div className="space-y-4 sm:space-y-6">
-          <div className="flex flex-col items-center justify-center space-y-3 sm:space-y-4 py-2 sm:py-4">
-            <div className="bg-white p-3 sm:p-4 rounded-lg shadow-sm">
-              <canvas ref={canvasRef} data-testid="payment-qr-canvas" className="w-full max-w-[240px] h-auto" />
-            </div>
+          {/* Collapsible QR Code Section */}
+          <div className="border rounded-lg">
+            <button
+              onClick={() => setShowQRCode(!showQRCode)}
+              className="w-full flex items-center justify-between p-3 sm:p-4 hover:bg-muted/50 transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                <span className="font-medium text-sm sm:text-base">Scan QR Code</span>
+                <span className="text-xs text-muted-foreground">(or use Quick Pay below)</span>
+              </div>
+              <ChevronDown 
+                className={`h-4 w-4 transition-transform ${showQRCode ? 'rotate-180' : ''}`}
+              />
+            </button>
 
-            <div className="text-center space-y-1 sm:space-y-2">
-              <p className="text-xl sm:text-2xl font-bold">₹{amount}</p>
-              <p className="text-xs sm:text-sm text-muted-foreground">Order #{orderId.slice(0, 8)}</p>
+            {showQRCode && (
+              <>
+                <Separator />
+                <div className="flex flex-col items-center justify-center space-y-3 sm:space-y-4 p-3 sm:p-4 bg-muted/30">
+                  <div className="bg-white p-3 sm:p-4 rounded-lg shadow-sm">
+                    <canvas ref={canvasRef} data-testid="payment-qr-canvas" className="w-full max-w-[200px] h-auto" />
+                  </div>
+
+                  <div className="text-center space-y-1 sm:space-y-2">
+                    <p className="text-lg sm:text-xl font-bold">₹{amount}</p>
+                    <p className="text-xs sm:text-sm text-muted-foreground">Order #{orderId.slice(0, 8)}</p>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Order Summary Card */}
+          <div className="bg-slate-50 dark:bg-slate-900/30 p-3 sm:p-4 rounded-lg border">
+            <div className="space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">Amount to Pay:</span>
+                <span className="font-bold text-base sm:text-lg">₹{amount}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">Order ID:</span>
+                <span className="font-mono text-xs sm:text-sm">{orderId.slice(0, 8)}</span>
+              </div>
             </div>
           </div>
 
