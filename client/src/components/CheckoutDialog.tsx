@@ -1241,6 +1241,7 @@ export default function CheckoutDialog({
           });
 
           // Update all state with new validated data
+          setAddressArea(pincodeData.area); // Auto-correct area to database value for confirmation
           setCustomerLatitude(pincodeData.latitude);
           setCustomerLongitude(pincodeData.longitude);
           setAddressZoneDistance(newDistance);
