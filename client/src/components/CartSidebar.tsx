@@ -122,17 +122,17 @@ export default function CartSidebar({
 
       {/* Sidebar */}
       <div
-        className="fixed inset-y-0 right-0 w-full max-w-sm sm:max-w-md lg:w-96 bg-background border-l z-50 flex flex-col"
+        className="fixed inset-y-0 right-0 w-full sm:w-80 md:w-96 lg:w-96 bg-background border-l z-50 flex flex-col overflow-hidden"
         data-testid="sidebar-cart"
       >
         {/* Header */}
-        <div className="flex items-center justify-between gap-4 p-4 border-b">
-          <div className="flex items-center gap-3">
-            <ShoppingBag className="h-5 w-5 text-primary" />
-            <h2 className="text-xl font-semibold" data-testid="text-cart-title">
-              Your Carts
+        <div className="flex items-center justify-between gap-2 sm:gap-4 p-3 sm:p-4 border-b flex-shrink-0">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+            <ShoppingBag className="h-4 w-4 sm:h-5 sm:w-5 text-primary flex-shrink-0" />
+            <h2 className="text-lg sm:text-xl font-semibold truncate" data-testid="text-cart-title">
+              Carts
             </h2>
-            <Badge variant="secondary" data-testid="badge-cart-items">
+            <Badge variant="secondary" className="text-xs flex-shrink-0" data-testid="badge-cart-items">
               {totalItems}
             </Badge>
           </div>
@@ -141,8 +141,9 @@ export default function CartSidebar({
             variant="ghost"
             onClick={onClose}
             data-testid="button-close-cart"
+            className="flex-shrink-0 h-8 w-8"
           >
-            <X className="h-5 w-5" />
+            <X className="h-4 w-4 sm:h-5 sm:w-5" />
           </Button>
         </div>
 
