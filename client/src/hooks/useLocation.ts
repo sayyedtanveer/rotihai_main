@@ -1,7 +1,10 @@
 import { useState, useEffect, useCallback, createContext, useContext } from 'react';
 import { calculateDistance, isInDeliveryZone, getDeliveryMessage } from '@/lib/locationUtils';
+import { getDefaultCoordinates, getDefaultCoordinatesCached } from '@/lib/deliveryAreas';
 
-const KURLA_CENTER = { lat: 19.0728, lng: 72.8826 };
+// Use cached coordinates initially, will be updated by async API call
+const DEFAULT_LOCATION = getDefaultCoordinatesCached();
+
 const STORAGE_KEYS = {
   latitude: 'userLatitude',
   longitude: 'userLongitude',
@@ -31,7 +34,7 @@ const defaultState: LocationState = {
   latitude: null,
   longitude: null,
   address: '',
-  locality: 'Kurla West, Mumbai',
+  locality: `${getDefaultCoordinatesCached().latitude.toFixed(4)}, ${getDefaultCoordinatesCached().longitude.toFixed(4)}`,
   isServiceable: true,
   distance: null,
   isLoading: false,
@@ -45,7 +48,9 @@ export function useLocationProvider(): LocationContextType {
     const savedLat = localStorage.getItem(STORAGE_KEYS.latitude);
     const savedLng = localStorage.getItem(STORAGE_KEYS.longitude);
     const savedAddress = localStorage.getItem(STORAGE_KEYS.address) || '';
-    const savedLocality = localStorage.getItem(STORAGE_KEYS.locality) || 'Kurla West, Mumbai';
+    const defaultCoords = getDefaultCoordinatesCached();
+    const defaultLocalityStr = `${defaultCoords.latitude.toFixed(4)}, ${defaultCoords.longitude.toFixed(4)}`;
+    const savedLocality = localStorage.getItem(STORAGE_KEYS.locality) || defaultLocalityStr;
 
     if (savedLat && savedLng) {
       const lat = parseFloat(savedLat);
@@ -106,12 +111,15 @@ export function useLocationProvider(): LocationContextType {
       const { latitude, longitude } = position.coords;
       const deliveryCheck = validateServiceArea(latitude, longitude);
       
+      // Get default location from API for display
+      const defaultCoords = getDefaultCoordinatesCached();
+      
       const locality = deliveryCheck.isServiceable 
-        ? 'Kurla West, Mumbai' 
+        ? `${defaultCoords.latitude.toFixed(4)}, ${defaultCoords.longitude.toFixed(4)}` 
         : 'Location detected';
       
       const address = deliveryCheck.isServiceable
-        ? `Kurla West, Mumbai (${deliveryCheck.distance.toFixed(1)}km)`
+        ? `Service Area (${deliveryCheck.distance.toFixed(1)}km from center)`
         : `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
 
       saveToStorage(latitude, longitude, address, locality);
@@ -146,6 +154,7 @@ export function useLocationProvider(): LocationContextType {
 
   const setManualLocation = useCallback((address: string) => {
     const addressLower = address.toLowerCase().trim();
+    const defaultCoords = getDefaultCoordinatesCached();
     
     const isKurlaArea = addressLower.includes('kurla') || 
                         addressLower.includes('chunabhatti') ||
@@ -153,13 +162,13 @@ export function useLocationProvider(): LocationContextType {
                         addressLower.includes('bkc');
     
     if (isKurlaArea) {
-      saveToStorage(KURLA_CENTER.lat, KURLA_CENTER.lng, address, 'Kurla West, Mumbai');
+      saveToStorage(defaultCoords.latitude, defaultCoords.longitude, address, `${defaultCoords.latitude.toFixed(4)}, ${defaultCoords.longitude.toFixed(4)}`);
       
       setState({
-        latitude: KURLA_CENTER.lat,
-        longitude: KURLA_CENTER.lng,
+        latitude: defaultCoords.latitude,
+        longitude: defaultCoords.longitude,
         address,
-        locality: 'Kurla West, Mumbai',
+        locality: `${defaultCoords.latitude.toFixed(4)}, ${defaultCoords.longitude.toFixed(4)}`,
         isServiceable: true,
         distance: 0,
         isLoading: false,
@@ -179,6 +188,20 @@ export function useLocationProvider(): LocationContextType {
   const clearLocation = useCallback(() => {
     Object.values(STORAGE_KEYS).forEach(key => localStorage.removeItem(key));
     setState(defaultState);
+  }, []);
+
+  // Load default coordinates from API on mount
+  useEffect(() => {
+    const loadDefaultCoordinates = async () => {
+      try {
+        await getDefaultCoordinates();
+        console.log('[useLocation] Default coordinates loaded from API');
+      } catch (error) {
+        console.warn('[useLocation] Failed to load default coordinates:', error);
+        // Will use cached fallback
+      }
+    };
+    loadDefaultCoordinates();
   }, []);
 
   return {

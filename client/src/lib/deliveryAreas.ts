@@ -22,9 +22,17 @@ const FALLBACK_DELIVERY_AREAS = [
   "Marine Drive",
 ];
 
-// Cache key for localStorage
+// Default fallback coordinates (Mumbai CBD - used if API fails)
+const FALLBACK_COORDINATES = {
+  latitude: 19.0728,
+  longitude: 72.8826,
+};
+
+// Cache keys for localStorage
 const DELIVERY_AREAS_CACHE_KEY = "deliveryAreasList";
+const DEFAULT_COORDINATES_CACHE_KEY = "defaultCoordinates";
 const DELIVERY_AREAS_CACHE_TIME = 15 * 60 * 1000; // 15 minutes
+const DEFAULT_COORDINATES_CACHE_TIME = 60 * 60 * 1000; // 60 minutes
 
 // ============================================
 // DYNAMIC AREAS LOADER
@@ -115,6 +123,99 @@ export const getDeliveryAreasCached = (): string[] => {
 
   // Return fallback
   return FALLBACK_DELIVERY_AREAS;
+};
+
+// ============================================
+// DEFAULT COORDINATES LOADER
+// ============================================
+let defaultCoordinatesCache: { latitude: number; longitude: number } | null = null;
+let defaultCoordsTimestamp = 0;
+
+/**
+ * Get default store location from admin API
+ * Used as fallback when user doesn't enter pincode or enable GPS
+ * Caches result for 60 minutes to reduce API calls
+ */
+export const getDefaultCoordinates = async (): Promise<{ latitude: number; longitude: number }> => {
+  // Return cached coordinates if still valid
+  if (defaultCoordinatesCache && Date.now() - defaultCoordsTimestamp < DEFAULT_COORDINATES_CACHE_TIME) {
+    console.log("[DEFAULT-COORDS] Using cached coordinates:", defaultCoordinatesCache);
+    return defaultCoordinatesCache;
+  }
+
+  try {
+    // Try to fetch from admin API
+    const response = await api.get("/api/admin/default-coordinates", { timeout: 5000 });
+    if (response.data?.latitude && response.data?.longitude) {
+      defaultCoordinatesCache = {
+        latitude: response.data.latitude,
+        longitude: response.data.longitude,
+      };
+      defaultCoordsTimestamp = Date.now();
+      
+      // Also cache in localStorage as backup
+      localStorage.setItem(DEFAULT_COORDINATES_CACHE_KEY, JSON.stringify({
+        ...defaultCoordinatesCache,
+        timestamp: Date.now(),
+      }));
+      
+      console.log("[DEFAULT-COORDS] Loaded from API:", defaultCoordinatesCache);
+      return defaultCoordinatesCache;
+    }
+  } catch (error) {
+    console.warn("[DEFAULT-COORDS] API failed:", error instanceof Error ? error.message : error);
+  }
+
+  // Try to restore from localStorage backup
+  try {
+    const cached = localStorage.getItem(DEFAULT_COORDINATES_CACHE_KEY);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      console.log("[DEFAULT-COORDS] Restored from localStorage backup:", parsed);
+      defaultCoordinatesCache = {
+        latitude: parsed.latitude,
+        longitude: parsed.longitude,
+      };
+      defaultCoordsTimestamp = parsed.timestamp;
+      return defaultCoordinatesCache;
+    }
+  } catch (e) {
+    console.warn("[DEFAULT-COORDS] localStorage restore failed:", e);
+  }
+
+  // Fallback to hardcoded coordinates
+  console.log("[DEFAULT-COORDS] Using fallback coordinates:", FALLBACK_COORDINATES);
+  defaultCoordinatesCache = FALLBACK_COORDINATES;
+  defaultCoordsTimestamp = Date.now();
+  return FALLBACK_COORDINATES;
+};
+
+/**
+ * Get default coordinates synchronously (uses cache, doesn't fetch)
+ * Use for instant defaults while async load happens
+ */
+export const getDefaultCoordinatesCached = (): { latitude: number; longitude: number } => {
+  if (defaultCoordinatesCache) {
+    return defaultCoordinatesCache;
+  }
+
+  // Try localStorage cache first
+  try {
+    const cached = localStorage.getItem(DEFAULT_COORDINATES_CACHE_KEY);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      defaultCoordinatesCache = {
+        latitude: parsed.latitude,
+        longitude: parsed.longitude,
+      };
+      return defaultCoordinatesCache;
+    }
+  } catch (e) {
+    // Ignore
+  }
+
+  // Return fallback
+  return FALLBACK_COORDINATES;
 };
 
 // Store validated location in localStorage

@@ -5,25 +5,29 @@ import { getDeliveryAreas } from "@/lib/deliveryAreas";
 // DELIVERY LOCATION INTERFACE
 // ============================================
 export interface DeliveryLocation {
-  // GPS Detection
-  gpsDetected: boolean;
+  // Coordinates (can be from pincode OR GPS)
+  // PRIORITY: Pincode coords > GPS coords > null
   latitude: number | null;
   longitude: number | null;
 
-  // Pincode (for early validation on Home page)
+  // Pincode Information (AUTHORITATIVE for delivery zones)
   pincode: string | null;
 
   // Area Information
   areaName: string | null; // Delivery area name (e.g., "Kurla West")
 
-  // Validated Address
+  // Validated Address (from checkout)
   address: string | null;
   isInZone: boolean;
   distance: number | null; // km from chef
 
   // Metadata
   validatedAt: string | null;
-  source: "gps" | "manual" | "pincode" | null; // How was location detected?
+  // ✅ CLARIFIED: source indicates coordinate origin
+  // "pincode" = coordinates from pincode (most reliable)
+  // "gps" = coordinates from device GPS (fallback)
+  // "manual" = address geocoded in checkout
+  source: "gps" | "manual" | "pincode" | null;
 }
 
 // ============================================
@@ -59,9 +63,12 @@ export function DeliveryLocationProvider({ children }: { children: ReactNode }) 
         const twentyFourHours = 24 * 60 * 60 * 1000;
 
         if (now - validatedTime < twentyFourHours) {
-          console.log("[DELIVERY-CONTEXT] Restored location from localStorage:", parsed.address);
+          console.log("[DELIVERY-CONTEXT] Restored location from localStorage:", {
+            pincode: parsed.pincode,
+            address: parsed.address,
+            source: parsed.source
+          });
           return {
-            gpsDetected: parsed.gpsDetected || false,
             latitude: parsed.latitude || null,
             longitude: parsed.longitude || null,
             pincode: parsed.pincode || null,
@@ -78,9 +85,8 @@ export function DeliveryLocationProvider({ children }: { children: ReactNode }) 
       }
     }
 
-    // Default state
+    // Default state - empty location
     return {
-      gpsDetected: false,
       latitude: null,
       longitude: null,
       pincode: null,
@@ -116,10 +122,10 @@ export function DeliveryLocationProvider({ children }: { children: ReactNode }) 
       // Auto-save to localStorage
       if (newLocation.isInZone || newLocation.address || newLocation.pincode) {
         const toStore = {
-          gpsDetected: updated.gpsDetected,
           latitude: updated.latitude,
           longitude: updated.longitude,
           pincode: updated.pincode,
+          areaName: updated.areaName,
           address: updated.address,
           isInZone: updated.isInZone,
           distance: updated.distance,
@@ -127,7 +133,11 @@ export function DeliveryLocationProvider({ children }: { children: ReactNode }) 
           source: updated.source,
         };
         localStorage.setItem("lastValidatedDeliveryAddress", JSON.stringify(toStore));
-        console.log("[DELIVERY-CONTEXT] Saved location to localStorage:", updated.address || updated.pincode);
+        console.log("[DELIVERY-CONTEXT] Saved location to localStorage:", {
+          pincode: updated.pincode,
+          address: updated.address,
+          source: updated.source
+        });
       }
 
       console.log("[DELIVERY-CONTEXT] Updated location:", {
@@ -146,7 +156,6 @@ export function DeliveryLocationProvider({ children }: { children: ReactNode }) 
   // ============================================
   const clearLocation = () => {
     setLocation({
-      gpsDetected: false,
       latitude: null,
       longitude: null,
       pincode: null,

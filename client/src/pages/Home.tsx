@@ -130,9 +130,16 @@ import { useState, useEffect, useMemo } from "react";
       fetchChefStatuses();
     }, [fetchChefStatuses]);
 
-    // ZOMATO-STYLE LOCATION DETECTION ON PAGE LOAD
-    // Auto-detect user location and check if they're in delivery zone
-    // DO NOT show categories until location confirmed
+    // ============================================
+    // FIXED LOCATION DETECTION PRIORITY (CRITICAL FIX)
+    // ============================================
+    // Priority Order:
+    // 1. FIRST: Use pincode from context if available (most reliable)
+    // 2. SECOND: Use GPS only if no pincode (fallback)
+    // 3. THIRD: Show pincode input (primary UX)
+    // 
+    // WHY: Pincode coordinates are more reliable for delivery zones
+    // GPS can be ±500m off, causing "not delivering" false errors
     useEffect(() => {
       const detectLocationAndZone = async () => {
         try {
@@ -148,7 +155,31 @@ import { useState, useEffect, useMemo } from "react";
             return; // Use context location, no need for GPS
           }
           
-          // SECOND: Detect if user is on Safari/iPhone
+          // SECOND: Check if pincode was entered (PRIORITY OVER GPS)
+          if (deliveryLocation.pincode && deliveryLocation.latitude && deliveryLocation.longitude) {
+            console.log("[LOCATION-DETECTION] ✅ Using pincode coordinates (PRIORITY):", {
+              pincode: deliveryLocation.pincode,
+              lat: deliveryLocation.latitude,
+              lng: deliveryLocation.longitude,
+              reason: "Pincode coords more reliable than GPS for delivery zones"
+            });
+            
+            // Store pincode coordinates in localStorage for chef loading
+            localStorage.setItem('userLatitude', deliveryLocation.latitude.toString());
+            localStorage.setItem('userLongitude', deliveryLocation.longitude.toString());
+            
+            setUserLocation(deliveryLocation.latitude, deliveryLocation.longitude);
+            setUserInDeliveryZone(true);
+            setDeliveryZoneDetected(true);
+            setLocationPermissionDenied(false);
+            setIsDetectingLocation(false);
+            return; // Pincode is authoritative - no need for GPS
+          }
+          
+          // THIRD: Only if NO PINCODE, try GPS as fallback
+          console.log("[LOCATION-DETECTION] No pincode found, attempting GPS fallback...");
+          
+          // Check Safari/iPhone
           const userAgent = navigator.userAgent.toLowerCase();
           const isSafari = /safari/.test(userAgent) && !/chrome/.test(userAgent);
           const isIOS = /iphone|ipad|ipod/.test(userAgent);
@@ -159,14 +190,15 @@ import { useState, useEffect, useMemo } from "react";
             setIsSafariOnIOS(true);
           }
           
-          // Try to get user's GPS location
+          // Try GPS only as secondary option
           if (navigator.geolocation) {
             navigator.geolocation.getCurrentPosition(
               async (position) => {
                 const lat = position.coords.latitude;
                 const lng = position.coords.longitude;
                 
-                console.log("[LOCATION-DETECTION] User location detected:", lat, lng);
+                console.log("[LOCATION-DETECTION] GPS detected (fallback):", lat, lng);
+                console.log("[LOCATION-DETECTION] ⚠️ Note: GPS will be overridden if user enters pincode later");
                 
                 // Set location in cart store
                 setUserLocation(lat, lng);
@@ -178,34 +210,36 @@ import { useState, useEffect, useMemo } from "react";
                 const MAX_DELIVERY_DISTANCE = 2.5; // km
                 
                 const distance = calculateDistance(lat, lng, CHEF_LAT, CHEF_LNG);
-                console.log("[LOCATION-DETECTION] Distance to chef:", distance, "km");
+                console.log("[LOCATION-DETECTION] GPS distance to chef:", distance, "km");
                 
                 if (distance <= MAX_DELIVERY_DISTANCE) {
                   setUserInDeliveryZone(true);
                   setLocationPermissionDenied(false);
-                  console.log("[LOCATION-DETECTION] ✅ User is in delivery zone - NOW SHOWING CATEGORIES");
+                  console.log("[LOCATION-DETECTION] ✅ GPS is in delivery zone");
                 } else {
+                  // GPS is outside, but user might enter valid pincode - don't block
+                  console.log("[LOCATION-DETECTION] ⚠️ GPS outside zone, but pincode input will be available");
                   setUserInDeliveryZone(false);
-                  setLocationPermissionDenied(true);
-                  console.log("[LOCATION-DETECTION] ❌ User is OUTSIDE delivery zone");
+                  setLocationPermissionDenied(false); // ALLOW pincode input
                 }
                 
                 setDeliveryZoneDetected(true);
               },
               (error) => {
-                console.log("[LOCATION-DETECTION] Location permission denied or unavailable:", error);
-                // Location NOT detected - BLOCK categories
+                console.log("[LOCATION-DETECTION] GPS failed (expected):", error.message);
+                console.log("[LOCATION-DETECTION] User will enter pincode instead");
+                // GPS denied/failed - ALLOW pincode input
                 setDeliveryZoneDetected(true);
-                setUserInDeliveryZone(false); // BLOCK categories
-                setLocationPermissionDenied(true);
+                setUserInDeliveryZone(false);
+                setLocationPermissionDenied(false); // Allow pincode input
               },
-              { timeout: 8000, enableHighAccuracy: false }
+              { timeout: 5000, enableHighAccuracy: false }
             );
           } else {
-            console.log("[LOCATION-DETECTION] Geolocation not supported - BLOCKING categories");
+            console.log("[LOCATION-DETECTION] Geolocation not supported - pincode input available");
             setDeliveryZoneDetected(true);
-            setUserInDeliveryZone(false); // BLOCK categories if geo not supported
-            setLocationPermissionDenied(true);
+            setUserInDeliveryZone(false);
+            setLocationPermissionDenied(false); // Allow pincode input
           }
         } catch (error) {
           console.error("[LOCATION-DETECTION] Error detecting location:", error);
@@ -299,19 +333,24 @@ import { useState, useEffect, useMemo } from "react";
       : null);
 
     const { data: chefs = [], isLoading: chefsLoading } = useQuery<Chef[]>({
-      // 🔴 CRITICAL FIX: Query chefs by location if coordinates available (Zomato-style)
-      // Otherwise fallback to area-based filtering
+      // ✅ FIXED: Use pincode coordinates (if available) over GPS for chef loading
+      // Pincode coords are more reliable for delivery zone validation
+      // Fallback to GPS coordinates, then area-based filtering
       queryKey: userLatitude && userLongitude 
-        ? ["/api/chefs/by-location", userLatitude, userLongitude]
+        ? ["/api/chefs/by-location", userLatitude, userLongitude, "source:pincode-or-gps"]
         : (selectedArea ? ["/api/chefs/by-area", selectedArea] : ["/api/chefs"]),
       queryFn: async () => {
-        // Primary: Distance-based filtering when user location is available
+        // Primary: Distance-based filtering when we have coordinates
+        // (These are pincode coords if pincode entered, GPS coords otherwise)
         if (userLatitude && userLongitude) {
-          console.log(`🗺️ Loading chefs by distance from (${userLatitude}, ${userLongitude})`);
+          console.log(`🗺️ Loading chefs by distance from (${userLatitude}, ${userLongitude})`, {
+            source: deliveryLocation.pincode ? "pincode (authoritative)" : "gps (fallback)",
+            pincode: deliveryLocation.pincode || "none"
+          });
           const res = await fetch(`/api/chefs/by-location?latitude=${userLatitude}&longitude=${userLongitude}&maxDistance=15`);
           if (!res.ok) throw new Error("Failed to fetch chefs by location");
           const data = await res.json();
-          console.log(`✅ Loaded ${data.length} nearby chefs`);
+          console.log(`✅ Loaded ${data.length} nearby chefs using coordinates`);
           return data;
         }
         
@@ -325,7 +364,8 @@ import { useState, useEffect, useMemo } from "react";
           return data;
         }
         
-        // Last resort: all chefs
+        // Last resort: all chefs (should rarely happen)
+        console.log("⚠️ Loading all chefs (no location or area specified)");
         const res = await fetch("/api/chefs");
         if (!res.ok) throw new Error("Failed to fetch chefs");
         return res.json();
