@@ -1181,8 +1181,40 @@ export default function CheckoutDialog({
         }
       }
 
-      // STEP 3: Recalculate distance from pincode coordinates
-      console.log("[PINCODE-CHANGE] Step 3: Recalculating distance...");
+      // STEP 3: Refine coordinates if building/street provided (for more accurate distance)
+      console.log("[PINCODE-CHANGE] Step 3: Refining delivery coordinates...");
+      
+      let finalLat = pincodeData.latitude;
+      let finalLon = pincodeData.longitude;
+      
+      // Try to get more precise coordinates by geocoding area + street (without building name)
+      // Building names often don't exist in Nominatim, so we skip them for accuracy
+      if ((addressStreet.trim() || addressBuilding.trim()) && addressArea.trim()) {
+        try {
+          // Geocode area + street (skip building to avoid "not found" errors)
+          const areaStreetAddress = [addressStreet, addressArea, addressCity].filter(Boolean).join(", ");
+          console.log("[PINCODE-CHANGE] Attempting to refine coordinates for:", areaStreetAddress);
+          
+          const geocodeResponse = await api.post("/api/geocode", 
+            { address: areaStreetAddress, pincode: newPincode },
+            { timeout: 5000 }
+          );
+          
+          if (geocodeResponse.data?.success) {
+            finalLat = geocodeResponse.data.latitude;
+            finalLon = geocodeResponse.data.longitude;
+            console.log("[PINCODE-CHANGE] ✅ Coordinates refined via geocoding:", { finalLat, finalLon });
+          } else {
+            console.log("[PINCODE-CHANGE] Geocoding failed, using pincode center coordinates");
+          }
+        } catch (error) {
+          // If geocoding fails, just use pincode center (fallback)
+          console.log("[PINCODE-CHANGE] Geocoding error, using pincode center coordinates (fallback)");
+        }
+      }
+      
+      // STEP 4: Recalculate distance
+      console.log("[PINCODE-CHANGE] Step 4: Recalculating distance...");
       if (cart?.chefId) {
         try {
           const chefResponse = await api.get(`/api/chefs/${cart.chefId}`, { timeout: 5000 });
@@ -1195,8 +1227,8 @@ export default function CheckoutDialog({
           const newDistance = calculateDistance(
             chefLat,
             chefLon,
-            pincodeData.latitude,
-            pincodeData.longitude
+            finalLat,
+            finalLon
           );
 
           const isInZone = newDistance <= maxDeliveryDistance;
@@ -1218,12 +1250,12 @@ export default function CheckoutDialog({
             return;
           }
 
-          // STEP 4: Recalculate delivery fee
-          console.log("[PINCODE-CHANGE] Step 4: Recalculating delivery fee...");
+          // STEP 5: Recalculate delivery fee with refined coordinates
+          console.log("[PINCODE-CHANGE] Step 5: Recalculating delivery fee...");
           // Pass chef data to calculate fee using chef-specific fee parameters
           const newDeliveryFee = calculateDynamicDeliveryFee(
-            pincodeData.latitude,
-            pincodeData.longitude,
+            finalLat,
+            finalLon,
             chefLat,
             chefLon,
             {
@@ -1238,12 +1270,13 @@ export default function CheckoutDialog({
             area: pincodeData.area,
             distance: newDistance.toFixed(2),
             deliveryFee: newDeliveryFee,
+            coordinateSource: finalLat === pincodeData.latitude ? 'pincode-center' : 'geocoded',
           });
 
           // Update all state with new validated data
           setAddressArea(pincodeData.area); // Auto-correct area to database value for confirmation
-          setCustomerLatitude(pincodeData.latitude);
-          setCustomerLongitude(pincodeData.longitude);
+          setCustomerLatitude(finalLat);
+          setCustomerLongitude(finalLon);
           setAddressZoneDistance(newDistance);
           setAddressInDeliveryZone(true);
           setAddressZoneValidated(true);
@@ -1253,8 +1286,8 @@ export default function CheckoutDialog({
           setDeliveryLocation({
             isInZone: true,
             address: `${pincodeData.area}, ${newPincode}`,
-            latitude: pincodeData.latitude,
-            longitude: pincodeData.longitude,
+            latitude: finalLat,
+            longitude: finalLon,
             distance: newDistance,
             pincode: newPincode,
             areaName: pincodeData.area,
@@ -2153,14 +2186,15 @@ export default function CheckoutDialog({
                                     setAddressArea(suggestion);
                                     setShowAreaSuggestions(false);
                                     setAreaSuggestions([]);
-                                    // Trigger geocoding for this complete area
-                                    const fullAddress = [addressBuilding, addressStreet, suggestion, addressCity, addressPincode]
-                                      .filter(Boolean)
-                                      .join(", ");
-                                    console.log("[LOCATION] Selected suggestion, will geocode:", fullAddress);
-                                    setTimeout(() => {
-                                      autoGeocodeAddress(fullAddress);
-                                    }, 100);
+                                    // Use pincode validation instead of full-address geocoding (more reliable)
+                                    console.log("[LOCATION] Selected suggestion:", suggestion, "will validate via pincode");
+                                    if (addressPincode && /^\d{5,6}$/.test(addressPincode)) {
+                                      setTimeout(() => {
+                                        handlePincodeChange(addressPincode);
+                                      }, 100);
+                                    } else {
+                                      console.log("[LOCATION] Pincode not ready, validation will trigger on pincode entry");
+                                    }
                                   }}
                                   className="w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm border-b border-gray-200 dark:border-gray-700 last:border-0"
                                 >
