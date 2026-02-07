@@ -1314,9 +1314,18 @@ export default function CheckoutDialog({
       }
     } catch (error: any) {
       console.error("[PINCODE-CHANGE] Pincode validation request failed:", error);
-      setLocationError(
-        error?.response?.data?.message || "Could not validate pincode. Please check your internet connection."
-      );
+      
+      // Provide more specific error messages based on error type
+      if (error?.response?.data?.message) {
+        setLocationError(error.response.data.message);
+      } else if (error?.message?.includes("timeout")) {
+        setLocationError("Validation timed out. Please check your internet connection and try again.");
+      } else if (error?.message?.includes("Network")) {
+        setLocationError("Network error. Please check your internet connection.");
+      } else {
+        setLocationError("Could not validate pincode. Please try again.");
+      }
+      
       setAddressZoneValidated(false);
     } finally {
       setIsReValidatingPincode(false);
