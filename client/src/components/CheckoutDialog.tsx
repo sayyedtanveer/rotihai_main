@@ -2234,8 +2234,14 @@ export default function CheckoutDialog({
                           />
                         </div>
                         <div>
-                          <Label htmlFor="pincode" className="text-xs text-gray-600">
-                            Pincode <span className="text-red-500">*</span>
+                          <Label htmlFor="pincode" className="text-xs text-gray-600 flex items-center justify-between">
+                            <span>Pincode <span className="text-red-500">*</span></span>
+                            {isReValidatingPincode && (
+                              <span className="text-xs text-blue-600 dark:text-blue-400 flex items-center gap-1">
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                                Checking...
+                              </span>
+                            )}
                           </Label>
                           <div className="relative">
                             <Input
@@ -2252,13 +2258,16 @@ export default function CheckoutDialog({
                               </div>
                             )}
                           </div>
-                          {addressPincode && !/^\d{5,6}$/.test(addressPincode) && (
+                          {isReValidatingPincode && (
+                            <p className="text-xs text-blue-600 dark:text-blue-400 mt-0.5">⏳ Validating pincode...</p>
+                          )}
+                          {!isReValidatingPincode && addressPincode && !/^\d{5,6}$/.test(addressPincode) && (
                             <p className="text-xs text-red-500 mt-0.5">Pincode must be 5-6 digits</p>
                           )}
-                          {addressZoneValidated && addressInDeliveryZone && addressPincode && (
+                          {!isReValidatingPincode && addressZoneValidated && addressInDeliveryZone && addressPincode && (
                             <p className="text-xs text-green-600 mt-0.5">✅ Valid pincode for this delivery area</p>
                           )}
-                          {addressZoneValidated && !addressInDeliveryZone && addressPincode && (
+                          {!isReValidatingPincode && addressZoneValidated && !addressInDeliveryZone && addressPincode && (
                             <p className="text-xs text-red-600 mt-0.5">❌ Pincode outside delivery zone</p>
                           )}
                         </div>
@@ -2862,7 +2871,7 @@ export default function CheckoutDialog({
                     <Button
                       type="button"
                       onClick={() => setAddressConfirmed(true)}
-                      disabled={isLoading || isRotiOrderBlocked}
+                      disabled={isLoading || isRotiOrderBlocked || isReValidatingPincode}
                       className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700"
                     >
                       {isLoading ? (

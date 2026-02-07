@@ -147,4 +147,78 @@ async function syncOrders() {
   } catch (error) {
     console.error('Sync failed:', error);
   }
-}
+};
+
+// 🔔 Handle incoming push notifications (for offline delivery)
+self.addEventListener('push', event => {
+  console.log('📬 Push notification received:', event);
+  
+  try {
+    let notificationData = {
+      title: 'RotiHai',
+      body: 'New notification',
+      icon: '/icon-192.png',
+      badge: '/icon-96x96.png',
+      tag: 'rotihai-notification',
+      requireInteraction: false,
+    };
+
+    // Parse push event data if available
+    if (event.data) {
+      try {
+        const data = event.data.json();
+        notificationData = {
+          ...notificationData,
+          ...data,
+        };
+      } catch (e) {
+        // If not JSON, use as body text
+        notificationData.body = event.data.text();
+      }
+    }
+
+    // Show the notification
+    event.waitUntil(
+      self.registration.showNotification(notificationData.title, {
+        body: notificationData.body,
+        icon: notificationData.icon,
+        badge: notificationData.badge,
+        tag: notificationData.tag,
+        requireInteraction: notificationData.requireInteraction,
+        data: notificationData.data || {},
+      })
+    );
+  } catch (error) {
+    console.error('Error handling push notification:', error);
+    // Fallback notification
+    event.waitUntil(
+      self.registration.showNotification('RotiHai', {
+        body: 'New notification received',
+        icon: '/icon-192.png',
+      })
+    );
+  }
+});
+
+// Handle notification clicks
+self.addEventListener('notificationclick', event => {
+  console.log('🖱️ Notification clicked:', event);
+  event.notification.close();
+
+  // Open app or focus existing window
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
+      // Try to focus existing window
+      for (let i = 0; i < clientList.length; i++) {
+        const client = clientList[i];
+        if (client.url === '/' && 'focus' in client) {
+          return client.focus();
+        }
+      }
+      // Open new window if none found
+      if (clients.openWindow) {
+        return clients.openWindow('/');
+      }
+    })
+  );
+});

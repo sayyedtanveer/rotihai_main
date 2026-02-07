@@ -829,3 +829,31 @@ export const insertAdminSettingsSchema = createInsertSchema(adminSettings).omit(
 
 export type InsertAdminSettings = z.infer<typeof insertAdminSettingsSchema>;
 export type AdminSettings = typeof adminSettings.$inferSelect;
+
+// Push Subscriptions table - stores browser push notification endpoints for offline delivery
+export const pushSubscriptions = pgTable(
+  "push_subscriptions",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    userId: varchar("user_id").notNull(), // Can be admin_id, chef_id, delivery_id, or user_id
+    userType: varchar("user_type", { length: 50 }).notNull(), // 'admin' | 'chef' | 'delivery' | 'customer'
+    deviceType: varchar("device_type", { length: 50 }).default("web"), // Always 'web' for now
+    subscription: jsonb("subscription").notNull(), // Contains: { endpoint, keys: { p256dh, auth } }
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    lastActivatedAt: timestamp("last_activated_at").notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_push_subscriptions_user").on(table.userId, table.userType),
+    index("idx_push_subscriptions_active").on(table.isActive),
+  ]
+);
+
+export const insertPushSubscriptionSchema = createInsertSchema(pushSubscriptions).omit({
+  id: true,
+  createdAt: true,
+  lastActivatedAt: true,
+});
+
+export type InsertPushSubscription = z.infer<typeof insertPushSubscriptionSchema>;
+export type PushSubscription = typeof pushSubscriptions.$inferSelect;

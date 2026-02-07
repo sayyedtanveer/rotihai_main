@@ -20,6 +20,7 @@ export default function AdminPayments() {
   const [currentPage, setCurrentPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState("");
   const [paymentStatusFilter, setPaymentStatusFilter] = useState("all");
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const itemsPerPage = 100;
 
   const { data: orders, isLoading } = useQuery<Order[]>({
@@ -57,12 +58,56 @@ export default function AdminPayments() {
       return response.json();
     },
     onSuccess: () => {
+      // 🔊 Play notification sound
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+      
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+      
+      // Play pleasant notification sound (two beeps)
+      oscillator.frequency.value = 800;
+      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
+      oscillator.start(audioContext.currentTime);
+      oscillator.stop(audioContext.currentTime + 0.1);
+      
+      // Second beep
+      oscillator.frequency.value = 1000;
+      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime + 0.15);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.25);
+      oscillator.start(audioContext.currentTime + 0.15);
+      oscillator.stop(audioContext.currentTime + 0.25);
+      
       queryClient.invalidateQueries({ queryKey: ["/api/admin", "orders", "payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin", "orders"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/dashboard/metrics"] });
+      
       toast({
         title: "✓ Payment Confirmed",
-        description: "Order sent to chef for preparation. Notification sent!",
+        description: "Order sent to chef for preparation",
+      });
+      
+      // 📱 Send push notification to offline users (non-blocking, fire and forget)
+      const adminToken = localStorage.getItem("adminToken");
+      fetch("/api/push/send", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(adminToken && { Authorization: `Bearer ${adminToken}` }),
+        },
+        body: JSON.stringify({
+          userType: "customer",
+          notification: {
+            title: "✓ Payment Confirmed",
+            body: "Your order has been confirmed. Chef is preparing it now.",
+            tag: "payment-confirmation",
+          },
+        }),
+      }).catch(() => {
+        // Silently fail if push not configured or network error
+        console.log("ℹ️ Push notification send failed or not configured");
       });
     },
     onError: () => {
@@ -190,12 +235,12 @@ export default function AdminPayments() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Order ID</TableHead>
-                      <TableHead>Customer</TableHead>
+                      <TableHead>Customer Name</TableHead>
+                      <TableHead>Address</TableHead>
                       <TableHead>Items</TableHead>
                       <TableHead>Total</TableHead>
                       <TableHead>Date</TableHead>
                       <TableHead>Payment Status</TableHead>
-                      <TableHead>QR</TableHead>
                       <TableHead>Action</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -209,6 +254,13 @@ export default function AdminPayments() {
                           <div>
                             <p className="font-medium">{order.customerName}</p>
                             <p className="text-sm text-slate-600 dark:text-slate-400">{order.phone}</p>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="max-w-sm text-sm">
+                            <p className="text-slate-700 dark:text-slate-300 break-words">
+                              {order.address || "No address provided"}
+                            </p>
                           </div>
                         </TableCell>
                         <TableCell>
@@ -242,15 +294,6 @@ export default function AdminPayments() {
                             {order.paymentStatus === "confirmed" && <CheckCircle className="w-3 h-3 mr-1" />}
                             {order.paymentStatus.toUpperCase()}
                           </Badge>
-                        </TableCell>
-                        <TableCell>
-                          {order.paymentQrShown ? (
-                            <Badge variant="outline" className="text-xs">
-                              Shown
-                            </Badge>
-                          ) : (
-                            <span className="text-xs text-slate-400">-</span>
-                          )}
                         </TableCell>
                         <TableCell>
                           <Button

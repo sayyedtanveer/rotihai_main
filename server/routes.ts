@@ -4288,6 +4288,212 @@ app.post("/api/orders", async (req: any, res) => {
 
       console.log(`✅ Calculated delivery fee for chef ${chefId}: ${feeResult.deliveryFee}, distance: ${distance}km, isFree: ${feeResult.isFreeDelivery}`);
 
+  // ================= PUSH NOTIFICATIONS ENDPOINTS =================
+
+  // Get VAPID public key for client subscription setup
+  app.get("/api/push/vapid-public-key", async (req, res) => {
+    try {
+      const { getVapidPublicKey, isPushConfigured } = await import("./pushService.js");
+      
+      if (!isPushConfigured()) {
+        return res.status(503).json({
+          message: "Push notifications not configured",
+          vapidPublicKey: null,
+        });
+      }
+
+      const publicKey = getVapidPublicKey();
+      if (!publicKey) {
+        return res.status(503).json({
+          message: "VAPID public key not available",
+          vapidPublicKey: null,
+        });
+      }
+
+      res.json({
+        vapidPublicKey: publicKey,
+        message: "VAPID public key retrieved successfully",
+      });
+    } catch (error: any) {
+      console.error("Error fetching VAPID key:", error);
+      res.status(500).json({
+        message: "Failed to fetch VAPID key",
+        error: error.message,
+      });
+    }
+  });
+
+  // Register for push notifications
+  app.post("/api/push/subscribe", async (req, res) => {
+    try {
+      const { subscription, userType, userId } = req.body;
+
+      // Validate required fields
+      if (!subscription || !subscription.endpoint) {
+        return res.status(400).json({
+          message: "Invalid subscription data - missing endpoint",
+        });
+      }
+
+      if (!userType || !userId) {
+        return res.status(400).json({
+          message: "Missing userType or userId",
+        });
+      }
+
+      // Validate user type
+      const validTypes = ["admin", "chef", "delivery", "customer"];
+      if (!validTypes.includes(userType)) {
+        return res.status(400).json({
+          message: `Invalid userType. Must be one of: ${validTypes.join(", ")}`,
+        });
+      }
+
+      // Import after validation
+      const { db } = await import("@shared/db");
+      const { pushSubscriptions } = await import("@shared/schema");
+      const { eq, and } = await import("drizzle-orm");
+
+      // Check if subscription already exists (same user + endpoint)
+      const existing = await db
+        .select()
+        .from(pushSubscriptions)
+        .where(
+          and(
+            eq(pushSubscriptions.userId, userId),
+            eq(pushSubscriptions.userType, userType)
+          )
+        )
+        .limit(1);
+
+      if (existing.length > 0) {
+        // Update existing subscription
+        await db
+          .update(pushSubscriptions)
+          .set({
+            subscription: subscription as any,
+            isActive: true,
+            lastActivatedAt: new Date(),
+          })
+          .where(eq(pushSubscriptions.id, existing[0].id));
+
+        console.log(`✅ Push subscription updated for ${userType} ${userId}`);
+      } else {
+        // Create new subscription
+        await db.insert(pushSubscriptions).values({
+          userId,
+          userType: userType as any,
+          subscription: subscription as any,
+          isActive: true,
+        } as any);
+
+        console.log(`✅ Push subscription registered for ${userType} ${userId}`);
+      }
+
+      res.json({
+        success: true,
+        message: "Successfully registered for push notifications",
+      });
+    } catch (error: any) {
+      console.error("Error registering for push notifications:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to register for push notifications",
+        error: error.message,
+      });
+    }
+  });
+
+  // Unsubscribe from push notifications
+  app.post("/api/push/unsubscribe", async (req, res) => {
+    try {
+      const { userId, userType } = req.body;
+
+      if (!userId || !userType) {
+        return res.status(400).json({
+          message: "Missing userId or userType",
+        });
+      }
+
+      const { db } = await import("@shared/db");
+      const { pushSubscriptions } = await import("@shared/schema");
+      const { eq, and } = await import("drizzle-orm");
+
+      // Mark subscriptions as inactive
+      await db
+        .update(pushSubscriptions)
+        .set({ isActive: false })
+        .where(
+          and(
+            eq(pushSubscriptions.userId, userId),
+            eq(pushSubscriptions.userType, userType)
+          )
+        );
+
+      console.log(`🗑️ Push subscriptions removed for ${userType} ${userId}`);
+
+      res.json({
+        success: true,
+        message: "Successfully unsubscribed from push notifications",
+      });
+    } catch (error: any) {
+      console.error("Error unsubscribing from push notifications:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to unsubscribe from push notifications",
+      });
+    }
+  });
+
+  // Send push notification to users (triggered by admin actions)
+  app.post("/api/push/send", requireAdmin, async (req: any, res: any) => {
+    try {
+      const { userType, userId, notification } = req.body;
+
+      if (!notification || !notification.title || !notification.body) {
+        return res.status(400).json({
+          message: "Missing notification title or body",
+        });
+      }
+
+      const { sendPushToUser, sendPushToAllAdmins, isPushConfigured } = await import("./pushService.js");
+
+      if (!isPushConfigured()) {
+        return res.status(503).json({
+          success: false,
+          message: "Push notifications not configured",
+        });
+      }
+
+      let result;
+      if (userType === "admin" && !userId) {
+        // Send to all admins
+        result = await sendPushToAllAdmins(notification);
+      } else if (userType && userId) {
+        // Send to specific user
+        result = await sendPushToUser(userId, userType, notification);
+      } else {
+        return res.status(400).json({
+          message: "Must provide either userType+userId or just admin userType",
+        });
+      }
+
+      res.json({
+        message: "Push notification send attempted",
+        ...result,
+      });
+    } catch (error: any) {
+      console.error("Error sending push notification:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to send push notification",
+        error: error.message,
+      });
+    }
+  });
+
+  // ================= END PUSH NOTIFICATIONS ENDPOINTS =================
+
       res.json({
         success: true,
         distance: distance || 0,
