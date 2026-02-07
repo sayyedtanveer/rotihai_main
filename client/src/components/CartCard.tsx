@@ -241,8 +241,12 @@ export default function CartCard({
               <span className="text-xs text-red-600 dark:text-red-400 font-medium">
                 Not available
               </span>
+            ) : freeDeliveryEligible ? (
+              <span className="text-green-600 dark:text-green-400 font-medium">
+                <span className="line-through text-gray-400 dark:text-gray-500">₹{deliveryFee}</span> FREE
+              </span>
             ) : (
-              <span className={`font-medium ${freeDeliveryEligible ? 'line-through text-muted-foreground' : ''}`} data-testid="text-delivery-fee">
+              <span className="font-medium" data-testid="text-delivery-fee">
                 ₹{deliveryFee}
               </span>
             )}

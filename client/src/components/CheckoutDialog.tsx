@@ -506,11 +506,17 @@ export default function CheckoutDialog({
           newDiscount: calculatedDiscount,
           appliedCoupon: appliedCoupon ? { code: appliedCoupon.code, discountAmount: appliedCoupon.discountAmount } : null,
           subtotal: calculatedSubtotal,
-          deliveryFee: actualDeliveryFee,
+          calculatedDeliveryFee: calculatedDeliveryFee,
+          actualDeliveryFee: actualDeliveryFee,
           maxApplicableDiscount: calculatedSubtotal + actualDeliveryFee,
         });
       }
       setDiscount(calculatedDiscount);
+
+      // ✅ DISPLAY shows calculatedDeliveryFee (the calculated amount like ₹20)
+      // ✅ TOTAL uses actualDeliveryFee (what user pays - ₹0 if minimum met)
+      // This ensures display shows "₹20 FREE" while total is correctly ₹0 delivery charge
+      setDeliveryFee(calculatedDeliveryFee);
 
       // Calculate base total with actual delivery fee (only added if below minimum)
       let baseTotal = calculatedSubtotal + actualDeliveryFee - calculatedDiscount;
@@ -2514,11 +2520,11 @@ export default function CheckoutDialog({
                         : ""}:
                     </span>
                     {!isBelowDeliveryMinimum ? (
-                      <span className="text-green-600 dark:text-green-400">
+                      <span className="text-green-600 dark:text-green-400 font-medium">
                         <span className="line-through text-gray-400 dark:text-gray-500">₹{deliveryFee.toFixed(2)}</span> FREE
                       </span>
                     ) : (
-                      <span>₹{deliveryFee.toFixed(2)}</span>
+                      <span className="font-medium">₹{deliveryFee.toFixed(2)}</span>
                     )}
                   </div>
                   
