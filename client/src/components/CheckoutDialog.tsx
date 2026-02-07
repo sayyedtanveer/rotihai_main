@@ -6,17 +6,10 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import {
-  Drawer,
-  DrawerContent,
-  DrawerHeader,
-  DrawerTitle,
-  DrawerDescription,
-  DrawerFooter,
-} from "@/components/ui/drawer";
+import { useCheckoutAddress } from "@/hooks/useCheckoutAddress";
+
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -38,6 +31,9 @@ import { getDeliveryMessage, calculateDistance } from "@/lib/locationUtils";
 import api from "@/lib/apiClient";
 import { useDeliveryLocation, getAreaSuggestions } from "@/contexts/DeliveryLocationContext";
 import { getStoredPincodeValidation } from "@/lib/pincodeUtils";
+import { CartItem } from "@/types/cartItem";
+import{ CheckoutDialogProps } from "@/types/checkoutdialogprops";
+
 
 // Hook to check for mobile viewport
 function useIsMobile() {
@@ -56,61 +52,7 @@ function useIsMobile() {
   return isMobile;
 }
 
-interface CartItem {
-  id: string;
-  name: string;
-  price: number;
-  quantity: number;
-  image: string;
-  chefId?: string;
-  chefName?: string;
-  categoryId?: string;
-  offerPercentage?: number; // Add offer percentage
-}
 
-interface CategoryCart {
-  categoryId: string;
-  categoryName: string;
-  chefId: string;
-  chefName: string;
-  chefLatitude?: number;
-  chefLongitude?: number;
-  items: CartItem[];
-  total?: number;
-  deliveryFee?: number;
-  distance?: number;
-  freeDeliveryEligible?: boolean;
-  amountForFreeDelivery?: number;
-  deliveryRangeName?: string;
-  minOrderAmount?: number;
-  chefIsActive?: boolean;
-}
-
-interface CheckoutDialogProps {
-  isOpen: boolean;
-  onClose: () => void;
-  cart: CategoryCart | null;
-  onClearCart?: () => void;
-  onShowPaymentQR: ({
-    orderId,
-    amount,
-    customerName,
-    phone,
-    email,
-    address,
-    accountCreated,
-    defaultPassword,
-  }: {
-    orderId: string;
-    amount: number;
-    customerName: string;
-    phone: string;
-    email: string | undefined;
-    address: string;
-    accountCreated: boolean;
-    defaultPassword?: string;
-  }) => void;
-}
 
 export default function CheckoutDialog({
   isOpen,
@@ -121,18 +63,7 @@ export default function CheckoutDialog({
 }: CheckoutDialogProps) {
   const [activeTab, setActiveTab] = useState("checkout");
   
-  // Log when cart changes
-  useEffect(() => {
-    console.log("[CHECKOUT-DIALOG] Received cart prop:", {
-      isOpen,
-      hasCart: !!cart,
-      cartChefId: cart?.chefId,
-      cartChefLatitude: cart?.chefLatitude,
-      cartChefLongitude: cart?.chefLongitude,
-      cartDeliveryFee: cart?.deliveryFee,
-      cartDistance: cart?.distance,
-    });
-  }, [cart, isOpen]);
+
   const [customerName, setCustomerName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
@@ -204,14 +135,30 @@ export default function CheckoutDialog({
   const [addressZoneDistance, setAddressZoneDistance] = useState<number>(0);
   const [isReValidatingPincode, setIsReValidatingPincode] = useState(false);
   const autoGeocodeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Address confirmation state - controls visibility of below content
+  const [addressConfirmed, setAddressConfirmed] = useState(false);
 
+    // Log when cart changes
+  useEffect(() => {
+    console.log("[CHECKOUT-DIALOG] Received cart prop:", {
+      isOpen,
+      hasCart: !!cart,
+      cartChefId: cart?.chefId,
+      cartChefLatitude: cart?.chefLatitude,
+      cartChefLongitude: cart?.chefLongitude,
+      cartDeliveryFee: cart?.deliveryFee,
+      cartDistance: cart?.distance,
+    });
+  }, [cart, isOpen]);
   // Listen to cart changes and clear validation when cart/chef changes
   // This forces user to re-validate address when selecting a different chef
   useEffect(() => {
     if (cart?.chefId) {
-      // Chef changed - require address re-validation
+      // Chef changed - require address re-validation and re-confirmation
       setAddressZoneValidated(false);
       setAddressInDeliveryZone(false);
+      setAddressConfirmed(false);
       setLocationError("");
       console.log("[CHECKOUT] Chef changed - cleared address validation. User must re-validate.");
     }
@@ -863,7 +810,7 @@ export default function CheckoutDialog({
         setAddressInDeliveryZone(false);
       }
     }
-  }, [isOpen, cart?.chefId, addressArea, addressBuilding, addressStreet, addressCity, addressPincode, customerLatitude, customerLongitude, cart?.maxDeliveryDistanceKm]);
+  }, [isOpen, cart?.chefId, addressArea, addressBuilding, addressStreet, addressCity, addressPincode, customerLatitude, customerLongitude]);
 
   // Fetch pending bonus and referral info from user profile
   useEffect(() => {
@@ -2334,7 +2281,14 @@ export default function CheckoutDialog({
                       </div>
                     )}
 
-                    {/* Delivery Time Selection - OPTIONAL for Roti orders */}
+                    </div>
+
+                    {/* ============================================
+                        SHOW DELIVERY, COUPONS, TOTALS ONLY AFTER ADDRESS IS CONFIRMED
+                        ============================================ */}
+                    {addressConfirmed && addressZoneValidated && addressInDeliveryZone && (
+                      <div>
+                      {/* Delivery Time Selection - OPTIONAL for Roti orders */}
                     {isRotiCategory && (
                       <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-300 dark:border-blue-700 rounded-md p-2 sm:p-3">
                         <div className="space-y-1.5 sm:space-y-2 w-full">
@@ -2545,11 +2499,9 @@ export default function CheckoutDialog({
                         </p>
                       )}
                     </div>
-                  </div>
-                </form>
 
-                {/* Totals - Outside form */}
-                <div className="border-t pt-3 space-y-2 mt-4">
+                  {/* Totals - Inside form */}
+                  <div className="border-t pt-3 space-y-2 mt-4">
                   <div className="flex justify-between text-sm">
                     <span>Subtotal:</span>
                     <span>₹{subtotal.toFixed(2)}</span>
@@ -2753,7 +2705,11 @@ export default function CheckoutDialog({
                     <span>Total:</span>
                     <span>₹{total.toFixed(2)}</span>
                   </div>
-                </div>
+                    </div>
+                    </div>
+                    )}
+
+                </form>
               </TabsContent>
 
               {/* Login Tab */}
@@ -2850,37 +2806,58 @@ export default function CheckoutDialog({
                 Cancel
               </Button>
               {activeTab === "checkout" ? (
-                <Button
-                  type="button"
-                  onClick={handleSubmit}
-                  disabled={
-                    isLoading ||
-                    !isFormValid ||
-                    (phoneExists && !userToken) ||
-                    cart?.chefIsActive === false ||
-                    isRotiOrderBlocked ||
-                    !addressZoneValidated ||
-                    (addressZoneValidated && !addressInDeliveryZone)
-                  }
-                  className="w-full sm:w-auto"
-                  data-testid="button-checkout-submit"
-                  title={addressZoneValidated && !addressInDeliveryZone ? `${address.split(",")[0].trim()} is outside our service area` : ""}
-                >
-                  {isLoading ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Processing...
-                    </>
-                  ) : isRotiOrderBlocked ? (
-                    "🚫 Roti Not Available Now"
-                  ) : !addressZoneValidated ? (
-                    "⚠️ Validate Delivery Address"
-                  ) : addressZoneValidated && !addressInDeliveryZone ? (
-                    `🚫 ${address.split(",")[0].trim()} - ${addressZoneDistance.toFixed(1)}km away`
+                <>
+                  {!addressConfirmed && addressZoneValidated && addressInDeliveryZone ? (
+                    <Button
+                      type="button"
+                      onClick={() => setAddressConfirmed(true)}
+                      disabled={isLoading || isRotiOrderBlocked}
+                      className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700"
+                    >
+                      {isLoading ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Processing...
+                        </>
+                      ) : (
+                        "✓ Confirm Address"
+                      )}
+                    </Button>
                   ) : (
-                    `Pay ₹${total.toFixed(2)}`
+                    <Button
+                      type="button"
+                      onClick={handleSubmit}
+                      disabled={
+                        isLoading ||
+                        !isFormValid ||
+                        (phoneExists && !userToken) ||
+                        cart?.chefIsActive === false ||
+                        isRotiOrderBlocked ||
+                        !addressZoneValidated ||
+                        (addressZoneValidated && !addressInDeliveryZone) ||
+                        !addressConfirmed
+                      }
+                      className="w-full sm:w-auto"
+                      data-testid="button-checkout-submit"
+                      title={addressZoneValidated && !addressInDeliveryZone ? `${address.split(",")[0].trim()} is outside our service area` : ""}
+                    >
+                      {isLoading ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Processing...
+                        </>
+                      ) : isRotiOrderBlocked ? (
+                        "🚫 Roti Not Available Now"
+                      ) : !addressZoneValidated ? (
+                        "⚠️ Validate Delivery Address"
+                      ) : addressZoneValidated && !addressInDeliveryZone ? (
+                        `🚫 ${address.split(",")[0].trim()} - ${addressZoneDistance.toFixed(1)}km away`
+                      ) : (
+                        `Pay ₹${total.toFixed(2)}`
+                      )}
+                    </Button>
                   )}
-                </Button>
+                </>
               ) : (
                 <Button
                   type="button"

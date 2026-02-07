@@ -16,6 +16,7 @@ import { useState, useEffect, useMemo } from "react";
   import PromotionalBannersSection from "@/components/PromotionalBannersSection";
   import { LocationPermissionModal } from "@/components/LocationPermissionModal";
   import { DeliveryAddressSelector } from "@/components/DeliveryAddressSelector";
+  import { AddressVerificationDrawer } from "@/components/AddressVerificationDrawer";
   import { getImageUrl, handleImageError } from "@/lib/imageUrl";
   import { Button } from "@/components/ui/button";
   import { Badge } from "@/components/ui/badge";
@@ -88,6 +89,14 @@ import { useState, useEffect, useMemo } from "react";
     const [vegOnly, setVegOnly] = useState(false);
     const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
     const [isPincodeModalOpen, setIsPincodeModalOpen] = useState(false);
+    const [isAddressVerificationOpen, setIsAddressVerificationOpen] = useState(false);
+    const [verifiedAddressData, setVerifiedAddressData] = useState<{
+      pincode: string;
+      area: string;
+      latitude: number;
+      longitude: number;
+      distance: number;
+    } | null>(null);
     const { user } = useAuth();
 
     const { carts, addToCart: cartAddToCart, canAddItem, clearCart, getTotalItems, setUserLocation, getAllCartsWithDelivery, updateChefStatus, fetchChefStatuses, userLatitude, userLongitude, updateQuantity, removeFromCart } = useCart();

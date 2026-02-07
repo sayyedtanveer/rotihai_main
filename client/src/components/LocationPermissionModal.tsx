@@ -3,8 +3,6 @@ import { AlertCircle, MapPin, CheckCircle2, Loader } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Input } from "@/components/ui/input";
-import { calculateDistance } from "@/lib/locationUtils";
 import { toast } from "@/hooks/use-toast";
 
 interface LocationPermissionModalProps {
@@ -24,8 +22,6 @@ export function LocationPermissionModal({
   >("idle");
   const [errorMessage, setErrorMessage] = useState("");
   const [autoAttempted, setAutoAttempted] = useState(false);
-  const [manualAddress, setManualAddress] = useState("");
-  const [isCheckingAddress, setIsCheckingAddress] = useState(false);
 
   const requestLocation = () => {
     setIsRequesting(true);
@@ -93,62 +89,6 @@ export function LocationPermissionModal({
       requestLocation();
     }
   }, [isOpen]);
-
-  const handleCheckAddress = async () => {
-    if (!manualAddress.trim()) {
-      toast({
-        title: "Address Required",
-        description: "Please enter your delivery address",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setIsCheckingAddress(true);
-    try {
-      const response = await fetch("/api/geocode", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ address: manualAddress }),
-      });
-
-      if (!response.ok) {
-        throw new Error("Could not find location");
-      }
-
-      const { latitude, longitude } = await response.json();
-      
-      const CHEF_LAT = 19.068604;
-      const CHEF_LNG = 72.87658;
-      const MAX_DELIVERY_DISTANCE = 2.5;
-      
-      const distance = calculateDistance(latitude, longitude, CHEF_LAT, CHEF_LNG);
-
-      if (distance <= MAX_DELIVERY_DISTANCE) {
-        toast({
-          title: "✅ Great!",
-          description: "We deliver to your area!",
-        });
-        onLocationGranted(latitude, longitude);
-        onClose?.();
-      } else {
-        toast({
-          title: "❌ Out of Zone",
-          description: `Sorry, your area is ${distance.toFixed(1)} km away. We deliver within 2.5 km of Kurla West.`,
-          variant: "destructive",
-        });
-      }
-    } catch (error) {
-      console.error("[ADDRESS-CHECK] Error:", error);
-      toast({
-        title: "Error",
-        description: "Could not find your address. Please try again.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsCheckingAddress(false);
-    }
-  };
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -250,38 +190,6 @@ export function LocationPermissionModal({
                 </ol>
               </div>
             )}
-
-            {/* OR DIVIDER */}
-            <div className="flex items-center gap-3 py-3">
-              <div className="flex-1 h-px bg-gray-300"></div>
-              <span className="text-sm font-semibold text-gray-600">OR</span>
-              <div className="flex-1 h-px bg-gray-300"></div>
-            </div>
-
-            {/* MANUAL ADDRESS ENTRY */}
-            <div className="space-y-3 pb-2">
-              <h4 className="text-sm font-semibold text-gray-700">Enter Manually</h4>
-              <div className="space-y-2">
-                <Input
-                  placeholder="Enter your full address"
-                  value={manualAddress}
-                  onChange={(e) => setManualAddress(e.target.value)}
-                  className="h-10 text-sm"
-                  disabled={isCheckingAddress}
-                />
-                <p className="text-xs text-gray-500">
-                  e.g., 18/20 M.I.G, Kurla West, Mumbai, 400070
-                </p>
-              </div>
-              <Button
-                onClick={handleCheckAddress}
-                disabled={isCheckingAddress || !manualAddress.trim()}
-                variant="outline"
-                className="w-full"
-              >
-                {isCheckingAddress ? "Checking..." : "Check Delivery"}
-              </Button>
-            </div>
           </div>
         </div>
 
