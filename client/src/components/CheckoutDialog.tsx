@@ -1126,9 +1126,10 @@ export default function CheckoutDialog({
     // STEP 1: Validate pincode format and existence
     console.log("[PINCODE-CHANGE] Step 1: Validating pincode format and existence...");
     try {
+      // Increased timeout to 15 seconds for mobile networks (slower connections)
       const pincodeValidationResponse = await api.post("/api/validate-pincode", {
         pincode: newPincode,
-      }, { timeout: 8000 });
+      }, { timeout: 15000 });
 
       if (!pincodeValidationResponse.data.success) {
         console.warn("[PINCODE-CHANGE] ❌ Pincode validation failed:", pincodeValidationResponse.data.message);
@@ -1150,7 +1151,7 @@ export default function CheckoutDialog({
       console.log("[PINCODE-CHANGE] Step 2: Checking if chef serves this pincode...");
       if (cart?.chefId) {
         try {
-          const chefResponse = await api.get(`/api/chefs/${cart.chefId}`, { timeout: 5000 });
+          const chefResponse = await api.get(`/api/chefs/${cart.chefId}`, { timeout: 10000 });
           const chefData = chefResponse.data;
           
           // Check Layer 2: Chef's service pincodes
@@ -1197,7 +1198,7 @@ export default function CheckoutDialog({
           
           const geocodeResponse = await api.post("/api/geocode", 
             { address: areaStreetAddress, pincode: newPincode },
-            { timeout: 5000 }
+            { timeout: 10000 }
           );
           
           if (geocodeResponse.data?.success) {
@@ -1217,7 +1218,7 @@ export default function CheckoutDialog({
       console.log("[PINCODE-CHANGE] Step 4: Recalculating distance...");
       if (cart?.chefId) {
         try {
-          const chefResponse = await api.get(`/api/chefs/${cart.chefId}`, { timeout: 5000 });
+          const chefResponse = await api.get(`/api/chefs/${cart.chefId}`, { timeout: 10000 });
           const chefData = chefResponse.data;
           // Use chef API response directly (chef data always has these fields)
           const chefLat = chefData.latitude;
