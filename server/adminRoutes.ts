@@ -3557,7 +3557,7 @@ export function registerAdminRoutes(app: Express) {
         return;
       }
 
-      // Validate and update each area with pincodes
+      // Validate and update each area with pincodes and coordinates
       for (const area of areas) {
         if (!area.name || typeof area.name !== "string" || area.name.trim().length === 0) {
           res.status(400).json({ message: "Each area must have a non-empty name" });
@@ -3570,8 +3570,14 @@ export function registerAdminRoutes(app: Express) {
 
         try {
           if (area.id) {
-            // Update existing area
-            await storage.updateDeliveryArea(area.id, area.name.trim(), pincodes);
+            // Update existing area with coordinates
+            await storage.updateDeliveryArea(
+              area.id, 
+              area.name.trim(), 
+              pincodes,
+              area.latitude !== undefined ? parseFloat(String(area.latitude)) : undefined,
+              area.longitude !== undefined ? parseFloat(String(area.longitude)) : undefined
+            );
           } else {
             // Add new area
             await storage.addDeliveryArea(area.name.trim(), pincodes);
@@ -3584,7 +3590,7 @@ export function registerAdminRoutes(app: Express) {
 
       const updatedAreas = await storage.getAllDeliveryAreas();
 
-      console.log(`[ADMIN] Updated delivery areas with pincodes:`, updatedAreas);
+      console.log(`[ADMIN] Updated delivery areas with pincodes and coordinates:`, updatedAreas);
       res.json({
         message: "Delivery areas updated successfully",
         areas: updatedAreas,

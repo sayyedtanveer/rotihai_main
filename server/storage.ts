@@ -2702,11 +2702,13 @@ export class MemStorage implements IStorage {
     }
   }
 
-  async updateDeliveryArea(id: string, name?: string, pincodes?: string[]): Promise<DeliveryArea | undefined> {
+  async updateDeliveryArea(id: string, name?: string, pincodes?: string[], latitude?: number, longitude?: number): Promise<DeliveryArea | undefined> {
     try {
       const updateData: any = {};
       if (name !== undefined) updateData.name = name.trim();
       if (pincodes !== undefined) updateData.pincodes = pincodes;
+      if (latitude !== undefined) updateData.latitude = latitude;
+      if (longitude !== undefined) updateData.longitude = longitude;
       
       const result = await db.update(deliveryAreas)
         .set(updateData)
