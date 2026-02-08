@@ -257,8 +257,8 @@ export default function AdminPayments() {
                           </div>
                         </TableCell>
                         <TableCell>
-                          <div className="max-w-sm text-sm">
-                            <p className="text-slate-700 dark:text-slate-300 break-words">
+                          <div className="max-w-md text-sm">
+                            <p className="text-slate-700 dark:text-slate-300 whitespace-normal break-words line-clamp-2">
                               {order.address || "No address provided"}
                             </p>
                           </div>

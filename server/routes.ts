@@ -5,7 +5,7 @@ import { insertOrderSchema, userLoginSchema, insertUserSchema } from "@shared/sc
 import { registerAdminRoutes } from "./adminRoutes";
 import { registerPartnerRoutes } from "./partnerRoutes";
 import { registerDeliveryRoutes } from "./deliveryRoutes";
-import { setupWebSocket, broadcastNewOrder, broadcastSubscriptionDelivery, broadcastNewSubscriptionToAdmin, broadcastSubscriptionAssignmentToPartner, broadcastWalletUpdate } from "./websocket";
+import { setupWebSocket, broadcastNewOrder, broadcastOrderUpdate, broadcastSubscriptionDelivery, broadcastNewSubscriptionToAdmin, broadcastSubscriptionAssignmentToPartner, broadcastWalletUpdate } from "./websocket";
 import { hashPassword, verifyPassword, generateAccessToken, generateRefreshToken, requireUser, type AuthenticatedUserRequest } from "./userAuth";
 import { verifyToken as verifyUserToken } from "./userAuth";
 import { requireAdmin } from "./adminAuth";
@@ -1896,6 +1896,12 @@ app.post("/api/orders", async (req: any, res) => {
         response.userCreated = true;
         response.accessToken = accessToken;
         response.refreshToken = refreshToken;
+      }
+
+      // 📡 BROADCAST to admin, partner/chef, and delivery boy in real-time
+      if (updatedOrder) {
+        console.log(`\n📣 Broadcasting payment confirmation for order ${updatedOrder.id}`);
+        broadcastOrderUpdate(updatedOrder);
       }
 
       res.json(response);
