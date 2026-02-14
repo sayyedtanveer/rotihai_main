@@ -1297,24 +1297,39 @@ export default function CheckoutDialog({
 
       let finalLat = pincodeData.latitude;
       let finalLon = pincodeData.longitude;
+      let geocodingAccuracy = 'pincode'; // Default to pincode center
 
-      // Try to get more precise coordinates by geocoding area + street (without building name)
-      // Building names often don't exist in Nominatim, so we skip them for accuracy
-      if ((addressStreet.trim() || addressBuilding.trim()) && addressArea.trim()) {
+      // Try to get more precise coordinates using the new smart geocoding endpoint
+      if (addressArea.trim()) {
         try {
-          // Geocode area + street (skip building to avoid "not found" errors)
-          const areaStreetAddress = [addressStreet, addressArea, addressCity].filter(Boolean).join(", ");
-          console.log("[PINCODE-CHANGE] Attempting to refine coordinates for:", areaStreetAddress);
+          console.log("[PINCODE-CHANGE] Attempting to geocode full address with smart fallbacks:", {
+            building: addressBuilding,
+            street: addressStreet,
+            area: addressArea,
+            pincode: newPincode
+          });
 
-          const geocodeResponse = await api.post("/api/geocode",
-            { address: areaStreetAddress, pincode: newPincode },
-            { timeout: 10000 }
+          // Use new geocode-full-address endpoint with smart fallbacks
+          const geocodeResponse = await api.post("/api/geocode-full-address",
+            {
+              building: addressBuilding,
+              street: addressStreet,
+              area: addressArea,
+              pincode: newPincode
+            },
+            { timeout: 15000 } // Longer timeout for multiple fallback attempts
           );
 
           if (geocodeResponse.data?.success) {
             finalLat = geocodeResponse.data.latitude;
             finalLon = geocodeResponse.data.longitude;
-            console.log("[PINCODE-CHANGE] ✅ Coordinates refined via geocoding:", { finalLat, finalLon });
+            geocodingAccuracy = geocodeResponse.data.accuracy;
+            console.log("[PINCODE-CHANGE] ✅ Coordinates geocoded:", {
+              latitude: finalLat,
+              longitude: finalLon,
+              accuracy: geocodingAccuracy,
+              message: geocodeResponse.data.message
+            });
           } else {
             console.log("[PINCODE-CHANGE] Geocoding failed, using pincode center coordinates");
           }
