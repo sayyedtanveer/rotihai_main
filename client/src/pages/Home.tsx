@@ -822,6 +822,9 @@ export default function Home() {
     localStorage.setItem('userLongitude', longitude.toString());
     localStorage.setItem('userPincode', pincode);
 
+    // CRITICAL: Update global user location state to trigger chef query refresh
+    setUserLocation(latitude, longitude);
+
     // Assume pincode is verified (address selector already validates it)
     // So we can allow browsing
     console.log("[HOME] ✅ Pincode verified with coordinates, allowing browsing");
@@ -882,55 +885,7 @@ export default function Home() {
         }}
       />
 
-      {/* ZOMATO-STYLE: Show location required banner if not detected */}
-      {!userInDeliveryZone && isDetectingLocation === false && (
-        <div className={`${isSafariOnIOS ? 'bg-red-50 border-red-200' : 'bg-orange-50 border-orange-200'} border-b-2 py-4 px-4`}>
-          <div className="max-w-7xl mx-auto">
-            <div className="flex items-start gap-3">
-              <AlertCircle className={`h-5 w-5 flex-shrink-0 mt-0.5 ${isSafariOnIOS ? 'text-red-600' : 'text-orange-600'}`} />
-              <div className="flex-1">
-                {isSafariOnIOS ? (
-                  <>
-                    <h3 className="font-semibold text-red-900">📱 Switch to Chrome for Better Location Access</h3>
-                    <p className="text-sm text-red-800 mt-1">
-                      We detected Safari on iPhone. Chrome provides better location detection. Please open in Chrome for the best experience.
-                    </p>
-                    <div className="mt-2 flex gap-2 flex-wrap">
-                      <a
-                        href="https://apps.apple.com/app/chrome/id535886823"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-sm font-semibold text-red-700 hover:text-red-900 underline"
-                      >
-                        Get Chrome
-                      </a>
-                      <button
-                        onClick={() => setShowAddressModal(true)}
-                        className="text-sm font-semibold text-red-700 hover:text-red-900 underline"
-                      >
-                        Or Enter Address
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <h3 className="font-semibold text-orange-900">📍 Enable Location to See Our Menu</h3>
-                    <p className="text-sm text-orange-800 mt-1">
-                      We need your location to show delivery availability. Or enter your address manually.
-                    </p>
-                    <button
-                      onClick={() => setShowAddressModal(true)}
-                      className="text-sm font-semibold text-orange-700 hover:text-orange-900 underline mt-2"
-                    >
-                      Enter Address →
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+
 
       <main className="flex-1">
         <Hero />
