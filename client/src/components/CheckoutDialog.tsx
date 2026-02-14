@@ -2274,25 +2274,27 @@ export default function CheckoutDialog({
                           <Label htmlFor="area" className="text-xs text-gray-600 font-semibold">
                             Area/Locality *
                           </Label>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 text-xs text-blue-600 px-2"
-                            onClick={handleUseCurrentLocation}
-                            disabled={isGettingLocation}
-                          >
-                            {isGettingLocation ? (
-                              <>
-                                <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                                Locating...
-                              </>
-                            ) : (
-                              <>
-                                <MapPin className="mr-1 h-3 w-3" />
-                                Use My Location
-                              </>
-                            )}
-                          </Button>
+                          {!deliveryLocation.pincode && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 text-xs text-blue-600 px-2"
+                              onClick={handleUseCurrentLocation}
+                              disabled={isGettingLocation}
+                            >
+                              {isGettingLocation ? (
+                                <>
+                                  <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                  Locating...
+                                </>
+                              ) : (
+                                <>
+                                  <MapPin className="mr-1 h-3 w-3" />
+                                  Use My Location
+                                </>
+                              )}
+                            </Button>
+                          )}
                         </div>
                         <div className="relative">
                           <Input
