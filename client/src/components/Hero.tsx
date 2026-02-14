@@ -5,6 +5,7 @@ import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { getDeliveryMessage } from "@/lib/locationUtils";
 import { useDeliveryLocation } from "@/contexts/DeliveryLocationContext";
+import { useCart } from "@/hooks/use-cart";
 import heroImage from '@assets/generated_images/Indian_food_spread_hero_01f8cdab.png';
 
 export default function Hero() {
@@ -23,6 +24,7 @@ export default function Hero() {
   const [hasLocation, setHasLocation] = useState(false);
   const { toast } = useToast();
   const { setDeliveryLocation } = useDeliveryLocation();
+  const { setUserLocation } = useCart();
 
   useEffect(() => {
     const checkLocationOnLoad = () => {
@@ -31,10 +33,19 @@ export default function Hero() {
       if (savedPincode) {
         setPincode(savedPincode);
         const savedArea = localStorage.getItem('pincodeArea');
-        if (savedArea) {
+        const savedLat = localStorage.getItem('userLatitude');
+        const savedLng = localStorage.getItem('userLongitude');
+
+        if (savedArea && savedLat && savedLng) {
           setPincodeArea(savedArea);
           setPincodeValidated(true);
-          console.log("[HERO] Loaded saved pincode:", savedPincode);
+
+          // CRITICAL: Update cart store to trigger chef loading
+          const lat = parseFloat(savedLat);
+          const lng = parseFloat(savedLng);
+          setUserLocation(lat, lng);
+
+          console.log("[HERO] Loaded saved pincode and triggered chef loading:", savedPincode);
           return; // Use pincode if available
         }
       }
@@ -154,6 +165,9 @@ export default function Hero() {
       localStorage.setItem('pincodeArea', data.area);
       localStorage.setItem('userLatitude', data.latitude.toString());
       localStorage.setItem('userLongitude', data.longitude.toString());
+
+      // CRITICAL: Update cart store coordinates FIRST (triggers chef query in Home.tsx)
+      setUserLocation(data.latitude, data.longitude);
 
       // CRITICAL: Update global delivery context to trigger chef loading
       setDeliveryLocation({
