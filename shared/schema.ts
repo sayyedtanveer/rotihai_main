@@ -27,7 +27,10 @@ export const users = pgTable("users", {
   walletBalance: integer("wallet_balance").notNull().default(0),
   lastLoginAt: timestamp("last_login_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  latitude: real("latitude"),
+  longitude: real("longitude"),
 });
 
 export const adminUsers = pgTable("admin_users", {

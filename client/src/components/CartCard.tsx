@@ -29,6 +29,7 @@ interface CartCardProps {
   disabled?: boolean;
   chefClosed?: boolean;
   productAvailability?: Record<string, { isAvailable: boolean; stock?: number }>;
+  isFeeFinal?: boolean; // New prop for fee finalization status
 }
 
 export default function CartCard({
@@ -46,6 +47,7 @@ export default function CartCard({
   disabled = false,
   chefClosed = false,
   productAvailability = {},
+  isFeeFinal = false,
 }: CartCardProps) {
   const total = subtotal + deliveryFee;
   const totalItems = items.reduce((sum, item) => sum + item.quantity, 0);
@@ -102,12 +104,12 @@ export default function CartCard({
         {/* Warning for missing delivery settings */}
         {(deliveryRangeName === "No delivery settings configured" ||
           deliveryRangeName === "No active delivery settings") && (
-          <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-md p-2">
-            <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
-              Delivery settings not configured. Contact admin to set up delivery zones and pricing.
-            </p>
-          </div>
-        )}
+            <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-md p-2">
+              <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
+                Delivery settings not configured. Contact admin to set up delivery zones and pricing.
+              </p>
+            </div>
+          )}
 
         {/* Outside delivery zone warning */}
         {deliveryRangeName === "Outside delivery zone" && distance && (
@@ -135,8 +137,8 @@ export default function CartCard({
           {items.map((item) => {
             const isUnavailable = productAvailability[item.id]?.isAvailable === false;
             return (
-              <div 
-                key={item.id} 
+              <div
+                key={item.id}
                 className={`flex gap-2 sm:gap-3 overflow-hidden ${isUnavailable ? 'opacity-50' : ''}`}
                 data-testid={`item-${item.id}`}
               >
@@ -224,7 +226,9 @@ export default function CartCard({
           </div>
           <div className="flex justify-between items-start gap-2">
             <div className="flex flex-col min-w-0">
-              <span className="text-muted-foreground">Delivery Fee</span>
+              <span className="text-muted-foreground">
+                {isFeeFinal ? "Delivery Fee" : "Estimated Fee"}
+              </span>
               {distance !== undefined ? (
                 <span className="text-xs text-muted-foreground/70 truncate">
                   {distance.toFixed(1)} km {deliveryRangeName ? `• ${deliveryRangeName}` : ''}
@@ -249,9 +253,23 @@ export default function CartCard({
                   <span className="line-through text-gray-400 dark:text-gray-500">₹{deliveryFee}</span> FREE
                 </span>
               ) : (
-                <span className="font-medium whitespace-nowrap" data-testid="text-delivery-fee">
-                  ₹{deliveryFee}
-                </span>
+                <div className="flex flex-col items-end">
+                  <span className="font-medium whitespace-nowrap" data-testid="text-delivery-fee">
+                    {/* If fee is NOT final and not free, show appropriate message */}
+                    {!isFeeFinal && deliveryFee > 0 ? (
+                      <span className="text-muted-foreground text-xs italic">
+                        Starting from ₹{deliveryFee}
+                      </span>
+                    ) : (
+                      `₹${deliveryFee}`
+                    )}
+                  </span>
+                  {!isFeeFinal && deliveryFee > 0 && (
+                    <span className="text-[10px] text-muted-foreground leading-none mt-0.5 max-w-[120px] text-right">
+                      (Calculated at checkout)
+                    </span>
+                  )}
+                </div>
               )}
             </div>
           </div>
@@ -264,7 +282,18 @@ export default function CartCard({
           <Separator />
           <div className="flex justify-between font-semibold">
             <span>Total</span>
-            <span className="text-primary flex-shrink-0 ml-2" data-testid="text-total">₹{total}</span>
+            <div className="flex flex-col items-end">
+              <span className="text-primary flex-shrink-0 ml-2" data-testid="text-total">
+                {/* Logic to show range or estimated total if fee is not final */}
+                {!isFeeFinal && deliveryFee > 0 ? (
+                  <span className="text-muted-foreground text-xs font-normal">
+                    Estimate: ₹{total}
+                  </span>
+                ) : (
+                  `₹${total}`
+                )}
+              </span>
+            </div>
           </div>
         </div>
       </CardContent>

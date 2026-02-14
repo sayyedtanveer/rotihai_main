@@ -70,7 +70,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const computeSlotCutoffInfo = (slot: any) => {
     const now = new Date();
     console.log(`[CUTOFF] Starting computation - now: ${now.toISOString()}, slot.startTime: ${slot?.startTime}`);
-    
+
     const currentHour = now.getHours();
     const [hStr, mStr] = (slot?.startTime || "00:00").split(":");
     const h = parseInt(hStr || "0", 10) || 0;
@@ -94,12 +94,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // Get cutoff hours
     const cutoffHours = getCutoffHoursBefore(slot);
     console.log(`[CUTOFF] Cutoff hours before: ${cutoffHours}`);
-    
+
     // For today's delivery, calculate cutoff time
     const cutoffMs = cutoffHours * 60 * 60 * 1000;
     const todayCutoffTime = new Date(todaySlot.getTime() - cutoffMs);
     console.log(`[CUTOFF] Today cutoff time: ${todayCutoffTime.toISOString()}`);
-    
+
     // Determine if we can still order for today's slot
     let deliveryDate: Date;
     let isPastCutoff: boolean;
@@ -112,9 +112,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       deliveryDate = new Date(todaySlot);
       deliveryDate.setDate(deliveryDate.getDate() + 1);
       isPastCutoff = true;
-      
+
       console.log(`[CUTOFF] Tomorrow delivery date: ${deliveryDate.toISOString()}`);
-      
+
       // Calculate tomorrow's cutoff
       const tomorrowSlot = new Date(deliveryDate);
       cutoffDate = new Date(tomorrowSlot.getTime() - cutoffMs);
@@ -138,7 +138,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       slotHasPassed,
       inMorningRestriction: currentHour >= 8 && currentHour < 11,
     };
-    
+
     console.log(`[CUTOFF] Final result - nextAvailableDate: ${deliveryDate.toISOString()}, year: ${deliveryDate.getFullYear()}`);
     return result;
   };
@@ -149,23 +149,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const areas = await storage.getAllDeliveryAreas();
       const coordinatesMap: Record<string, { lat: number; lon: number; name: string }> = {};
-      
+
       areas.forEach(area => {
         const areaLower = area.name.toLowerCase();
-        const lat = typeof area.latitude === 'number' 
-          ? area.latitude 
+        const lat = typeof area.latitude === 'number'
+          ? area.latitude
           : parseFloat(String(area.latitude || 19.0728));
-        const lon = typeof area.longitude === 'number' 
-          ? area.longitude 
+        const lon = typeof area.longitude === 'number'
+          ? area.longitude
           : parseFloat(String(area.longitude || 72.8826));
-          
+
         coordinatesMap[areaLower] = {
           lat,
           lon,
           name: area.name
         };
       });
-      
+
       return coordinatesMap;
     } catch (err) {
       console.error('[COORDINATES] Error fetching area coordinates from database:', err);
@@ -235,7 +235,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/track-visitor", async (req, res) => {
     try {
       const { userId, sessionId, page, userAgent, referrer } = req.body;
-      
+
       // Skip tracking for admin, partner, and delivery routes
       if (page && (page.startsWith("/admin") || page.startsWith("/partner") || page.startsWith("/delivery"))) {
         res.json({ success: true });
@@ -396,9 +396,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const result = insertUserSchema.safeParse(req.body);
       if (!result.success) {
         console.error("User registration validation failed:", result.error.flatten());
-        res.status(400).json({ 
-          message: "Invalid user data", 
-          errors: result.error.flatten().fieldErrors 
+        res.status(400).json({
+          message: "Invalid user data",
+          errors: result.error.flatten().fieldErrors
         });
         return;
       }
@@ -423,6 +423,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         passwordHash,
         referralCode: null,
         walletBalance: 0,
+        latitude: null,
+        longitude: null,
       });
 
       const accessToken = generateAccessToken(user);
@@ -443,8 +445,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error: any) {
       console.error("Registration error:", error);
-      res.status(500).json({ 
-        message: error.message || "Failed to register user" 
+      res.status(500).json({
+        message: error.message || "Failed to register user"
       });
     }
   });
@@ -541,20 +543,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // User logout (JWT-based)
-app.post("/api/user/logout", async (req, res) => {
-  try {
-    // For JWT, logout simply means the client deletes the token.
-    // (Tokens are stateless — there's nothing to invalidate on the server)
-    // However, we could later add refresh token blacklisting here if needed.
+  app.post("/api/user/logout", async (req, res) => {
+    try {
+      // For JWT, logout simply means the client deletes the token.
+      // (Tokens are stateless — there's nothing to invalidate on the server)
+      // However, we could later add refresh token blacklisting here if needed.
 
-    console.log("User logout requested");
+      console.log("User logout requested");
 
-    res.json({ message: "Logged out successfully" });
-  } catch (error: any) {
-    console.error("Logout error:", error);
-    res.status(500).json({ message: error.message || "Failed to logout" });
-  }
-});
+      res.json({ message: "Logged out successfully" });
+    } catch (error: any) {
+      console.error("Logout error:", error);
+      res.status(500).json({ message: error.message || "Failed to logout" });
+    }
+  });
 
 
   app.post("/api/user/auto-register", async (req, res) => {
@@ -589,6 +591,8 @@ app.post("/api/user/logout", async (req, res) => {
           passwordHash,
           referralCode: null,
           walletBalance: 0,
+          latitude: null,
+          longitude: null,
         });
         console.log("New user created:", user.id, "- Default password:", generatedPassword);
 
@@ -665,6 +669,8 @@ app.post("/api/user/logout", async (req, res) => {
         referralCode: user.referralCode,
         walletBalance: user.walletBalance || 0,
         pendingBonus,
+        latitude: user.latitude,
+        longitude: user.longitude,
       });
     } catch (error) {
       console.error("Error fetching profile:", error);
@@ -676,7 +682,7 @@ app.post("/api/user/logout", async (req, res) => {
   app.put("/api/user/profile", requireUser(), async (req: AuthenticatedUserRequest, res) => {
     try {
       const userId = req.authenticatedUser!.userId;
-      const { name, email, address } = req.body;
+      const { name, email, address, latitude, longitude } = req.body;
 
       // Validate email if provided
       if (email && (typeof email !== 'string' || !email.includes('@'))) {
@@ -694,6 +700,8 @@ app.post("/api/user/logout", async (req, res) => {
       if (name && typeof name === 'string') updateData.name = name.trim();
       if (email && typeof email === 'string') updateData.email = email.trim();
       if (address && typeof address === 'string') updateData.address = address.trim();
+      if (latitude !== undefined) updateData.latitude = latitude;
+      if (longitude !== undefined) updateData.longitude = longitude;
 
       if (Object.keys(updateData).length === 0) {
         res.status(400).json({ message: "No valid fields to update" });
@@ -711,6 +719,8 @@ app.post("/api/user/logout", async (req, res) => {
         address: updatedUser!.address,
         referralCode: updatedUser!.referralCode,
         walletBalance: updatedUser!.walletBalance || 0,
+        latitude: updatedUser!.latitude,
+        longitude: updatedUser!.longitude,
       });
     } catch (error) {
       console.error("Error updating profile:", error);
@@ -789,10 +799,10 @@ app.post("/api/user/logout", async (req, res) => {
       }
 
       await storage.applyReferralBonus(referralCode, userId);
-      
+
       const bonus = settings.referredBonus || 50;
-      res.json({ 
-        message: "Referral bonus applied successfully", 
+      res.json({
+        message: "Referral bonus applied successfully",
         bonus,
         note: "Bonus is credited to your wallet. It will be available for your next order."
       });
@@ -922,7 +932,7 @@ app.post("/api/user/logout", async (req, res) => {
       }
 
       const result = await storage.claimReferralBonusAtCheckout(userId, orderTotal, orderId);
-      
+
       if (result.bonusClaimed) {
         return res.json(result);
       } else {
@@ -1146,254 +1156,254 @@ app.post("/api/user/logout", async (req, res) => {
 
   // Create an order (no authentication required - supports guest checkout)
   // Create an order (no authentication required - supports guest checkout)
-app.post("/api/orders", async (req: any, res) => {
-  try {
-    console.log(" Incoming order body:", JSON.stringify(req.body, null, 2));
+  app.post("/api/orders", async (req: any, res) => {
+    try {
+      console.log(" Incoming order body:", JSON.stringify(req.body, null, 2));
 
-    // 🔹 Sanitize request before validation
-    const body = req.body;
+      // 🔹 Sanitize request before validation
+      const body = req.body;
 
-    const sanitizeNumber = (val: any) =>
-      typeof val === "string" ? parseFloat(val) : val;
+      const sanitizeNumber = (val: any) =>
+        typeof val === "string" ? parseFloat(val) : val;
 
-    const sanitized = {
-      customerName: body.customerName?.trim(),
-      phone: body.phone?.trim(),
-      email: body.email || "",
-      address: body.address?.trim(),
-      // Structured address fields (NEW: for pincode validation)
-      addressBuilding: body.addressBuilding?.trim() || "",
-      addressStreet: body.addressStreet?.trim() || "",
-      addressArea: body.addressArea?.trim() || "",
-      addressCity: body.addressCity?.trim() || "Mumbai",
-      addressPincode: body.addressPincode?.trim() || "",
-      items: Array.isArray(body.items)
-  ? body.items.map((i: any) => ({
-      id: i.id,
-      name: i.name,
-      price: sanitizeNumber(i.price),
-      quantity: sanitizeNumber(i.quantity),
-    }))
-  : [],
-      subtotal: sanitizeNumber(body.subtotal),
-      deliveryFee: sanitizeNumber(body.deliveryFee),
-      total: sanitizeNumber(body.total),
-      chefId: body.chefId || body.items?.[0]?.chefId || "",
-      paymentStatus: body.paymentStatus || "pending",
-      userId: body.userId || undefined,
-      couponCode: body.couponCode || undefined,
-      discount: body.discount || 0,
-      walletAmountUsed: sanitizeNumber(body.walletAmountUsed) || 0,
-      categoryId: body.categoryId || undefined,
-      categoryName: body.categoryName || undefined,
-      deliveryTime: body.deliveryTime || undefined,
-      deliverySlotId: body.deliverySlotId || undefined,
-    };
+      const sanitized = {
+        customerName: body.customerName?.trim(),
+        phone: body.phone?.trim(),
+        email: body.email || "",
+        address: body.address?.trim(),
+        // Structured address fields (NEW: for pincode validation)
+        addressBuilding: body.addressBuilding?.trim() || "",
+        addressStreet: body.addressStreet?.trim() || "",
+        addressArea: body.addressArea?.trim() || "",
+        addressCity: body.addressCity?.trim() || "Mumbai",
+        addressPincode: body.addressPincode?.trim() || "",
+        items: Array.isArray(body.items)
+          ? body.items.map((i: any) => ({
+            id: i.id,
+            name: i.name,
+            price: sanitizeNumber(i.price),
+            quantity: sanitizeNumber(i.quantity),
+          }))
+          : [],
+        subtotal: sanitizeNumber(body.subtotal),
+        deliveryFee: sanitizeNumber(body.deliveryFee),
+        total: sanitizeNumber(body.total),
+        chefId: body.chefId || body.items?.[0]?.chefId || "",
+        paymentStatus: body.paymentStatus || "pending",
+        userId: body.userId || undefined,
+        couponCode: body.couponCode || undefined,
+        discount: body.discount || 0,
+        walletAmountUsed: sanitizeNumber(body.walletAmountUsed) || 0,
+        categoryId: body.categoryId || undefined,
+        categoryName: body.categoryName || undefined,
+        deliveryTime: body.deliveryTime || undefined,
+        deliverySlotId: body.deliverySlotId || undefined,
+      };
 
-    // Roti category validation - strict enforcement
-    const isRotiCategory = sanitized.categoryName?.toLowerCase() === 'roti' || 
-                           sanitized.categoryName?.toLowerCase().includes('roti');
-    
-    // NOTE: Do not trust client-provided `deliveryFee` — we will recompute it on the server
-    // to prevent clients from bypassing delivery charges. The sanitized.deliveryFee value
-    // will be overwritten after we compute distance from chef to customer below.
+      // Roti category validation - strict enforcement
+      const isRotiCategory = sanitized.categoryName?.toLowerCase() === 'roti' ||
+        sanitized.categoryName?.toLowerCase().includes('roti');
 
-    // 🔒 CRITICAL: Validate DELIVERY ADDRESS is in service zone (NOT customer GPS location)
-    // Address-based validation ensures orders can only be delivered to Kurla West area
-    const customerLatitude = sanitizeNumber(body.customerLatitude);
-    const customerLongitude = sanitizeNumber(body.customerLongitude);
-    
-    // We must have ADDRESS coordinates to validate delivery zone
-    if (customerLatitude === undefined || customerLongitude === undefined || isNaN(customerLatitude) || isNaN(customerLongitude)) {
-      console.log(`🚫 Order blocked - no delivery coordinates provided`);
-      return res.status(400).json({
-        message: "Delivery address coordinates required. Please enter and confirm your delivery address.",
-        requiresAddressValidation: true,
-      });
-    }
+      // NOTE: Do not trust client-provided `deliveryFee` — we will recompute it on the server
+      // to prevent clients from bypassing delivery charges. The sanitized.deliveryFee value
+      // will be overwritten after we compute distance from chef to customer below.
 
-    // Calculate distance from CHEF'S LOCATION to DELIVERY ADDRESS
-    const { calculateDistance } = await import("@shared/deliveryUtils");
-    
-    // Get chef's location from database (if no chefId, use Kurla West default)
-    let chefLat = 19.0728;
-    let chefLon = 72.8826;
-    let chefName = "Kurla West Kitchen";
-    let maxDeliveryDistance = 5; // Default fallback
-    let chef: any = null;
+      // 🔒 CRITICAL: Validate DELIVERY ADDRESS is in service zone (NOT customer GPS location)
+      // Address-based validation ensures orders can only be delivered to Kurla West area
+      const customerLatitude = sanitizeNumber(body.customerLatitude);
+      const customerLongitude = sanitizeNumber(body.customerLongitude);
 
-    if (sanitized.chefId) {
-      chef = await db.query.chefs.findFirst({ 
-        where: (c: any, { eq }: any) => eq(c.id, sanitized.chefId) 
-      });
-      if (chef) {
-        chefLat = chef.latitude ?? 19.0728;
-        chefLon = chef.longitude ?? 72.8826;
-        chefName = chef.name;
-        // Use chef's specific delivery distance limit, not hardcoded 2.5km!
-        maxDeliveryDistance = chef.maxDeliveryDistanceKm ?? 5;
+      // We must have ADDRESS coordinates to validate delivery zone
+      if (customerLatitude === undefined || customerLongitude === undefined || isNaN(customerLatitude) || isNaN(customerLongitude)) {
+        console.log(`🚫 Order blocked - no delivery coordinates provided`);
+        return res.status(400).json({
+          message: "Delivery address coordinates required. Please enter and confirm your delivery address.",
+          requiresAddressValidation: true,
+        });
       }
-    }
-    
-    const addressDistance = calculateDistance(chefLat, chefLon, customerLatitude, customerLongitude);
-    
-    console.log(`[DELIVERY-ZONE] Validating delivery address:`, {
-      address: sanitized.address,
-      latitude: customerLatitude,
-      longitude: customerLongitude,
-      chefName: chefName,
-      chefLocation: `${chefLat.toFixed(4)}, ${chefLon.toFixed(4)}`,
-      distanceFromChef: addressDistance.toFixed(2),
-      maxDeliveryDistance: maxDeliveryDistance,
-    });
 
-    if (addressDistance > maxDeliveryDistance) {
-      console.log(`🚫 Order blocked - delivery address outside service zone:`, {
+      // Calculate distance from CHEF'S LOCATION to DELIVERY ADDRESS
+      const { calculateDistance } = await import("@shared/deliveryUtils");
+
+      // Get chef's location from database (if no chefId, use Kurla West default)
+      let chefLat = 19.0728;
+      let chefLon = 72.8826;
+      let chefName = "Kurla West Kitchen";
+      let maxDeliveryDistance = 5; // Default fallback
+      let chef: any = null;
+
+      if (sanitized.chefId) {
+        chef = await db.query.chefs.findFirst({
+          where: (c: any, { eq }: any) => eq(c.id, sanitized.chefId)
+        });
+        if (chef) {
+          chefLat = chef.latitude ?? 19.0728;
+          chefLon = chef.longitude ?? 72.8826;
+          chefName = chef.name;
+          // Use chef's specific delivery distance limit, not hardcoded 2.5km!
+          maxDeliveryDistance = chef.maxDeliveryDistanceKm ?? 5;
+        }
+      }
+
+      const addressDistance = calculateDistance(chefLat, chefLon, customerLatitude, customerLongitude);
+
+      console.log(`[DELIVERY-ZONE] Validating delivery address:`, {
+        address: sanitized.address,
+        latitude: customerLatitude,
+        longitude: customerLongitude,
+        chefName: chefName,
+        chefLocation: `${chefLat.toFixed(4)}, ${chefLon.toFixed(4)}`,
+        distanceFromChef: addressDistance.toFixed(2),
+        maxDeliveryDistance: maxDeliveryDistance,
+      });
+
+      if (addressDistance > maxDeliveryDistance) {
+        console.log(`🚫 Order blocked - delivery address outside service zone:`, {
+          address: sanitized.address,
+          chef: chefName,
+          distanceFromChef: addressDistance.toFixed(2),
+          maxDistance: maxDeliveryDistance,
+        });
+        return res.status(400).json({
+          message: `Delivery not available to this address. ${chefName} delivers within ${maxDeliveryDistance}km. This address is ${addressDistance.toFixed(1)}km away.`,
+          outsideDeliveryZone: true,
+          addressDistance: addressDistance.toFixed(1),
+          maxDistance: maxDeliveryDistance,
+          address: sanitized.address,
+        });
+      }
+
+      // NEW: PINCODE VALIDATION (if available)
+      // Validate that order address pincode is in chef's service_pincodes
+      const customerPincode = sanitized.addressPincode;
+      if (customerPincode && chef && chef.servicePincodes && chef.servicePincodes.length > 0) {
+        const pincodeValid = chef.servicePincodes.includes(customerPincode);
+
+        console.log(`[PINCODE-VALIDATION] Chef service pincodes:`, {
+          chef: chefName,
+          servicePincodes: chef.servicePincodes,
+          customerPincode: customerPincode,
+          isValid: pincodeValid,
+        });
+
+        if (!pincodeValid) {
+          console.log(`🚫 Order blocked - customer pincode not in chef's service pincodes:`, {
+            chef: chefName,
+            customerPincode: customerPincode,
+            servicePincodes: chef.servicePincodes,
+          });
+          return res.status(400).json({
+            message: `${chefName} does not deliver to pincode ${customerPincode}. Served pincodes: ${chef.servicePincodes.join(", ")}`,
+            pincodeNotInServiceArea: true,
+            customerPincode: customerPincode,
+            servicePincodes: chef.servicePincodes,
+          });
+        }
+
+        console.log(`✅ Pincode validated:`, {
+          chef: chefName,
+          pincode: customerPincode,
+        });
+      } else if (customerPincode && (!chef || !chef.servicePincodes || chef.servicePincodes.length === 0)) {
+        // Chef has no pincode restrictions - backward compatible
+        console.log(`[PINCODE-VALIDATION] Chef has no pincode restrictions (backward compatible):`, {
+          chef: chefName,
+          customerPincode: customerPincode,
+        });
+      }
+
+      console.log(`✅ Delivery address validated successfully:`, {
         address: sanitized.address,
         chef: chefName,
         distanceFromChef: addressDistance.toFixed(2),
-        maxDistance: maxDeliveryDistance,
+        withinZone: true,
       });
-      return res.status(400).json({
-        message: `Delivery not available to this address. ${chefName} delivers within ${maxDeliveryDistance}km. This address is ${addressDistance.toFixed(1)}km away.`,
-        outsideDeliveryZone: true,
-        addressDistance: addressDistance.toFixed(1),
-        maxDistance: maxDeliveryDistance,
-        address: sanitized.address,
-      });
-    }
-    
-    // NEW: PINCODE VALIDATION (if available)
-    // Validate that order address pincode is in chef's service_pincodes
-    const customerPincode = sanitized.addressPincode;
-    if (customerPincode && chef && chef.servicePincodes && chef.servicePincodes.length > 0) {
-      const pincodeValid = chef.servicePincodes.includes(customerPincode);
-      
-      console.log(`[PINCODE-VALIDATION] Chef service pincodes:`, {
-        chef: chefName,
-        servicePincodes: chef.servicePincodes,
-        customerPincode: customerPincode,
-        isValid: pincodeValid,
-      });
-      
-      if (!pincodeValid) {
-        console.log(`🚫 Order blocked - customer pincode not in chef's service pincodes:`, {
-          chef: chefName,
-          customerPincode: customerPincode,
-          servicePincodes: chef.servicePincodes,
-        });
-        return res.status(400).json({
-          message: `${chefName} does not deliver to pincode ${customerPincode}. Served pincodes: ${chef.servicePincodes.join(", ")}`,
-          pincodeNotInServiceArea: true,
-          customerPincode: customerPincode,
-          servicePincodes: chef.servicePincodes,
-        });
+
+      // Recompute delivery fee server-side to ensure correct enforcement
+      try {
+        const feeResult = await storage.calculateDeliveryFee(true, addressDistance, sanitized.subtotal || 0, chef as any);
+        const expectedDeliveryFee = feeResult.isFreeDelivery ? 0 : feeResult.deliveryFee;
+        console.log("[SERVER] Recomputed delivery fee:", { expectedDeliveryFee, isFreeDelivery: feeResult.isFreeDelivery, addressDistance });
+
+        // Overwrite any client-supplied deliveryFee with server-calculated value
+        (sanitized as any).deliveryFee = expectedDeliveryFee;
+
+        // Recompute total to reflect server-side fee and discount
+        (sanitized as any).total = (sanitized.subtotal || 0) + (sanitized.deliveryFee || 0) - (sanitized.discount || 0);
+      } catch (feeErr) {
+        console.error("Error computing delivery fee on server:", feeErr);
+        return res.status(500).json({ message: "Failed to compute delivery fee" });
       }
-      
-      console.log(`✅ Pincode validated:`, {
-        chef: chefName,
-        pincode: customerPincode,
-      });
-    } else if (customerPincode && (!chef || !chef.servicePincodes || chef.servicePincodes.length === 0)) {
-      // Chef has no pincode restrictions - backward compatible
-      console.log(`[PINCODE-VALIDATION] Chef has no pincode restrictions (backward compatible):`, {
-        chef: chefName,
-        customerPincode: customerPincode,
-      });
-    }
-    
-    console.log(`✅ Delivery address validated successfully:`, {
-      address: sanitized.address,
-      chef: chefName,
-      distanceFromChef: addressDistance.toFixed(2),
-      withinZone: true,
-    });
-    
-    // Recompute delivery fee server-side to ensure correct enforcement
-    try {
-      const feeResult = await storage.calculateDeliveryFee(true, addressDistance, sanitized.subtotal || 0, chef as any);
-      const expectedDeliveryFee = feeResult.isFreeDelivery ? 0 : feeResult.deliveryFee;
-      console.log("[SERVER] Recomputed delivery fee:", { expectedDeliveryFee, isFreeDelivery: feeResult.isFreeDelivery, addressDistance });
 
-      // Overwrite any client-supplied deliveryFee with server-calculated value
-      (sanitized as any).deliveryFee = expectedDeliveryFee;
+      if (isRotiCategory) {
+        // Get roti settings
+        const rotiSettings = await storage.getRotiSettings();
+        const now = new Date();
+        const currentHour = now.getHours();
+        const currentMinutes = now.getMinutes();
 
-      // Recompute total to reflect server-side fee and discount
-      (sanitized as any).total = (sanitized.subtotal || 0) + (sanitized.deliveryFee || 0) - (sanitized.discount || 0);
-    } catch (feeErr) {
-      console.error("Error computing delivery fee on server:", feeErr);
-      return res.status(500).json({ message: "Failed to compute delivery fee" });
-    }
-    
-    if (isRotiCategory) {
-      // Get roti settings
-      const rotiSettings = await storage.getRotiSettings();
-      const now = new Date();
-      const currentHour = now.getHours();
-      const currentMinutes = now.getMinutes();
-      
-      if (rotiSettings?.isActive) {
-        // Parse morning block window
-        const [blockStartH, blockStartM] = rotiSettings.morningBlockStartTime.split(':').map(Number);
-        const [blockEndH, blockEndM] = rotiSettings.morningBlockEndTime.split(':').map(Number);
-        
-        const blockStartMinutes = blockStartH * 60 + blockStartM;
-        const blockEndMinutes = blockEndH * 60 + blockEndM;
-        const currentTimeMinutes = currentHour * 60 + currentMinutes;
-        
-        // STRICTLY BLOCK orders during morning window (8 AM - 11 AM by default)
-        if (currentTimeMinutes >= blockStartMinutes && currentTimeMinutes < blockEndMinutes) {
-          console.log(`🚫 Roti order blocked - current time ${currentHour}:${currentMinutes} is within morning restriction`);
-          return res.status(403).json({
-            message: rotiSettings.blockMessage || "Roti orders are not available from 8 AM to 11 AM. Please order before 11 PM for next morning delivery.",
-            morningRestriction: true,
-            isBlocked: true,
-            blockStartTime: rotiSettings.morningBlockStartTime,
-            blockEndTime: rotiSettings.morningBlockEndTime,
-            currentTime: `${currentHour.toString().padStart(2, '0')}:${currentMinutes.toString().padStart(2, '0')}`,
-          });
+        if (rotiSettings?.isActive) {
+          // Parse morning block window
+          const [blockStartH, blockStartM] = rotiSettings.morningBlockStartTime.split(':').map(Number);
+          const [blockEndH, blockEndM] = rotiSettings.morningBlockEndTime.split(':').map(Number);
+
+          const blockStartMinutes = blockStartH * 60 + blockStartM;
+          const blockEndMinutes = blockEndH * 60 + blockEndM;
+          const currentTimeMinutes = currentHour * 60 + currentMinutes;
+
+          // STRICTLY BLOCK orders during morning window (8 AM - 11 AM by default)
+          if (currentTimeMinutes >= blockStartMinutes && currentTimeMinutes < blockEndMinutes) {
+            console.log(`🚫 Roti order blocked - current time ${currentHour}:${currentMinutes} is within morning restriction`);
+            return res.status(403).json({
+              message: rotiSettings.blockMessage || "Roti orders are not available from 8 AM to 11 AM. Please order before 11 PM for next morning delivery.",
+              morningRestriction: true,
+              isBlocked: true,
+              blockStartTime: rotiSettings.morningBlockStartTime,
+              blockEndTime: rotiSettings.morningBlockEndTime,
+              currentTime: `${currentHour.toString().padStart(2, '0')}:${currentMinutes.toString().padStart(2, '0')}`,
+            });
+          }
+        }
+
+        // If slot provided, validate it and enforce next-day logic
+        if (sanitized.deliverySlotId) {
+          const slot = await storage.getDeliveryTimeSlot(sanitized.deliverySlotId);
+          if (!slot) {
+            return res.status(400).json({ message: "Selected delivery slot not found" });
+          }
+          const cutoffInfo = computeSlotCutoffInfo(slot);
+
+          // PREVENT selecting morning slot during morning restriction hours
+          if (cutoffInfo.inMorningRestriction && cutoffInfo.isMorningSlot) {
+            console.log(`🚫 Morning slot selection blocked during morning hours`);
+            return res.status(403).json({
+              message: "Morning delivery slots (8 AM - 11 AM) cannot be selected during morning hours. Please order by 11 PM the previous day or select a later time slot.",
+              morningRestriction: true,
+              isBlocked: true,
+              availableAfter: rotiSettings?.morningBlockEndTime || "11:00",
+              suggestLaterSlot: true,
+            });
+          }
+
+          // Auto next-day scheduling notification
+          if (cutoffInfo.isPastCutoff) {
+            console.log(`📅 Auto-scheduling Roti order for next day - slot cutoff passed`);
+          }
+        } else {
+          // NO SLOT SELECTED - Do NOT set deliveryTime
+          // Order should be treated as a regular order, NOT scheduled
+          console.log(`⏰ No slot selected: Order will be treated as regular order (not scheduled)`);
         }
       }
-      
-      // If slot provided, validate it and enforce next-day logic
-      if (sanitized.deliverySlotId) {
-        const slot = await storage.getDeliveryTimeSlot(sanitized.deliverySlotId);
-        if (!slot) {
-          return res.status(400).json({ message: "Selected delivery slot not found" });
-        }
-        const cutoffInfo = computeSlotCutoffInfo(slot);
-        
-        // PREVENT selecting morning slot during morning restriction hours
-        if (cutoffInfo.inMorningRestriction && cutoffInfo.isMorningSlot) {
-          console.log(`🚫 Morning slot selection blocked during morning hours`);
-          return res.status(403).json({
-            message: "Morning delivery slots (8 AM - 11 AM) cannot be selected during morning hours. Please order by 11 PM the previous day or select a later time slot.",
-            morningRestriction: true,
-            isBlocked: true,
-            availableAfter: rotiSettings?.morningBlockEndTime || "11:00",
-            suggestLaterSlot: true,
-          });
-        }
-        
-        // Auto next-day scheduling notification
-        if (cutoffInfo.isPastCutoff) {
-          console.log(`📅 Auto-scheduling Roti order for next day - slot cutoff passed`);
-        }
-      } else {
-        // NO SLOT SELECTED - Do NOT set deliveryTime
-        // Order should be treated as a regular order, NOT scheduled
-        console.log(`⏰ No slot selected: Order will be treated as regular order (not scheduled)`);
-      }
-    }
 
-    // Remove undefined deliveryTime and deliverySlotId from sanitized object
-    // This ensures they're treated as optional and not validated against
-    if (sanitized.deliveryTime === undefined) {
-      delete (sanitized as any).deliveryTime;
-    }
-    if (sanitized.deliverySlotId === undefined) {
-      delete (sanitized as any).deliverySlotId;
-    }
+      // Remove undefined deliveryTime and deliverySlotId from sanitized object
+      // This ensures they're treated as optional and not validated against
+      if (sanitized.deliveryTime === undefined) {
+        delete (sanitized as any).deliveryTime;
+      }
+      if (sanitized.deliverySlotId === undefined) {
+        delete (sanitized as any).deliverySlotId;
+      }
 
       const result = insertOrderSchema.safeParse(sanitized);
       if (!result.success) {
@@ -1411,255 +1421,257 @@ app.post("/api/orders", async (req: any, res) => {
       let generatedPassword: string | undefined;
       let emailSent = false;
       let appliedReferralBonus = 0;
-      const referralCodeInput = (req.body as any).referralCode;    if (req.headers.authorization?.startsWith("Bearer ")) {
-      const token = req.headers.authorization.substring(7);
-      const payload = verifyUserToken(token);
-      if (payload?.userId) userId = payload.userId;
-    } else if (sanitized.phone) {
-      // Auto-register user if phone is provided and user doesn't exist
-      // Phone is the PRIMARY identifier (unique per account)
-      let user = await storage.getUserByPhone(sanitized.phone);
+      const referralCodeInput = (req.body as any).referralCode; if (req.headers.authorization?.startsWith("Bearer ")) {
+        const token = req.headers.authorization.substring(7);
+        const payload = verifyUserToken(token);
+        if (payload?.userId) userId = payload.userId;
+      } else if (sanitized.phone) {
+        // Auto-register user if phone is provided and user doesn't exist
+        // Phone is the PRIMARY identifier (unique per account)
+        let user = await storage.getUserByPhone(sanitized.phone);
 
-      if (!user) {
-        // NEW PHONE = Create new account
-        // Email can be reused across different phone numbers
-        accountCreated = true;
-        const tempPassword = sanitized.phone.slice(-6);
-        generatedPassword = tempPassword;
-        const passwordHash = await hashPassword(tempPassword);
-        
-        try {
-          user = await storage.createUser({
-            name: sanitized.customerName,
-            phone: sanitized.phone,
-            email: sanitized.email || null,
-            address: sanitized.address || null,
-            passwordHash,
-            referralCode: null,
-            walletBalance: 0,
-          });
-          console.log(`✅ New account created with phone: ${sanitized.phone}, Email: ${sanitized.email || 'Not provided'}`);
+        if (!user) {
+          // NEW PHONE = Create new account
+          // Email can be reused across different phone numbers
+          accountCreated = true;
+          const tempPassword = sanitized.phone.slice(-6);
+          generatedPassword = tempPassword;
+          const passwordHash = await hashPassword(tempPassword);
 
-          // Apply referral code if provided (new user only)
-          if (referralCodeInput && user.id) {
-            try {
-              await storage.applyReferralBonus(referralCodeInput.trim().toUpperCase(), user.id);
-              console.log(`✅ Referral code ${referralCodeInput} applied to new user ${user.id}`);
-              
-              // Get the bonus amount from wallet transactions
-              const transactions = await storage.getWalletTransactions(user.id, 1);
-              const referralTransaction = transactions.find(t => t.type === 'referral_bonus');
-              if (referralTransaction) {
-                appliedReferralBonus = referralTransaction.amount;
+          try {
+            user = await storage.createUser({
+              name: sanitized.customerName,
+              phone: sanitized.phone,
+              email: sanitized.email || null,
+              address: sanitized.address || null,
+              passwordHash,
+              referralCode: null,
+              walletBalance: 0,
+              latitude: null,
+              longitude: null,
+            });
+            console.log(`✅ New account created with phone: ${sanitized.phone}, Email: ${sanitized.email || 'Not provided'}`);
+
+            // Apply referral code if provided (new user only)
+            if (referralCodeInput && user.id) {
+              try {
+                await storage.applyReferralBonus(referralCodeInput.trim().toUpperCase(), user.id);
+                console.log(`✅ Referral code ${referralCodeInput} applied to new user ${user.id}`);
+
+                // Get the bonus amount from wallet transactions
+                const transactions = await storage.getWalletTransactions(user.id, 1);
+                const referralTransaction = transactions.find(t => t.type === 'referral_bonus');
+                if (referralTransaction) {
+                  appliedReferralBonus = referralTransaction.amount;
+                }
+              } catch (referralError: any) {
+                console.warn(`⚠️ Failed to apply referral code: ${referralError.message}`);
+                // Don't fail the order if referral fails - it's optional
               }
-            } catch (referralError: any) {
-              console.warn(`⚠️ Failed to apply referral code: ${referralError.message}`);
-              // Don't fail the order if referral fails - it's optional
+            }
+
+            // Send welcome email if provided (non-blocking)
+            if (sanitized.email && generatedPassword) {
+              const emailHtml = createWelcomeEmail(sanitized.customerName, sanitized.phone, generatedPassword);
+              // Fire and forget - don't block response waiting for email
+              sendEmail({
+                to: sanitized.email,
+                subject: '🍽️ Welcome to RotiHai - Your Account Details',
+                html: emailHtml,
+              }).then(() => {
+                console.log(`✅ Welcome email sent to ${sanitized.email}`);
+                emailSent = true;
+              }).catch((err) => {
+                console.error(`⚠️ Failed to send welcome email to ${sanitized.email}:`, err);
+              });
+            }
+          } catch (createUserError: any) {
+            console.error("Error creating user:", createUserError);
+            throw createUserError;
+          }
+        } else {
+          // EXISTING PHONE = Use existing account
+          console.log(`✅ Existing account found with phone: ${sanitized.phone}`);
+          await storage.updateUserLastLogin(user.id);
+        }
+
+        if (user) {
+          userId = user.id;
+        } else {
+          throw new Error("Failed to create or find user account");
+        }
+      }
+
+      // Build payload to create order
+      const orderPayload: any = {
+        ...result.data,
+        paymentStatus: "pending",
+        userId,
+      };
+
+      console.log("📦 Creating order with userId:", userId, "accountCreated:", accountCreated);
+
+      // Determine chefId if missing
+      if (!orderPayload.chefId && orderPayload.items.length > 0) {
+        const firstProduct = await storage.getProductById(orderPayload.items[0].id);
+        orderPayload.chefId = firstProduct?.chefId ?? undefined;
+      }
+
+      if (!orderPayload.chefId) {
+        return res
+          .status(400)
+          .json({ message: "Unable to determine chefId for the order" });
+      }
+
+      // Get chef name and add to order
+      const chefFromDb = await storage.getChefById(orderPayload.chefId);
+      if (chefFromDb) {
+        orderPayload.chefName = chefFromDb.name;
+      }
+
+      // Enrich items with hotelPrice (partner's cost price) from products table
+      orderPayload.items = await Promise.all(
+        orderPayload.items.map(async (item: any) => {
+          const product = await storage.getProductById(item.id);
+          return {
+            ...item,
+            hotelPrice: product?.hotelPrice || 0, // Add partner's cost price to order item
+          };
+        })
+      );
+
+      // Calculate and set deliveryDate if deliverySlotId is provided
+      if (orderPayload.deliverySlotId) {
+        try {
+          const slot = await storage.getDeliveryTimeSlot(orderPayload.deliverySlotId);
+          if (slot) {
+            const cutoffInfo = computeSlotCutoffInfo(slot);
+            // Format date as YYYY-MM-DD
+            const deliveryDate = cutoffInfo.nextAvailableDate;
+            const year = deliveryDate.getFullYear();
+            const month = String(deliveryDate.getMonth() + 1).padStart(2, '0');
+            const day = String(deliveryDate.getDate()).padStart(2, '0');
+            orderPayload.deliveryDate = `${year}-${month}-${day}`;
+            console.log(`📅 Set deliveryDate to: ${orderPayload.deliveryDate}`);
+          }
+        } catch (error) {
+          console.warn("Error calculating deliveryDate:", error);
+        }
+      }
+
+      console.log("📝 Order payload before DB insert:", JSON.stringify(orderPayload, null, 2));
+      const order = await storage.createOrder(orderPayload);
+      console.log("✅ Order created successfully:", order.id);
+      console.log(`📋 Order Details: userId=${userId}, walletAmountUsed=${order.walletAmountUsed}`);
+
+      // Generate access token for newly created users
+      let accessToken: string | undefined;
+      if (accountCreated && userId) {
+        const user = await storage.getUser(userId);
+        if (user) {
+          accessToken = generateAccessToken(user);
+        }
+      }
+
+      // 🚀 SEND RESPONSE IMMEDIATELY - Move heavy operations to background
+      res.status(201).json({
+        ...order,
+        accountCreated,
+        defaultPassword: accountCreated ? generatedPassword : undefined,
+        emailSent: accountCreated ? emailSent : undefined,
+        accessToken: accountCreated ? accessToken : undefined,
+        appliedReferralBonus: appliedReferralBonus > 0 ? appliedReferralBonus : undefined,
+      });
+
+      // ============================================
+      // BACKGROUND OPERATIONS (non-blocking)
+      // ============================================
+
+      // Record coupon usage with per-user tracking (background)
+      (async () => {
+        try {
+          if (orderPayload.couponCode && userId) {
+            await storage.recordCouponUsage(orderPayload.couponCode, userId, order.id);
+          } else if (orderPayload.couponCode) {
+            await storage.incrementCouponUsage(orderPayload.couponCode);
+          }
+        } catch (err) {
+          console.error("⚠️ Error recording coupon usage:", err);
+        }
+      })();
+
+      // Complete referral bonus if this is user's first order (background)
+      (async () => {
+        try {
+          if (userId) {
+            const { db: database } = await import("@shared/db");
+            const { referrals: referralsTable } = await import("@shared/db");
+            const { eq, and } = await import("drizzle-orm");
+
+            const pendingReferral = await database.query.referrals.findFirst({
+              where: (r, { eq, and }) => and(
+                eq(r.referredId, userId),
+                eq(r.status, "pending")
+              ),
+            });
+
+            if (pendingReferral) {
+              // Execute referral completion in a database transaction
+              await database.transaction(async (tx) => {
+                // Get referred user info using transaction client
+                const referredUser = await tx.query.users.findFirst({
+                  where: (u, { eq }) => eq(u.id, userId),
+                });
+
+                // Mark referral as completed
+                await tx.update(referralsTable)
+                  .set({
+                    status: "completed",
+                    referredOrderCompleted: true,
+                    completedAt: new Date()
+                  })
+                  .where(eq(referralsTable.id, pendingReferral.id));
+
+                // Add bonus to referrer's wallet with proper wallet transaction
+                await storage.createWalletTransaction({
+                  userId: pendingReferral.referrerId,
+                  amount: pendingReferral.referrerBonus,
+                  type: "referral_bonus",
+                  description: `Referral bonus: ${referredUser?.name || 'User'} completed their first order using your code`,
+                  referenceId: pendingReferral.id,
+                  referenceType: "referral",
+                }, tx);
+              });
             }
           }
-
-          // Send welcome email if provided (non-blocking)
-          if (sanitized.email && generatedPassword) {
-            const emailHtml = createWelcomeEmail(sanitized.customerName, sanitized.phone, generatedPassword);
-            // Fire and forget - don't block response waiting for email
-            sendEmail({
-              to: sanitized.email,
-              subject: '🍽️ Welcome to RotiHai - Your Account Details',
-              html: emailHtml,
-            }).then(() => {
-              console.log(`✅ Welcome email sent to ${sanitized.email}`);
-              emailSent = true;
-            }).catch((err) => {
-              console.error(`⚠️ Failed to send welcome email to ${sanitized.email}:`, err);
-            });
-          }
-        } catch (createUserError: any) {
-          console.error("Error creating user:", createUserError);
-          throw createUserError;
+        } catch (err) {
+          console.error("⚠️ Error processing referral bonus:", err);
         }
-      } else {
-        // EXISTING PHONE = Use existing account
-        console.log(`✅ Existing account found with phone: ${sanitized.phone}`);
-        await storage.updateUserLastLogin(user.id);
-      }
+      })();
 
-      if (user) {
-        userId = user.id;
-      } else {
-        throw new Error("Failed to create or find user account");
-      }
-    }
+      // Send WhatsApp notification to admin and broadcast (background)
+      (async () => {
+        try {
+          // Broadcast to WebSocket clients
+          broadcastNewOrder(order);
 
-    // Build payload to create order
-    const orderPayload: any = {
-      ...result.data,
-      paymentStatus: "pending",
-      userId,
-    };
-
-    console.log("📦 Creating order with userId:", userId, "accountCreated:", accountCreated);
-
-    // Determine chefId if missing
-    if (!orderPayload.chefId && orderPayload.items.length > 0) {
-      const firstProduct = await storage.getProductById(orderPayload.items[0].id);
-      orderPayload.chefId = firstProduct?.chefId ?? undefined;
-    }
-
-    if (!orderPayload.chefId) {
-      return res
-        .status(400)
-        .json({ message: "Unable to determine chefId for the order" });
-    }
-
-    // Get chef name and add to order
-    const chefFromDb = await storage.getChefById(orderPayload.chefId);
-    if (chefFromDb) {
-      orderPayload.chefName = chefFromDb.name;
-    }
-
-    // Enrich items with hotelPrice (partner's cost price) from products table
-    orderPayload.items = await Promise.all(
-      orderPayload.items.map(async (item: any) => {
-        const product = await storage.getProductById(item.id);
-        return {
-          ...item,
-          hotelPrice: product?.hotelPrice || 0, // Add partner's cost price to order item
-        };
-      })
-    );
-
-    // Calculate and set deliveryDate if deliverySlotId is provided
-    if (orderPayload.deliverySlotId) {
-      try {
-        const slot = await storage.getDeliveryTimeSlot(orderPayload.deliverySlotId);
-        if (slot) {
-          const cutoffInfo = computeSlotCutoffInfo(slot);
-          // Format date as YYYY-MM-DD
-          const deliveryDate = cutoffInfo.nextAvailableDate;
-          const year = deliveryDate.getFullYear();
-          const month = String(deliveryDate.getMonth() + 1).padStart(2, '0');
-          const day = String(deliveryDate.getDate()).padStart(2, '0');
-          orderPayload.deliveryDate = `${year}-${month}-${day}`;
-          console.log(`📅 Set deliveryDate to: ${orderPayload.deliveryDate}`);
+          // Send admin notification
+          const adminPhone = process.env.ADMIN_PHONE_NUMBER;
+          await sendOrderPlacedAdminNotification(
+            order.id,
+            order.customerName,
+            order.total,
+            adminPhone
+          );
+        } catch (err) {
+          console.error("⚠️ Error in background notification tasks:", err);
         }
-      } catch (error) {
-        console.warn("Error calculating deliveryDate:", error);
-      }
+      })();
+    } catch (error: any) {
+      console.error("❌ Create order error:", error);
+      res.status(500).json({ message: error.message || "Failed to create order" });
     }
-
-    console.log("📝 Order payload before DB insert:", JSON.stringify(orderPayload, null, 2));
-    const order = await storage.createOrder(orderPayload);
-    console.log("✅ Order created successfully:", order.id);
-    console.log(`📋 Order Details: userId=${userId}, walletAmountUsed=${order.walletAmountUsed}`);
-
-    // Generate access token for newly created users
-    let accessToken: string | undefined;
-    if (accountCreated && userId) {
-      const user = await storage.getUser(userId);
-      if (user) {
-        accessToken = generateAccessToken(user);
-      }
-    }
-
-    // 🚀 SEND RESPONSE IMMEDIATELY - Move heavy operations to background
-    res.status(201).json({
-      ...order,
-      accountCreated,
-      defaultPassword: accountCreated ? generatedPassword : undefined,
-      emailSent: accountCreated ? emailSent : undefined,
-      accessToken: accountCreated ? accessToken : undefined,
-      appliedReferralBonus: appliedReferralBonus > 0 ? appliedReferralBonus : undefined,
-    });
-
-    // ============================================
-    // BACKGROUND OPERATIONS (non-blocking)
-    // ============================================
-
-    // Record coupon usage with per-user tracking (background)
-    (async () => {
-      try {
-        if (orderPayload.couponCode && userId) {
-          await storage.recordCouponUsage(orderPayload.couponCode, userId, order.id);
-        } else if (orderPayload.couponCode) {
-          await storage.incrementCouponUsage(orderPayload.couponCode);
-        }
-      } catch (err) {
-        console.error("⚠️ Error recording coupon usage:", err);
-      }
-    })();
-
-    // Complete referral bonus if this is user's first order (background)
-    (async () => {
-      try {
-        if (userId) {
-          const { db: database } = await import("@shared/db");
-          const { referrals: referralsTable } = await import("@shared/db");
-          const { eq, and } = await import("drizzle-orm");
-
-          const pendingReferral = await database.query.referrals.findFirst({
-            where: (r, { eq, and }) => and(
-              eq(r.referredId, userId),
-              eq(r.status, "pending")
-            ),
-          });
-
-          if (pendingReferral) {
-            // Execute referral completion in a database transaction
-            await database.transaction(async (tx) => {
-              // Get referred user info using transaction client
-              const referredUser = await tx.query.users.findFirst({
-                where: (u, { eq }) => eq(u.id, userId),
-              });
-
-              // Mark referral as completed
-              await tx.update(referralsTable)
-                .set({
-                  status: "completed",
-                  referredOrderCompleted: true,
-                  completedAt: new Date()
-                })
-                .where(eq(referralsTable.id, pendingReferral.id));
-
-              // Add bonus to referrer's wallet with proper wallet transaction
-              await storage.createWalletTransaction({
-                userId: pendingReferral.referrerId,
-                amount: pendingReferral.referrerBonus,
-                type: "referral_bonus",
-                description: `Referral bonus: ${referredUser?.name || 'User'} completed their first order using your code`,
-                referenceId: pendingReferral.id,
-                referenceType: "referral",
-              }, tx);
-            });
-          }
-        }
-      } catch (err) {
-        console.error("⚠️ Error processing referral bonus:", err);
-      }
-    })();
-
-    // Send WhatsApp notification to admin and broadcast (background)
-    (async () => {
-      try {
-        // Broadcast to WebSocket clients
-        broadcastNewOrder(order);
-        
-        // Send admin notification
-        const adminPhone = process.env.ADMIN_PHONE_NUMBER;
-        await sendOrderPlacedAdminNotification(
-          order.id,
-          order.customerName,
-          order.total,
-          adminPhone
-        );
-      } catch (err) {
-        console.error("⚠️ Error in background notification tasks:", err);
-      }
-    })();
-  } catch (error: any) {
-    console.error("❌ Create order error:", error);
-    res.status(500).json({ message: error.message || "Failed to create order" });
-  }
-});
+  });
 
 
   // Get user's orders (supports both authenticated users and phone-based lookup)
@@ -1752,14 +1764,14 @@ app.post("/api/orders", async (req: any, res) => {
       // Check if order userId is null (new user) - create account on payment confirmation
       if (!order.userId) {
         console.log(`📝 Payment confirmed for new user order ${id} - Creating user account`);
-        
+
         let user = await storage.getUserByPhone(order.phone);
-        
+
         if (!user) {
           // Create new user account with default password (last 6 digits of phone)
           const generatedPassword = order.phone.slice(-6);
           const passwordHash = await hashPassword(generatedPassword);
-          
+
           user = await storage.createUser({
             name: order.customerName,
             phone: order.phone,
@@ -1768,11 +1780,13 @@ app.post("/api/orders", async (req: any, res) => {
             passwordHash,
             referralCode: null,
             walletBalance: 0,
+            latitude: null,
+            longitude: null,
           });
-          
+
           console.log(`✅ New user created on payment confirmation: ${user.id} - Phone: ${order.phone}`);
           userCreated = true;
-          
+
           // Send welcome email if email provided
           if (order.email) {
             const emailHtml = createWelcomeEmail(order.customerName, order.phone, generatedPassword);
@@ -1781,16 +1795,16 @@ app.post("/api/orders", async (req: any, res) => {
               subject: '🍽️ Welcome to RotiHai - Your Account Details',
               html: emailHtml,
             });
-            
+
             if (emailSent) {
               console.log(`✅ Welcome email sent to ${order.email}`);
             }
           }
-          
+
           // Update order with new userId
           await db.update(orders).set({ userId: user.id }).where(eq(orders.id, id));
           order.userId = user.id;
-          
+
           // Generate tokens for immediate login
           accessToken = generateAccessToken(user);
           refreshToken = generateRefreshToken(user);
@@ -1799,7 +1813,7 @@ app.post("/api/orders", async (req: any, res) => {
           // Link existing user to order
           await db.update(orders).set({ userId: user.id }).where(eq(orders.id, id));
           order.userId = user.id;
-          
+
           // Generate tokens for login
           accessToken = generateAccessToken(user);
           refreshToken = generateRefreshToken(user);
@@ -1809,7 +1823,7 @@ app.post("/api/orders", async (req: any, res) => {
       // Check if order was already paid (for idempotency)
       const orderBefore = await storage.getOrderById(id);
       const isIdempotentCall = orderBefore?.paymentStatus === "paid";
-      
+
       if (isIdempotentCall) {
         console.log(`⏭️ Order ${id} already marked as paid. Skipping payment processing...`);
         // Still return the order to client, but don't process again
@@ -1831,7 +1845,7 @@ app.post("/api/orders", async (req: any, res) => {
         console.log(`💳 [WALLET] Processing wallet deduction for order ${id}...`);
         console.log(`💳 [WALLET] Order walletAmountUsed value: ₹${updatedOrder.walletAmountUsed}`);
         console.log(`💳 [WALLET] Order walletAmountUsed type: ${typeof updatedOrder.walletAmountUsed}`);
-        
+
         // Get current wallet balance before deduction
         const userBefore = await storage.getUser(updatedOrder.userId);
         const balanceBefore = userBefore?.walletBalance || 0;
@@ -1839,13 +1853,13 @@ app.post("/api/orders", async (req: any, res) => {
         console.log(`💳 [WALLET] STEP 1 - Query user balance BEFORE deduction:`);
         console.log(`💳 [WALLET]   → Returned walletBalance: ${userBefore?.walletBalance}`);
         console.log(`💳 [WALLET]   → Actual balanceBefore used: ₹${balanceBefore}`);
-        
+
         // Check if wallet has already been deducted for this order (double-check)
         const existingTransactions = await storage.getWalletTransactions(updatedOrder.userId, 100);
         const deductionTransactions = existingTransactions.filter(
           (txn: any) => txn.referenceId === id && txn.type === "debit"
         );
-        
+
         if (deductionTransactions.length > 0) {
           console.log(`⏭️ [WALLET] Found ${deductionTransactions.length} existing debit transaction(s) for order ${id}. Skipping...`);
           const existingAmount = deductionTransactions.reduce((sum: number, txn: any) => sum + txn.amount, 0);
@@ -1863,17 +1877,17 @@ app.post("/api/orders", async (req: any, res) => {
               referenceType: "order",
             });
             console.log(`✅ [WALLET] Balance updated and transaction logged`);
-            
+
             // Get updated wallet balance
             const updatedUser = await storage.getUser(updatedOrder.userId);
             const newWalletBalance = updatedUser?.walletBalance || 0;
             console.log(`   User wallet balance AFTER: ₹${newWalletBalance}`);
             console.log(`   Calculation: ₹${balanceBefore} - ₹${updatedOrder.walletAmountUsed} = ₹${newWalletBalance}`);
-            
+
             // 📣 Broadcast wallet update to customer in real-time
             broadcastWalletUpdate(updatedOrder.userId, newWalletBalance);
             console.log(`✅ [WALLET] Broadcast sent to user ${updatedOrder.userId}`);
-            
+
             console.log(`✅ [WALLET] COMPLETE: ₹${updatedOrder.walletAmountUsed} deducted from wallet for order #${updatedOrder.id}`);
             console.log(`💳 [${'='.repeat(100)}]\n`);
           } catch (walletError: any) {
@@ -1925,30 +1939,30 @@ app.post("/api/orders", async (req: any, res) => {
   app.get("/api/chefs/by-area/:areaName", async (req, res) => {
     try {
       const { areaName } = req.params;
-      
+
       if (!areaName || areaName.trim().length === 0) {
         return res.status(400).json({ message: "Area name is required" });
       }
 
       const allChefs = await storage.getChefs();
-      
+
       console.log(`\n🔍 [DEBUG] /api/chefs/by-area called:`);
       console.log(`   Requested area: "${areaName}"`);
       console.log(`   All chefs in database:`);
       allChefs.forEach(c => {
         console.log(`     - ${c.name}: addressArea="${(c as any).addressArea || (c as any).address_area || 'null'}"`);
       });
-      
+
       // Filter chefs that serve this delivery area
       // Chef serves area if:
       // 1. Chef's address_area matches the selected area (exact match) - Kurla West chef only in Kurla West
       // 2. Or chef has no area restriction (address_area is null/empty) - serves everywhere
       const filteredChefs = allChefs.filter(chef => {
         const chefArea = (chef as any).addressArea || (chef as any).address_area;
-        
+
         // If chef has no area restriction, they serve everywhere
         if (!chefArea) return true;
-        
+
         // If chef has area restriction, must match selected area exactly
         return chefArea.toLowerCase().trim() === areaName.toLowerCase().trim();
       });
@@ -1959,7 +1973,7 @@ app.post("/api/orders", async (req: any, res) => {
         console.log(`     ✅ ${c.name} (${area})`);
       });
       console.log('');
-      
+
       res.json(filteredChefs);
     } catch (error) {
       console.error("❌ Error fetching chefs by area:", error);
@@ -1973,7 +1987,7 @@ app.post("/api/orders", async (req: any, res) => {
   app.get("/api/chefs/by-location", async (req, res) => {
     try {
       const { latitude, longitude, maxDistance } = req.query;
-      
+
       // Validate input
       if (!latitude || !longitude) {
         return res.status(400).json({ error: "Missing latitude or longitude" });
@@ -2005,8 +2019,8 @@ app.post("/api/orders", async (req: any, res) => {
         const deltaLon = ((chef.longitude || 72.8826) - userLon) * (Math.PI / 180);
 
         const a = Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
-                  Math.cos(lat1) * Math.cos(lat2) *
-                  Math.sin(deltaLon / 2) * Math.sin(deltaLon / 2);
+          Math.cos(lat1) * Math.cos(lat2) *
+          Math.sin(deltaLon / 2) * Math.sin(deltaLon / 2);
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         const distance = R * c;
 
@@ -2058,15 +2072,15 @@ app.post("/api/orders", async (req: any, res) => {
       // Filter chefs that serve this pincode
       const chefsServingPincode = allChefs.filter(chef => {
         if (!chef.isActive) return false;
-        
+
         // Check if chef's servicePincodes includes this pincode
         const servicePincodes = (chef.servicePincodes || []) as string[];
         const servesThisPincode = servicePincodes.includes(pincode);
-        
+
         if (servesThisPincode) {
           console.log(`   ✅ ${(chef as any).name} serves pincode ${pincode}`);
         }
-        
+
         return servesThisPincode;
       });
 
@@ -2086,7 +2100,7 @@ app.post("/api/orders", async (req: any, res) => {
   app.get("/api/areas/by-coordinates", async (req, res) => {
     try {
       const { latitude, longitude } = req.query;
-      
+
       if (!latitude || !longitude) {
         return res.status(400).json({ error: "Missing latitude or longitude" });
       }
@@ -2100,10 +2114,10 @@ app.post("/api/orders", async (req: any, res) => {
       }
 
       const allChefs = await storage.getChefs();
-      
+
       // Get all unique areas and their center points
       const areaMap = new Map<string, { count: number; totalLat: number; totalLon: number }>();
-      
+
       allChefs.forEach(chef => {
         const area = (chef as any).addressArea || (chef as any).address_area;
         if (area) {
@@ -2134,8 +2148,8 @@ app.post("/api/orders", async (req: any, res) => {
         const dLat = (area.centerLat - lat) * Math.PI / 180;
         const dLon = (area.centerLon - lon) * Math.PI / 180;
         const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                  Math.cos(lat * Math.PI / 180) * Math.cos(area.centerLat * Math.PI / 180) *
-                  Math.sin(dLon / 2) * Math.sin(dLon / 2);
+          Math.cos(lat * Math.PI / 180) * Math.cos(area.centerLat * Math.PI / 180) *
+          Math.sin(dLon / 2) * Math.sin(dLon / 2);
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         const distance = 6371 * c; // Earth radius in km
 
@@ -2151,7 +2165,7 @@ app.post("/api/orders", async (req: any, res) => {
 
       // High confidence if within 5km, low confidence otherwise
       const confidence = closestDistance < 5 ? "high" : "low";
-      
+
       const areaName = (closestArea as any).name;
       console.log(`📍 [AREA DETECTION] Coordinates (${lat.toFixed(2)}, ${lon.toFixed(2)}) → Area: ${areaName} (${closestDistance.toFixed(2)}km, ${confidence})`);
 
@@ -2172,7 +2186,7 @@ app.post("/api/orders", async (req: any, res) => {
   app.get("/api/areas", async (req, res) => {
     try {
       const allChefs = await storage.getChefs();
-      
+
       // Get all unique areas from chefs
       const areas = new Set<string>();
       allChefs.forEach(chef => {
@@ -2184,7 +2198,7 @@ app.post("/api/orders", async (req: any, res) => {
 
       // Convert to sorted array
       const areaList = Array.from(areas).sort();
-      
+
       console.log(`📍 [AREAS LIST] Returning ${areaList.length} areas: ${areaList.join(", ")}`);
 
       res.json(areaList.map(name => ({
@@ -2202,7 +2216,7 @@ app.post("/api/orders", async (req: any, res) => {
   app.get("/api/chefs/:chefId", async (req, res) => {
     try {
       const { chefId } = req.params;
-      
+
       // Prevent matching with category endpoint - check if it looks like a chef ID
       // Chef IDs typically contain "chef" or are nanoid/uuid format
       // Category IDs are like "cat-roti", "cat-lunch" etc.
@@ -2211,7 +2225,7 @@ app.post("/api/orders", async (req: any, res) => {
         const chefs = await storage.getChefsByCategory(chefId);
         return res.json(chefs);
       }
-      
+
       const chef = await storage.getChefById(chefId);
       if (!chef) {
         return res.status(404).json({ message: "Chef not found" });
@@ -2239,7 +2253,7 @@ app.post("/api/orders", async (req: any, res) => {
       if (chefId) {
         const chef = await storage.getChefById(chefId);
         if (chef && chef.latitude !== null && chef.longitude !== null &&
-            chef.latitude !== undefined && chef.longitude !== undefined) {
+          chef.latitude !== undefined && chef.longitude !== undefined) {
           chefLat = chef.latitude;
           chefLon = chef.longitude;
         }
@@ -2302,15 +2316,15 @@ app.post("/api/orders", async (req: any, res) => {
   // Public subscription endpoint - allows subscribing without login (auto-creates user account)
   app.post("/api/subscriptions/public", async (req, res) => {
     try {
-      const { 
-        customerName, 
-        phone, 
-        email, 
-        address, 
-        planId, 
-        deliveryTime = "09:00", 
-        deliverySlotId, 
-        durationDays = 30 
+      const {
+        customerName,
+        phone,
+        email,
+        address,
+        planId,
+        deliveryTime = "09:00",
+        deliverySlotId,
+        durationDays = 30
       } = req.body;
 
       // Validate required fields
@@ -2339,8 +2353,8 @@ app.post("/api/orders", async (req: any, res) => {
 
       // Get category to check if it's Roti
       const category = await storage.getCategoryById(plan.categoryId);
-      const isRotiCategory = category?.name?.toLowerCase() === 'roti' || 
-                             category?.name?.toLowerCase().includes('roti');
+      const isRotiCategory = category?.name?.toLowerCase() === 'roti' ||
+        category?.name?.toLowerCase().includes('roti');
 
       // Validate: If subscription is for Roti category, deliverySlotId is required
       if (isRotiCategory && !deliverySlotId) {
@@ -2383,7 +2397,7 @@ app.post("/api/orders", async (req: any, res) => {
         const newPassword = sanitizedPhone.slice(-6);
         generatedPassword = newPassword;
         const passwordHash = await hashPassword(newPassword);
-        
+
         try {
           user = await storage.createUser({
             name: customerName.trim(),
@@ -2393,6 +2407,8 @@ app.post("/api/orders", async (req: any, res) => {
             passwordHash,
             referralCode: null,
             walletBalance: 0,
+            latitude: null,
+            longitude: null,
           });
 
           console.log(`✅ New account created during subscription with phone: ${sanitizedPhone}, Email: ${email || 'Not provided'}`);
@@ -2427,7 +2443,7 @@ app.post("/api/orders", async (req: any, res) => {
       const now = new Date();
       let nextDelivery = new Date(now);
       let finalDeliveryTime = deliveryTime; // Start with provided delivery time
-      
+
       // If this is a slot-based subscription, calculate the correct next delivery date AND time
       if (deliverySlotId) {
         const slot = await storage.getDeliveryTimeSlot(deliverySlotId);
@@ -2541,31 +2557,31 @@ app.post("/api/orders", async (req: any, res) => {
   const toISOStringOrNull = (date: any, fieldName: string = "unknown"): string | null => {
     try {
       console.log(`[ISO-CONVERT] Converting ${fieldName}: type=${typeof date}`);
-      
+
       if (!date) {
         console.log(`[ISO-CONVERT] ${fieldName} is null/empty, returning null`);
         return null;
       }
-      
+
       // Handle Date objects
       if (date instanceof Date) {
         // FIRST CHECK: Validate the Date object itself is valid before calling toISOString
         const timeValue = date.getTime();
         console.log(`[ISO-CONVERT] ${fieldName} - getTime(): ${timeValue}, isNaN: ${isNaN(timeValue)}`);
-        
+
         if (isNaN(timeValue)) {
           console.warn(`[ISO-CONVERT] ${fieldName} - INVALID DATE OBJECT (getTime returned NaN), returning null`);
           return null;
         }
-        
+
         // NOW it's safe to call toISOString
         const isoStr = date.toISOString();
         console.log(`[ISO-CONVERT] ${fieldName} - toISOString succeeded: ${isoStr}`);
-        
+
         const parsedDate = new Date(isoStr);
         const year = parsedDate.getFullYear();
         console.log(`[ISO-CONVERT] ${fieldName} - Parsed year: ${year}`);
-        
+
         // CRITICAL: Reject epoch dates (1970) and dates outside acceptable range
         if (year < 1980 || year > 2100) {
           if (year === 1970) {
@@ -2578,28 +2594,28 @@ app.post("/api/orders", async (req: any, res) => {
         }
         return isoStr;
       }
-      
+
       // Handle ISO strings
       if (typeof date === 'string') {
         console.log(`[ISO-CONVERT] ${fieldName} is string: "${date}"`);
         const parsed = new Date(date);
         const time = parsed.getTime();
         console.log(`[ISO-CONVERT] ${fieldName} - Parsed string, getTime(): ${time}, year: ${parsed.getFullYear()}`);
-        
+
         if (isNaN(time)) {
           console.warn(`[ISO-CONVERT] ${fieldName} - Invalid date string, returning null`);
           return null;
         }
-        
+
         const year = parsed.getFullYear();
         if (year < 1980 || year > 2100) {
           console.warn(`[ISO-CONVERT] ${fieldName} - Invalid year: ${year}, returning null`);
           return null;
         }
-        
+
         return date;
       }
-      
+
       console.log(`[ISO-CONVERT] ${fieldName} - Unhandled type, returning null`);
       return null;
     } catch (e) {
@@ -2614,7 +2630,7 @@ app.post("/api/orders", async (req: any, res) => {
       const userId = req.authenticatedUser!.userId;
       const allSubscriptions = await storage.getSubscriptions();
       const userSubscriptions = allSubscriptions.filter(s => s.userId === userId);
-      
+
       // Serialize timestamps to ISO strings for proper frontend handling
       const serialized = userSubscriptions.map(s => {
         try {
@@ -2651,9 +2667,9 @@ app.post("/api/orders", async (req: any, res) => {
           throw e;
         }
       });
-      
+
       console.log(`[SUBSCRIPTIONS] Returning ${serialized.length} subscriptions for user ${userId}`);
-      
+
       // Log each subscription's nextDeliveryDate for debugging
       serialized.forEach((sub: any) => {
         if (sub.nextDeliveryDate === null) {
@@ -2668,7 +2684,7 @@ app.post("/api/orders", async (req: any, res) => {
           }
         }
       });
-      
+
       res.json(serialized);
     } catch (error) {
       console.error("Error fetching user subscriptions:", error);
@@ -2695,8 +2711,8 @@ app.post("/api/orders", async (req: any, res) => {
 
       // Get category to check if it's Roti
       const category = await storage.getCategoryById(plan.categoryId);
-      const isRotiCategory = category?.name?.toLowerCase() === 'roti' || 
-                             category?.name?.toLowerCase().includes('roti');
+      const isRotiCategory = category?.name?.toLowerCase() === 'roti' ||
+        category?.name?.toLowerCase().includes('roti');
 
       // Validate: If subscription is for Roti category, deliverySlotId is required
       if (isRotiCategory && !deliverySlotId) {
@@ -2717,11 +2733,11 @@ app.post("/api/orders", async (req: any, res) => {
       const now = new Date();
       let nextDelivery = new Date(now);
       let finalDeliveryTime = deliveryTime; // Start with provided delivery time
-      
+
       console.log(`\n[SUB-CREATE] ===== STARTING SUBSCRIPTION CREATION =====`);
       console.log(`[SUB-CREATE] planId: ${planId}, deliverySlotId: ${deliverySlotId}, deliveryTime: ${deliveryTime}`);
       console.log(`[SUB-CREATE] [1] Initial values - now: ${now.toISOString()}, nextDelivery: ${nextDelivery.toISOString()}`);
-      
+
       // If this is a slot-based subscription, calculate the correct next delivery date AND time
       if (deliverySlotId) {
         console.log(`[SUB-CREATE] [2] Slot ID provided: ${deliverySlotId}`);
@@ -2747,7 +2763,7 @@ app.post("/api/orders", async (req: any, res) => {
         nextDelivery.setDate(nextDelivery.getDate() + 1);
         console.log(`[SUB-CREATE] [3B] After default - nextDelivery: ${nextDelivery.toISOString()}`);
       }
-      
+
       console.log(`[SUB-CREATE] [7] Final nextDelivery before validation: ${nextDelivery.toISOString()}, year: ${nextDelivery.getFullYear()}, time: ${nextDelivery.getTime()}`);
 
       const endDate = new Date(now);
@@ -2771,7 +2787,7 @@ app.post("/api/orders", async (req: any, res) => {
         res.status(400).json({ message: "Invalid delivery date calculation. Please contact support." });
         return;
       }
-      
+
       const nextDeliveryYear = nextDelivery.getFullYear();
       if (nextDeliveryYear < 1980 || nextDeliveryYear > 2100) {
         console.error(`[SUB-CREATE] ERROR: Invalid year in nextDelivery!`, { nextDelivery: nextDelivery.toISOString(), year: nextDeliveryYear });
@@ -2830,7 +2846,7 @@ app.post("/api/orders", async (req: any, res) => {
         valueString: String(subscription.nextDeliveryDate),
         isDate: subscription.nextDeliveryDate instanceof Date,
       });
-      
+
       if (subscription.nextDeliveryDate instanceof Date) {
         const time = subscription.nextDeliveryDate.getTime();
         const year = subscription.nextDeliveryDate.getFullYear();
@@ -2918,7 +2934,7 @@ app.post("/api/orders", async (req: any, res) => {
         return;
       }
 
-      const updated = await storage.updateSubscription(req.params.id, { 
+      const updated = await storage.updateSubscription(req.params.id, {
         status: "active",
         pauseStartDate: null,
         pauseResumeDate: null
@@ -2955,8 +2971,8 @@ app.post("/api/orders", async (req: any, res) => {
         return;
       }
 
-      const updated = await storage.updateSubscription(req.params.id, { 
-        nextDeliveryTime: deliveryTime 
+      const updated = await storage.updateSubscription(req.params.id, {
+        nextDeliveryTime: deliveryTime
       });
 
       console.log(`🕐 Subscription ${req.params.id} delivery time updated to ${deliveryTime}`);
@@ -3085,8 +3101,8 @@ app.post("/api/orders", async (req: any, res) => {
       });
     } catch (error: any) {
       console.error("Error confirming subscription payment:", error);
-      res.status(500).json({ 
-        message: error.message || "Failed to confirm payment" 
+      res.status(500).json({
+        message: error.message || "Failed to confirm payment"
       });
     }
   });
@@ -3122,7 +3138,7 @@ app.post("/api/orders", async (req: any, res) => {
       const now = new Date();
       let nextDelivery = new Date(now);
       let finalDeliveryTime = oldSubscription.nextDeliveryTime || "09:00"; // Use old time as default
-      
+
       // If this is a slot-based subscription, calculate the correct next delivery date AND time
       if (oldSubscription.deliverySlotId) {
         const slot = await storage.getDeliveryTimeSlot(oldSubscription.deliverySlotId);
@@ -3314,12 +3330,12 @@ app.post("/api/orders", async (req: any, res) => {
   });
 
   // ================== Roti Settings APIs ==================
-  
+
   // Public: Get roti time settings (for checkout blocking logic)
   app.get("/api/roti-settings", async (req, res) => {
     try {
       let settings = await storage.getRotiSettings();
-      
+
       // Return default settings if none exist
       if (!settings) {
         settings = {
@@ -3334,24 +3350,24 @@ app.post("/api/orders", async (req: any, res) => {
           updatedAt: new Date(),
         };
       }
-      
+
       // Calculate if currently in blocked period
       const now = new Date();
       const currentHour = now.getHours();
       const currentMinutes = now.getMinutes();
       const currentTimeMinutes = currentHour * 60 + currentMinutes;
-      
+
       const [startHour, startMin] = settings.morningBlockStartTime.split(":").map(Number);
       const [endHour, endMin] = settings.morningBlockEndTime.split(":").map(Number);
       const [lastHour, lastMin] = settings.lastOrderTime.split(":").map(Number);
-      
+
       const blockStartMinutes = startHour * 60 + startMin;
       const blockEndMinutes = endHour * 60 + endMin;
       const lastOrderMinutes = lastHour * 60 + lastMin;
-      
+
       const isInBlockedPeriod = currentTimeMinutes >= blockStartMinutes && currentTimeMinutes < blockEndMinutes;
       const isPastLastOrderTime = currentTimeMinutes >= lastOrderMinutes;
-      
+
       res.json({
         ...settings,
         isInBlockedPeriod,
@@ -3371,11 +3387,11 @@ app.post("/api/orders", async (req: any, res) => {
         where: (ws, { eq }) => eq(ws.isActive, true)
       });
 
-      const defaultWallet = { 
-        maxUsagePerOrder: 10, 
+      const defaultWallet = {
+        maxUsagePerOrder: 10,
         minOrderAmount: 0,
-        referrerBonus: 100, 
-        referredBonus: 50 
+        referrerBonus: 100,
+        referredBonus: 50
       };
 
       const response = walletSetting || defaultWallet;
@@ -3391,7 +3407,7 @@ app.post("/api/orders", async (req: any, res) => {
   app.put("/api/admin/roti-settings", requireAdmin(), async (req: any, res) => {
     try {
       const { morningBlockStartTime, morningBlockEndTime, lastOrderTime, blockMessage, prepareWindowHours, isActive } = req.body;
-      
+
       // Validate time formats
       const timeRegex = /^\d{2}:\d{2}$/;
       if (morningBlockStartTime && !timeRegex.test(morningBlockStartTime)) {
@@ -3406,13 +3422,13 @@ app.post("/api/orders", async (req: any, res) => {
         res.status(400).json({ message: "Invalid lastOrderTime format. Use HH:mm" });
         return;
       }
-      
+
       // Validate prepareWindowHours
       if (prepareWindowHours !== undefined && (typeof prepareWindowHours !== "number" || prepareWindowHours < 1 || prepareWindowHours > 24)) {
         res.status(400).json({ message: "Prepare window hours must be between 1 and 24" });
         return;
       }
-      
+
       const settings = await storage.updateRotiSettings({
         morningBlockStartTime,
         morningBlockEndTime,
@@ -3421,7 +3437,7 @@ app.post("/api/orders", async (req: any, res) => {
         prepareWindowHours,
         isActive,
       });
-      
+
       res.json(settings);
     } catch (error: any) {
       console.error("Error updating roti settings:", error);
@@ -3501,21 +3517,21 @@ app.post("/api/orders", async (req: any, res) => {
       const enrichedReassignments = await Promise.all(pendingReassignments.map(async (sub) => {
         const chef = sub.chefId ? await storage.getChefById(sub.chefId) : null;
         const plan = await storage.getSubscriptionPlan(sub.planId);
-        
+
         // Check if there's a scheduled order that wasn't completed
         // Since orders don't have subscriptionId field, match by deliverySlot
-        const subscriptionOrders = allOrders.filter(o => 
-          o.deliverySlotId === sub.deliverySlotId && 
-          o.status !== "completed" && 
+        const subscriptionOrders = allOrders.filter(o =>
+          o.deliverySlotId === sub.deliverySlotId &&
+          o.status !== "completed" &&
           o.status !== "cancelled"
         );
-        
+
         const overdueOrders = subscriptionOrders.filter(o => {
           if (!o.deliveryTime || !o.deliveryDate) return false;
           const orderTime = new Date(`${o.deliveryDate}T${o.deliveryTime}`);
           return orderTime < now;
         });
-        
+
         return {
           ...sub,
           currentChefName: chef?.name,
@@ -3570,8 +3586,8 @@ app.post("/api/orders", async (req: any, res) => {
       const updated = await storage.updateSubscription(req.params.id, { chefId: newChefId, chefAssignedAt: new Date() });
 
       console.log(`🔄 Subscription ${req.params.id} reassigned from chef ${oldChefId} to ${newChefId}`);
-      res.json({ 
-        message: "Subscription reassigned successfully", 
+      res.json({
+        message: "Subscription reassigned successfully",
         subscription: updated,
         previousChefId: oldChefId,
         newChefId: newChefId
@@ -3696,9 +3712,9 @@ app.post("/api/orders", async (req: any, res) => {
 
         // Find all non-completed orders for this subscription
         // Since orders don't have subscriptionId, check by deliveryDate/slot matching
-        const subscriptionOrders = allOrders.filter(o => 
+        const subscriptionOrders = allOrders.filter(o =>
           o.deliverySlotId === subscription.deliverySlotId &&
-          o.status !== "completed" && 
+          o.status !== "completed" &&
           o.status !== "cancelled" &&
           o.status !== "rescheduled"
         );
@@ -3798,6 +3814,9 @@ app.post("/api/orders", async (req: any, res) => {
   app.post("/api/geocode", async (req, res) => {
     try {
       const { address, pincode } = req.body;
+      console.log(`[GEOCODE-DEBUG] Body:`, JSON.stringify(req.body));
+
+
 
       if (!address && !pincode) {
         return res.status(400).json({
@@ -3849,7 +3868,7 @@ app.post("/api/orders", async (req: any, res) => {
       // This handles: "39/18, LJG colony, Kurla west, Mumbai" → extracts "Kurla west, Mumbai"
       if (!result && address) {
         console.log(`[GEOCODE] Full address failed, attempting area extraction...`);
-        
+
         const areaKeywords = [
           "kurla", "bandra", "andheri", "dadar", "colaba", "mahim",
           "worli", "powai", "thane", "airoli", "mulund", "borivali",
@@ -3858,12 +3877,12 @@ app.post("/api/orders", async (req: any, res) => {
         ];
 
         const addressLower = address.toLowerCase();
-        
+
         // Find the LAST (rightmost) occurrence of any area keyword
         // This skips shop/building names that come before the area
         let lastAreaIndex = -1;
         let lastAreaKeyword = "";
-        
+
         for (const keyword of areaKeywords) {
           const index = addressLower.lastIndexOf(keyword);
           if (index > lastAreaIndex) {
@@ -3877,10 +3896,10 @@ app.post("/api/orders", async (req: any, res) => {
           // Get the substring starting from the area keyword
           const extractedArea = address.substring(lastAreaIndex).trim();
           const areaQuery = extractedArea + ", Mumbai";
-          
+
           console.log(`[GEOCODE] Extracted area: "${areaQuery}" from full address`);
           result = await geocodeQuery(areaQuery);
-          
+
           if (result) {
             console.log(`[GEOCODE] ✅ Area extraction successful: "${areaQuery}"`);
           }
@@ -3909,11 +3928,11 @@ app.post("/api/orders", async (req: any, res) => {
           }
 
           console.log(`[PINCODE-VALIDATION] Validating pincode: ${pincode}`);
-          
+
           // Extract pincode from geocoded address if available
           const geocodedPostcode = result.address?.postcode;
           console.log(`[PINCODE-VALIDATION] Geocoded postcode: ${geocodedPostcode}, User pincode: ${pincode}`);
-          
+
           // Note: We store user's provided pincode for validation against chef's service_pincodes
           // The geocoded postcode is informational but user's pincode is authoritative
           console.log(`✅ [PINCODE-VALIDATION] Pincode format validated: ${pincode}`);
@@ -3923,7 +3942,7 @@ app.post("/api/orders", async (req: any, res) => {
         // If user specifies a SUB-AREA (Kurla East), we validate against that exact sub-area
         // We DON'T allow "close enough" - the area name MUST match the geocoded location
         // This prevents orders going to wrong service zones even if distance permits
-        
+
         if (address) {
           const areaKeywords = [
             "kurla", "bandra", "andheri", "dadar", "colaba", "mahim",
@@ -3933,7 +3952,7 @@ app.post("/api/orders", async (req: any, res) => {
           ];
 
           const addressLower = address.toLowerCase();
-          
+
           // Find which area keyword(s) the user mentioned
           const mentionedAreas: string[] = [];
           for (const keyword of areaKeywords) {
@@ -3964,21 +3983,37 @@ app.post("/api/orders", async (req: any, res) => {
                 distance: calculateDist(latitude, longitude, val.lat, val.lon),
               }))
               .sort((a, b) => a.distance - b.distance);
-            
-            const closestArea = areaDistances[0];
 
-            // Check for EXACT area match first (stricter validation)
-            // User said "Kurla East" and we geocoded to "Kurla East" = OK
-            // User said "Kurla East" and we geocoded to "Kurla West" = REJECT (even if 1.9km away)
-            // User said "Kurla" and we geocoded to "Kurla West" = OK (generic kurla matches kurla west)
-            
+            let effectiveArea = areaDistances[0];
+
+            // IMPROVEMENT: Check if ANY area within 2km matches the user's mentioned area
+            // This handles cases where geocoded point is slightly closer to a neighboring area
+            // e.g., User says "Kurla West", point is 0.4km from Kurla East and 0.5km from Kurla West.
+            // We should accept Kurla West.
+            const nearbyAreas = areaDistances.filter(a => a.distance <= 2.0);
+
+            const matchedNearbyArea = nearbyAreas.find(candidate => {
+              return mentionedAreas.some(mentioned => {
+                // Exact match (e.g., "kurla west" == "kurla west")
+                if (mentioned === candidate.area) return true;
+                // Partial match for generic areas (e.g., user said "kurla", got "kurla west")
+                if (mentioned === "kurla" && candidate.area.startsWith("kurla")) return true;
+                return false;
+              });
+            });
+
+            if (matchedNearbyArea) {
+              console.log(`✅ [GEOCODE-VERIFY] Found nearby matching area: ${matchedNearbyArea.name} (${matchedNearbyArea.distance.toFixed(2)}km)`);
+              effectiveArea = matchedNearbyArea;
+            }
+
             const exactAreaMatch = mentionedAreas.some(mentioned => {
               // Exact match (e.g., "kurla west" == "kurla west")
-              if (mentioned === closestArea.area) return true;
-              
+              if (mentioned === effectiveArea.area) return true;
+
               // Partial match for generic areas (e.g., user said "kurla", got "kurla west")
-              if (mentioned === "kurla" && closestArea.area.startsWith("kurla")) return true;
-              
+              if (mentioned === "kurla" && effectiveArea.area.startsWith("kurla")) return true;
+
               return false;
             });
 
@@ -3986,15 +4021,15 @@ app.post("/api/orders", async (req: any, res) => {
               // Area mismatch - reject regardless of distance
               console.warn(`🚫 [GEOCODE-VERIFY] Area mismatch - rejecting address!`, {
                 requestedArea: mentionedAreas[0],
-                detectedArea: closestArea.name,
-                distance: closestArea.distance.toFixed(2),
+                detectedArea: effectiveArea.name,
+                distance: effectiveArea.distance.toFixed(2),
                 note: "User specified different area than geocoded result",
               });
 
               return res.status(400).json({
                 success: false,
-                message: `The address you entered is in ${closestArea.name}, not ${mentionedAreas[0]}. Please use an address in ${mentionedAreas[0]} or select a different area.`,
-                detectedArea: closestArea.name,
+                message: `The address you entered is in ${effectiveArea.name}, not ${mentionedAreas[0]}. Please use an address in ${mentionedAreas[0]} or select a different area.`,
+                detectedArea: effectiveArea.name,
                 requestedArea: mentionedAreas[0],
                 areaMismatch: true,
               });
@@ -4002,39 +4037,39 @@ app.post("/api/orders", async (req: any, res) => {
 
             console.log(`✅ [GEOCODE-VERIFY] Area verified - matches requested area:`, {
               requested: mentionedAreas[0],
-              detected: closestArea.name,
-              distance: closestArea.distance.toFixed(2),
+              detected: effectiveArea.name,
+              distance: effectiveArea.distance.toFixed(2),
             });
-            
+
             // THIRD VALIDATION: Check if this area is in admin's approved delivery-areas list
             try {
               const adminAreas = await storage.getDeliveryAreas();
               const adminAreaNames = adminAreas.map(a => a.toLowerCase());
-              
+
               const areaInDeliveryList = adminAreaNames.some(adminArea => {
                 // Check if detected area is in admin's delivery list
                 // E.g., "Kurla West" matches "kurla west" in admin list
-                return adminArea === closestArea.name.toLowerCase() || 
-                       adminArea.includes(closestArea.name.toLowerCase());
+                return adminArea === effectiveArea.name.toLowerCase() ||
+                  adminArea.includes(effectiveArea.name.toLowerCase());
               });
-              
+
               if (!areaInDeliveryList) {
                 console.warn(`🚫 [GEOCODE-VERIFY] Area not in admin delivery-areas list!`, {
-                  detectedArea: closestArea.name,
+                  detectedArea: effectiveArea.name,
                   adminAreas: adminAreaNames,
                 });
-                
+
                 return res.status(400).json({
                   success: false,
-                  message: `Sorry, we don't deliver to ${closestArea.name} yet. We deliver to: ${adminAreaNames.join(", ")}. Please select a different area.`,
-                  detectedArea: closestArea.name,
+                  message: `Sorry, we don't deliver to ${effectiveArea.name} yet. We deliver to: ${adminAreaNames.join(", ")}. Please select a different area.`,
+                  detectedArea: effectiveArea.name,
                   availableAreas: adminAreaNames,
                   notInDeliveryList: true,
                 });
               }
-              
+
               console.log(`✅ [GEOCODE-VERIFY] Area is in admin delivery-areas list:`, {
-                area: closestArea.name,
+                area: effectiveArea.name,
                 adminAreas: adminAreaNames,
               });
             } catch (err) {
@@ -4106,15 +4141,15 @@ app.post("/api/orders", async (req: any, res) => {
 
       if (matchingArea) {
         console.log(`✅ [PINCODE-VALIDATION] Pincode ${pincodeStr} found in delivery area: ${matchingArea.name}`);
-        
+
         // Get coordinates from database (admin configured)
         const areaCoords = {
           lat: typeof matchingArea.latitude === 'number' ? matchingArea.latitude : parseFloat(String(matchingArea.latitude || 19.0728)),
           lon: typeof matchingArea.longitude === 'number' ? matchingArea.longitude : parseFloat(String(matchingArea.longitude || 72.8826))
         };
-        
+
         console.log(`[PINCODE-VALIDATION] Using dynamic coordinates for area "${matchingArea.name}":`, areaCoords);
-        
+
         // Fetch coordinates for this area for distance-based filtering on frontend
         // Use area center coordinates for accurate distance calculation
         return res.json({
@@ -4133,7 +4168,7 @@ app.post("/api/orders", async (req: any, res) => {
 
       // LAYER 2: Fallback to geocoding if admin hasn't configured this pincode
       const query = `${pincodeStr}, Mumbai, India`;
-      
+
       try {
         const response = await axios.get("https://nominatim.openstreetmap.org/search", {
           params: {
@@ -4193,7 +4228,7 @@ app.post("/api/orders", async (req: any, res) => {
             distance: calculateDist(latitude, longitude, val.lat, val.lon),
           }))
           .sort((a, b) => a.distance - b.distance);
-        
+
         const closestArea = areaDistances[0];
         const adminAreaNames = activeAreas.map((area: any) => area.name.toLowerCase());
 
@@ -4277,9 +4312,9 @@ app.post("/api/orders", async (req: any, res) => {
         const a =
           Math.sin(dLat / 2) * Math.sin(dLat / 2) +
           Math.cos((customerLatitude * Math.PI) / 180) *
-            Math.cos((chef.latitude * Math.PI) / 180) *
-            Math.sin(dLng / 2) *
-            Math.sin(dLng / 2);
+          Math.cos((chef.latitude * Math.PI) / 180) *
+          Math.sin(dLng / 2) *
+          Math.sin(dLng / 2);
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         distance = Math.round((R * c + Number.EPSILON) * 100) / 100; // Round to 2 decimals
       }
@@ -4294,211 +4329,211 @@ app.post("/api/orders", async (req: any, res) => {
 
       console.log(`✅ Calculated delivery fee for chef ${chefId}: ${feeResult.deliveryFee}, distance: ${distance}km, isFree: ${feeResult.isFreeDelivery}`);
 
-  // ================= PUSH NOTIFICATIONS ENDPOINTS =================
+      // ================= PUSH NOTIFICATIONS ENDPOINTS =================
 
-  // Get VAPID public key for client subscription setup
-  app.get("/api/push/vapid-public-key", async (req, res) => {
-    try {
-      const { getVapidPublicKey, isPushConfigured } = await import("./pushService.js");
-      
-      if (!isPushConfigured()) {
-        return res.status(503).json({
-          message: "Push notifications not configured",
-          vapidPublicKey: null,
-        });
-      }
+      // Get VAPID public key for client subscription setup
+      app.get("/api/push/vapid-public-key", async (req, res) => {
+        try {
+          const { getVapidPublicKey, isPushConfigured } = await import("./pushService.js");
 
-      const publicKey = getVapidPublicKey();
-      if (!publicKey) {
-        return res.status(503).json({
-          message: "VAPID public key not available",
-          vapidPublicKey: null,
-        });
-      }
+          if (!isPushConfigured()) {
+            return res.status(503).json({
+              message: "Push notifications not configured",
+              vapidPublicKey: null,
+            });
+          }
 
-      res.json({
-        vapidPublicKey: publicKey,
-        message: "VAPID public key retrieved successfully",
+          const publicKey = getVapidPublicKey();
+          if (!publicKey) {
+            return res.status(503).json({
+              message: "VAPID public key not available",
+              vapidPublicKey: null,
+            });
+          }
+
+          res.json({
+            vapidPublicKey: publicKey,
+            message: "VAPID public key retrieved successfully",
+          });
+        } catch (error: any) {
+          console.error("Error fetching VAPID key:", error);
+          res.status(500).json({
+            message: "Failed to fetch VAPID key",
+            error: error.message,
+          });
+        }
       });
-    } catch (error: any) {
-      console.error("Error fetching VAPID key:", error);
-      res.status(500).json({
-        message: "Failed to fetch VAPID key",
-        error: error.message,
+
+      // Register for push notifications
+      app.post("/api/push/subscribe", async (req, res) => {
+        try {
+          const { subscription, userType, userId } = req.body;
+
+          // Validate required fields
+          if (!subscription || !subscription.endpoint) {
+            return res.status(400).json({
+              message: "Invalid subscription data - missing endpoint",
+            });
+          }
+
+          if (!userType || !userId) {
+            return res.status(400).json({
+              message: "Missing userType or userId",
+            });
+          }
+
+          // Validate user type
+          const validTypes = ["admin", "chef", "delivery", "customer"];
+          if (!validTypes.includes(userType)) {
+            return res.status(400).json({
+              message: `Invalid userType. Must be one of: ${validTypes.join(", ")}`,
+            });
+          }
+
+          // Import after validation
+          const { db } = await import("@shared/db");
+          const { pushSubscriptions } = await import("@shared/schema");
+          const { eq, and } = await import("drizzle-orm");
+
+          // Check if subscription already exists (same user + endpoint)
+          const existing = await db
+            .select()
+            .from(pushSubscriptions)
+            .where(
+              and(
+                eq(pushSubscriptions.userId, userId),
+                eq(pushSubscriptions.userType, userType)
+              )
+            )
+            .limit(1);
+
+          if (existing.length > 0) {
+            // Update existing subscription
+            await db
+              .update(pushSubscriptions)
+              .set({
+                subscription: subscription as any,
+                isActive: true,
+                lastActivatedAt: new Date(),
+              })
+              .where(eq(pushSubscriptions.id, existing[0].id));
+
+            console.log(`✅ Push subscription updated for ${userType} ${userId}`);
+          } else {
+            // Create new subscription
+            await db.insert(pushSubscriptions).values({
+              userId,
+              userType: userType as any,
+              subscription: subscription as any,
+              isActive: true,
+            } as any);
+
+            console.log(`✅ Push subscription registered for ${userType} ${userId}`);
+          }
+
+          res.json({
+            success: true,
+            message: "Successfully registered for push notifications",
+          });
+        } catch (error: any) {
+          console.error("Error registering for push notifications:", error);
+          res.status(500).json({
+            success: false,
+            message: "Failed to register for push notifications",
+            error: error.message,
+          });
+        }
       });
-    }
-  });
 
-  // Register for push notifications
-  app.post("/api/push/subscribe", async (req, res) => {
-    try {
-      const { subscription, userType, userId } = req.body;
+      // Unsubscribe from push notifications
+      app.post("/api/push/unsubscribe", async (req, res) => {
+        try {
+          const { userId, userType } = req.body;
 
-      // Validate required fields
-      if (!subscription || !subscription.endpoint) {
-        return res.status(400).json({
-          message: "Invalid subscription data - missing endpoint",
-        });
-      }
+          if (!userId || !userType) {
+            return res.status(400).json({
+              message: "Missing userId or userType",
+            });
+          }
 
-      if (!userType || !userId) {
-        return res.status(400).json({
-          message: "Missing userType or userId",
-        });
-      }
+          const { db } = await import("@shared/db");
+          const { pushSubscriptions } = await import("@shared/schema");
+          const { eq, and } = await import("drizzle-orm");
 
-      // Validate user type
-      const validTypes = ["admin", "chef", "delivery", "customer"];
-      if (!validTypes.includes(userType)) {
-        return res.status(400).json({
-          message: `Invalid userType. Must be one of: ${validTypes.join(", ")}`,
-        });
-      }
+          // Mark subscriptions as inactive
+          await db
+            .update(pushSubscriptions)
+            .set({ isActive: false })
+            .where(
+              and(
+                eq(pushSubscriptions.userId, userId),
+                eq(pushSubscriptions.userType, userType)
+              )
+            );
 
-      // Import after validation
-      const { db } = await import("@shared/db");
-      const { pushSubscriptions } = await import("@shared/schema");
-      const { eq, and } = await import("drizzle-orm");
+          console.log(`🗑️ Push subscriptions removed for ${userType} ${userId}`);
 
-      // Check if subscription already exists (same user + endpoint)
-      const existing = await db
-        .select()
-        .from(pushSubscriptions)
-        .where(
-          and(
-            eq(pushSubscriptions.userId, userId),
-            eq(pushSubscriptions.userType, userType)
-          )
-        )
-        .limit(1);
-
-      if (existing.length > 0) {
-        // Update existing subscription
-        await db
-          .update(pushSubscriptions)
-          .set({
-            subscription: subscription as any,
-            isActive: true,
-            lastActivatedAt: new Date(),
-          })
-          .where(eq(pushSubscriptions.id, existing[0].id));
-
-        console.log(`✅ Push subscription updated for ${userType} ${userId}`);
-      } else {
-        // Create new subscription
-        await db.insert(pushSubscriptions).values({
-          userId,
-          userType: userType as any,
-          subscription: subscription as any,
-          isActive: true,
-        } as any);
-
-        console.log(`✅ Push subscription registered for ${userType} ${userId}`);
-      }
-
-      res.json({
-        success: true,
-        message: "Successfully registered for push notifications",
+          res.json({
+            success: true,
+            message: "Successfully unsubscribed from push notifications",
+          });
+        } catch (error: any) {
+          console.error("Error unsubscribing from push notifications:", error);
+          res.status(500).json({
+            success: false,
+            message: "Failed to unsubscribe from push notifications",
+          });
+        }
       });
-    } catch (error: any) {
-      console.error("Error registering for push notifications:", error);
-      res.status(500).json({
-        success: false,
-        message: "Failed to register for push notifications",
-        error: error.message,
+
+      // Send push notification to users (triggered by admin actions)
+      app.post("/api/push/send", requireAdmin, async (req: any, res: any) => {
+        try {
+          const { userType, userId, notification } = req.body;
+
+          if (!notification || !notification.title || !notification.body) {
+            return res.status(400).json({
+              message: "Missing notification title or body",
+            });
+          }
+
+          const { sendPushToUser, sendPushToAllAdmins, isPushConfigured } = await import("./pushService.js");
+
+          if (!isPushConfigured()) {
+            return res.status(503).json({
+              success: false,
+              message: "Push notifications not configured",
+            });
+          }
+
+          let result;
+          if (userType === "admin" && !userId) {
+            // Send to all admins
+            result = await sendPushToAllAdmins(notification);
+          } else if (userType && userId) {
+            // Send to specific user
+            result = await sendPushToUser(userId, userType, notification);
+          } else {
+            return res.status(400).json({
+              message: "Must provide either userType+userId or just admin userType",
+            });
+          }
+
+          res.json({
+            message: "Push notification send attempted",
+            ...result,
+          });
+        } catch (error: any) {
+          console.error("Error sending push notification:", error);
+          res.status(500).json({
+            success: false,
+            message: "Failed to send push notification",
+            error: error.message,
+          });
+        }
       });
-    }
-  });
 
-  // Unsubscribe from push notifications
-  app.post("/api/push/unsubscribe", async (req, res) => {
-    try {
-      const { userId, userType } = req.body;
-
-      if (!userId || !userType) {
-        return res.status(400).json({
-          message: "Missing userId or userType",
-        });
-      }
-
-      const { db } = await import("@shared/db");
-      const { pushSubscriptions } = await import("@shared/schema");
-      const { eq, and } = await import("drizzle-orm");
-
-      // Mark subscriptions as inactive
-      await db
-        .update(pushSubscriptions)
-        .set({ isActive: false })
-        .where(
-          and(
-            eq(pushSubscriptions.userId, userId),
-            eq(pushSubscriptions.userType, userType)
-          )
-        );
-
-      console.log(`🗑️ Push subscriptions removed for ${userType} ${userId}`);
-
-      res.json({
-        success: true,
-        message: "Successfully unsubscribed from push notifications",
-      });
-    } catch (error: any) {
-      console.error("Error unsubscribing from push notifications:", error);
-      res.status(500).json({
-        success: false,
-        message: "Failed to unsubscribe from push notifications",
-      });
-    }
-  });
-
-  // Send push notification to users (triggered by admin actions)
-  app.post("/api/push/send", requireAdmin, async (req: any, res: any) => {
-    try {
-      const { userType, userId, notification } = req.body;
-
-      if (!notification || !notification.title || !notification.body) {
-        return res.status(400).json({
-          message: "Missing notification title or body",
-        });
-      }
-
-      const { sendPushToUser, sendPushToAllAdmins, isPushConfigured } = await import("./pushService.js");
-
-      if (!isPushConfigured()) {
-        return res.status(503).json({
-          success: false,
-          message: "Push notifications not configured",
-        });
-      }
-
-      let result;
-      if (userType === "admin" && !userId) {
-        // Send to all admins
-        result = await sendPushToAllAdmins(notification);
-      } else if (userType && userId) {
-        // Send to specific user
-        result = await sendPushToUser(userId, userType, notification);
-      } else {
-        return res.status(400).json({
-          message: "Must provide either userType+userId or just admin userType",
-        });
-      }
-
-      res.json({
-        message: "Push notification send attempted",
-        ...result,
-      });
-    } catch (error: any) {
-      console.error("Error sending push notification:", error);
-      res.status(500).json({
-        success: false,
-        message: "Failed to send push notification",
-        error: error.message,
-      });
-    }
-  });
-
-  // ================= END PUSH NOTIFICATIONS ENDPOINTS =================
+      // ================= END PUSH NOTIFICATIONS ENDPOINTS =================
 
       res.json({
         success: true,

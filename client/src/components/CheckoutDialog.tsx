@@ -27,12 +27,14 @@ import { useAuth } from "@/hooks/useAuth";
 import { useWalletUpdates } from "@/hooks/useWalletUpdates";
 import { useApplyReferral } from "@/hooks/useApplyReferral";
 import { Loader2, Clock, MapPin } from "lucide-react";
-import { getDeliveryMessage, calculateDistance } from "@/lib/locationUtils";
+import { getDeliveryMessage, calculateDistance as calculateDistanceLoc } from "@/lib/locationUtils";
+import { calculateDistance, calculateDelivery } from "@shared/deliveryUtils";
 import api from "@/lib/apiClient";
 import { useDeliveryLocation, getAreaSuggestions } from "@/contexts/DeliveryLocationContext";
 import { getStoredPincodeValidation } from "@/lib/pincodeUtils";
 import { CartItem } from "@/types/cartItem";
-import{ CheckoutDialogProps } from "@/types/checkoutdialogprops";
+import { CheckoutDialogProps } from "@/types/checkoutdialogprops";
+import { useCart } from "@/hooks/use-cart";
 
 
 // Hook to check for mobile viewport
@@ -62,24 +64,24 @@ export default function CheckoutDialog({
   onShowPaymentQR,
 }: CheckoutDialogProps) {
   const [activeTab, setActiveTab] = useState("checkout");
-  
+
 
   const [customerName, setCustomerName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
-  
+
   // Structured address fields
   const [addressBuilding, setAddressBuilding] = useState("");
   const [addressStreet, setAddressStreet] = useState("");
   const [addressArea, setAddressArea] = useState("");
   const [addressCity, setAddressCity] = useState("Mumbai");
   const [addressPincode, setAddressPincode] = useState("");
-  
+
   // Full address for display
   const address = [addressBuilding, addressStreet, addressArea, addressCity, addressPincode]
     .filter(Boolean)
     .join(", ");
-  
+
   const [couponCode, setCouponCode] = useState("");
   const [referralCode, setReferralCode] = useState("");
   const [subtotal, setSubtotal] = useState(0);
@@ -101,7 +103,7 @@ export default function CheckoutDialog({
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [selectedDeliveryTime, setSelectedDeliveryTime] = useState("");
   const [selectedDeliverySlotId, setSelectedDeliverySlotId] = useState("");
-  
+
   // Referral bonus states
   const [pendingBonus, setPendingBonus] = useState<number>(0);
   const [minOrderAmount, setMinOrderAmount] = useState<number>(0);
@@ -109,18 +111,18 @@ export default function CheckoutDialog({
   const [useBonusAtCheckout, setUseBonusAtCheckout] = useState<boolean>(false);
   const [isCheckingBonusEligibility, setIsCheckingBonusEligibility] = useState(false);
   const [bonusEligibilityMsg, setBonusEligibilityMsg] = useState<string>("");
-  
+
   // Wallet balance states
   const [useWalletBalance, setUseWalletBalance] = useState<boolean>(false);
   const [walletAmountToUse, setWalletAmountToUse] = useState<number>(0);
   const [maxWalletUsagePerOrder, setMaxWalletUsagePerOrder] = useState<number>(10);
   const [minOrderAmountForWallet, setMinOrderAmountForWallet] = useState<number>(0);
-  
+
   // Delivery minimum order flexibility states
   const [deliveryMinOrderAmount, setDeliveryMinOrderAmount] = useState<number>(0);
   const [isBelowDeliveryMinimum, setIsBelowDeliveryMinimum] = useState<boolean>(false);
   const [amountNeededForFreeDelivery, setAmountNeededForFreeDelivery] = useState<number>(0);
-  
+
   // Location states
   const [customerLatitude, setCustomerLatitude] = useState<number | null>(null);
   const [customerLongitude, setCustomerLongitude] = useState<number | null>(null);
@@ -128,18 +130,18 @@ export default function CheckoutDialog({
   const [locationError, setLocationError] = useState("");
   const [hasLocationPermission, setHasLocationPermission] = useState(false);
   const [isRequestingLocation, setIsRequestingLocation] = useState(false);
-  
+
   // Delivery address zone validation (NOT GPS-based)
   const [addressInDeliveryZone, setAddressInDeliveryZone] = useState(true);
   const [addressZoneValidated, setAddressZoneValidated] = useState(false);
   const [addressZoneDistance, setAddressZoneDistance] = useState<number>(0);
   const [isReValidatingPincode, setIsReValidatingPincode] = useState(false);
   const autoGeocodeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  
+
   // Address confirmation state - controls visibility of below content
   const [addressConfirmed, setAddressConfirmed] = useState(false);
 
-    // Log when cart changes
+  // Log when cart changes
   useEffect(() => {
     console.log("[CHECKOUT-DIALOG] Received cart prop:", {
       isOpen,
@@ -221,7 +223,7 @@ export default function CheckoutDialog({
     const storedPincode = getStoredPincodeValidation();
     if (storedPincode) {
       console.log("[AUTO-SYNC-PINCODE] Found stored pincode from Hero, auto-syncing:", storedPincode.pincode);
-      
+
       // Pre-fill all fields from stored validation
       setAddressPincode(storedPincode.pincode);
       setAddressArea(storedPincode.area);
@@ -229,7 +231,7 @@ export default function CheckoutDialog({
       setCustomerLongitude(storedPincode.longitude);
       setAddressZoneValidated(true);
       setAddressInDeliveryZone(true);
-      
+
       console.log("[AUTO-SYNC-PINCODE] ✅ Pre-filled checkout form with stored pincode");
     }
   }, [isOpen, cart?.chefId, addressPincode]);
@@ -237,9 +239,12 @@ export default function CheckoutDialog({
   // Area suggestions for autocomplete
   const [areaSuggestions, setAreaSuggestions] = useState<string[]>([]);
   const [showAreaSuggestions, setShowAreaSuggestions] = useState(false);
-  
+
+  // New state for GPS loading
+  const [isGettingLocation, setIsGettingLocation] = useState(false);
+
   const { toast } = useToast();
-  const { user, isAuthenticated, userToken } = useAuth();
+  const { user, isAuthenticated, isLoading: isUserLoading, userToken } = useAuth();
   const { location: deliveryLocation, setDeliveryLocation } = useDeliveryLocation();
   const applyReferralMutation = useApplyReferral();
   const isMobile = useIsMobile();
@@ -269,6 +274,105 @@ export default function CheckoutDialog({
     enabled: isOpen,
     refetchInterval: 60000,
   });
+
+  // GPS Fallback: Get Current Location
+  const handleUseCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      toast({
+        title: "Geolocation not supported",
+        description: "Your browser does not support geolocation.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsGettingLocation(true);
+    setLocationError("");
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude, longitude } = position.coords;
+        console.log("[GPS] Got coordinates:", latitude, longitude);
+
+        // Reverse geocode to get address details
+        try {
+          const res = await api.get(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`);
+          const data = res.data;
+
+          if (data && data.address) {
+            const addr = data.address;
+            const pincode = addr.postcode || "";
+            const area = addr.suburb || addr.neighbourhood || addr.city_district || "";
+            const city = addr.city || addr.town || addr.village || "Mumbai";
+            const street = addr.road || "";
+            const building = addr.house_number || addr.building || "";
+
+            setAddressPincode(pincode);
+            setAddressArea(area);
+            setAddressCity(city);
+            setAddressStreet(street);
+            setAddressBuilding(building);
+
+            // Important: Set coordinates but DO NOT Validate/Finalize yet
+            // User must confirm the address first
+            setCustomerLatitude(latitude);
+            setCustomerLongitude(longitude);
+
+            // Verify if this location is within delivery zone
+            if (cart?.chefId) {
+              const chefRes = await api.get(`/api/chefs/${cart.chefId}`);
+              const chef = chefRes.data;
+              const distance = calculateDistance(chef.latitude, chef.longitude, latitude, longitude);
+
+              if (distance > chef.maxDeliveryDistanceKm) {
+                setLocationError(`This location is ${distance.toFixed(1)}km away. We only deliver within ${chef.maxDeliveryDistanceKm}km.`);
+                setAddressInDeliveryZone(false);
+              } else {
+                setAddressInDeliveryZone(true);
+                setAddressZoneDistance(distance);
+                // Calculate estimated fee for display
+                const fee = calculateDynamicDeliveryFee(latitude, longitude, chef.latitude, chef.longitude);
+                setDeliveryFee(fee);
+                setDeliveryDistance(distance);
+              }
+            }
+
+            toast({
+              title: "Location detected",
+              description: "Address details filled. Please verify and confirm.",
+            });
+          }
+        } catch (err) {
+          console.error("[GPS] Reverse geocoding failed", err);
+          toast({
+            title: "Address lookup failed",
+            description: "We got your location but couldn't find the address details. Please fill them manually.",
+            variant: "destructive",
+          });
+          // Still set coordinates for fee calc if they fill address
+          setCustomerLatitude(latitude);
+          setCustomerLongitude(longitude);
+        } finally {
+          setIsGettingLocation(false);
+        }
+      },
+      (error) => {
+        console.error("[GPS] Error:", error);
+        setIsGettingLocation(false);
+        let msg = "Could not get your location.";
+        if (error.code === 1) msg = "Location permission denied.";
+        if (error.code === 2) msg = "Location unavailable.";
+        if (error.code === 3) msg = "Location request timed out.";
+
+        toast({
+          title: "Location Error",
+          description: msg + " Please enter address manually.",
+          variant: "destructive",
+        });
+      }
+    );
+  };
+
 
   // Update local state when wallet settings are fetched
   useEffect(() => {
@@ -473,7 +577,7 @@ export default function CheckoutDialog({
         (sum, item) => sum + item.price * item.quantity,
         0,
       );
-      
+
       setOriginalSubtotal(originalSubtotalValue);
       setSubtotal(calculatedSubtotal);
       setItemDiscountSavings(itemSavings);
@@ -486,7 +590,7 @@ export default function CheckoutDialog({
       // Check if order is below delivery minimum
       const deliveryMin = cart?.minOrderAmount || 0;
       const isBelowMin = deliveryMin > 0 && calculatedSubtotal < deliveryMin;
-      
+
       // ⚠️ CRITICAL FIX: Charge delivery fee ONLY if BELOW minimum order amount
       // If order meets minimum threshold, delivery is FREE (deliveryFee = 0)
       // If order is below minimum, user MUST pay delivery fee
@@ -494,11 +598,11 @@ export default function CheckoutDialog({
 
       const calculatedDiscount = appliedCoupon
         ? Math.min(
-            appliedCoupon.discountAmount,
-            calculatedSubtotal + actualDeliveryFee,
-          )
+          appliedCoupon.discountAmount,
+          calculatedSubtotal + actualDeliveryFee,
+        )
         : 0;
-      
+
       // Log discount changes for debugging cache issues
       if (calculatedDiscount !== discount) {
         console.log("[DISCOUNT CHANGE] Discount updated:", {
@@ -549,7 +653,7 @@ export default function CheckoutDialog({
           baseTotal,
           isOrderBelowMinimum,
         });
-        
+
         if (isOrderBelowMinimum) {
           // Don't apply wallet if order is below minimum
           console.log("[WALLET] ❌ Order is BELOW minimum - NOT applying wallet balance");
@@ -567,10 +671,10 @@ export default function CheckoutDialog({
       }
 
       setTotal(baseTotal);
-      
+
       // Set minimum order display state
       setDeliveryMinOrderAmount(deliveryMin);
-      
+
       if (deliveryMin > 0 && calculatedSubtotal < deliveryMin) {
         setIsBelowDeliveryMinimum(true);
         setAmountNeededForFreeDelivery(deliveryMin - calculatedSubtotal);
@@ -606,14 +710,14 @@ export default function CheckoutDialog({
 
     if (isOpen && deliveryLocation.address) {
       console.log("[CHECKOUT] Restoring address from Context:", deliveryLocation.address);
-      
+
       // Try to restore from localStorage - it has the structured fields
       const stored = localStorage.getItem("lastValidatedDeliveryAddress");
       if (stored) {
         try {
           const parsed = JSON.parse(stored);
           console.log("[CHECKOUT] Found structured address in localStorage:", parsed);
-          
+
           // Try to get from the full address string as fallback
           // localStorage stores the full address, we need to break it down
           // Check if we have structured fields stored separately
@@ -656,7 +760,7 @@ export default function CheckoutDialog({
   useEffect(() => {
     if (isOpen && !customerLatitude && !customerLongitude && !hasLocationPermission && !addressArea.trim()) {
       console.log("[LOCATION] Checkout opened - requesting GPS for delivery fee accuracy (NOT for zone validation, and only if no address entered)");
-      
+
       if (!navigator.geolocation) {
         console.log("[LOCATION] Geolocation not supported by browser");
         return; // Silent fail - address will be used instead
@@ -677,7 +781,7 @@ export default function CheckoutDialog({
           // Silent fail - user will use address-based delivery instead
           // NO zone validation blocking based on GPS
         },
-        { 
+        {
           timeout: 15000, // Longer timeout for Safari
           enableHighAccuracy: false, // False for faster response on mobile
           maximumAge: 0,
@@ -701,8 +805,8 @@ export default function CheckoutDialog({
     });
 
     if (
-      cart && 
-      customerLatitude !== null && 
+      cart &&
+      customerLatitude !== null &&
       customerLongitude !== null &&
       (cart.chefLatitude || cart.chefLatitude === 0) &&
       (cart.chefLongitude || cart.chefLongitude === 0)
@@ -710,7 +814,7 @@ export default function CheckoutDialog({
       // Use chef coordinates from cart (populated from chef API response)
       const chefLat = cart.chefLatitude;
       const chefLon = cart.chefLongitude;
-      
+
       console.log("[DELIVERY-FEE-CALC] Calling calculateDynamicDeliveryFee:", {
         customerLatitude,
         customerLongitude,
@@ -718,7 +822,7 @@ export default function CheckoutDialog({
         chefLon,
         subtotal,
       });
-      
+
       // Calculate fee using chef coordinates from cart (chef fee data comes from API when needed)
       const newDeliveryFee = calculateDynamicDeliveryFee(
         customerLatitude,
@@ -726,14 +830,20 @@ export default function CheckoutDialog({
         chefLat,
         chefLon
       );
-      
+
       console.log("[DELIVERY-FEE-CALC] Fee calculated:", newDeliveryFee);
       setDeliveryFee(newDeliveryFee);
-      
+
       // Also recalculate total with new delivery fee
       const distance = calculateDistance(chefLat, chefLon, customerLatitude, customerLongitude);
       console.log("[DELIVERY-FEE-CALC] Distance calculated:", distance);
       setDeliveryDistance(distance);
+
+      // ✅ Update cart store with exact location status if address is validated
+      // This ensures the "Starting from" message is removed in UI
+      if (addressZoneValidated && addressInDeliveryZone) {
+        useCart.getState().setUserLocation(customerLatitude, customerLongitude, true);
+      }
     } else {
       console.log("[DELIVERY-FEE-CALC] Conditions not met - skipping fee calculation");
     }
@@ -764,7 +874,7 @@ export default function CheckoutDialog({
         setAddressZoneValidated(true);
         setAddressInDeliveryZone(true);
         setLocationError("");
-        
+
         // Calculate delivery fee immediately with chef's coordinates
         const newDeliveryFee = calculateDynamicDeliveryFee(
           cart.chefLatitude,
@@ -788,11 +898,11 @@ export default function CheckoutDialog({
             );
             const maxDeliveryDistance = cart?.maxDeliveryDistanceKm || 10;
             const isInZone = distance <= maxDeliveryDistance;
-            
+
             setAddressZoneDistance(distance);
             setAddressInDeliveryZone(isInZone);
             setAddressZoneValidated(true);
-            
+
             if (!isInZone) {
               setLocationError(`Address is ${distance.toFixed(1)}km away. Max delivery distance is ${maxDeliveryDistance}km.`);
             } else {
@@ -851,20 +961,20 @@ export default function CheckoutDialog({
         // Check if area is STILL empty
         if (addressArea === "") {
           console.log("[CHECKOUT-SAFETY] Area field is empty, attempting auto-detection");
-          
+
           // Try to detect area from coordinates if available
           if (customerLatitude !== null && customerLongitude !== null) {
             try {
               const response = await fetch(
                 `/api/areas/by-coordinates?latitude=${customerLatitude}&longitude=${customerLongitude}`
               );
-              
+
               if (response.ok) {
                 const data = await response.json();
                 if (data.area) {
                   setAddressArea(data.area);
                   console.log(`✅ [CHECKOUT-SAFETY] Auto-filled area at checkout: ${data.area}`);
-                  
+
                   // Trigger re-geocoding with the newly filled area
                   const fullAddress = [addressBuilding, addressStreet, data.area, addressCity, addressPincode]
                     .filter(Boolean)
@@ -879,7 +989,7 @@ export default function CheckoutDialog({
           }
         }
       }, 1000); // 1 second debounce
-      
+
       return () => clearTimeout(timer);
     }
   }, [addressArea, addressBuilding, addressStreet, customerLatitude, customerLongitude]);
@@ -900,7 +1010,7 @@ export default function CheckoutDialog({
       } else {
         setBonusEligibilityMsg(
           result.reason ||
-            `Minimum order of ₹${result.minOrderAmount} required for bonus`,
+          `Minimum order of ₹${result.minOrderAmount} required for bonus`,
         );
       }
     } catch (error) {
@@ -1031,7 +1141,7 @@ export default function CheckoutDialog({
         (error) => {
           console.error("[LOCATION] Geolocation error:", { code: error.code, message: error.message });
           setIsRequestingLocation(false);
-          
+
           // Safari-specific error handling
           let errorMsg = "Could not get your location. ";
           switch (error.code) {
@@ -1050,7 +1160,7 @@ export default function CheckoutDialog({
           setLocationError(errorMsg);
           clearWatch();
         },
-        { 
+        {
           timeout: 10000,
           enableHighAccuracy: false, // Faster location, accuracy is fine for delivery
         }
@@ -1067,7 +1177,7 @@ export default function CheckoutDialog({
   // User must click "Validate Address" button to trigger validation
   const handleAddressChange = (field: string, value: string) => {
     // Update the specific field - text input NEVER gets cleared
-    switch(field) {
+    switch (field) {
       case 'building':
         setAddressBuilding(value);
         break;
@@ -1153,7 +1263,7 @@ export default function CheckoutDialog({
         try {
           const chefResponse = await api.get(`/api/chefs/${cart.chefId}`, { timeout: 10000 });
           const chefData = chefResponse.data;
-          
+
           // Check Layer 2: Chef's service pincodes
           if (chefData.servicePincodes && Array.isArray(chefData.servicePincodes) && chefData.servicePincodes.length > 0) {
             const pincodeValid = chefData.servicePincodes.includes(newPincode);
@@ -1184,10 +1294,10 @@ export default function CheckoutDialog({
 
       // STEP 3: Refine coordinates if building/street provided (for more accurate distance)
       console.log("[PINCODE-CHANGE] Step 3: Refining delivery coordinates...");
-      
+
       let finalLat = pincodeData.latitude;
       let finalLon = pincodeData.longitude;
-      
+
       // Try to get more precise coordinates by geocoding area + street (without building name)
       // Building names often don't exist in Nominatim, so we skip them for accuracy
       if ((addressStreet.trim() || addressBuilding.trim()) && addressArea.trim()) {
@@ -1195,12 +1305,12 @@ export default function CheckoutDialog({
           // Geocode area + street (skip building to avoid "not found" errors)
           const areaStreetAddress = [addressStreet, addressArea, addressCity].filter(Boolean).join(", ");
           console.log("[PINCODE-CHANGE] Attempting to refine coordinates for:", areaStreetAddress);
-          
-          const geocodeResponse = await api.post("/api/geocode", 
+
+          const geocodeResponse = await api.post("/api/geocode",
             { address: areaStreetAddress, pincode: newPincode },
             { timeout: 10000 }
           );
-          
+
           if (geocodeResponse.data?.success) {
             finalLat = geocodeResponse.data.latitude;
             finalLon = geocodeResponse.data.longitude;
@@ -1213,7 +1323,7 @@ export default function CheckoutDialog({
           console.log("[PINCODE-CHANGE] Geocoding error, using pincode center coordinates (fallback)");
         }
       }
-      
+
       // STEP 4: Recalculate distance
       console.log("[PINCODE-CHANGE] Step 4: Recalculating distance...");
       if (cart?.chefId) {
@@ -1258,12 +1368,7 @@ export default function CheckoutDialog({
             finalLat,
             finalLon,
             chefLat,
-            chefLon,
-            {
-              defaultDeliveryFee: chefData.defaultDeliveryFee,
-              deliveryFeePerKm: chefData.deliveryFeePerKm,
-              freeDeliveryThreshold: chefData.freeDeliveryThreshold,
-            }
+            chefLon
           );
 
           console.log("[PINCODE-CHANGE] ✅ All validations passed!", {
@@ -1315,7 +1420,7 @@ export default function CheckoutDialog({
       }
     } catch (error: any) {
       console.error("[PINCODE-CHANGE] Pincode validation request failed:", error);
-      
+
       // Provide more specific error messages based on error type
       if (error?.response?.data?.message) {
         setLocationError(error.response.data.message);
@@ -1326,7 +1431,7 @@ export default function CheckoutDialog({
       } else {
         setLocationError("Could not validate pincode. Please try again.");
       }
-      
+
       setAddressZoneValidated(false);
     } finally {
       setIsReValidatingPincode(false);
@@ -1371,14 +1476,14 @@ export default function CheckoutDialog({
 
     try {
       console.log("[LOCATION] Starting auto-geocoding for:", addressToGeocode.trim());
-      
-      const response = await api.post("/api/geocode", 
+
+      const response = await api.post("/api/geocode",
         { address: addressToGeocode.trim(), pincode: addressPincode },
         { timeout: 10000 }
       );
 
       const data = response.data;
-      
+
       if (!data.success) {
         console.warn("[LOCATION] Geocode returned success=false:", data);
         // Handle area mismatch or other geocoding errors
@@ -1552,55 +1657,57 @@ export default function CheckoutDialog({
             : "Unable to detect location. Please check the address and try again."
         );
       }
-      
+
       setAddressZoneValidated(false);
     } finally {
       setIsGeocodingAddress(false);
     }
   };
 
-  // Calculate delivery fee dynamically based on customer and chef coordinates
+  // Calculate delivery fee using shared utility (respects Admin Settings)
   const calculateDynamicDeliveryFee = (
     customerLat: number,
     customerLon: number,
     chefLat: number,
-    chefLon: number,
-    chefData?: {
-      defaultDeliveryFee?: number;
-      deliveryFeePerKm?: number;
-      freeDeliveryThreshold?: number;
-    }
+    chefLon: number
   ) => {
     const distance = calculateDistance(chefLat, chefLon, customerLat, customerLon);
-    
-    // Use chef data if provided, fallback to database defaults (20, 5, 200)
-    const defaultDeliveryFee = chefData?.defaultDeliveryFee ?? 20;
-    const deliveryFeePerKm = chefData?.deliveryFeePerKm ?? 5;
-    const freeDeliveryThreshold = chefData?.freeDeliveryThreshold ?? 200;
 
-    // Calculate fee based on distance
-    // Fee = base fee + (distance * per km rate)
-    const baseFee = defaultDeliveryFee;
-    // Grace radius: 0.5km (configured at database level, not hardcoded)
-    const additionalFee = Math.max(0, distance - 0.5) * deliveryFeePerKm;
-    const calculatedFee = Math.round(baseFee + additionalFee);
+    // Get delivery settings from cart store or props
+    // This ensures we use the exact same logic as the backend/admin panel
+    const settings = useCart.getState().deliverySettings;
 
-    // Check if order is eligible for free delivery (only if subtotal >= threshold)
-    const isFreeDelivery = subtotal >= freeDeliveryThreshold;
-    const finalFee = isFreeDelivery ? 0 : calculatedFee;
-
-    console.log("[DELIVERY-FEE] Calculated dynamically:", {
-      distance: distance.toFixed(2),
-      baseFee,
-      additionalFee: additionalFee.toFixed(2),
-      calculatedFee: calculatedFee.toFixed(2),
+    const { deliveryFee, freeDeliveryEligible, amountForFreeDelivery, minOrderAmount } = calculateDelivery(
+      distance,
       subtotal,
-      freeDeliveryThreshold,
-      isFreeDelivery,
-      finalFee: finalFee.toFixed(2),
+      settings
+    );
+
+    // Update state to reflect delivery constraints
+    const requiredAmount = minOrderAmount || 0;
+    const isBelowMin = subtotal < requiredAmount;
+    const amountNeeded = isBelowMin ? requiredAmount - subtotal : 0;
+
+    console.log("[DEBUG-FEE] Logic Check:", {
+      requiredAmount,
+      isBelowMin,
+      amountNeeded,
+      subtotal,
+      deliveryFeeFromSettings: deliveryFee
     });
 
-    return finalFee;
+    setAmountNeededForFreeDelivery(amountNeeded);
+    setIsBelowDeliveryMinimum(isBelowMin);
+    setMinOrderAmount(requiredAmount);
+
+    console.log("[DELIVERY-FEE] Calculated using Admin Settings:", {
+      distance: distance.toFixed(2),
+      deliveryFee,
+      freeDeliveryEligible,
+      minOrderAmount
+    });
+
+    return deliveryFee;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -2078,9 +2185,10 @@ export default function CheckoutDialog({
                       />
                     </div>
 
+                    {/* Phone Number Input */}
                     <div>
                       <Label htmlFor="phone" className="text-sm">
-                        Phone Number *
+                        Mobile Number *
                       </Label>
                       <div className="relative">
                         <Input
@@ -2088,6 +2196,8 @@ export default function CheckoutDialog({
                           type="tel"
                           value={phone}
                           onChange={(e) => handlePhoneChange(e.target.value)}
+                          maxLength={10}
+                          className={`pr-10 ${phoneExists && !userToken ? "border-orange-500 ring-orange-500" : ""}`}
                           required
                           disabled={!!userToken}
                           placeholder="Enter 10-digit mobile number"
@@ -2129,7 +2239,7 @@ export default function CheckoutDialog({
                     {/* Structured Address Fields */}
                     <div className="space-y-3">
                       <Label className="text-sm font-semibold">Delivery Address *</Label>
-                      
+
                       {/* Row 1: Building/House Number and Street */}
                       <div className="grid grid-cols-2 gap-2">
                         <div>
@@ -2158,11 +2268,32 @@ export default function CheckoutDialog({
                         </div>
                       </div>
 
-                      {/* Row 2: Area (Critical for validation) */}
-                      <div>
-                        <Label htmlFor="area" className="text-xs text-gray-600 font-semibold">
-                          Area/Locality * (Required for delivery)
-                        </Label>
+                      {/* Row 2: GPS and Area */}
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <Label htmlFor="area" className="text-xs text-gray-600 font-semibold">
+                            Area/Locality *
+                          </Label>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 text-xs text-blue-600 px-2"
+                            onClick={handleUseCurrentLocation}
+                            disabled={isGettingLocation}
+                          >
+                            {isGettingLocation ? (
+                              <>
+                                <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                Locating...
+                              </>
+                            ) : (
+                              <>
+                                <MapPin className="mr-1 h-3 w-3" />
+                                Use My Location
+                              </>
+                            )}
+                          </Button>
+                        </div>
                         <div className="relative">
                           <Input
                             id="area"
@@ -2184,14 +2315,13 @@ export default function CheckoutDialog({
                               <Loader2 className="h-4 w-4 animate-spin text-primary" />
                             </div>
                           )}
-                          
+
                           {/* Area Suggestions Dropdown */}
                           {showAreaSuggestions && areaSuggestions.length > 0 && (
                             <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg z-50">
                               {areaSuggestions.map((suggestion, idx) => (
-                                <button
+                                <div
                                   key={idx}
-                                  type="button"
                                   onClick={() => {
                                     setAddressArea(suggestion);
                                     setShowAreaSuggestions(false);
@@ -2206,17 +2336,14 @@ export default function CheckoutDialog({
                                       console.log("[LOCATION] Pincode not ready, validation will trigger on pincode entry");
                                     }
                                   }}
-                                  className="w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm border-b border-gray-200 dark:border-gray-700 last:border-0"
+                                  className="w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm border-b border-gray-200 dark:border-gray-700 last:border-0 cursor-pointer"
                                 >
                                   {suggestion}
-                                </button>
+                                </div>
                               ))}
                             </div>
                           )}
                         </div>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          Area is required to validate delivery • Type to see suggestions
-                        </p>
                       </div>
 
                       {/* Row 3: City and Pincode */}
@@ -2258,71 +2385,71 @@ export default function CheckoutDialog({
                               </div>
                             )}
                           </div>
-                          {isReValidatingPincode && (
-                            <p className="text-xs text-blue-600 dark:text-blue-400 mt-0.5">⏳ Validating pincode...</p>
-                          )}
-                          {!isReValidatingPincode && addressPincode && !/^\d{5,6}$/.test(addressPincode) && (
-                            <p className="text-xs text-red-500 mt-0.5">Pincode must be 5-6 digits</p>
-                          )}
-                          {!isReValidatingPincode && addressZoneValidated && addressInDeliveryZone && addressPincode && (
-                            <p className="text-xs text-green-600 mt-0.5">✅ Valid pincode for this delivery area</p>
-                          )}
-                          {!isReValidatingPincode && addressZoneValidated && !addressInDeliveryZone && addressPincode && (
-                            <p className="text-xs text-red-600 mt-0.5">❌ Pincode outside delivery zone</p>
-                          )}
                         </div>
                       </div>
 
-                      {/* Full Address Display */}
-                      <div className="bg-gray-50 dark:bg-gray-900 p-2 rounded text-xs text-gray-700 dark:text-gray-300">
-                        <p className="font-semibold">Full Address:</p>
-                        <p>{address || "(Enter details above)"}</p>
+                      {/* Pincode Validation Messages */}
+                      <div>
+                        {isReValidatingPincode && (
+                          <p className="text-xs text-blue-600 dark:text-blue-400 mt-0.5">⏳ Validating pincode...</p>
+                        )}
+                        {!isReValidatingPincode && addressPincode && !/^\d{5,6}$/.test(addressPincode) && (
+                          <p className="text-xs text-red-500 mt-0.5">Pincode must be 5-6 digits</p>
+                        )}
+                        {!isReValidatingPincode && addressZoneValidated && addressInDeliveryZone && addressPincode && (
+                          <p className="text-xs text-green-600 mt-0.5">✅ Valid pincode for this delivery area</p>
+                        )}
+                        {!isReValidatingPincode && addressZoneValidated && !addressInDeliveryZone && addressPincode && (
+                          <p className="text-xs text-red-600 mt-0.5">❌ Pincode outside delivery zone</p>
+                        )}
                       </div>
-
-                      {/* Auto-Validation Status - Shows automatically while validating */}
-                      {(isGeocodingAddress || isReValidatingPincode) && (
-                        <div className="w-full flex items-center justify-center gap-2 py-2 text-sm text-blue-600 dark:text-blue-400">
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          <span>Validating address...</span>
-                        </div>
-                      )}
                     </div>
+
+                    {/* Full Address Display */}
+                    <div className="bg-gray-50 dark:bg-gray-900 p-2 rounded text-xs text-gray-700 dark:text-gray-300">
+                      <p className="font-semibold">Full Address:</p>
+                      <p>{address || "(Enter details above)"}</p>
+                    </div>
+
+                    {/* Auto-Validation Status - Shows automatically while validating */}
+                    {(isGeocodingAddress || isReValidatingPincode) && (
+                      <div className="w-full flex items-center justify-center gap-2 py-2 text-sm text-blue-600 dark:text-blue-400">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <span>Validating address...</span>
+                      </div>
+                    )}
 
                     {/* Smart Location Validation Feedback - Zomato Style */}
                     {addressZoneValidated && (
                       <div
-                        className={`rounded-md p-3 border ${
-                          addressInDeliveryZone
-                            ? "bg-green-50 dark:bg-green-950/20 border-green-300 dark:border-green-700"
-                            : "bg-red-50 dark:bg-red-950/20 border-red-300 dark:border-red-700"
-                        }`}
+                        className={`rounded-md p-3 border ${addressInDeliveryZone
+                          ? "bg-green-50 dark:bg-green-950/20 border-green-300 dark:border-green-700"
+                          : "bg-red-50 dark:bg-red-950/20 border-red-300 dark:border-red-700"
+                          }`}
                       >
                         <div className="flex gap-2 items-start">
                           <MapPin
-                            className={`h-4 w-4 mt-0.5 flex-shrink-0 ${
-                              addressInDeliveryZone
-                                ? "text-green-600 dark:text-green-400"
-                                : "text-red-600 dark:text-red-400"
-                            }`}
+                            className={`h-4 w-4 mt-0.5 flex-shrink-0 ${addressInDeliveryZone
+                              ? "text-green-600 dark:text-green-400"
+                              : "text-red-600 dark:text-red-400"
+                              }`}
                           />
                           <div className="flex-1">
                             <p
-                              className={`text-sm font-semibold ${
-                                addressInDeliveryZone
-                                  ? "text-green-800 dark:text-green-200"
-                                  : "text-red-800 dark:text-red-200"
-                              }`}
+                              className={`text-sm font-semibold ${addressInDeliveryZone
+                                ? "text-green-800 dark:text-green-200"
+                                : "text-red-800 dark:text-red-200"
+                                }`}
                             >
                               {addressInDeliveryZone
                                 ? "✓ Delivery Available"
                                 : "✗ Outside Service Area"}
                             </p>
                             <p
-                              className={`text-xs mt-1 ${
-                                addressInDeliveryZone
-                                  ? "text-green-700 dark:text-green-300"
-                                  : "text-red-700 dark:text-red-300"
-                              }`}
+                              className={`text-xs mt-1 ${addressInDeliveryZone
+                                ? "text-green-700 dark:text-green-300"
+                                : "text-red-700 dark:text-red-300"
+                                }`}
                             >
                               {addressInDeliveryZone
                                 ? `${address.split(",")[0].trim()} is ${addressZoneDistance.toFixed(1)}km away`
@@ -2341,433 +2468,448 @@ export default function CheckoutDialog({
                       </div>
                     )}
 
-                    </div>
 
-                    {/* ============================================
+
+                  </div>
+
+                  {/* ============================================
                         SHOW DELIVERY, COUPONS, TOTALS ONLY AFTER ADDRESS IS CONFIRMED
                         ============================================ */}
-                    {addressConfirmed && addressZoneValidated && addressInDeliveryZone && (
-                      <div>
+                  {addressConfirmed && addressZoneValidated && addressInDeliveryZone && (
+                    <div>
                       {/* Delivery Time Selection - OPTIONAL for Roti orders */}
-                    {isRotiCategory && (
-                      <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-300 dark:border-blue-700 rounded-md p-2 sm:p-3">
-                        <div className="space-y-1.5 sm:space-y-2 w-full">
-                          <Label
-                            htmlFor="delivery-slot"
-                            className="flex items-center gap-2"
-                          >
-                            <Clock className="h-4 w-4" />
-                            Select Delivery Time (Optional)
-                          </Label>
+                      {isRotiCategory && (
+                        <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-300 dark:border-blue-700 rounded-md p-2 sm:p-3">
+                          <div className="space-y-1.5 sm:space-y-2 w-full">
+                            <Label
+                              htmlFor="delivery-slot"
+                              className="flex items-center gap-2"
+                            >
+                              <Clock className="h-4 w-4" />
+                              Select Delivery Time (Optional)
+                            </Label>
 
-                          {/* Show time slot picker */}
-                          <p className="text-xs text-primary flex items-start gap-1">
-                            <span>
-                              Choose a preferred time slot for your fresh rotis
-                            </span>
-                          </p>
-                          <Select
-                            value={selectedDeliverySlotId}
-                            onValueChange={(value) => {
-                              setSelectedDeliverySlotId(value);
-                              const slot = deliverySlots.find(
-                                (s: any) => s.id === value,
-                              );
-                              if (slot) {
-                                setSelectedDeliveryTime(slot.startTime);
-                              } else {
-                                setSelectedDeliveryTime("");
-                              }
-                            }}
-                          >
-                                <SelectTrigger
-                                  id="delivery-slot"
-                                  data-testid="select-delivery-slot"
-                                  className="w-full text-sm"
-                                >
-                                  <SelectValue placeholder="Choose a time slot" />
-                                </SelectTrigger>
-                                <SelectContent
-                                  align="center"
-                                  className="max-w-[calc(100vw-2rem)] sm:max-w-[400px]"
-                                  position="popper"
-                                  sideOffset={5}
-                                >
-                                  {deliverySlots
-                                    .filter(
-                                      (slot) =>
-                                        slot.isActive &&
-                                        slot.currentOrders < slot.capacity,
-                                    )
-                                    .map((slot) => {
-                                      const cutoff = slotCutoffMap[slot.id];
-                                      const slotsLeft =
-                                        slot.capacity - slot.currentOrders;
-                                      const now = new Date();
-                                      const currentHour = now.getHours();
-
-                                      // Check if we're in morning restriction period (8 AM - 11 AM)
-                                      const inMorningRestriction =
-                                        currentHour >= 8 && currentHour < 11;
-                                      const isDisabled =
-                                        cutoff?.isMorningSlot &&
-                                        inMorningRestriction;
-
-                                      return (
-                                        <SelectItem
-                                          key={slot.id}
-                                          value={slot.id}
-                                          data-testid={`delivery-slot-${slot.id}`}
-                                          className="w-full py-3"
-                                          disabled={isDisabled}
-                                        >
-                                          <div className="flex flex-col w-full gap-0.5">
-                                            <span className="font-medium text-sm">
-                                              {slot.label}
-                                            </span>
-                                            <span className="text-xs text-muted-foreground">
-                                              {cutoff?.deliveryDateLabel} •{" "}
-                                              {slotsLeft} slots left
-                                              {cutoff?.slotHasPassed &&
-                                                " (Next day)"}
-                                            </span>
-                                            {isDisabled && (
-                                              <span className="text-xs text-red-500 mt-1">
-                                                Not available 8-11 AM
-                                              </span>
-                                            )}
-                                          </div>
-                                        </SelectItem>
-                                      );
-                                    })}
-                                  {deliverySlots.filter(
+                            {/* Show time slot picker */}
+                            <p className="text-xs text-primary flex items-start gap-1">
+                              <span>
+                                Choose a preferred time slot for your fresh rotis
+                              </span>
+                            </p>
+                            <Select
+                              value={selectedDeliverySlotId}
+                              onValueChange={(value) => {
+                                setSelectedDeliverySlotId(value);
+                                const slot = deliverySlots.find(
+                                  (s: any) => s.id === value,
+                                );
+                                if (slot) {
+                                  setSelectedDeliveryTime(slot.startTime);
+                                } else {
+                                  setSelectedDeliveryTime("");
+                                }
+                              }}
+                            >
+                              <SelectTrigger
+                                id="delivery-slot"
+                                data-testid="select-delivery-slot"
+                                className="w-full text-sm"
+                              >
+                                <SelectValue placeholder="Choose a time slot" />
+                              </SelectTrigger>
+                              <SelectContent
+                                align="center"
+                                className="max-w-[calc(100vw-2rem)] sm:max-w-[400px]"
+                                position="popper"
+                                sideOffset={5}
+                              >
+                                {deliverySlots
+                                  .filter(
                                     (slot) =>
                                       slot.isActive &&
                                       slot.currentOrders < slot.capacity,
-                                  ).length === 0 && (
+                                  )
+                                  .map((slot) => {
+                                    const cutoff = slotCutoffMap[slot.id];
+                                    const slotsLeft =
+                                      slot.capacity - slot.currentOrders;
+                                    const now = new Date();
+                                    const currentHour = now.getHours();
+
+                                    // Check if we're in morning restriction period (8 AM - 11 AM)
+                                    const inMorningRestriction =
+                                      currentHour >= 8 && currentHour < 11;
+                                    const isDisabled =
+                                      cutoff?.isMorningSlot &&
+                                      inMorningRestriction;
+
+                                    return (
+                                      <SelectItem
+                                        key={slot.id}
+                                        value={slot.id}
+                                        data-testid={`delivery-slot-${slot.id}`}
+                                        className="w-full py-3"
+                                        disabled={isDisabled}
+                                      >
+                                        <div className="flex flex-col w-full gap-0.5">
+                                          <span className="font-medium text-sm">
+                                            {slot.label}
+                                          </span>
+                                          <span className="text-xs text-muted-foreground">
+                                            {cutoff?.deliveryDateLabel} •{" "}
+                                            {slotsLeft} slots left
+                                            {cutoff?.slotHasPassed &&
+                                              " (Next day)"}
+                                          </span>
+                                          {isDisabled && (
+                                            <span className="text-xs text-red-500 mt-1">
+                                              Not available 8-11 AM
+                                            </span>
+                                          )}
+                                        </div>
+                                      </SelectItem>
+                                    );
+                                  })}
+                                {deliverySlots.filter(
+                                  (slot) =>
+                                    slot.isActive &&
+                                    slot.currentOrders < slot.capacity,
+                                ).length === 0 && (
                                     <SelectItem value="none" disabled>
                                       No delivery slots available
                                     </SelectItem>
                                   )}
-                                </SelectContent>
-                              </Select>
-                              {selectedDeliverySlotId &&
-                                slotCutoffMap[selectedDeliverySlotId] && (
-                                  <div className="mt-1 text-center">
-                                    <p className="text-xs text-green-600 dark:text-green-400">
-                                      Delivery:{" "}
-                                      {
-                                        slotCutoffMap[selectedDeliverySlotId]
-                                          .deliveryDateLabel
-                                      }{" "}
-                                      at {selectedDeliveryTime}
-                                    </p>
-                                    {slotCutoffMap[selectedDeliverySlotId]
-                                      .slotHasPassed && (
+                              </SelectContent>
+                            </Select>
+                            {selectedDeliverySlotId &&
+                              slotCutoffMap[selectedDeliverySlotId] && (
+                                <div className="mt-1 text-center">
+                                  <p className="text-xs text-green-600 dark:text-green-400">
+                                    Delivery:{" "}
+                                    {
+                                      slotCutoffMap[selectedDeliverySlotId]
+                                        .deliveryDateLabel
+                                    }{" "}
+                                    at {selectedDeliveryTime}
+                                  </p>
+                                  {slotCutoffMap[selectedDeliverySlotId]
+                                    .slotHasPassed && (
                                       <p className="text-xs text-orange-600 dark:text-orange-400 mt-1 font-medium">
                                         This time has passed today - your order
                                         will be delivered tomorrow at this time
                                       </p>
                                     )}
-                                  </div>
-                                )}
-                              {!selectedDeliveryTime && (
-                                <p className="text-xs text-muted-foreground mt-1 text-center">
-                                  Optional - if not selected, we'll deliver at the
-                                  earliest available time
-                                </p>
+                                </div>
                               )}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Referral Code Input - for new users only (not logged in) */}
-                    {!isAuthenticated && (
-                      <div>
-                        <Label
-                          htmlFor="referralCode"
-                          className="text-sm flex items-center gap-1"
-                        >
-                          Referral Code{" "}
-                          <span className="text-muted-foreground font-normal">
-                            (Optional)
-                          </span>
-                        </Label>
-                        <Input
-                          id="referralCode"
-                          type="text"
-                          placeholder="Enter friend's referral code"
-                          value={referralCode}
-                          onChange={(e) =>
-                            setReferralCode(e.target.value.toUpperCase())
-                          }
-                          className="font-mono uppercase"
-                          maxLength={20}
-                          data-testid="input-checkout-referral-code"
-                        />
-                        <p className="text-xs text-muted-foreground mt-1">
-                          Have a referral code? Enter it to earn bonus rewards!
-                        </p>
-                      </div>
-                    )}
-
-                    {/* Coupon Code */}
-                    <div>
-                      <Label htmlFor="couponCode" className="text-sm">
-                        Coupon Code (Optional)
-                      </Label>
-                      <div className="flex gap-2">
-                        <Input
-                          id="couponCode"
-                          value={couponCode}
-                          onChange={(e) => {
-                            setCouponCode(e.target.value.toUpperCase());
-                            setCouponError("");
-                          }}
-                          placeholder="Enter coupon code"
-                          disabled={!!appliedCoupon}
-                          className="uppercase"
-                        />
-                        {appliedCoupon ? (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={handleRemoveCoupon}
-                          >
-                            Remove
-                          </Button>
-                        ) : (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={handleApplyCoupon}
-                            disabled={isVerifyingCoupon || !couponCode.trim()}
-                          >
-                            {isVerifyingCoupon ? "Verifying..." : "Apply"}
-                          </Button>
-                        )}
-                      </div>
-                      {couponError && (
-                        <p className="text-xs text-destructive mt-1">
-                          {couponError}
-                        </p>
-                      )}
-                      {appliedCoupon && (
-                        <p className="text-xs text-green-600 mt-1">
-                          ✓ Coupon "{appliedCoupon.code}" applied - You save ₹
-                          {appliedCoupon.discountAmount}
-                        </p>
-                      )}
-                    </div>
-
-                  {/* Totals - Inside form */}
-                  <div className="border-t pt-3 space-y-2 mt-4">
-                  <div className="flex justify-between text-sm">
-                    <span>Subtotal:</span>
-                    <span>₹{subtotal.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span>
-                      Delivery Fee
-                      {deliveryDistance !== null && deliveryDistance < 100
-                        ? ` (${deliveryDistance.toFixed(1)} km)`
-                        : ""}:
-                    </span>
-                    {!isBelowDeliveryMinimum ? (
-                      <span className="text-green-600 dark:text-green-400 font-medium">
-                        <span className="line-through text-gray-400 dark:text-gray-500">₹{deliveryFee.toFixed(2)}</span> FREE
-                      </span>
-                    ) : (
-                      <span className="font-medium">₹{deliveryFee.toFixed(2)}</span>
-                    )}
-                  </div>
-                  
-                  {/* Item Discount Savings from offer percentages */}
-                  {itemDiscountSavings > 0 && (
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-sm text-gray-500 dark:text-gray-400">
-                        <span>Original Price:</span>
-                        <span className="line-through">₹{originalSubtotal.toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between text-sm text-green-600 dark:text-green-400 font-medium">
-                        <span>Item Offer (You Save):</span>
-                        <span>-₹{itemDiscountSavings.toFixed(2)}</span>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Coupon Discount */}
-                  {discount > 0 && (
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-sm text-green-600 dark:text-green-400 font-medium">
-                        <span>Coupon Discount:</span>
-                        <span>-₹{discount.toFixed(2)}</span>
-                      </div>
-                    </div>
-                  )}
-
-
-
-                  {/* Referral Bonus Section */}
-                  {isAuthenticated &&
-                    pendingBonus > 0 &&
-                    (bonusEligible || !bonusEligibilityMsg) && (
-                      <div className="border-t pt-2 mt-2 space-y-2">
-                        <div className="bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-md p-2 space-y-2">
-                          <div className="flex justify-between items-start">
-                            <div className="flex-1">
-                              <p className="text-xs font-medium text-amber-900 dark:text-amber-100">
-                                Available Referral Bonus
+                            {!selectedDeliveryTime && (
+                              <p className="text-xs text-muted-foreground mt-1 text-center">
+                                Optional - if not selected, we'll deliver at the
+                                earliest available time
                               </p>
-                              <p className="text-sm font-bold text-amber-700 dark:text-amber-300">
-                                ₹{pendingBonus}
-                              </p>
-                              {minOrderAmount > 0 && (
-                                <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                                  Minimum order: ₹{minOrderAmount}
-                                </p>
-                              )}
-                            </div>
-                            {bonusEligible && (
-                              <div className="flex items-center gap-2">
-                                <input
-                                  type="checkbox"
-                                  id="useBonusCheckbox"
-                                  checked={useBonusAtCheckout}
-                                  onChange={(e) =>
-                                    setUseBonusAtCheckout(e.target.checked)
-                                  }
-                                  className="cursor-pointer"
-                                />
-                                <label
-                                  htmlFor="useBonusCheckbox"
-                                  className="text-xs cursor-pointer font-medium text-amber-700 dark:text-amber-300"
-                                >
-                                  Use Bonus
-                                </label>
-                              </div>
                             )}
                           </div>
-
-                          {bonusEligibilityMsg && (
-                            <p
-                              className={`text-xs ${
-                                bonusEligible
-                                  ? "text-green-600 dark:text-green-400"
-                                  : "text-red-600 dark:text-red-400"
-                              }`}
-                            >
-                              {bonusEligibilityMsg}
-                            </p>
-                          )}
-
-                          {isCheckingBonusEligibility && (
-                            <p className="text-xs text-amber-600 dark:text-amber-400">
-                              Checking eligibility...
-                            </p>
-                          )}
                         </div>
-                      </div>
-                    )}
+                      )}
 
-                  {/* Show ineligibility message */}
-                  {isAuthenticated &&
-                    pendingBonus > 0 &&
-                    !bonusEligible &&
-                    bonusEligibilityMsg && (
-                      <div className="border-t pt-2 mt-2">
-                        <div className="bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-md p-2">
-                          <p className="text-xs text-red-700 dark:text-red-300">
-                            {bonusEligibilityMsg}
+                      {/* Referral Code Input - for new users only (not logged in) */}
+                      {!isAuthenticated && (
+                        <div>
+                          <Label
+                            htmlFor="referralCode"
+                            className="text-sm flex items-center gap-1"
+                          >
+                            Referral Code{" "}
+                            <span className="text-muted-foreground font-normal">
+                              (Optional)
+                            </span>
+                          </Label>
+                          <Input
+                            id="referralCode"
+                            type="text"
+                            placeholder="Enter friend's referral code"
+                            value={referralCode}
+                            onChange={(e) =>
+                              setReferralCode(e.target.value.toUpperCase())
+                            }
+                            className="font-mono uppercase"
+                            maxLength={20}
+                            data-testid="input-checkout-referral-code"
+                          />
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Have a referral code? Enter it to earn bonus rewards!
                           </p>
                         </div>
-                      </div>
-                    )}
+                      )}
 
-                  {/* Wallet Balance */}
-                  {isAuthenticated && user?.walletBalance && user.walletBalance > 0 && (
-                    <div className="border-t pt-2 mt-2">
-                      <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-md p-2 space-y-2">
-                        <div className="flex justify-between items-start">
-                          <div className="flex-1">
-                            <p className="text-xs font-medium text-blue-900 dark:text-blue-100">
-                              Available Wallet Balance
-                            </p>
-                            <p className="text-sm font-bold text-blue-700 dark:text-blue-300">
-                              ₹{user.walletBalance}
-                            </p>
-                            <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
-                              Max per order: ₹{maxWalletUsagePerOrder}
-                            </p>
+                      {/* Coupon Code */}
+                      <div>
+                        <Label htmlFor="couponCode" className="text-sm">
+                          Coupon Code (Optional)
+                        </Label>
+                        <div className="flex gap-2">
+                          <Input
+                            id="couponCode"
+                            value={couponCode}
+                            onChange={(e) => {
+                              setCouponCode(e.target.value.toUpperCase());
+                              setCouponError("");
+                            }}
+                            placeholder="Enter coupon code"
+                            disabled={!!appliedCoupon}
+                            className="uppercase"
+                          />
+                          {appliedCoupon ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={handleRemoveCoupon}
+                            >
+                              Remove
+                            </Button>
+                          ) : (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={handleApplyCoupon}
+                              disabled={isVerifyingCoupon || !couponCode.trim()}
+                            >
+                              {isVerifyingCoupon ? "Verifying..." : "Apply"}
+                            </Button>
+                          )}
+                        </div>
+                        {couponError && (
+                          <p className="text-xs text-destructive mt-1">
+                            {couponError}
+                          </p>
+                        )}
+                        {appliedCoupon && (
+                          <p className="text-xs text-green-600 mt-1">
+                            ✓ Coupon "{appliedCoupon.code}" applied - You save ₹
+                            {appliedCoupon.discountAmount}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Totals - Inside form */}
+                      <div className="border-t pt-3 space-y-2 mt-4">
+                        <div className="flex justify-between text-sm">
+                          <span>Subtotal:</span>
+                          <span>₹{subtotal.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span>
+                            Delivery Fee
+                            {deliveryDistance !== null && deliveryDistance < 100
+                              ? ` (${deliveryDistance.toFixed(1)} km)`
+                              : ""}:
+                          </span>
+                          {!isBelowDeliveryMinimum ? (
+                            <span className="text-green-600 dark:text-green-400 font-medium">
+                              <span className="line-through text-gray-400 dark:text-gray-500">₹{deliveryFee.toFixed(2)}</span> FREE
+                            </span>
+                          ) : (
+                            <span className="font-medium">₹{deliveryFee.toFixed(2)}</span>
+                          )}
+                        </div>
+
+                        {/* Debugging Ghost 0 */}
+                        {/* Debugging Ghost 0 */}
+                        {(function () {
+                          console.log("[RENDER DEBUG] Zero Check:", {
+                            itemDiscountSavings,
+                            discount,
+                            pendingBonus,
+                            walletBalance: user?.walletBalance,
+                            isBelowDeliveryMinimum,
+                            deliveryFee,
+                            "wallet_cond_check": isAuthenticated && user?.walletBalance
+                          });
+                          return null;
+                        })()}
+
+                        {/* Item Discount Savings from offer percentages */}
+                        {typeof itemDiscountSavings === 'number' && itemDiscountSavings > 0 && (
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-sm text-gray-500 dark:text-gray-400">
+                              <span>Original Price:</span>
+                              <span className="line-through">₹{originalSubtotal.toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between text-sm text-green-600 dark:text-green-400 font-medium">
+                              <span>Item Offer (You Save):</span>
+                              <span>-₹{itemDiscountSavings.toFixed(2)}</span>
+                            </div>
                           </div>
-                          {user.walletBalance > 0 && (
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="checkbox"
-                                id="useWalletCheckbox"
-                                checked={useWalletBalance}
-                                onChange={(e) => {
-                                  console.log("[WALLET] Checkbox changed to:", e.target.checked);
-                                  setUseWalletBalance(e.target.checked);
-                                }}
-                                disabled={isWalletCheckboxDisabled}
-                                className="cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                              />
-                              <label
-                                htmlFor="useWalletCheckbox"
-                                className={`text-xs font-medium cursor-pointer ${
-                                  isWalletCheckboxDisabled
-                                    ? "text-gray-400 dark:text-gray-500 cursor-not-allowed"
-                                    : "text-blue-700 dark:text-blue-300"
-                                }`}
-                              >
-                                Use Balance
-                              </label>
+                        )}
+
+                        {/* Coupon Discount */}
+                        {typeof discount === 'number' && discount > 0 && (
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-sm text-green-600 dark:text-green-400 font-medium">
+                              <span>Coupon Discount:</span>
+                              <span>-₹{discount.toFixed(2)}</span>
+                            </div>
+                          </div>
+                        )}
+
+
+
+                        {/* Referral Bonus Section */}
+                        {isAuthenticated &&
+                          typeof pendingBonus === 'number' && pendingBonus > 0 &&
+                          (bonusEligible || !bonusEligibilityMsg) && (
+                            <div className="border-t pt-2 mt-2 space-y-2">
+                              <div className="bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-md p-2 space-y-2">
+                                <div className="flex justify-between items-start">
+                                  <div className="flex-1">
+                                    <p className="text-xs font-medium text-amber-900 dark:text-amber-100">
+                                      Available Referral Bonus
+                                    </p>
+                                    <p className="text-sm font-bold text-amber-700 dark:text-amber-300">
+                                      ₹{pendingBonus}
+                                    </p>
+                                    {minOrderAmount > 0 && (
+                                      <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                                        Minimum order: ₹{minOrderAmount}
+                                      </p>
+                                    )}
+                                  </div>
+                                  {bonusEligible && (
+                                    <div className="flex items-center gap-2">
+                                      <input
+                                        type="checkbox"
+                                        id="useBonusCheckbox"
+                                        checked={useBonusAtCheckout}
+                                        onChange={(e) =>
+                                          setUseBonusAtCheckout(e.target.checked)
+                                        }
+                                        className="cursor-pointer"
+                                      />
+                                      <label
+                                        htmlFor="useBonusCheckbox"
+                                        className="text-xs cursor-pointer font-medium text-amber-700 dark:text-amber-300"
+                                      >
+                                        Use Bonus
+                                      </label>
+                                    </div>
+                                  )}
+                                </div>
+
+                                {bonusEligibilityMsg && (
+                                  <p
+                                    className={`text-xs ${bonusEligible
+                                      ? "text-green-600 dark:text-green-400"
+                                      : "text-red-600 dark:text-red-400"
+                                      }`}
+                                  >
+                                    {bonusEligibilityMsg}
+                                  </p>
+                                )}
+
+                                {isCheckingBonusEligibility && (
+                                  <p className="text-xs text-amber-600 dark:text-amber-400">
+                                    Checking eligibility...
+                                  </p>
+                                )}
+                              </div>
                             </div>
                           )}
-                        </div>
-                        
-                        {isWalletCheckboxDisabled && (
-                          <p className="text-xs text-amber-600 dark:text-amber-400">
-                            ⚠️ Minimum order ₹{minOrderAmountForWallet} required to use wallet (Current: ₹{(total).toFixed(2)})
-                          </p>
-                        )}
-                        
-                        {useWalletBalance && walletAmountToUse > 0 && !isWalletCheckboxDisabled && (
-                          <p className="text-xs text-green-600 dark:text-green-400">
-                            ✓ Will use ₹{walletAmountToUse} from wallet
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  )}
 
-                  {/* Delivery Minimum Order Message */}
-                  {isBelowDeliveryMinimum && (
-                    <div className="border-t pt-2 mt-2">
-                      <div className="bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-md p-3">
-                        <div className="flex items-start gap-2">
-                          <span className="text-lg">🚚</span>
-                          <div className="flex-1">
-                            <p className="text-sm font-semibold text-amber-700 dark:text-amber-300">
-                              Delivery charge ₹{deliveryFee.toFixed(2)} is applicable
-                            </p>
-                            <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                              Add ₹{amountNeededForFreeDelivery} more items to avoid delivery charge
-                            </p>
+                        {/* Show ineligibility message */}
+                        {isAuthenticated &&
+                          pendingBonus > 0 &&
+                          !bonusEligible &&
+                          bonusEligibilityMsg && (
+                            <div className="border-t pt-2 mt-2">
+                              <div className="bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-md p-2">
+                                <p className="text-xs text-red-700 dark:text-red-300">
+                                  {bonusEligibilityMsg}
+                                </p>
+                              </div>
+                            </div>
+                          )}
+
+                        {/* Wallet Balance */}
+                        {isAuthenticated && (user?.walletBalance || 0) > 0 && (
+                          <div className="border-t pt-2 mt-2">
+                            <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-md p-2 space-y-2">
+                              <div className="flex justify-between items-start">
+                                <div className="flex-1">
+                                  <p className="text-xs font-medium text-blue-900 dark:text-blue-100">
+                                    Available Wallet Balance
+                                  </p>
+                                  <p className="text-sm font-bold text-blue-700 dark:text-blue-300">
+                                    ₹{user?.walletBalance ?? 0}
+                                  </p>
+                                  <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                                    Max per order: ₹{maxWalletUsagePerOrder}
+                                  </p>
+                                </div>
+                                {(user?.walletBalance ?? 0) > 0 && (
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      type="checkbox"
+                                      id="useWalletCheckbox"
+                                      checked={useWalletBalance}
+                                      onChange={(e) => {
+                                        console.log("[WALLET] Checkbox changed to:", e.target.checked);
+                                        setUseWalletBalance(e.target.checked);
+                                      }}
+                                      disabled={isWalletCheckboxDisabled}
+                                      className="cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                                    />
+                                    <label
+                                      htmlFor="useWalletCheckbox"
+                                      className={`text-xs font-medium cursor-pointer ${isWalletCheckboxDisabled
+                                        ? "text-gray-400 dark:text-gray-500 cursor-not-allowed"
+                                        : "text-blue-700 dark:text-blue-300"
+                                        }`}
+                                    >
+                                      Use Balance
+                                    </label>
+                                  </div>
+                                )}
+                              </div>
+
+                              {isWalletCheckboxDisabled && (
+                                <p className="text-xs text-amber-600 dark:text-amber-400">
+                                  ⚠️ Minimum order ₹{minOrderAmountForWallet} required to use wallet (Current: ₹{(total).toFixed(2)})
+                                </p>
+                              )}
+
+                              {useWalletBalance && walletAmountToUse > 0 && !isWalletCheckboxDisabled && (
+                                <p className="text-xs text-green-600 dark:text-green-400">
+                                  ✓ Will use ₹{walletAmountToUse} from wallet
+                                </p>
+                              )}
+                            </div>
                           </div>
+                        )}
+
+                        {/* Delivery Minimum Order Message */}
+                        {isBelowDeliveryMinimum && (
+                          <div className="border-t pt-2 mt-2">
+                            <div className="bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-md p-3">
+                              <div className="flex items-start gap-2">
+                                <span className="text-lg">🚚</span>
+                                <div className="flex-1">
+                                  <p className="text-sm font-semibold text-amber-700 dark:text-amber-300">
+                                    Delivery charge ₹{deliveryFee.toFixed(2)} is applicable
+                                  </p>
+                                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                                    Add ₹{amountNeededForFreeDelivery || 0} more items to avoid delivery charge
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="flex justify-between font-bold text-base border-t pt-2">
+                          <span>Total:</span>
+                          <span>₹{total.toFixed(2)}</span>
                         </div>
                       </div>
                     </div>
                   )}
-
-                  <div className="flex justify-between font-bold text-base border-t pt-2">
-                    <span>Total:</span>
-                    <span>₹{total.toFixed(2)}</span>
-                  </div>
-                    </div>
-                    </div>
-                    )}
 
                 </form>
               </TabsContent>
@@ -2938,7 +3080,7 @@ export default function CheckoutDialog({
             </div>
           </DialogFooter>
         </DialogContent>
-      </Dialog>
+      </Dialog >
     </>
   );
 }

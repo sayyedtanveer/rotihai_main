@@ -31,6 +31,7 @@ interface CategoryCart {
   deliveryRangeName?: string;
   minOrderAmount?: number;
   chefIsActive?: boolean;
+  isFeeFinal?: boolean; // New flag to indicate if fee is final
 }
 
 interface ChefStatus {
@@ -42,9 +43,10 @@ interface CartStore {
   carts: CategoryCart[];
   userLatitude: number | null;
   userLongitude: number | null;
+  isLocationExact: boolean; // New flag for location precision
   deliverySettings: DeliverySetting[];
   chefStatuses: Record<string, boolean>;
-  setUserLocation: (lat: number, lon: number) => void;
+  setUserLocation: (lat: number | null, lon: number | null, isExact?: boolean) => void;
   setDeliverySettings: (settings: DeliverySetting[]) => void;
   fetchDeliverySettings: () => Promise<void>;
   updateChefStatus: (chefId: string, isActive: boolean) => void;
@@ -77,11 +79,12 @@ export const useCart = create<CartStore>()(
       carts: [],
       userLatitude: null,
       userLongitude: null,
+      isLocationExact: false, // Default to false (approximate)
       deliverySettings: [],
       chefStatuses: {},
 
-      setUserLocation: (lat: number, lon: number) => {
-        set({ userLatitude: lat, userLongitude: lon });
+      setUserLocation: (lat: number | null, lon: number | null, isExact = false) => {
+        set({ userLatitude: lat, userLongitude: lon, isLocationExact: isExact });
       },
 
       setDeliverySettings: (settings: DeliverySetting[]) => {
@@ -307,7 +310,7 @@ export const useCart = create<CartStore>()(
 
       // ✅ Get all carts with delivery fee calculation
       getAllCartsWithDelivery: () => {
-        const { carts, userLatitude, userLongitude, deliverySettings, chefStatuses } = get();
+        const { carts, userLatitude, userLongitude, isLocationExact, deliverySettings, chefStatuses } = get();
 
         return carts.map((cart) => {
           const subtotal = cart.items.reduce((total, item) => total + item.price * item.quantity, 0);
@@ -354,6 +357,7 @@ export const useCart = create<CartStore>()(
             deliveryRangeName,
             minOrderAmount,
             chefIsActive,
+            isFeeFinal: isLocationExact && !!distance, // Fee is final only if location is exact and distance is calculated
           };
         });
       },
