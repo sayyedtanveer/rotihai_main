@@ -1447,8 +1447,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
               passwordHash,
               referralCode: null,
               walletBalance: 0,
-              latitude: null,
-              longitude: null,
+              // Save geocoded coordinates for reuse in future orders
+              latitude: customerLatitude,
+              longitude: customerLongitude,
             });
             console.log(`✅ New account created with phone: ${sanitized.phone}, Email: ${sanitized.email || 'Not provided'}`);
 
@@ -1493,6 +1494,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // EXISTING PHONE = Use existing account
           console.log(`✅ Existing account found with phone: ${sanitized.phone}`);
           await storage.updateUserLastLogin(user.id);
+
+          // Update user coordinates if they've changed (for accurate future delivery fees)
+          if (user.latitude !== customerLatitude || user.longitude !== customerLongitude) {
+            try {
+              await storage.updateUser(user.id, {
+                latitude: customerLatitude,
+                longitude: customerLongitude,
+              });
+              console.log(`📍 Updated user coordinates: ${customerLatitude}, ${customerLongitude}`);
+            } catch (updateErr) {
+              console.warn(`⚠️ Failed to update user coordinates:`, updateErr);
+              // Don't fail the order if coordinate update fails
+            }
+          }
         }
 
         if (user) {
@@ -4272,6 +4287,130 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({
         success: false,
         message: "Validation failed. Please try again.",
+      });
+    }
+  });
+
+  // POST /api/geocode-full-address - Geocode full address with smart fallbacks
+  // Returns accurate coordinates for delivery fee calculation
+  app.post("/api/geocode-full-address", async (req, res) => {
+    try {
+      const { building, street, area, pincode } = req.body;
+
+      if (!area || !pincode) {
+        return res.status(400).json({
+          success: false,
+          message: "Area and pincode are required",
+        });
+      }
+
+      console.log(`[GEOCODE-FULL] Geocoding address:`, { building, street, area, pincode });
+
+      // Helper function to try geocoding with a query
+      const tryGeocode = async (query: string): Promise<{ lat: number; lon: number } | null> => {
+        try {
+          const response = await axios.get("https://nominatim.openstreetmap.org/search", {
+            params: {
+              q: query,
+              format: "json",
+              limit: 1,
+              timeout: 10,
+            },
+            timeout: 10000,
+          });
+
+          if (response.data && response.data.length > 0) {
+            const result = response.data[0];
+            return {
+              lat: parseFloat(result.lat),
+              lon: parseFloat(result.lon),
+            };
+          }
+          return null;
+        } catch (error) {
+          console.warn(`[GEOCODE-FULL] Failed to geocode "${query}":`, error);
+          return null;
+        }
+      };
+
+      // FALLBACK HIERARCHY
+      let coords: { lat: number; lon: number } | null = null;
+      let accuracy: 'exact' | 'street' | 'area' | 'pincode' = 'pincode';
+
+      // 1. Try full address (most accurate)
+      if (building && street) {
+        const fullQuery = `${building}, ${street}, ${area}, ${pincode}, Mumbai, India`;
+        console.log(`[GEOCODE-FULL] Trying full address: "${fullQuery}"`);
+        coords = await tryGeocode(fullQuery);
+        if (coords) {
+          accuracy = 'exact';
+          console.log(`✅ [GEOCODE-FULL] Got exact coordinates from full address`);
+        }
+      }
+
+      // 2. Try without building (street-level accuracy)
+      if (!coords && street) {
+        const streetQuery = `${street}, ${area}, ${pincode}, Mumbai, India`;
+        console.log(`[GEOCODE-FULL] Trying street-level: "${streetQuery}"`);
+        coords = await tryGeocode(streetQuery);
+        if (coords) {
+          accuracy = 'street';
+          console.log(`✅ [GEOCODE-FULL] Got street-level coordinates`);
+        }
+      }
+
+      // 3. Try area + pincode (area-level accuracy)
+      if (!coords) {
+        const areaQuery = `${area}, ${pincode}, Mumbai, India`;
+        console.log(`[GEOCODE-FULL] Trying area-level: "${areaQuery}"`);
+        coords = await tryGeocode(areaQuery);
+        if (coords) {
+          accuracy = 'area';
+          console.log(`✅ [GEOCODE-FULL] Got area-level coordinates`);
+        }
+      }
+
+      // 4. Final fallback: Use pincode area center from admin data
+      if (!coords) {
+        console.log(`[GEOCODE-FULL] All geocoding failed, using pincode area center`);
+        const adminAreas = await storage.getAllDeliveryAreas();
+        const activeAreas = adminAreas.filter((area: any) => area.isActive);
+
+        const matchingArea = activeAreas.find((a: any) => {
+          if (!a.pincodes || !Array.isArray(a.pincodes)) return false;
+          return a.pincodes.some((p: string | number) => String(p).trim() === String(pincode).trim());
+        });
+
+        if (matchingArea) {
+          coords = {
+            lat: typeof matchingArea.latitude === 'number' ? matchingArea.latitude : parseFloat(String(matchingArea.latitude || 19.0728)),
+            lon: typeof matchingArea.longitude === 'number' ? matchingArea.longitude : parseFloat(String(matchingArea.longitude || 72.8826))
+          };
+          accuracy = 'pincode';
+          console.log(`✅ [GEOCODE-FULL] Using pincode area center from admin data`);
+        } else {
+          return res.status(404).json({
+            success: false,
+            message: "Could not geocode address. Please verify your address details.",
+          });
+        }
+      }
+
+      res.json({
+        success: true,
+        latitude: coords.lat,
+        longitude: coords.lon,
+        accuracy,
+        message: accuracy === 'exact' ? 'Exact location found' :
+          accuracy === 'street' ? 'Street-level location found' :
+            accuracy === 'area' ? 'Area-level location found' :
+              'Using pincode area center',
+      });
+    } catch (error: any) {
+      console.error("[GEOCODE-FULL] Error:", error.message);
+      res.status(500).json({
+        success: false,
+        message: "Failed to geocode address. Please try again.",
       });
     }
   });

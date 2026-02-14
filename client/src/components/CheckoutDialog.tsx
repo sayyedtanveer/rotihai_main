@@ -1475,34 +1475,40 @@ export default function CheckoutDialog({
     setLocationError("");
 
     try {
-      console.log("[LOCATION] Starting auto-geocoding for:", addressToGeocode.trim());
+      console.log("[LOCATION] Starting geocoding with structured address:", {
+        building: addressBuilding,
+        street: addressStreet,
+        area: addressArea,
+        pincode: addressPincode
+      });
 
-      const response = await api.post("/api/geocode",
-        { address: addressToGeocode.trim(), pincode: addressPincode },
-        { timeout: 10000 }
+      // Use new geocode-full-address endpoint with smart fallbacks
+      const response = await api.post("/api/geocode-full-address",
+        {
+          building: addressBuilding,
+          street: addressStreet,
+          area: addressArea,
+          pincode: addressPincode
+        },
+        { timeout: 15000 } // Longer timeout for multiple fallback attempts
       );
 
       const data = response.data;
 
       if (!data.success) {
         console.warn("[LOCATION] Geocode returned success=false:", data);
-        // Handle area mismatch or other geocoding errors
-        if (data.distanceMismatch && data.detectedArea && data.requestedArea) {
-          setLocationError(
-            `The address you entered appears to be in ${data.detectedArea}, not ${data.requestedArea}. Please verify and try again.`
-          );
-        } else {
-          setLocationError(data.message || "Could not find this address. Try a different one.");
-        }
+        setLocationError(data.message || "Could not find this address. Try a different one.");
         setAddressZoneValidated(false);
         setIsGeocodingAddress(false);
         return;
       }
 
-      console.log("[LOCATION] Address auto-geocoded successfully:", {
+      console.log("[LOCATION] Address geocoded successfully:", {
         address: addressToGeocode.trim(),
         latitude: data.latitude,
         longitude: data.longitude,
+        accuracy: data.accuracy,
+        message: data.message
       });
 
       // Get chef coordinates for automatic zone validation from API
