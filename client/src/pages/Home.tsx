@@ -394,7 +394,11 @@ export default function Home() {
       }
 
       // Chef has pincode restrictions - only show if pincode matches
-      const serves = servicePincodes.includes(userPincode);
+      // Robust matching: convert both to strings and trim
+      const serves = servicePincodes.some((p: string | number) =>
+        String(p).trim() === String(userPincode).trim()
+      );
+
       if (!serves) {
         console.log(`[HOME] ❌ Chef ${(chef as any).name} doesn't serve pincode ${userPincode}`);
       }
@@ -431,7 +435,12 @@ export default function Home() {
 
       // If chef has pincode restrictions, verify they serve user's pincode
       if (servicePincodes && servicePincodes.length > 0) {
-        if (!servicePincodes.includes(deliveryLocation.pincode)) {
+        // Robust matching: convert both to strings and trim
+        const serves = servicePincodes.some((p: string | number) =>
+          String(p).trim() === String(deliveryLocation.pincode).trim()
+        );
+
+        if (!serves) {
           console.log(`[HOME-CART] ❌ Chef ${chef.name} doesn't serve pincode ${deliveryLocation.pincode}`);
           toast({
             title: "Not Available",

@@ -2376,7 +2376,8 @@ export default function CheckoutDialog({
                               value={addressPincode}
                               onChange={(e) => handleAddressChange('pincode', e.target.value)}
                               placeholder="e.g., 400070"
-                              className={`text-sm ${isReValidatingPincode ? 'border-blue-500 border-2' : ''}`}
+                              className={`text-sm ${isReValidatingPincode ? 'border-blue-500 border-2' : ''} ${deliveryLocation.pincode ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`}
+                              readOnly={!!deliveryLocation.pincode}
                               required
                             />
                             {isReValidatingPincode && (

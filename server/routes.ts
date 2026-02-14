@@ -4136,7 +4136,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Find which area has this pincode
       const matchingArea = activeAreas.find((area: any) => {
         if (!area.pincodes || !Array.isArray(area.pincodes)) return false;
-        return area.pincodes.includes(pincodeStr);
+        // Robust matching: convert both to strings and trim
+        return area.pincodes.some((p: string | number) =>
+          String(p).trim() === pincodeStr
+        );
       });
 
       if (matchingArea) {
