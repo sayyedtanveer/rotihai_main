@@ -4,6 +4,7 @@ import { MapPin, Search, Loader2, Navigation, ChevronDown, AlertCircle, CheckCir
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { getDeliveryMessage } from "@/lib/locationUtils";
+import { useDeliveryLocation } from "@/contexts/DeliveryLocationContext";
 import heroImage from '@assets/generated_images/Indian_food_spread_hero_01f8cdab.png';
 
 export default function Hero() {
@@ -21,6 +22,7 @@ export default function Hero() {
   const [showManualInput, setShowManualInput] = useState(false);
   const [hasLocation, setHasLocation] = useState(false);
   const { toast } = useToast();
+  const { setDeliveryLocation } = useDeliveryLocation();
 
   useEffect(() => {
     const checkLocationOnLoad = () => {
@@ -152,6 +154,15 @@ export default function Hero() {
       localStorage.setItem('pincodeArea', data.area);
       localStorage.setItem('userLatitude', data.latitude.toString());
       localStorage.setItem('userLongitude', data.longitude.toString());
+
+      // CRITICAL: Update global delivery context to trigger chef loading
+      setDeliveryLocation({
+        pincode: data.pincode,
+        latitude: data.latitude,
+        longitude: data.longitude,
+        address: data.area,
+        source: "pincode"
+      });
 
       setPincodeArea(data.area);
       setPincodeValidated(true);
@@ -293,8 +304,8 @@ export default function Hero() {
                     <p className="text-xs sm:text-sm font-semibold text-foreground">Pincode {pincode}</p>
                     <p className="text-xs text-muted-foreground">{pincodeArea}</p>
                   </div>
-                  <Button 
-                    variant="ghost" 
+                  <Button
+                    variant="ghost"
                     size="sm"
                     className="text-primary hover:text-primary hover:bg-primary/10 flex-shrink-0 text-xs sm:text-sm"
                     onClick={handleChangePincode}
@@ -307,7 +318,7 @@ export default function Hero() {
               </div>
 
               <div className="border-t px-3 sm:px-4 py-2 sm:py-3 bg-green-50">
-                <Button 
+                <Button
                   className="w-full gap-2 text-sm sm:text-base h-9 sm:h-10"
                   onClick={scrollToProducts}
                   data-testid="button-browse-menu"
@@ -346,8 +357,8 @@ export default function Hero() {
                       {deliveryAvailable ? "Delivery available" : "Coming soon to your area"}
                     </p>
                   </div>
-                  <Button 
-                    variant="ghost" 
+                  <Button
+                    variant="ghost"
                     size="sm"
                     className="text-primary hover:text-primary hover:bg-primary/10 flex-shrink-0 text-xs sm:text-sm"
                     onClick={handleChangeLocation}
@@ -360,7 +371,7 @@ export default function Hero() {
               </div>
               {deliveryAvailable && (
                 <div className="border-t px-3 sm:px-4 py-2 sm:py-3 bg-primary/5">
-                  <Button 
+                  <Button
                     className="w-full gap-2 text-sm sm:text-base h-9 sm:h-10"
                     onClick={scrollToProducts}
                     data-testid="button-browse-menu"
@@ -488,8 +499,8 @@ export default function Hero() {
                     <p className="text-xs sm:text-sm font-semibold text-foreground">Pincode {pincode}</p>
                     <p className="text-xs text-muted-foreground">{pincodeArea}</p>
                   </div>
-                  <Button 
-                    variant="ghost" 
+                  <Button
+                    variant="ghost"
                     size="sm"
                     className="text-primary hover:text-primary hover:bg-primary/10 flex-shrink-0 text-xs sm:text-sm"
                     onClick={handleChangePincode}
@@ -501,7 +512,7 @@ export default function Hero() {
                 </div>
               </div>
               <div className="border-t px-3 sm:px-4 py-2 sm:py-3 bg-green-50">
-                <Button 
+                <Button
                   className="w-full gap-2 text-sm sm:text-base h-9 sm:h-10"
                   onClick={scrollToProducts}
                   data-testid="button-browse-menu"
@@ -524,8 +535,8 @@ export default function Hero() {
                       {deliveryAvailable ? "Delivery available" : "Coming soon to your area"}
                     </p>
                   </div>
-                  <Button 
-                    variant="ghost" 
+                  <Button
+                    variant="ghost"
                     size="sm"
                     className="text-primary hover:text-primary hover:bg-primary/10 flex-shrink-0 text-xs sm:text-sm"
                     onClick={handleChangeLocation}
@@ -538,7 +549,7 @@ export default function Hero() {
               </div>
               {deliveryAvailable && (
                 <div className="border-t px-3 sm:px-4 py-2 sm:py-3 bg-primary/5">
-                  <Button 
+                  <Button
                     className="w-full gap-2 text-sm sm:text-base h-9 sm:h-10"
                     onClick={scrollToProducts}
                     data-testid="button-browse-menu"
