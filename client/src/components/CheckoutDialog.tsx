@@ -1533,8 +1533,18 @@ export default function CheckoutDialog({
         latitude: data.latitude,
         longitude: data.longitude,
         accuracy: data.accuracy,
+        source: data.source, // 'google', 'openstreetmap', or 'admin_data'
         message: data.message
       });
+
+      if (data.accuracy === 'pincode') {
+        console.warn("⚠️ [LOCATION] Using Pincode Fallback (Low Accuracy)");
+        toast({
+          title: "Low Accuracy Warning",
+          description: "Could not find exact address. Using Pincode area center.",
+          variant: "destructive",
+        });
+      }
 
       // Get chef coordinates for automatic zone validation from API
       let chefLat: number | null = null;

@@ -4320,7 +4320,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const addressParts = [building, street, area, pincode, 'Mumbai', 'India'].filter(Boolean);
           const fullAddress = addressParts.join(', ');
 
-          console.log(`[GEOCODE-FULL] Trying Google Geocoding: "${fullAddress}"`);
+          console.log(`[GEOCODE-FULL] 1. Requesting Google API: "${fullAddress}"`);
 
           const response = await axios.get('https://maps.googleapis.com/maps/api/geocode/json', {
             params: {
@@ -4345,7 +4345,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
               accuracy = 'area';
             }
 
-            console.log(`✅ [GEOCODE-FULL] Google success: ${location.lat}, ${location.lng} (${locationType} → ${accuracy})`);
+            console.log(`✅ [GEOCODE-FULL] Google Response:`, {
+              status: 'OK',
+              formatted_address: result.formatted_address,
+              lat: location.lat,
+              lng: location.lng,
+              type: locationType,
+              accuracy_mapped: accuracy
+            });
 
             return {
               lat: location.lat,
@@ -4353,11 +4360,61 @@ export async function registerRoutes(app: Express): Promise<Server> {
               accuracy,
             };
           } else {
-            console.warn(`⚠️ [GEOCODE-FULL] Google returned status: ${response.data.status}`);
+            console.warn(`❌ [GEOCODE-FULL] Google Failed. Payload:`, response.data);
             return null;
           }
         } catch (error: any) {
           console.warn(`⚠️ [GEOCODE-FULL] Google Geocoding failed:`, error.message);
+          return null;
+        }
+      };
+
+      // Helper function to try Google Places API (New) as Fallback
+      // This is useful if Geocoding API is disabled but Places API is enabled
+      const tryGooglePlacesFallback = async (): Promise<{ lat: number; lon: number; accuracy: 'exact' | 'street' | 'area' } | null> => {
+        const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+        if (!apiKey) return null;
+
+        try {
+          const addressParts = [building, street, area, pincode, 'Mumbai', 'India'].filter(Boolean);
+          const textQuery = addressParts.join(', ');
+
+          console.log(`[GEOCODE-FULL] 2. Trying Google Places New API Fallback: "${textQuery}"`);
+
+          const response = await axios.post(
+            'https://places.googleapis.com/v1/places:searchText',
+            { textQuery },
+            {
+              headers: {
+                'Content-Type': 'application/json',
+                'X-Goog-Api-Key': apiKey,
+                'X-Goog-FieldMask': 'places.formattedAddress,places.location'
+              },
+              timeout: 10000
+            }
+          );
+
+          if (response.data.places && response.data.places.length > 0) {
+            const place = response.data.places[0];
+            const location = place.location;
+
+            console.log(`✅ [GEOCODE-FULL] Google Places New API Success:`, {
+              formatted: place.formattedAddress,
+              lat: location.latitude,
+              lng: location.longitude
+            });
+
+            return {
+              lat: location.latitude,
+              lon: location.longitude,
+              accuracy: 'exact'
+            };
+          }
+          console.warn(`[GEOCODE-FULL] Google Places returned no results`);
+          return null;
+        } catch (error: any) {
+          // Log minimal error to avoid noise
+          console.warn(`[GEOCODE-FULL] Google Places Fallback Failed: ${error?.response?.data?.error?.message || error.message}`);
           return null;
         }
       };
@@ -4372,6 +4429,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
               limit: 1,
               timeout: 10,
             },
+            headers: {
+              'User-Agent': 'ReplitRotihai/1.0 (internal-tool)',
+              'Accept-Language': 'en'
+            },
             timeout: 10000,
           });
 
@@ -4383,29 +4444,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
             };
           }
           return null;
-        } catch (error) {
-          console.warn(`[GEOCODE-FULL] Failed to geocode "${query}":`, error);
+        } catch (error: any) {
+          // Log only strict error message
+          console.warn(`[GEOCODE-FULL] OSM Failed: ${error.message}`);
           return null;
         }
       };
 
-      // GEOCODING HIERARCHY: Google → OpenStreetMap → Pincode Center
+      // GEOCODING HIERARCHY: Google Geocoding → Google Places (New) → OpenStreetMap → Pincode Center
       let coords: { lat: number; lon: number } | null = null;
       let accuracy: 'exact' | 'street' | 'area' | 'pincode' = 'pincode';
       let source: 'google' | 'openstreetmap' | 'admin_data' = 'admin_data';
 
-      // 1. Try Google Geocoding first (most accurate for India)
+      // 1. Try Google Geocoding first (Best)
       const googleResult = await tryGoogleGeocode();
       if (googleResult) {
         coords = { lat: googleResult.lat, lon: googleResult.lon };
         accuracy = googleResult.accuracy;
         source = 'google';
         console.log(`✅ [GEOCODE-FULL] Using Google Geocoding (${accuracy})`);
+
+        // REFINEMENT: If Google Geocoding gave a generic result (Area/Street)
+        // but user provided a specific Building Name, try Places API to get exact location.
+        if ((accuracy === 'area' || accuracy === 'street') && building && building.trim().length > 2) {
+          console.log(`[GEOCODE-FULL] Geocoding was generic (${accuracy}), trying Places API for better accuracy...`);
+          const placesResult = await tryGooglePlacesFallback();
+          if (placesResult) {
+            console.log(`✅ [GEOCODE-FULL] Places API found better match! Upgrading accuracy.`);
+            coords = { lat: placesResult.lat, lon: placesResult.lon };
+            accuracy = placesResult.accuracy; // 'exact'
+            source = 'google';
+          }
+        }
       }
 
-      // 2. Fallback to OpenStreetMap if Google failed
+      // 2. Try Google Places Fallback (If Geocoding Disabled)
       if (!coords) {
-        console.log(`[GEOCODE-FULL] Google failed, trying OpenStreetMap fallbacks...`);
+        const placesResult = await tryGooglePlacesFallback();
+        if (placesResult) {
+          coords = { lat: placesResult.lat, lon: placesResult.lon };
+          accuracy = placesResult.accuracy;
+          source = 'google'; // Still Google info
+          console.log(`✅ [GEOCODE-FULL] Using Google Places Fallback (${accuracy})`);
+        }
+      }
+
+      // 3. Fallback to OpenStreetMap if Google failed
+      if (!coords) {
+        console.log(`[GEOCODE-FULL] Google APIs failed, trying OpenStreetMap fallbacks...`);
         source = 'openstreetmap';
 
         // 1. Try full address (most accurate)
@@ -4517,6 +4603,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
+      console.log(`\n🚚 [FEE-CALC] Request for Chef "${chef.name}" (${chefId})`);
+      console.log(`   - User Location: ${customerLatitude}, ${customerLongitude}`);
+      console.log(`   - Chef Location: ${chef.latitude}, ${chef.longitude}`);
+
       // Calculate distance if location provided
       let distance: number | null = null;
 
@@ -4533,6 +4623,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           Math.sin(dLng / 2);
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         distance = Math.round((R * c + Number.EPSILON) * 100) / 100; // Round to 2 decimals
+
+        console.log(`   - Calculated Distance: ${distance} km`);
+      } else {
+        console.log(`   - Distance not calculated (missing coordinates)`);
       }
 
       // Use storage helper to calculate delivery fee
@@ -4543,7 +4637,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         chef
       );
 
-      console.log(`✅ Calculated delivery fee for chef ${chefId}: ${feeResult.deliveryFee}, distance: ${distance}km, isFree: ${feeResult.isFreeDelivery}`);
+      console.log(`✅ [FEE-CALC] Fee: ₹${feeResult.deliveryFee}, Free? ${feeResult.isFreeDelivery}\n`);
 
       // ================= PUSH NOTIFICATIONS ENDPOINTS =================
 
