@@ -734,53 +734,81 @@ export default function AdminChefs() {
                 </div>
               )}
 
-              {/* Location preview */}
-              {(formData.latitude || formData.longitude) && !isGeocodingAddress && (
-                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-md p-3 space-y-2">
+
+              {/* Manual Coordinate Validation Section - ALWAYS VISIBLE */}
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-md p-3 space-y-3">
+                <div className="flex items-center justify-between">
                   <p className="text-xs font-semibold text-blue-900 dark:text-blue-100">
-                    📍 Location Confirmed
+                    📍 Location Coordinates
                   </p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleAddressChange("addressArea", formData.addressArea || "")}
+                    disabled={!formData.addressArea || !formData.addressPincode || isGeocodingAddress}
+                    className="h-7 text-xs"
+                  >
+                    {isGeocodingAddress ? (
+                      <>
+                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                        Validating...
+                      </>
+                    ) : (
+                      "🔍 Validate Address"
+                    )}
+                  </Button>
+                </div>
 
-                  {/* Manual Coordinate Input Fields */}
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <Label htmlFor="latitude" className="text-xs text-blue-800 dark:text-blue-200">
-                        Latitude
-                      </Label>
-                      <Input
-                        id="latitude"
-                        type="number"
-                        step="0.000001"
-                        value={formData.latitude}
-                        onChange={(e) => setFormData({ ...formData, latitude: parseFloat(e.target.value) || 0 })}
-                        className="text-xs h-8"
-                        placeholder="e.g., 19.0728"
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="longitude" className="text-xs text-blue-800 dark:text-blue-200">
-                        Longitude
-                      </Label>
-                      <Input
-                        id="longitude"
-                        type="number"
-                        step="0.000001"
-                        value={formData.longitude}
-                        onChange={(e) => setFormData({ ...formData, longitude: parseFloat(e.target.value) || 0 })}
-                        className="text-xs h-8"
-                        placeholder="e.g., 72.8826"
-                      />
-                    </div>
+
+                {/* Manual Coordinate Input Fields - ALWAYS VISIBLE */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label htmlFor="latitude" className="text-xs text-blue-800 dark:text-blue-200">
+                      Latitude *
+                    </Label>
+                    <Input
+                      id="latitude"
+                      type="number"
+                      step="0.000001"
+                      value={formData.latitude}
+                      onChange={(e) => setFormData({ ...formData, latitude: parseFloat(e.target.value) || 0 })}
+                      className="text-xs h-8"
+                      placeholder="e.g., 19.0728"
+                      required
+                    />
                   </div>
+                  <div>
+                    <Label htmlFor="longitude" className="text-xs text-blue-800 dark:text-blue-200">
+                      Longitude *
+                    </Label>
+                    <Input
+                      id="longitude"
+                      type="number"
+                      step="0.000001"
+                      value={formData.longitude}
+                      onChange={(e) => setFormData({ ...formData, longitude: parseFloat(e.target.value) || 0 })}
+                      className="text-xs h-8"
+                      placeholder="e.g., 72.8826"
+                      required
+                    />
+                  </div>
+                </div>
 
+                <div className="space-y-1">
                   <p className="text-xs text-blue-700 dark:text-blue-300">
-                    💡 Coordinates auto-fill when you enter Area + Pincode. You can manually adjust if needed.
+                    💡 <strong>How to use:</strong>
                   </p>
-                  <p className="text-xs text-blue-700 dark:text-blue-300">
-                    Delivery zone: {(formData as any).maxDeliveryDistanceKm || 5}km from this location
+                  <ol className="text-xs text-blue-700 dark:text-blue-300 list-decimal list-inside space-y-0.5">
+                    <li>Enter Area + Pincode above</li>
+                    <li>Click "Validate Address" to auto-fill coordinates</li>
+                    <li>If not accurate, get exact coordinates from Google Maps and paste here</li>
+                  </ol>
+                  <p className="text-xs text-blue-700 dark:text-blue-300 mt-2">
+                    📏 Delivery zone: {(formData as any).maxDeliveryDistanceKm || 5}km from this location
                   </p>
                 </div>
-              )}
+              </div>
             </div>
           </div>
           <DialogFooter>
@@ -1046,53 +1074,80 @@ export default function AdminChefs() {
                 </div>
               )}
 
-              {/* Location preview */}
-              {(formData.latitude || formData.longitude) && !isGeocodingAddress && (
-                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-md p-3 space-y-2">
+
+              {/* Manual Coordinate Validation Section - ALWAYS VISIBLE */}
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-md p-3 space-y-3">
+                <div className="flex items-center justify-between">
                   <p className="text-xs font-semibold text-blue-900 dark:text-blue-100">
-                    📍 Location Confirmed
+                    📍 Location Coordinates
                   </p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleAddressChange("addressArea", formData.addressArea || "")}
+                    disabled={!formData.addressArea || !formData.addressPincode || isGeocodingAddress}
+                    className="h-7 text-xs"
+                  >
+                    {isGeocodingAddress ? (
+                      <>
+                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                        Validating...
+                      </>
+                    ) : (
+                      "🔍 Validate Address"
+                    )}
+                  </Button>
+                </div>
 
-                  {/* Manual Coordinate Input Fields */}
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <Label htmlFor="edit-latitude" className="text-xs text-blue-800 dark:text-blue-200">
-                        Latitude
-                      </Label>
-                      <Input
-                        id="edit-latitude"
-                        type="number"
-                        step="0.000001"
-                        value={formData.latitude}
-                        onChange={(e) => setFormData({ ...formData, latitude: parseFloat(e.target.value) || 0 })}
-                        className="text-xs h-8"
-                        placeholder="e.g., 19.0728"
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="edit-longitude" className="text-xs text-blue-800 dark:text-blue-200">
-                        Longitude
-                      </Label>
-                      <Input
-                        id="edit-longitude"
-                        type="number"
-                        step="0.000001"
-                        value={formData.longitude}
-                        onChange={(e) => setFormData({ ...formData, longitude: parseFloat(e.target.value) || 0 })}
-                        className="text-xs h-8"
-                        placeholder="e.g., 72.8826"
-                      />
-                    </div>
+                {/* Manual Coordinate Input Fields - ALWAYS VISIBLE */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label htmlFor="edit-latitude" className="text-xs text-blue-800 dark:text-blue-200">
+                      Latitude *
+                    </Label>
+                    <Input
+                      id="edit-latitude"
+                      type="number"
+                      step="0.000001"
+                      value={formData.latitude}
+                      onChange={(e) => setFormData({ ...formData, latitude: parseFloat(e.target.value) || 0 })}
+                      className="text-xs h-8"
+                      placeholder="e.g., 19.0728"
+                      required
+                    />
                   </div>
+                  <div>
+                    <Label htmlFor="edit-longitude" className="text-xs text-blue-800 dark:text-blue-200">
+                      Longitude *
+                    </Label>
+                    <Input
+                      id="edit-longitude"
+                      type="number"
+                      step="0.000001"
+                      value={formData.longitude}
+                      onChange={(e) => setFormData({ ...formData, longitude: parseFloat(e.target.value) || 0 })}
+                      className="text-xs h-8"
+                      placeholder="e.g., 72.8826"
+                      required
+                    />
+                  </div>
+                </div>
 
+                <div className="space-y-1">
                   <p className="text-xs text-blue-700 dark:text-blue-300">
-                    💡 Coordinates auto-fill when you enter Area + Pincode. You can manually adjust if needed.
+                    💡 <strong>How to use:</strong>
                   </p>
-                  <p className="text-xs text-blue-700 dark:text-blue-300">
-                    Delivery zone: {(formData as any).maxDeliveryDistanceKm || 5}km from this location
+                  <ol className="text-xs text-blue-700 dark:text-blue-300 list-decimal list-inside space-y-0.5">
+                    <li>Enter Area + Pincode above</li>
+                    <li>Click "Validate Address" to auto-fill coordinates</li>
+                    <li>If not accurate, get exact coordinates from Google Maps and paste here</li>
+                  </ol>
+                  <p className="text-xs text-blue-700 dark:text-blue-300 mt-2">
+                    📏 Delivery zone: {(formData as any).maxDeliveryDistanceKm || 5}km from this location
                   </p>
                 </div>
-              )}
+              </div>
             </div>
           </div>
           <DialogFooter>
