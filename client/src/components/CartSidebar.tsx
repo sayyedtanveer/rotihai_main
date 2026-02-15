@@ -34,6 +34,7 @@ interface CategoryCart {
   freeDeliveryEligible?: boolean;
   amountForFreeDelivery?: number;
   deliveryRangeName?: string;
+  minOrderAmount?: number;
   chefIsActive?: boolean;
 }
 
@@ -66,11 +67,11 @@ export default function CartSidebar({
     const initializeDelivery = async () => {
       await fetchDeliverySettings();
       await fetchChefStatuses();
-      
+
       // Try to get stored location first
       const savedLat = localStorage.getItem('userLatitude');
       const savedLng = localStorage.getItem('userLongitude');
-      
+
       if (savedLat && savedLng) {
         setUserLocation(parseFloat(savedLat), parseFloat(savedLng));
       } else {
@@ -85,7 +86,7 @@ export default function CartSidebar({
         }
       }
     };
-    
+
     initializeDelivery();
   }, [fetchDeliverySettings, setUserLocation, fetchChefStatuses]);
 
@@ -177,6 +178,7 @@ export default function CartSidebar({
                     freeDeliveryEligible={cart.freeDeliveryEligible}
                     amountForFreeDelivery={cart.amountForFreeDelivery}
                     deliveryRangeName={cart.deliveryRangeName}
+                    minOrderAmount={cart.minOrderAmount}
                     subtotal={cart.total || 0}
                     onUpdateQuantity={(itemId, quantity) =>
                       handleUpdateQuantity(cart.categoryId, itemId, quantity)

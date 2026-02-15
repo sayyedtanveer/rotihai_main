@@ -24,6 +24,7 @@ interface CartCardProps {
   amountForFreeDelivery?: number;
   subtotal: number;
   deliveryRangeName?: string;
+  minOrderAmount?: number; // Minimum order for this distance range
   onUpdateQuantity?: (itemId: string, quantity: number) => void;
   onCheckout?: () => void;
   disabled?: boolean;
@@ -42,6 +43,7 @@ export default function CartCard({
   amountForFreeDelivery,
   subtotal,
   deliveryRangeName,
+  minOrderAmount,
   onUpdateQuantity,
   onCheckout,
   disabled = false,
@@ -196,8 +198,32 @@ export default function CartCard({
 
         <Separator />
 
-        {/* Free Delivery Hint */}
-        {freeDeliveryEligible ? (
+        {/* Minimum Order & Free Delivery Info */}
+        {minOrderAmount && minOrderAmount > 0 ? (
+          <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-md p-2">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-blue-700 dark:text-blue-400 font-medium">
+                Minimum Order: ₹{minOrderAmount}
+              </span>
+              {subtotal >= minOrderAmount ? (
+                <span className="text-green-600 dark:text-green-400 font-semibold">✓ Met</span>
+              ) : (
+                <span className="text-amber-600 dark:text-amber-400 font-medium">
+                  Add ₹{minOrderAmount - subtotal}
+                </span>
+              )}
+            </div>
+            {subtotal >= minOrderAmount ? (
+              <p className="text-xs text-green-700 dark:text-green-400 mt-1">
+                ✓ Free delivery unlocked!
+              </p>
+            ) : (
+              <p className="text-xs text-blue-600 dark:text-blue-500 mt-1">
+                Order ₹{minOrderAmount} or more for free delivery
+              </p>
+            )}
+          </div>
+        ) : freeDeliveryEligible ? (
           <div className="bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded-md p-2">
             <p className="text-xs font-medium text-green-700 dark:text-green-400" data-testid="text-free-delivery">
               ✓ Free delivery applied!

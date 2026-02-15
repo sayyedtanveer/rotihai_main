@@ -251,7 +251,7 @@ export default function Home() {
     };
 
     detectLocationAndZone();
-  }, [setUserLocation]);
+  }, [setUserLocation, deliveryLocation]); // Added deliveryLocation to trigger re-run when pincode validated
 
   // Auto-open location permission modal on page load (ONLY if location is actually needed)
   useEffect(() => {
