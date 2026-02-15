@@ -163,6 +163,7 @@ export default function Home() {
             reason: "Pincode coords more reliable than GPS for delivery zones"
           });
 
+
           // Store pincode coordinates in localStorage for chef loading
           localStorage.setItem('userLatitude', deliveryLocation.latitude.toString());
           localStorage.setItem('userLongitude', deliveryLocation.longitude.toString());
@@ -172,6 +173,15 @@ export default function Home() {
           setDeliveryZoneDetected(true);
           setLocationPermissionDenied(false);
           setIsDetectingLocation(false);
+
+          // Safari-specific: Log state for debugging
+          console.log("[SAFARI-DEBUG] Pincode coordinates set:", {
+            latitude: deliveryLocation.latitude,
+            longitude: deliveryLocation.longitude,
+            pincode: deliveryLocation.pincode,
+            userAgent: navigator.userAgent
+          });
+
           return; // Pincode is authoritative - no need for GPS
         }
 
@@ -251,7 +261,7 @@ export default function Home() {
     };
 
     detectLocationAndZone();
-  }, [setUserLocation, deliveryLocation]); // Added deliveryLocation to trigger re-run when pincode validated
+  }, [setUserLocation, deliveryLocation, deliveryLocation.pincode, deliveryLocation.latitude, deliveryLocation.longitude]); // Added specific properties for Safari compatibility
 
   // Auto-open location permission modal on page load (ONLY if location is actually needed)
   useEffect(() => {
