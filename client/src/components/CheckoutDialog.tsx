@@ -1399,6 +1399,16 @@ export default function CheckoutDialog({
           setCustomerLatitude(finalLat);
           setCustomerLongitude(finalLon);
           setAddressZoneDistance(newDistance);
+          setDeliveryDistance(newDistance); // ✅ FIX: Ensure payment screen shows same distance as validation
+
+          // 🔍 DEBUG: Log exact coordinates used for pincode/area validation
+          console.log("[DISTANCE-DEBUG] Coordinates used for pincode/area calculation:", {
+            chef: { lat: chefLat, lon: chefLon, source: "Database (AdminChefs)" },
+            user: { lat: finalLat, lon: finalLon, source: geocodingAccuracy === 'pincode' ? 'Pincode Center' : 'Smart Geocoding' },
+            calculatedDistance: newDistance.toFixed(3) + "km",
+            note: "Ensuring consistency between validation and fee calculation"
+          });
+
           setAddressInDeliveryZone(true);
           setAddressZoneValidated(true);
           setLocationError("");
@@ -1560,12 +1570,22 @@ export default function CheckoutDialog({
         return;
       }
 
+
       const distanceFromChef = calculateDistance(
         chefLat,
         chefLon,
         data.latitude,
         data.longitude
       );
+
+      // 🔍 DEBUG: Log exact coordinates used for distance calculation
+      console.log("[DISTANCE-DEBUG] Coordinates used for calculation:", {
+        chef: { lat: chefLat, lon: chefLon, source: "Database (AdminChefs)" },
+        user: { lat: data.latitude, lon: data.longitude, source: "Google Geocoding" },
+        calculatedDistance: distanceFromChef.toFixed(3) + "km",
+        note: "If same address, distance should be ~0km"
+      });
+
 
       const isInZone = distanceFromChef <= maxDeliveryDistance;
       const areaName = addressToGeocode.trim().split(",")[0].trim();
@@ -1592,6 +1612,7 @@ export default function CheckoutDialog({
       setCustomerLongitude(data.longitude);
       setHasLocationPermission(true);
       setAddressZoneDistance(distanceFromChef);
+      setDeliveryDistance(distanceFromChef); // ✅ FIX: Ensure payment screen shows same distance as validation
 
       if (!isInZone) {
         console.log("[DELIVERY-ZONE] ❌ OUT OF ZONE - Address blocked");
@@ -1722,7 +1743,8 @@ export default function CheckoutDialog({
     setMinOrderAmount(requiredAmount);
 
     console.log("[DELIVERY-FEE] Calculated using Admin Settings:", {
-      distance: distance.toFixed(2),
+      rawDistance: distance.toFixed(5) + " km", // Show full precision
+      displayDistance: Math.max(distance, 0.5).toFixed(1) + " km (Because UI shows min 0.5km)",
       deliveryFee,
       freeDeliveryEligible,
       minOrderAmount
@@ -2476,8 +2498,8 @@ export default function CheckoutDialog({
                                 }`}
                             >
                               {addressInDeliveryZone
-                                ? `${address.split(",")[0].trim()} is ${addressZoneDistance.toFixed(1)}km away`
-                                : `${address.split(",")[0].trim()} is ${addressZoneDistance.toFixed(1)}km away. We deliver within 2.5km only.`}
+                                ? `${address.split(",")[0].trim()}`
+                                : `${address.split(",")[0].trim()} is ${addressZoneDistance.toFixed(1)}km away. We deliver within ${cart?.maxDeliveryDistanceKm || 10}km only.`}
                             </p>
                           </div>
                         </div>
@@ -2723,7 +2745,7 @@ export default function CheckoutDialog({
                           <span>
                             Delivery Fee
                             {deliveryDistance !== null && deliveryDistance < 100
-                              ? ` (${deliveryDistance.toFixed(1)} km)`
+                              ? ` (${(Math.max(deliveryDistance, 0.5)).toFixed(1)} km)`
                               : ""}:
                           </span>
                           {!isBelowDeliveryMinimum ? (
