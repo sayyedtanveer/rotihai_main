@@ -44,10 +44,10 @@ export default function AdminChefs() {
     maxDeliveryDistanceKm: 5, // Default 5km delivery radius
     servicePincodes: null as string[] | null, // NEW: Service pincodes
   });
-  
+
   // Separate state for servicePincodes input display (allows partial typing)
   const [servicePincodesInput, setServicePincodesInput] = useState("");
-  
+
   // Geocoding states
   const [isGeocodingAddress, setIsGeocodingAddress] = useState(false);
   const [geocodeError, setGeocodeError] = useState("");
@@ -164,10 +164,10 @@ export default function AdminChefs() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin", "chefs"] });
-      toast({ 
-        title: data.isActive ? "Chef is now OPEN" : "Chef is now CLOSED", 
-        description: data.isActive 
-          ? `${data.name} is now accepting orders` 
+      toast({
+        title: data.isActive ? "Chef is now OPEN" : "Chef is now CLOSED",
+        description: data.isActive
+          ? `${data.name} is now accepting orders`
           : `${data.name} will appear as unavailable to customers`
       });
     },
@@ -200,43 +200,42 @@ export default function AdminChefs() {
     setGeocodeError("");
   };
 
-  // Auto-geocode address with debounce - triggered by area field change
+  // Auto-geocode address with debounce - triggered by area OR pincode field change
   const handleAddressChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
-    
-    // Only trigger geocoding when area field changes
-    if (field !== "addressArea") {
+
+    // Trigger geocoding when area OR pincode changes
+    if (field !== "addressArea" && field !== "addressPincode") {
       setGeocodeError("");
       return;
     }
 
     setGeocodeError("");
-    
+
     if (geocodeTimeoutRef.current) {
       clearTimeout(geocodeTimeoutRef.current);
     }
 
-    if (!value.trim()) {
-      return;
-    }
+    // Need both area and pincode for accurate geocoding
+    const area = field === "addressArea" ? value.trim() : formData.addressArea?.trim();
+    const pincode = field === "addressPincode" ? value.trim() : formData.addressPincode?.trim();
 
-    // Build full address from components for geocoding
-    const building = formData.addressBuilding?.trim() || "";
-    const street = formData.addressStreet?.trim() || "";
-    const area = value.trim();
-    const city = formData.addressCity?.trim() || "Mumbai";
-    const fullAddress = [building, street, area, city]
-      .filter(part => part.length > 0)
-      .join(", ");
-
-    if (!fullAddress.trim()) {
+    if (!area || !pincode) {
+      // Don't geocode until we have both area and pincode
       return;
     }
 
     geocodeTimeoutRef.current = setTimeout(async () => {
       try {
         setIsGeocodingAddress(true);
-        const response = await api.post("/api/geocode", { address: fullAddress });
+
+        // Use the NEW accurate geocoding endpoint with structured fields
+        const response = await api.post("/api/geocode-full-address", {
+          building: formData.addressBuilding?.trim() || "",
+          street: formData.addressStreet?.trim() || "",
+          area: area,
+          pincode: pincode,
+        });
 
         const data = response.data;
         if (data.success) {
@@ -246,9 +245,19 @@ export default function AdminChefs() {
             longitude: data.longitude,
           }));
           setGeocodeError("");
+
+          // Show accuracy level to admin
+          const accuracy = data.accuracy as 'exact' | 'street' | 'area' | 'pincode';
+          const accuracyLabel = {
+            'exact': '🎯 Exact location',
+            'street': '📍 Street-level',
+            'area': '🗺️ Area-level',
+            'pincode': '📮 Pincode center'
+          }[accuracy] || 'Location found';
+
           toast({
-            title: "Location found",
-            description: `${fullAddress} - (${data.latitude.toFixed(4)}, ${data.longitude.toFixed(4)})`,
+            title: accuracyLabel,
+            description: `${area}, ${pincode} - (${data.latitude.toFixed(4)}, ${data.longitude.toFixed(4)})`,
           });
         } else {
           setGeocodeError(data.message || "Could not find location");
@@ -264,14 +273,14 @@ export default function AdminChefs() {
 
   const handleEdit = (chef: Chef) => {
     setEditingChef(chef);
-    
+
     // Parse old address format if structured fields are empty
     let addressBuilding = (chef as any).addressBuilding || "";
     let addressStreet = (chef as any).addressStreet || "";
     let addressArea = (chef as any).addressArea || "";
     let addressCity = (chef as any).addressCity || "Mumbai";
     let addressPincode = (chef as any).addressPincode || "";
-    
+
     // If old address exists but new structured fields are empty, parse the old format
     const oldAddress = (chef as any).address || "";
     if (oldAddress && !addressBuilding && !addressStreet && !addressArea) {
@@ -285,7 +294,7 @@ export default function AdminChefs() {
         addressPincode = parts[4] || "";
       }
     }
-    
+
     setFormData({
       name: chef.name,
       description: chef.description,
@@ -325,7 +334,7 @@ export default function AdminChefs() {
       toast({ title: "Error", description: "Delivery area (address area) is required", variant: "destructive" });
       return;
     }
-    
+
     if (editingChef) {
       console.log("🔥 Updating chef with data:", { id: editingChef.id, data: formData, maxDeliveryDistanceKm: formData.maxDeliveryDistanceKm });
       updateChefMutation.mutate({ id: editingChef.id, data: formData });
@@ -350,7 +359,7 @@ export default function AdminChefs() {
       toast({ title: "Error", description: "Chef image is required", variant: "destructive" });
       return;
     }
-    
+
     createChefMutation.mutate(formData);
   };
 
@@ -389,16 +398,16 @@ export default function AdminChefs() {
         ) : chefs && chefs.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {chefs.map((chef) => (
-              <Card 
-                key={chef.id} 
+              <Card
+                key={chef.id}
                 data-testid={`card-chef-${chef.id}`}
                 className={chef.isActive === false ? "opacity-60" : ""}
               >
                 <div className="relative">
-                  <img 
-                    src={chef.image} 
-                    alt={chef.name} 
-                    className={`w-full aspect-video object-cover rounded-t-lg ${chef.isActive === false ? "grayscale" : ""}`} 
+                  <img
+                    src={chef.image}
+                    alt={chef.name}
+                    className={`w-full aspect-video object-cover rounded-t-lg ${chef.isActive === false ? "grayscale" : ""}`}
                   />
                   {chef.isActive === false && (
                     <div className="absolute inset-0 bg-black/40 flex items-center justify-center rounded-t-lg">
@@ -417,7 +426,7 @@ export default function AdminChefs() {
                       <Store className={`h-4 w-4 ${chef.isActive !== false ? "text-green-600" : "text-red-600"}`} />
                       <Switch
                         checked={chef.isActive !== false}
-                        onCheckedChange={(checked) => 
+                        onCheckedChange={(checked) =>
                           toggleChefStatusMutation.mutate({ id: chef.id, isActive: checked })
                         }
                         disabled={toggleChefStatusMutation.isPending}
@@ -432,8 +441,8 @@ export default function AdminChefs() {
                       <span className="font-medium text-slate-900 dark:text-slate-100">{chef.rating}</span>
                     </div>
                     <span className="text-slate-500 dark:text-slate-400">({chef.reviewCount} reviews)</span>
-                    <Badge 
-                      variant={chef.isActive !== false ? "default" : "destructive"} 
+                    <Badge
+                      variant={chef.isActive !== false ? "default" : "destructive"}
                       className="ml-auto"
                     >
                       {chef.isActive !== false ? "OPEN" : "CLOSED"}
@@ -567,7 +576,7 @@ export default function AdminChefs() {
                 />
               </div>
             </div>
-            
+
             {/* Chef Address & Location - Structured */}
             <div className="space-y-3 border-t pt-4">
               <Label className="flex items-center gap-2 font-semibold">
@@ -657,9 +666,10 @@ export default function AdminChefs() {
                   <Input
                     id="addressPincode"
                     value={formData.addressPincode}
-                    onChange={(e) => setFormData({ ...formData, addressPincode: e.target.value })}
+                    onChange={(e) => handleAddressChange("addressPincode", e.target.value)}
                     placeholder="e.g., 400070"
                     className="text-sm"
+                    disabled={isGeocodingAddress}
                   />
                 </div>
               </div>
@@ -692,13 +702,13 @@ export default function AdminChefs() {
                   onChange={(e) => {
                     const inputValue = e.target.value;
                     setServicePincodesInput(inputValue);
-                    
+
                     // Parse and validate only complete pincodes
                     const pincodes = inputValue
                       .split(",")
                       .map(p => p.trim())
                       .filter(p => /^\d{5,6}$/.test(p));
-                    
+
                     // Update formData only with validated pincodes
                     setFormData({ ...formData, servicePincodes: pincodes.length > 0 ? pincodes : null });
                   }}
@@ -717,27 +727,57 @@ export default function AdminChefs() {
                   Finding location...
                 </div>
               )}
-              
+
               {geocodeError && (
                 <div className="text-sm text-red-600 bg-red-50 dark:bg-red-900/20 p-2 rounded">
                   {geocodeError}
                 </div>
               )}
-              
+
               {/* Location preview */}
               {(formData.latitude || formData.longitude) && !isGeocodingAddress && (
-                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-md p-3 space-y-1">
+                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-md p-3 space-y-2">
                   <p className="text-xs font-semibold text-blue-900 dark:text-blue-100">
                     📍 Location Confirmed
                   </p>
-                  <p className="text-xs text-blue-800 dark:text-blue-200">
-                    Latitude: {formData.latitude.toFixed(4)}
+
+                  {/* Manual Coordinate Input Fields */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Label htmlFor="latitude" className="text-xs text-blue-800 dark:text-blue-200">
+                        Latitude
+                      </Label>
+                      <Input
+                        id="latitude"
+                        type="number"
+                        step="0.000001"
+                        value={formData.latitude}
+                        onChange={(e) => setFormData({ ...formData, latitude: parseFloat(e.target.value) || 0 })}
+                        className="text-xs h-8"
+                        placeholder="e.g., 19.0728"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="longitude" className="text-xs text-blue-800 dark:text-blue-200">
+                        Longitude
+                      </Label>
+                      <Input
+                        id="longitude"
+                        type="number"
+                        step="0.000001"
+                        value={formData.longitude}
+                        onChange={(e) => setFormData({ ...formData, longitude: parseFloat(e.target.value) || 0 })}
+                        className="text-xs h-8"
+                        placeholder="e.g., 72.8826"
+                      />
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-blue-700 dark:text-blue-300">
+                    💡 Coordinates auto-fill when you enter Area + Pincode. You can manually adjust if needed.
                   </p>
-                  <p className="text-xs text-blue-800 dark:text-blue-200">
-                    Longitude: {formData.longitude.toFixed(4)}
-                  </p>
-                  <p className="text-xs text-blue-700 dark:text-blue-300 mt-2">
-                    Delivery zone: {(formData as any).maxDeliveryDistanceKm || 5}km from this location (distance-based filtering)
+                  <p className="text-xs text-blue-700 dark:text-blue-300">
+                    Delivery zone: {(formData as any).maxDeliveryDistanceKm || 5}km from this location
                   </p>
                 </div>
               )}
@@ -849,7 +889,7 @@ export default function AdminChefs() {
                 />
               </div>
             </div>
-            
+
             {/* Chef Address & Location - Structured */}
             <div className="space-y-3 border-t pt-4">
               <Label className="flex items-center gap-2 font-semibold">
@@ -974,13 +1014,13 @@ export default function AdminChefs() {
                   onChange={(e) => {
                     const inputValue = e.target.value;
                     setServicePincodesInput(inputValue);
-                    
+
                     // Parse and validate only complete pincodes
                     const pincodes = inputValue
                       .split(",")
                       .map(p => p.trim())
                       .filter(p => /^\d{5,6}$/.test(p));
-                    
+
                     // Update formData only with validated pincodes
                     setFormData({ ...formData, servicePincodes: pincodes.length > 0 ? pincodes : null });
                   }}
@@ -991,7 +1031,7 @@ export default function AdminChefs() {
                   Chef will only accept orders from these pincodes. Leave empty to serve all pincodes.
                 </p>
               </div>
-              
+
               {/* Geocoding status/error */}
               {isGeocodingAddress && (
                 <div className="flex items-center gap-2 text-sm text-blue-600">
@@ -999,27 +1039,57 @@ export default function AdminChefs() {
                   Finding location...
                 </div>
               )}
-              
+
               {geocodeError && (
                 <div className="text-sm text-red-600 bg-red-50 dark:bg-red-900/20 p-2 rounded">
                   {geocodeError}
                 </div>
               )}
-              
+
               {/* Location preview */}
               {(formData.latitude || formData.longitude) && !isGeocodingAddress && (
-                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-md p-3 space-y-1">
+                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-md p-3 space-y-2">
                   <p className="text-xs font-semibold text-blue-900 dark:text-blue-100">
                     📍 Location Confirmed
                   </p>
-                  <p className="text-xs text-blue-800 dark:text-blue-200">
-                    Latitude: {formData.latitude.toFixed(4)}
+
+                  {/* Manual Coordinate Input Fields */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Label htmlFor="edit-latitude" className="text-xs text-blue-800 dark:text-blue-200">
+                        Latitude
+                      </Label>
+                      <Input
+                        id="edit-latitude"
+                        type="number"
+                        step="0.000001"
+                        value={formData.latitude}
+                        onChange={(e) => setFormData({ ...formData, latitude: parseFloat(e.target.value) || 0 })}
+                        className="text-xs h-8"
+                        placeholder="e.g., 19.0728"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="edit-longitude" className="text-xs text-blue-800 dark:text-blue-200">
+                        Longitude
+                      </Label>
+                      <Input
+                        id="edit-longitude"
+                        type="number"
+                        step="0.000001"
+                        value={formData.longitude}
+                        onChange={(e) => setFormData({ ...formData, longitude: parseFloat(e.target.value) || 0 })}
+                        className="text-xs h-8"
+                        placeholder="e.g., 72.8826"
+                      />
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-blue-700 dark:text-blue-300">
+                    💡 Coordinates auto-fill when you enter Area + Pincode. You can manually adjust if needed.
                   </p>
-                  <p className="text-xs text-blue-800 dark:text-blue-200">
-                    Longitude: {formData.longitude.toFixed(4)}
-                  </p>
-                  <p className="text-xs text-blue-700 dark:text-blue-300 mt-2">
-                    Delivery zone: {(formData as any).maxDeliveryDistanceKm || 5}km from this location (distance-based filtering)
+                  <p className="text-xs text-blue-700 dark:text-blue-300">
+                    Delivery zone: {(formData as any).maxDeliveryDistanceKm || 5}km from this location
                   </p>
                 </div>
               )}
