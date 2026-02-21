@@ -129,7 +129,7 @@ export function registerAdminRoutes(app: Express) {
       });
     } catch (error) {
       console.error("❌ Test login error:", error);
-      res.status(500).json({ 
+      res.status(500).json({
         message: "Test login failed",
         error: error instanceof Error ? error.message : "Unknown error"
       });
@@ -234,13 +234,13 @@ export function registerAdminRoutes(app: Express) {
 
       if (!admin) {
         console.log(`[Password Reset] Admin user '${username}' not found`);
-        return res.status(404).json({ 
+        return res.status(404).json({
           message: `Admin user '${username}' not found`,
         });
       }
 
       const newPasswordHash = await hashPassword(newPassword);
-      
+
       // Update the password in database
       await storage.updateAdminPassword(admin.id, newPasswordHash);
 
@@ -262,7 +262,7 @@ export function registerAdminRoutes(app: Express) {
       console.log(`[Password Reset] ✅ Password reset successfully for: ${username}`);
 
       res.json({
-        message: emailSent 
+        message: emailSent
           ? "✅ Password reset successfully. Email has been sent to the admin."
           : "✅ Password reset successfully (no email configured)",
         username: username,
@@ -272,7 +272,7 @@ export function registerAdminRoutes(app: Express) {
       });
     } catch (error) {
       console.error("❌ Password reset error:", error);
-      res.status(500).json({ 
+      res.status(500).json({
         message: "Password reset failed",
         error: error instanceof Error ? error.message : "Unknown error"
       });
@@ -415,6 +415,12 @@ export function registerAdminRoutes(app: Express) {
         return;
       }
 
+      if (order.paymentStatus === paymentStatus) {
+        console.log(`⏭️ Admin payment confirmation is idempotent. Order ${orderId} is already ${paymentStatus}. Skipping...`);
+        res.json(order);
+        return;
+      }
+
       console.log(`\n💳 ADMIN CONFIRMING PAYMENT FOR ORDER ${orderId}`);
       console.log(`Current order status: ${order.status}, Payment status: ${order.paymentStatus}`);
       console.log(`Chef ID: ${order.chefId}`);
@@ -435,12 +441,12 @@ export function registerAdminRoutes(app: Express) {
           console.log(`Payment Status: ${confirmedOrder.paymentStatus}`);
           console.log(`Chef ID: ${confirmedOrder.chefId}`);
           console.log(`Customer: ${confirmedOrder.customerName}`);
-          
+
           // For scheduled delivery orders (roti category with deliveryTime), log the scheduled delivery
           if (confirmedOrder.deliveryTime && confirmedOrder.deliverySlotId && confirmedOrder.chefId) {
             console.log(`📋 Scheduled delivery order detected for ${orderId} - Delivery Time: ${confirmedOrder.deliveryTime}`);
           }
-          
+
           // Broadcast to chef and admin
           console.log(`\n📡 NOW BROADCASTING TO CHEF AND ADMINS...`);
           broadcastOrderUpdate(confirmedOrder);
@@ -867,27 +873,27 @@ export function registerAdminRoutes(app: Express) {
   app.post("/api/admin/chefs", requireAdminOrManager(), async (req, res) => {
     try {
       const { name, description, image, categoryId, address, latitude, longitude } = req.body;
-      
+
       // Validate required fields
       if (!name || !description || !image || !categoryId) {
         res.status(400).json({ message: "Name, description, image, and category are required" });
         return;
       }
-      
+
       // Validate coordinates if address was provided
       if (address) {
         if (typeof latitude !== "number" || typeof longitude !== "number") {
           res.status(400).json({ message: "Valid coordinates (latitude/longitude) required when address is provided" });
           return;
         }
-        
+
         // Validate coordinate ranges
         if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
           res.status(400).json({ message: "Invalid coordinates: latitude must be -90 to 90, longitude must be -180 to 180" });
           return;
         }
       }
-      
+
       const chef = await storage.createChef(req.body);
       res.status(201).json(chef);
     } catch (error) {
@@ -900,21 +906,21 @@ export function registerAdminRoutes(app: Express) {
     try {
       const { id } = req.params;
       const { address, latitude, longitude } = req.body;
-      
+
       // Validate coordinates if address was provided in update
       if (address) {
         if (typeof latitude !== "number" || typeof longitude !== "number") {
           res.status(400).json({ message: "Valid coordinates (latitude/longitude) required when address is provided" });
           return;
         }
-        
+
         // Validate coordinate ranges
         if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
           res.status(400).json({ message: "Invalid coordinates: latitude must be -90 to 90, longitude must be -180 to 180" });
           return;
         }
       }
-      
+
       const chef = await storage.updateChef(id, req.body);
       if (!chef) {
         res.status(404).json({ message: "Chef not found" });
@@ -1092,7 +1098,7 @@ export function registerAdminRoutes(app: Express) {
       console.log(`[Password Reset] ✅ Super Admin reset password for: ${admin.username}`);
 
       res.json({
-        message: emailSent 
+        message: emailSent
           ? "✅ Password reset successfully. Email has been sent to the admin."
           : "✅ Password reset successfully (no email configured)",
         adminUsername: admin.username,
@@ -1101,7 +1107,7 @@ export function registerAdminRoutes(app: Express) {
       });
     } catch (error) {
       console.error("❌ Admin password reset error:", error);
-      res.status(500).json({ 
+      res.status(500).json({
         message: "Password reset failed",
         error: error instanceof Error ? error.message : "Unknown error"
       });
@@ -1292,16 +1298,16 @@ export function registerAdminRoutes(app: Express) {
       }
 
       if (subscription.isPaid) {
-        res.status(400).json({ 
+        res.status(400).json({
           message: "Subscription already confirmed and active",
-          subscription 
+          subscription
         });
         return;
       }
 
       if (!subscription.paymentTransactionId) {
-        res.status(400).json({ 
-          message: "No payment transaction ID found. User must submit payment first." 
+        res.status(400).json({
+          message: "No payment transaction ID found. User must submit payment first."
         });
         return;
       }
@@ -1380,13 +1386,13 @@ export function registerAdminRoutes(app: Express) {
       // Create today's delivery log if the subscription starts today and notify chef
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      
+
       // Convert nextDeliveryDate from database (could be string or Date) to Date object for comparison
       let nextDeliveryDateObj = updated.nextDeliveryDate;
       if (typeof nextDeliveryDateObj === 'string') {
         nextDeliveryDateObj = new Date(nextDeliveryDateObj);
       }
-      
+
       const nextDelivery = new Date(nextDeliveryDateObj);
       nextDelivery.setHours(0, 0, 0, 0);
 
@@ -1405,14 +1411,14 @@ export function registerAdminRoutes(app: Express) {
         }
       }
 
-      res.json({ 
-        message: "Payment verified and subscription activated", 
-        subscription: updated 
+      res.json({
+        message: "Payment verified and subscription activated",
+        subscription: updated
       });
     } catch (error: any) {
       console.error("Error confirming subscription payment:", error);
-      res.status(500).json({ 
-        message: error.message || "Failed to confirm payment" 
+      res.status(500).json({
+        message: error.message || "Failed to confirm payment"
       });
     }
   });
@@ -1514,8 +1520,8 @@ export function registerAdminRoutes(app: Express) {
       // Optionally validate chef's category matches plan's category
       const plan = await storage.getSubscriptionPlan(subscription.planId);
       if (plan && chef.categoryId !== plan.categoryId) {
-        res.status(400).json({ 
-          message: `Chef ${chef.name} belongs to a different category. Expected category: ${plan.categoryId}, Chef category: ${chef.categoryId}` 
+        res.status(400).json({
+          message: `Chef ${chef.name} belongs to a different category. Expected category: ${plan.categoryId}, Chef category: ${chef.categoryId}`
         });
         return;
       }
@@ -1539,9 +1545,9 @@ export function registerAdminRoutes(app: Express) {
         });
       }
 
-      res.json({ 
+      res.json({
         message: `Chef ${chef.name} assigned to subscription successfully`,
-        subscription: updated 
+        subscription: updated
       });
     } catch (error: any) {
       console.error("Error assigning chef to subscription:", error);
@@ -1555,12 +1561,12 @@ export function registerAdminRoutes(app: Express) {
   app.post("/api/admin/subscriptions/:id/adjust-payment", requireAdminOrManager(), async (req: AuthenticatedAdminRequest, res) => {
     try {
       const { id } = req.params;
-      const { 
-        walletAmount, 
-        couponCode, 
-        discountAmount, 
+      const {
+        walletAmount,
+        couponCode,
+        discountAmount,
         notes,
-        transactionId 
+        transactionId
       } = req.body;
 
       const subscription = await storage.getSubscription(id);
@@ -1808,7 +1814,7 @@ export function registerAdminRoutes(app: Express) {
         if (!sub.nextDeliveryDate || isNaN(new Date(sub.nextDeliveryDate).getTime())) {
           continue;
         }
-        
+
         const nextDelivery = new Date(sub.nextDeliveryDate);
         nextDelivery.setHours(0, 0, 0, 0);
         const nextDeliveryStr = nextDelivery.toISOString().split('T')[0];
@@ -1925,17 +1931,17 @@ export function registerAdminRoutes(app: Express) {
       // Validate status if provided
       const validStatuses = ["scheduled", "preparing", "out_for_delivery", "delivered", "missed"];
       if (status && !validStatuses.includes(status)) {
-        res.status(400).json({ 
+        res.status(400).json({
           message: "Invalid status",
-          validStatuses 
+          validStatuses
         });
         return;
       }
 
       // Validate delivery time format if provided
       if (deliveryTime && !/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/.test(deliveryTime)) {
-        res.status(400).json({ 
-          message: "Invalid delivery time format. Use HH:mm" 
+        res.status(400).json({
+          message: "Invalid delivery time format. Use HH:mm"
         });
         return;
       }
@@ -1978,8 +1984,8 @@ export function registerAdminRoutes(app: Express) {
       res.json(updatedLog);
     } catch (error: any) {
       console.error("Error updating delivery log:", error);
-      res.status(500).json({ 
-        message: error.message || "Failed to update delivery log" 
+      res.status(500).json({
+        message: error.message || "Failed to update delivery log"
       });
     }
   });
@@ -2203,7 +2209,7 @@ export function registerAdminRoutes(app: Express) {
       }
 
       // Update subscription status to cancelled
-      const updated = await storage.updateSubscription(req.params.id, { 
+      const updated = await storage.updateSubscription(req.params.id, {
         status: "cancelled",
         pauseStartDate: null,
         pauseResumeDate: null,
@@ -2255,13 +2261,13 @@ export function registerAdminRoutes(app: Express) {
       }
 
       const previousCount = subscription.remainingDeliveries;
-      const updated = await storage.updateSubscription(req.params.id, { 
+      const updated = await storage.updateSubscription(req.params.id, {
         remainingDeliveries: deliveriesRemaining,
       });
 
       console.log(`📊 Admin updated subscription ${req.params.id} delivery count: ${previousCount} -> ${deliveriesRemaining} (${reason || 'No reason'})`);
-      res.json({ 
-        message: "Delivery count updated successfully", 
+      res.json({
+        message: "Delivery count updated successfully",
         subscription: updated,
         previousCount,
         newCount: deliveriesRemaining
@@ -2314,14 +2320,14 @@ export function registerAdminRoutes(app: Express) {
       const previousSlot = subscription.deliverySlotId;
       const previousTime = subscription.nextDeliveryTime;
 
-      const updated = await storage.updateSubscription(req.params.id, { 
+      const updated = await storage.updateSubscription(req.params.id, {
         deliverySlotId: deliverySlotId || subscription.deliverySlotId,
         nextDeliveryTime: validatedSlotTime || subscription.nextDeliveryTime,
       });
 
       console.log(`🕐 Admin changed subscription ${req.params.id} delivery slot: ${previousSlot} -> ${deliverySlotId || 'unchanged'} (${reason || 'No reason'})`);
-      res.json({ 
-        message: "Delivery slot changed successfully", 
+      res.json({
+        message: "Delivery slot changed successfully",
         subscription: updated,
         previousSlot,
         newSlot: deliverySlotId || previousSlot
@@ -2343,7 +2349,7 @@ export function registerAdminRoutes(app: Express) {
         return;
       }
 
-      const updated = await storage.updateSubscription(req.params.id, { 
+      const updated = await storage.updateSubscription(req.params.id, {
         status: "expired",
         remainingDeliveries: 0,
         pauseStartDate: null,
@@ -2419,8 +2425,8 @@ export function registerAdminRoutes(app: Express) {
       const updated = await storage.updateSubscription(req.params.id, updateData);
 
       console.log(`📈 Admin extended subscription ${req.params.id}: +${additionalDays || 0} days, +${additionalDeliveries || 0} deliveries (${reason || 'No reason'})`);
-      res.json({ 
-        message: "Subscription extended successfully", 
+      res.json({
+        message: "Subscription extended successfully",
         subscription: updated,
         extended: {
           additionalDays: additionalDays || 0,
@@ -2564,8 +2570,8 @@ export function registerAdminRoutes(app: Express) {
       });
 
       console.log(`🔄 Admin renewed subscription ${req.params.id} -> ${newSubscription.id}`);
-      res.json({ 
-        message: "Subscription renewed successfully", 
+      res.json({
+        message: "Subscription renewed successfully",
         newSubscription,
         previousSubscriptionId: req.params.id
       });
@@ -2703,8 +2709,8 @@ export function registerAdminRoutes(app: Express) {
   app.get("/api/admin/sms-settings", requireAdmin(), async (req, res) => {
     try {
       const smsSettings = await storage.getSMSSettings();
-      res.json(smsSettings || { 
-        enableSMS: false, 
+      res.json(smsSettings || {
+        enableSMS: false,
         smsGateway: "twilio",
         fromNumber: "",
         apiKey: ""
@@ -2718,7 +2724,7 @@ export function registerAdminRoutes(app: Express) {
   app.post("/api/admin/sms-settings", requireAdmin(), async (req, res) => {
     try {
       const { enableSMS, smsGateway, fromNumber, apiKey } = req.body;
-      
+
       const settings = {
         enableSMS: !!enableSMS,
         smsGateway: smsGateway || "twilio",
@@ -2739,11 +2745,11 @@ export function registerAdminRoutes(app: Express) {
   app.get("/api/admin/notification-settings", requireAdmin(), async (req, res) => {
     try {
       const smsSettings = await storage.getSMSSettings();
-      
+
       // Get WhatsApp settings from environment or storage
       const enableWhatsApp = process.env.WHATSAPP_API_URL ? true : false;
       const whatsappPhoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID || "";
-      
+
       const settings = {
         enableWhatsApp,
         whatsappPhoneNumberId,
@@ -2752,7 +2758,7 @@ export function registerAdminRoutes(app: Express) {
         fromNumber: smsSettings?.fromNumber || "",
         updatedAt: smsSettings?.updatedAt
       };
-      
+
       res.json(settings);
     } catch (error) {
       console.error("Error fetching notification settings:", error);
@@ -2763,13 +2769,13 @@ export function registerAdminRoutes(app: Express) {
   app.post("/api/admin/notification-settings", requireAdmin(), async (req, res) => {
     try {
       const { enableWhatsApp, enableSMS, smsGateway, fromNumber, apiKey } = req.body;
-      
+
       // Validate that at least one method is enabled
       if (!enableWhatsApp && !enableSMS) {
         res.status(400).json({ message: "At least one notification method must be enabled" });
         return;
       }
-      
+
       // Update SMS settings in storage
       const smsSettings = {
         enableSMS: !!enableSMS,
@@ -2777,12 +2783,12 @@ export function registerAdminRoutes(app: Express) {
         fromNumber: fromNumber || "",
         apiKey: apiKey || ""
       };
-      
+
       await storage.updateSMSSettings(smsSettings);
-      
+
       // WhatsApp settings are environment-based, log the intent
       console.log(`✅ Notification settings updated - WhatsApp: ${enableWhatsApp ? "ENABLED" : "DISABLED"}, SMS: ${enableSMS ? "ENABLED" : "DISABLED"}`);
-      
+
       const settings = {
         enableWhatsApp,
         whatsappPhoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || "",
@@ -2791,7 +2797,7 @@ export function registerAdminRoutes(app: Express) {
         fromNumber,
         updatedAt: new Date()
       };
-      
+
       res.json(settings);
     } catch (error) {
       console.error("Update notification settings error:", error);
@@ -2809,16 +2815,16 @@ export function registerAdminRoutes(app: Express) {
         where: (rr, { eq }) => eq(rr.isActive, true)
       });
 
-      const defaultWallet = { 
-        maxUsagePerOrder: 10, 
+      const defaultWallet = {
+        maxUsagePerOrder: 10,
         minOrderAmount: 0,
-        referrerBonus: 100, 
-        referredBonus: 50 
+        referrerBonus: 100,
+        referredBonus: 50
       };
-      const defaultReferral = { 
-        maxReferralsPerMonth: 10, 
-        maxEarningsPerMonth: 500, 
-        expiryDays: 30 
+      const defaultReferral = {
+        maxReferralsPerMonth: 10,
+        maxEarningsPerMonth: 500,
+        expiryDays: 30
       };
 
       // Combine wallet and referral settings
@@ -2846,9 +2852,9 @@ export function registerAdminRoutes(app: Express) {
 
   app.post("/api/admin/wallet-settings", requireAdminOrManager(), async (req, res) => {
     try {
-      const { 
-        maxUsagePerOrder, 
-        referrerBonus, 
+      const {
+        maxUsagePerOrder,
+        referrerBonus,
         referredBonus,
         minOrderAmount,
         maxReferralsPerMonth,
@@ -2865,7 +2871,7 @@ export function registerAdminRoutes(app: Express) {
 
       // Update wallet settings
       await db.update(walletSettings).set({ isActive: false });
-      
+
       console.log("[ADMIN WALLET SETTINGS] Attempting to INSERT into walletSettings with:", {
         maxUsagePerOrder,
         minOrderAmount: minOrderAmount || 0,
@@ -3048,7 +3054,7 @@ export function registerAdminRoutes(app: Express) {
         return;
       }
 
-      const updatedLog = await storage.updateSubscriptionDeliveryLog(id, { 
+      const updatedLog = await storage.updateSubscriptionDeliveryLog(id, {
         status,
         notes: notes || existingLog.notes
       });
@@ -3081,7 +3087,7 @@ export function registerAdminRoutes(app: Express) {
         }
       }
 
-      const updatedLog = await storage.updateSubscriptionDeliveryLog(id, { 
+      const updatedLog = await storage.updateSubscriptionDeliveryLog(id, {
         deliveryPersonId: deliveryPersonId || null
       });
 
@@ -3104,7 +3110,7 @@ export function registerAdminRoutes(app: Express) {
         return;
       }
 
-      const updatedLog = await storage.updateSubscriptionDeliveryLog(id, { 
+      const updatedLog = await storage.updateSubscriptionDeliveryLog(id, {
         status: "delivered",
         notes: notes || existingLog.notes
       });
@@ -3128,7 +3134,7 @@ export function registerAdminRoutes(app: Express) {
         return;
       }
 
-      const updatedLog = await storage.updateSubscriptionDeliveryLog(id, { 
+      const updatedLog = await storage.updateSubscriptionDeliveryLog(id, {
         status: "missed",
         notes: notes || existingLog.notes
       });
@@ -3310,7 +3316,7 @@ export function registerAdminRoutes(app: Express) {
           // Handle null/undefined IDs gracefully
           const referrer = referral.referrerId ? await storage.getUser(referral.referrerId) : null;
           const referred = referral.referredId ? await storage.getUser(referral.referredId) : null;
-          
+
           return {
             ...referral,
             referrerName: referrer?.name || "Unknown",
@@ -3367,7 +3373,7 @@ export function registerAdminRoutes(app: Express) {
         _referrerIdExists: !!r.referrerId,
         _referredIdExists: !!r.referredId,
       }));
-      
+
       res.json({
         totalCount: referrals.length,
         sample,
@@ -3564,7 +3570,7 @@ export function registerAdminRoutes(app: Express) {
           return;
         }
 
-        const pincodes = Array.isArray(area.pincodes) 
+        const pincodes = Array.isArray(area.pincodes)
           ? area.pincodes.filter((p: any) => /^\d{5,6}$/.test(String(p).trim()))
           : [];
 
@@ -3572,8 +3578,8 @@ export function registerAdminRoutes(app: Express) {
           if (area.id) {
             // Update existing area with coordinates
             await storage.updateDeliveryArea(
-              area.id, 
-              area.name.trim(), 
+              area.id,
+              area.name.trim(),
               pincodes,
               area.latitude !== undefined ? parseFloat(String(area.latitude)) : undefined,
               area.longitude !== undefined ? parseFloat(String(area.longitude)) : undefined

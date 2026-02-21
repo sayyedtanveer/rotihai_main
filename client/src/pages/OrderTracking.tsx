@@ -125,7 +125,7 @@ export default function OrderTracking() {
 
   const handleWhatsAppSupport = () => {
     if (!order) return;
-    
+
     const message = `Hi! I need help with my order.\n\nOrder ID: #${order.id.slice(0, 8)}\nStatus: ${order.status.toUpperCase().replace(/_/g, " ")}\nTotal: ₹${order.total}\n\nCan you please assist me?`;
     const whatsappUrl = `https://wa.me/918169020290?text=${encodeURIComponent(message)}`;
     window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
@@ -157,8 +157,8 @@ export default function OrderTracking() {
           order.paymentStatus === "pending"
             ? "Waiting for verification"
             : order.approvedAt
-            ? format(new Date(order.approvedAt), "MMM d, h:mm a")
-            : "Payment verified",
+              ? format(new Date(order.approvedAt), "MMM d, h:mm a")
+              : "Payment verified",
       },
       {
         key: "preparing",
@@ -175,14 +175,14 @@ export default function OrderTracking() {
           order.status === "accepted_by_chef"
             ? "Chef accepted - preparing your food"
             : order.status === "preparing"
-            ? "Chef is preparing your food"
-            : order.status === "prepared"
-            ? "Food is ready"
-            : order.status === "confirmed"
-            ? "Waiting for chef to accept"
-            : order.status === "out_for_delivery" || order.status === "delivered"
-            ? "Preparation complete"
-            : "Pending",
+              ? "Chef is preparing your food"
+              : order.status === "prepared"
+                ? "Food is ready"
+                : order.status === "confirmed"
+                  ? "Waiting for chef to accept"
+                  : order.status === "out_for_delivery" || order.status === "delivered"
+                    ? "Preparation complete"
+                    : "Pending",
       },
       {
         key: "delivery",
@@ -197,14 +197,14 @@ export default function OrderTracking() {
               ? `Accepted by ${order.deliveryPersonName}${order.deliveryPersonPhone ? ` (${order.deliveryPersonPhone})` : ""}`
               : "Delivery person accepted"
             : order.status === "out_for_delivery"
-            ? order.deliveryPersonName
-              ? `${order.deliveryPersonName} is on the way${order.pickedUpAt ? ` (picked up at ${format(new Date(order.pickedUpAt), "h:mm a")})` : ""}`
-              : order.pickedUpAt
-              ? `On the way (picked up at ${format(new Date(order.pickedUpAt), "h:mm a")})`
-              : "On the way"
-            : order.status === "delivered"
-            ? order.deliveryPersonName ? `Delivered by ${order.deliveryPersonName}` : "Delivered"
-            : "Waiting for delivery assignment",
+              ? order.deliveryPersonName
+                ? `${order.deliveryPersonName} is on the way${order.pickedUpAt ? ` (picked up at ${format(new Date(order.pickedUpAt), "h:mm a")})` : ""}`
+                : order.pickedUpAt
+                  ? `On the way (picked up at ${format(new Date(order.pickedUpAt), "h:mm a")})`
+                  : "On the way"
+              : order.status === "delivered"
+                ? order.deliveryPersonName ? `Delivered by ${order.deliveryPersonName}` : "Delivered"
+                : "Waiting for delivery assignment",
       },
       {
         key: "delivered",
@@ -267,8 +267,8 @@ export default function OrderTracking() {
               </Button>
             </Link>
             <h1 className="text-xl font-bold">Track Order</h1>
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               size="sm"
               onClick={handleWhatsAppSupport}
               className="text-green-600 hover:text-green-700 border-green-600 hover:border-green-700"
@@ -342,28 +342,25 @@ export default function OrderTracking() {
                 <div key={step.key} className="flex gap-4 pb-6 last:pb-0">
                   <div className="relative flex flex-col items-center">
                     <div
-                      className={`w-10 h-10 rounded-full flex items-center justify-center z-10 ${
-                        step.completed
+                      className={`w-10 h-10 rounded-full flex items-center justify-center z-10 ${step.completed
                           ? "bg-primary text-primary-foreground"
                           : "bg-muted text-muted-foreground"
-                      }`}
+                        }`}
                     >
                       {step.icon}
                     </div>
                     {idx < getOrderProgress(order).length - 1 && (
                       <div
-                        className={`w-0.5 h-full absolute top-10 ${
-                          step.completed ? "bg-primary" : "bg-muted"
-                        }`}
+                        className={`w-0.5 h-full absolute top-10 ${step.completed ? "bg-primary" : "bg-muted"
+                          }`}
                       />
                     )}
                   </div>
 
                   <div className="flex-1 -mt-1">
                     <p
-                      className={`font-semibold ${
-                        step.completed ? "text-foreground" : "text-muted-foreground"
-                      }`}
+                      className={`font-semibold ${step.completed ? "text-foreground" : "text-muted-foreground"
+                        }`}
                     >
                       {step.label}
                     </p>
@@ -426,9 +423,9 @@ export default function OrderTracking() {
                   </div>
                   <div className="flex justify-between text-xs md:text-sm text-muted-foreground">
                     <span>Delivery Fee</span>
-                    {!order.isBelowDeliveryMinimum ? (
+                    {order.deliveryFee === 0 ? (
                       <span className="text-green-600 dark:text-green-400">
-                        <span className="line-through text-gray-400 dark:text-gray-500">₹{order.deliveryFee}</span> FREE
+                        FREE
                       </span>
                     ) : (
                       <span>₹{order.deliveryFee}</span>

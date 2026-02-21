@@ -152,7 +152,7 @@ export default function AdminOrders() {
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        
+
         if (data.type === "order_update") {
           // Invalidate orders query to refetch latest data
           queryClient.invalidateQueries({ queryKey: ["/api/admin", "orders"] });
@@ -293,6 +293,7 @@ export default function AdminOrders() {
                     <TableRow>
                       <TableHead>Order ID</TableHead>
                       <TableHead>Customer</TableHead>
+                      <TableHead>Address</TableHead>
                       <TableHead>Items</TableHead>
                       <TableHead>Total</TableHead>
                       <TableHead>Chef</TableHead>
@@ -316,6 +317,16 @@ export default function AdminOrders() {
                               <p className="text-xs font-semibold text-orange-600 bg-orange-50 dark:bg-orange-900 px-2 py-0.5 rounded mt-1 inline-block">
                                 🕐 {order.deliveryTime}
                               </p>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="max-w-xs text-sm">
+                            <p className="text-slate-700 dark:text-slate-300 whitespace-normal break-words line-clamp-2">
+                              {order.addressBuilding ? `${order.addressBuilding}, ${order.addressStreet ? order.addressStreet + ', ' : ''}${order.addressArea}` : (order.address || "No address provided")}
+                            </p>
+                            {order.addressPincode && (
+                              <p className="text-xs text-slate-500 mt-0.5">{order.addressCity} - {order.addressPincode}</p>
                             )}
                           </div>
                         </TableCell>

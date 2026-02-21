@@ -27,14 +27,14 @@ interface PaymentQRDialogProps {
   isSubmitting?: boolean; // External loading state (e.g., from React Query mutation)
 }
 
-export default function PaymentQRDialog({ 
-  isOpen, 
-  onClose, 
-  orderId, 
-  amount, 
-  customerName, 
-  phone, 
-  email, 
+export default function PaymentQRDialog({
+  isOpen,
+  onClose,
+  orderId,
+  amount,
+  customerName,
+  phone,
+  email,
   address,
   accountCreated = false,
   defaultPassword = "",
@@ -129,7 +129,7 @@ export default function PaymentQRDialog({
       const deepLink = getPaymentAppDeepLink(app, upiIntent);
       console.log(`[PAYMENT QR] Opening ${app}:`, deepLink);
       window.location.href = deepLink;
-      
+
       toast({
         title: "Opening Payment App",
         description: `Redirecting to ${app === "gpay" ? "Google Pay" : app === "phonepe" ? "PhonePe" : "Paytm"}...`,
@@ -157,7 +157,7 @@ export default function PaymentQRDialog({
     setIsConfirming(true);
     try {
       const txnId = `TXN${Date.now()}`;
-      
+
       // If custom payment confirmed handler is provided (for subscriptions), use it
       if (onPaymentConfirmed) {
         await onPaymentConfirmed(txnId);
@@ -205,7 +205,7 @@ export default function PaymentQRDialog({
 
       toast({
         title: "✓ Payment Confirmed!",
-        description: data.userCreated 
+        description: data.userCreated
           ? "Your account has been created and you're logged in!"
           : "Your order has been submitted. We'll verify the payment shortly.",
       });
@@ -223,7 +223,6 @@ export default function PaymentQRDialog({
         description: errorMessage,
         variant: "destructive",
       });
-    } finally {
       setIsConfirming(false);
     }
   };
@@ -242,7 +241,7 @@ export default function PaymentQRDialog({
   };
 
   return (
-    <Dialog 
+    <Dialog
       open={isOpen}
       onOpenChange={(open) => {
         console.log("[PAYMENT QR] Dialog onOpenChange called with open:", open);
@@ -253,7 +252,7 @@ export default function PaymentQRDialog({
         }
       }}
     >
-      <DialogContent 
+      <DialogContent
         className="w-full max-w-md mx-auto max-h-[90vh] overflow-y-auto"
         {...handlePaymentQRDialogContentProps}
       >
@@ -273,7 +272,7 @@ export default function PaymentQRDialog({
                 <span className="font-medium text-sm sm:text-base">Scan QR Code</span>
                 <span className="text-xs text-muted-foreground">(or use Quick Pay below)</span>
               </div>
-              <ChevronDown 
+              <ChevronDown
                 className={`h-4 w-4 transition-transform ${showQRCode ? 'rotate-180' : ''}`}
               />
             </button>
@@ -312,9 +311,9 @@ export default function PaymentQRDialog({
           <div className="border-t pt-3 sm:pt-4 space-y-2 sm:space-y-3">
             <div className="flex items-center justify-between bg-muted/50 p-2 sm:p-3 rounded-lg">
               <span className="text-sm font-medium">UPI ID: {upiId}</span>
-              <Button 
-                size="sm" 
-                variant="ghost" 
+              <Button
+                size="sm"
+                variant="ghost"
                 onClick={copyUpiId}
                 data-testid="button-copy-upi"
               >
@@ -466,7 +465,7 @@ export default function PaymentQRDialog({
               )}
             </Button>
           </div>
-          
+
           <p className="text-xs text-center text-muted-foreground">
             After confirmation, you'll be redirected to track your order. Our team will verify your payment within 5 minutes.
           </p>

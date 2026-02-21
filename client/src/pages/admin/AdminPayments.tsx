@@ -1,5 +1,6 @@
 
 import { useQuery, useMutation } from "@tanstack/react-query";
+import api from "@/lib/apiClient";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -14,7 +15,7 @@ import { queryClient } from "@/lib/queryClient";
 import { format } from "date-fns";
 import { CheckCircle, Clock, CreditCard, Search, Filter } from "lucide-react";
 import { useState } from "react";
-
+import { playNotificationSoundTwoTone } from "@/lib/notificationSound";
 export default function AdminPayments() {
   const { toast } = useToast();
   const [currentPage, setCurrentPage] = useState(1);
@@ -26,18 +27,14 @@ export default function AdminPayments() {
   const { data: orders, isLoading } = useQuery<Order[]>({
     queryKey: ["/api/admin", "orders", "payments"],
     queryFn: async () => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch("/api/admin/orders", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) throw new Error("Failed to fetch orders");
-      const allOrders = await response.json();
+      const response = await api.get("/api/admin/orders");
+      const allOrders = response.data;
       // Filter for only pending and paid payments (not yet confirmed)
-      const filteredOrders = allOrders.filter((order: Order) => 
+      const filteredOrders = allOrders.filter((order: Order) =>
         order.paymentStatus === "pending" || order.paymentStatus === "paid"
       );
       // Sort by latest first (descending order by createdAt)
-      return filteredOrders.sort((a: Order, b: Order) => 
+      return filteredOrders.sort((a: Order, b: Order) =>
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
     },
@@ -45,75 +42,44 @@ export default function AdminPayments() {
 
   const confirmPaymentMutation = useMutation({
     mutationFn: async ({ orderId }: { orderId: string }) => {
-      const token = localStorage.getItem("adminToken");
-      const response = await fetch(`/api/admin/orders/${orderId}/payment`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ paymentStatus: "confirmed" }),
+      const response = await api.patch(`/api/admin/orders/${orderId}/payment`, {
+        paymentStatus: "confirmed"
       });
-      if (!response.ok) throw new Error("Failed to confirm payment");
-      return response.json();
+      return response.data;
     },
     onSuccess: () => {
       // 🔊 Play notification sound
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const oscillator = audioContext.createOscillator();
-      const gainNode = audioContext.createGain();
-      
-      oscillator.connect(gainNode);
-      gainNode.connect(audioContext.destination);
-      
-      // Play pleasant notification sound (two beeps)
-      oscillator.frequency.value = 800;
-      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
-      oscillator.start(audioContext.currentTime);
-      oscillator.stop(audioContext.currentTime + 0.1);
-      
-      // Second beep
-      oscillator.frequency.value = 1000;
-      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime + 0.15);
-      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.25);
-      oscillator.start(audioContext.currentTime + 0.15);
-      oscillator.stop(audioContext.currentTime + 0.25);
-      
+      playNotificationSoundTwoTone();
+
       queryClient.invalidateQueries({ queryKey: ["/api/admin", "orders", "payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin", "orders"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/dashboard/metrics"] });
-      
+
       toast({
         title: "✓ Payment Confirmed",
         description: "Order sent to chef for preparation",
       });
-      
+
       // 📱 Send push notification to offline users (non-blocking, fire and forget)
-      const adminToken = localStorage.getItem("adminToken");
-      fetch("/api/push/send", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(adminToken && { Authorization: `Bearer ${adminToken}` }),
-        },
-        body: JSON.stringify({
+      try {
+        api.post("/api/push/send", {
           userType: "customer",
           notification: {
             title: "✓ Payment Confirmed",
             body: "Your order has been confirmed. Chef is preparing it now.",
             tag: "payment-confirmation",
           },
-        }),
-      }).catch(() => {
-        // Silently fail if push not configured or network error
-        console.log("ℹ️ Push notification send failed or not configured");
-      });
+        }).catch((e) => {
+          console.log("ℹ️ Push notification send failed or not configured", e.message);
+        });
+      } catch (e) {
+        // Ignore synchronous errors in setting up the request
+      }
     },
-    onError: () => {
+    onError: (error: any) => {
       toast({
         title: "Update failed",
-        description: "Failed to confirm payment",
+        description: error?.response?.data?.message || error?.message || "Failed to confirm payment",
         variant: "destructive",
       });
     },
@@ -134,14 +100,14 @@ export default function AdminPayments() {
 
   // Filter and search orders
   const filteredOrders = orders?.filter((order) => {
-    const matchesSearch = 
+    const matchesSearch =
       order.customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
       order.phone.includes(searchQuery) ||
       order.id.toLowerCase().includes(searchQuery.toLowerCase());
-    
-    const matchesPaymentStatus = 
+
+    const matchesPaymentStatus =
       paymentStatusFilter === "all" || order.paymentStatus === paymentStatusFilter;
-    
+
     return matchesSearch && matchesPaymentStatus;
   }) || [];
 
@@ -259,8 +225,11 @@ export default function AdminPayments() {
                         <TableCell>
                           <div className="max-w-md text-sm">
                             <p className="text-slate-700 dark:text-slate-300 whitespace-normal break-words line-clamp-2">
-                              {order.address || "No address provided"}
+                              {order.addressBuilding ? `${order.addressBuilding}, ${order.addressStreet ? order.addressStreet + ', ' : ''}${order.addressArea}` : (order.address || "No address provided")}
                             </p>
+                            {order.addressPincode && (
+                              <p className="text-xs text-slate-500 mt-0.5">{order.addressCity} - {order.addressPincode}</p>
+                            )}
                           </div>
                         </TableCell>
                         <TableCell>

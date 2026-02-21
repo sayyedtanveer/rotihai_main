@@ -194,19 +194,19 @@ export default function MyOrders() {
           order.status === "accepted_by_chef"
             ? "Chef accepted your order"
             : order.status === "preparing"
-            ? "Chef is preparing your food"
-            : order.status === "prepared"
-            ? "Food is ready for pickup"
-            : order.status === "confirmed"
-            ? "Waiting for chef to accept"
-            : order.status === "out_for_delivery" || order.status === "delivered"
-            ? "Preparation complete"
-            : "Pending",
+              ? "Chef is preparing your food"
+              : order.status === "prepared"
+                ? "Food is ready for pickup"
+                : order.status === "confirmed"
+                  ? "Waiting for chef to accept"
+                  : order.status === "out_for_delivery" || order.status === "delivered"
+                    ? "Preparation complete"
+                    : "Pending",
       },
       {
         key: "delivery",
         label: order.status === "accepted_by_delivery"
-          ? "Delivery Person Accepted" 
+          ? "Delivery Person Accepted"
           : "Out for Delivery",
         icon: <Truck className="h-5 w-5" />,
         completed:
@@ -217,12 +217,12 @@ export default function MyOrders() {
               ? `Accepted by ${order.deliveryPersonName}`
               : "Delivery person accepted"
             : order.status === "out_for_delivery"
-            ? order.deliveryPersonName
-              ? `${order.deliveryPersonName} is on the way`
-              : "On the way"
-            : order.status === "delivered"
-            ? order.deliveryPersonName ? `Delivered by ${order.deliveryPersonName}` : "Delivered"
-            : "Waiting for delivery assignment",
+              ? order.deliveryPersonName
+                ? `${order.deliveryPersonName} is on the way`
+                : "On the way"
+              : order.status === "delivered"
+                ? order.deliveryPersonName ? `Delivered by ${order.deliveryPersonName}` : "Delivered"
+                : "Waiting for delivery assignment",
       },
       {
         key: "delivered",
@@ -381,29 +381,26 @@ export default function MyOrders() {
                             <div key={step.key} className="flex gap-3 md:gap-4 pb-4 md:pb-6 last:pb-0">
                               <div className="relative flex flex-col items-center">
                                 <div
-                                  className={`w-8 h-8 md:w-10 md:h-10 rounded-full flex items-center justify-center z-10 flex-shrink-0 ${
-                                    step.completed
+                                  className={`w-8 h-8 md:w-10 md:h-10 rounded-full flex items-center justify-center z-10 flex-shrink-0 ${step.completed
                                       ? "bg-primary text-primary-foreground"
                                       : "bg-muted text-muted-foreground"
-                                  }`}
+                                    }`}
                                 >
                                   {step.icon}
                                 </div>
                                 {idx < getOrderProgress(activeOrder).length - 1 && (
                                   <div
-                                    className={`w-0.5 h-full absolute top-8 md:top-10 ${
-                                      step.completed ? "bg-primary" : "bg-muted"
-                                    }`}
+                                    className={`w-0.5 h-full absolute top-8 md:top-10 ${step.completed ? "bg-primary" : "bg-muted"
+                                      }`}
                                   />
                                 )}
                               </div>
                               <div className="flex-1 -mt-1">
                                 <p
-                                  className={`text-xs md:text-sm font-semibold ${
-                                    step.completed
+                                  className={`text-xs md:text-sm font-semibold ${step.completed
                                       ? "text-foreground"
                                       : "text-muted-foreground"
-                                  }`}
+                                    }`}
                                 >
                                   {step.label}
                                 </p>
@@ -461,9 +458,9 @@ export default function MyOrders() {
                               <div className="flex justify-between text-xs md:text-sm">
                                 <span className="text-muted-foreground">Delivery</span>
                                 <span className="font-medium">
-                                  {!activeOrder.isBelowDeliveryMinimum ? (
+                                  {activeOrder.deliveryFee === 0 ? (
                                     <span className="text-green-600 dark:text-green-400">
-                                      <span className="line-through text-gray-400">₹{activeOrder.deliveryFee.toFixed(2)}</span> FREE
+                                      FREE
                                     </span>
                                   ) : (
                                     <span>₹{activeOrder.deliveryFee.toFixed(2)}</span>
@@ -489,7 +486,7 @@ export default function MyOrders() {
                   <h2 className="text-lg md:text-xl font-bold">Order History</h2>
                   <p className="text-xs md:text-sm text-muted-foreground">View all your past orders</p>
                 </div>
-                
+
                 <div className="space-y-3">
                   {orders.map((order) => (
                     <div key={order.id} className="border rounded-lg p-3 md:p-4 hover:shadow-md transition-shadow bg-background hover-elevate" data-testid={`card-order-${order.id}`}>

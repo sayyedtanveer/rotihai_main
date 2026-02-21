@@ -1223,8 +1223,6 @@ export default function CheckoutDialog({
 
 
 
-  // 🔥 NEW: Comprehensive pincode change handler
-  // Re-validates everything when user changes pincode at checkout
   const handlePincodeChange = async (newPincode: string) => {
     console.log("[PINCODE-CHANGE] User changed pincode to:", newPincode);
 

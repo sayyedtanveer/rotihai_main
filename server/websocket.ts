@@ -157,7 +157,7 @@ export function broadcastSubscriptionDelivery(subscription: any) {
 export function broadcastSubscriptionUpdate(subscription: any) {
   // Safe serialize: ensure all date fields are strings
   const safeSubscription = { ...subscription };
-  
+
   // Convert any Date objects to ISO strings
   const dateFields = ['startDate', 'endDate', 'nextDeliveryDate', 'lastDeliveryDate', 'chefAssignedAt', 'pauseStartDate', 'pauseResumeDate', 'createdAt', 'updatedAt'];
   for (const field of dateFields) {
@@ -169,7 +169,7 @@ export function broadcastSubscriptionUpdate(subscription: any) {
       }
     }
   }
-  
+
   const message = JSON.stringify({
     type: "subscription_update",
     data: safeSubscription
@@ -358,24 +358,28 @@ export function broadcastOrderUpdate(order: Order) {
   let customerNotified = false;
 
   clients.forEach((client, clientId) => {
-    if (client.type === "admin") {
-      client.ws.send(message);
-      adminNotified++;
-      console.log(`  ✅ Sent to admin ${clientId}`);
-    } else if (client.type === "chef" && client.chefId === order.chefId) {
-      client.ws.send(message);
-      chefNotified = true;
-      console.log(`  ✅ Sent to chef ${clientId} (chefId: ${client.chefId})`);
-    } else if (client.type === "delivery" && client.id === order.assignedTo) {
-      client.ws.send(message);
-      deliveryNotified = true;
-      console.log(`  ✅ Sent to delivery ${clientId}`);
-    } else if (client.type === "customer" && client.orderId === order.id) {
-      client.ws.send(message);
-      customerNotified = true;
-      console.log(`  ✅ Sent to customer ${clientId}`);
-    } else if (client.type === "chef" && client.chefId !== order.chefId) {
-      console.log(`  ❌ Chef ${clientId} skipped - chefId mismatch (client: ${client.chefId}, order: ${order.chefId})`);
+    try {
+      if (client.type === "admin") {
+        client.ws.send(message);
+        adminNotified++;
+        console.log(`  ✅ Sent to admin ${clientId}`);
+      } else if (client.type === "chef" && client.chefId === order.chefId) {
+        client.ws.send(message);
+        chefNotified = true;
+        console.log(`  ✅ Sent to chef ${clientId} (chefId: ${client.chefId})`);
+      } else if (client.type === "delivery" && client.id === order.assignedTo) {
+        client.ws.send(message);
+        deliveryNotified = true;
+        console.log(`  ✅ Sent to delivery ${clientId}`);
+      } else if (client.type === "customer" && client.orderId === order.id) {
+        client.ws.send(message);
+        customerNotified = true;
+        console.log(`  ✅ Sent to customer ${clientId}`);
+      } else if (client.type === "chef" && client.chefId !== order.chefId) {
+        console.log(`  ❌ Chef ${clientId} skipped - chefId mismatch (client: ${client.chefId}, order: ${order.chefId})`);
+      }
+    } catch (error) {
+      console.error(`  ❌ Failed to send to ${client.type} ${clientId}:`, error);
     }
   });
 
@@ -400,20 +404,24 @@ export function broadcastOrderUpdate(order: Order) {
 export function notifyDeliveryAssignment(order: Order, deliveryPersonId: string) {
   const client = clients.get(deliveryPersonId);
   if (client && client.type === "delivery") {
-    const notificationType = order.status === "confirmed" ? "order_confirmed" : "order_assigned";
-    client.ws.send(JSON.stringify({
-      type: notificationType,
-      data: order,
-      message: order.status === "confirmed"
-        ? `Order #${order.id.slice(0, 8)} has been confirmed and is ready for pickup`
-        : `New order #${order.id.slice(0, 8)} has been assigned to you`
-    }));
+    try {
+      const notificationType = order.status === "confirmed" ? "order_confirmed" : "order_assigned";
+      client.ws.send(JSON.stringify({
+        type: notificationType,
+        data: order,
+        message: order.status === "confirmed"
+          ? `Order #${order.id.slice(0, 8)} has been confirmed and is ready for pickup`
+          : `New order #${order.id.slice(0, 8)} has been assigned to you`
+      }));
+    } catch (error) {
+      console.error(`  ❌ Failed to notify delivery assignment to ${deliveryPersonId}:`, error);
+    }
   }
 }
 
 export async function broadcastPreparedOrderToAvailableDelivery(order: any) {
   const notificationStage = order.status === "accepted_by_chef" ? "CHEF_ACCEPTED" :
-                           order.status === "prepared" ? "FOOD_READY" : "ORDER_UPDATE";
+    order.status === "prepared" ? "FOOD_READY" : "ORDER_UPDATE";
 
   console.log(`📣 Broadcasting order ${order.id} (status: ${order.status}, stage: ${notificationStage}) to all active delivery personnel`);
 
@@ -728,9 +736,9 @@ export function broadcastWalletUpdate(userId: string, newBalance: number) {
     const typeMatch = client.type === "customer" || client.type === "browser";
     const userIdMatch = client.userId === userId;
     const wsOpen = client.ws.readyState === WebSocket.OPEN;
-    
+
     console.log(`💳 [BROADCAST] Client ${clientId}: type=${client.type} (match=${typeMatch}), userId=${client.userId} (match=${userIdMatch}), wsOpen=${wsOpen}`);
-    
+
     if (typeMatch && userIdMatch && wsOpen) {
       client.ws.send(message);
       sentCount++;
@@ -742,7 +750,7 @@ export function broadcastWalletUpdate(userId: string, newBalance: number) {
       if (!wsOpen) console.log(`   ⏭️ Skipped: WebSocket not open`);
     }
   });
-  
+
   console.log(`💳 [BROADCAST] Summary: Sent=${sentCount}, Skipped=${skippedCount}\n`);
 }
 

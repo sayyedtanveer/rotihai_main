@@ -56,14 +56,23 @@ export function useAdminNotifications() {
         queryClient.invalidateQueries({ queryKey: ["/api/admin", "orders"] });
         queryClient.invalidateQueries({ queryKey: ["/api/admin/dashboard/metrics"] });
 
-        // Show notification only for payment-related updates
-        if (order.paymentStatus === "pending" || order.paymentStatus === "paid") {
+        if (data.type === "new_order" && order.paymentStatus === "pending") {
+          // New order created (waiting for payment)
           setLastNotificationType("order");
           setUnreadCount((prev) => prev + 1);
-
           if (Notification.permission === "granted") {
-            new Notification("New Payment Pending", {
-              body: `Order #${order.id.slice(0, 8)} - ₹${order.total} from ${order.customerName}`,
+            new Notification("New Order Placed", {
+              body: `Order #${order.id.slice(0, 8)} - ₹${order.total} from ${order.customerName}. Waiting for payment.`,
+              icon: "/favicon.ico",
+            });
+          }
+        } else if (data.type === "order_update" && order.paymentStatus === "paid") {
+          // User checked the box and submitted their payment
+          setLastNotificationType("order");
+          setUnreadCount((prev) => prev + 1);
+          if (Notification.permission === "granted") {
+            new Notification("Payment Submitted", {
+              body: `Customer ${order.customerName} has confirmed payment for Order #${order.id.slice(0, 8)}. Please verify.`,
               icon: "/favicon.ico",
             });
           }
@@ -73,7 +82,7 @@ export function useAdminNotifications() {
       // Handle new subscription created notification
       if (data.type === "new_subscription_created") {
         const subscriptionData = data.data;
-        
+
         // Invalidate subscription queries
         queryClient.invalidateQueries({ queryKey: ["/api/admin", "subscriptions"] });
         queryClient.invalidateQueries({ queryKey: ["/api/admin/dashboard/metrics"] });
@@ -95,14 +104,14 @@ export function useAdminNotifications() {
 
           // Play notification sound
           const audio = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBTGH0fPTgjMGHm7A7+OZURE=");
-          audio.play().catch(() => {});
+          audio.play().catch(() => { });
         }
       }
 
       // Handle subscription payment verification
       if (data.type === "subscription_update") {
         const subscription = data.data;
-        
+
         // Invalidate subscription queries
         queryClient.invalidateQueries({ queryKey: ["/api/admin", "subscriptions"] });
         queryClient.invalidateQueries({ queryKey: ["/api/admin/dashboard/metrics"] });
@@ -126,7 +135,7 @@ export function useAdminNotifications() {
 
             // Play notification sound
             const audio = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBTGH0fPTgjMGHm7A7+OZURE=");
-            audio.play().catch(() => {});
+            audio.play().catch(() => { });
           }
         }
       }
@@ -134,11 +143,11 @@ export function useAdminNotifications() {
       // Handle subscription payment pending notification (specific event)
       if (data.type === "subscription_payment_pending") {
         const subscriptionData = data.data;
-        
+
         // Invalidate subscription queries
         queryClient.invalidateQueries({ queryKey: ["/api/admin", "subscriptions"] });
         queryClient.invalidateQueries({ queryKey: ["/api/admin/dashboard/metrics"] });
-        
+
         setLastNotificationType("subscription");
         setUnreadCount((prev) => prev + 1);
 
@@ -156,7 +165,7 @@ export function useAdminNotifications() {
 
           // Play notification sound
           const audio = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBTGH0fPTgjMGHm7A7+OZURE=");
-          audio.play().catch(() => {});
+          audio.play().catch(() => { });
         }
       }
 

@@ -1321,15 +1321,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Recompute delivery fee server-side to ensure correct enforcement
       try {
-        const feeResult = await storage.calculateDeliveryFee(true, addressDistance, sanitized.subtotal || 0, chef as any);
-        const expectedDeliveryFee = feeResult.isFreeDelivery ? 0 : feeResult.deliveryFee;
-        console.log("[SERVER] Recomputed delivery fee:", { expectedDeliveryFee, isFreeDelivery: feeResult.isFreeDelivery, addressDistance });
+        // Fetch global delivery settings instead of using chef-specific legacy defaults
+        const rawSettings = await storage.getDeliverySettings();
+        const deliverySettings = rawSettings.map(s => ({
+          ...s,
+          minOrderAmount: s.minOrderAmount === null ? undefined : s.minOrderAmount
+        }));
+
+        // Use the shared calculateDelivery utility that the frontend uses
+        const { calculateDelivery } = await import("@shared/deliveryUtils");
+        const feeResult = calculateDelivery(addressDistance, sanitized.subtotal || 0, deliverySettings);
+
+        const minOrderAmount = feeResult.minOrderAmount || 0;
+        const meetsMinimum = minOrderAmount > 0 && (sanitized.subtotal || 0) >= minOrderAmount;
+
+        // Fee is waived if freeDeliveryEligible is natively true OR if subtotal meets the minimum order threshold
+        const expectedDeliveryFee = (feeResult.freeDeliveryEligible || meetsMinimum) ? 0 : feeResult.deliveryFee;
+
+        console.log("[SERVER] Recomputed delivery fee using Admin settings:", {
+          baseFee: feeResult.deliveryFee,
+          expectedDeliveryFee,
+          isFreeDelivery: feeResult.freeDeliveryEligible || meetsMinimum,
+          meetsMinimumThreshold: meetsMinimum,
+          minOrderAmount,
+          subtotal: sanitized.subtotal,
+          addressDistance
+        });
 
         // Overwrite any client-supplied deliveryFee with server-calculated value
         (sanitized as any).deliveryFee = expectedDeliveryFee;
 
         // Recompute total to reflect server-side fee and discount
-        (sanitized as any).total = (sanitized.subtotal || 0) + (sanitized.deliveryFee || 0) - (sanitized.discount || 0);
+        // We MUST also subtract walletAmountUsed and bonusUsedAtCheckout just like the frontend
+        const baseTotal = (sanitized.subtotal || 0) + (sanitized.deliveryFee || 0) - (sanitized.discount || 0);
+
+        // Safely extract bonus and wallet amounts, defaulting to 0
+        const bonusDeduction = (sanitized as any).bonusUsedAtCheckout || 0;
+        const walletDeduction = (sanitized as any).walletAmountUsed || 0;
+
+        (sanitized as any).total = Math.max(0, baseTotal - bonusDeduction - walletDeduction);
+
+        console.log("[SERVER] Final recalculated total:", {
+          subtotal: sanitized.subtotal,
+          deliveryFee: sanitized.deliveryFee,
+          discount: sanitized.discount,
+          bonusUsed: bonusDeduction,
+          walletUsed: walletDeduction,
+          finalTotal: (sanitized as any).total
+        });
       } catch (feeErr) {
         console.error("Error computing delivery fee on server:", feeErr);
         return res.status(500).json({ message: "Failed to compute delivery fee" });
@@ -4629,15 +4668,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(`   - Distance not calculated (missing coordinates)`);
       }
 
-      // Use storage helper to calculate delivery fee
-      const feeResult = await storage.calculateDeliveryFee(
-        distance !== null,
+      // Use shared utility to calculate delivery fee using Admin Settings
+      const rawSettings = await storage.getDeliverySettings();
+      const deliverySettings = rawSettings.map(s => ({
+        ...s,
+        minOrderAmount: s.minOrderAmount === null ? undefined : s.minOrderAmount
+      }));
+      const { calculateDelivery } = await import("@shared/deliveryUtils");
+
+      const feeCalcResult = calculateDelivery(
         distance || 0,
         orderAmount,
-        chef
+        deliverySettings
       );
 
+      const feeResult = {
+        deliveryFee: feeCalcResult.freeDeliveryEligible ? 0 : feeCalcResult.deliveryFee,
+        isFreeDelivery: feeCalcResult.freeDeliveryEligible
+      };
+
       console.log(`✅ [FEE-CALC] Fee: ₹${feeResult.deliveryFee}, Free? ${feeResult.isFreeDelivery}\n`);
+
+      res.json({
+        success: true,
+        deliveryFee: feeResult.deliveryFee,
+        isFreeDelivery: feeResult.isFreeDelivery,
+      });
 
       // ================= PUSH NOTIFICATIONS ENDPOINTS =================
 
