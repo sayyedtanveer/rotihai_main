@@ -1,4 +1,4 @@
-import { X, Star, ChevronRight } from "lucide-react";
+import { X, Star, ChevronRight, BadgeCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { Category, Chef as BaseChef } from "@shared/schema";
@@ -83,10 +83,16 @@ export default function ChefListDrawer({
                         <div className="flex-1">
                           <div className="flex items-start justify-between gap-2">
                             <div className="flex-1">
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2 flex-wrap">
                                 <h3 className="font-semibold text-lg mb-1">
                                   {chef.name}
                                 </h3>
+                                {(chef as any).isVerified && (
+                                  <span className="text-xs bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 px-2 py-0.5 rounded-full flex items-center gap-1">
+                                    <BadgeCheck className="h-3.5 w-3.5" />
+                                    Verified by Roti Hai
+                                  </span>
+                                )}
                                 {isInactive && (
                                   <span className="text-xs bg-destructive/20 text-destructive px-2 py-0.5 rounded-full">
                                     Inactive

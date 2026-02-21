@@ -31,7 +31,7 @@ import { Input } from "@/components/ui/input";
 import {
   UtensilsCrossed, ChefHat, Hotel, MessageCircle, Star, Clock,
   SlidersHorizontal, Zap, Sparkles, CalendarClock, Home as HomeIcon, ShoppingBag,
-  User, Percent, ArrowRight, TrendingUp, MapPin, AlertCircle
+  User, Percent, ArrowRight, TrendingUp, MapPin, AlertCircle, Repeat, BadgeCheck
 } from "lucide-react";
 import type { Category, Chef, Product } from "@shared/schema";
 import { useCart } from "@/hooks/use-cart";
@@ -907,11 +907,11 @@ export default function Home() {
               {/* All Category */}
               <button
                 onClick={() => handleCategoryTabChange("all")}
-                className={`flex flex-col items-center gap-2 min-w-[70px] group transition-all justify-start pt-1 ${selectedCategoryTab === "all" ? "scale-105" : ""
+                className={`flex flex-col items-center gap-2 min-w-[80px] sm:min-w-[88px] group transition-all justify-start pt-1 ${selectedCategoryTab === "all" ? "scale-105" : ""
                   }`}
                 data-testid="button-category-all"
               >
-                <div className={`relative w-16 h-16 sm:w-18 sm:h-18 rounded-full overflow-hidden shadow-md group-hover:shadow-lg transition-all group-hover:scale-105 flex-shrink-0 ${selectedCategoryTab === "all" ? "ring-2 ring-primary ring-offset-2" : ""
+                <div className={`relative w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 rounded-full overflow-hidden shadow-md group-hover:shadow-lg transition-all group-hover:scale-105 flex-shrink-0 ${selectedCategoryTab === "all" ? "ring-2 ring-primary ring-offset-2" : ""
                   }`}>
                   <div className="w-full h-full bg-gradient-to-br from-orange-100 to-orange-200 dark:from-orange-900 dark:to-orange-800 flex items-center justify-center">
                     <UtensilsCrossed className="h-7 w-7 text-primary" />
@@ -924,8 +924,8 @@ export default function Home() {
               {/* Dynamic Categories */}
               {categoriesLoading ? (
                 [...Array(3)].map((_, i) => (
-                  <div key={i} className="flex flex-col items-center gap-2 min-w-[70px]">
-                    <div className="w-16 h-16 rounded-full bg-muted animate-pulse" />
+                  <div key={i} className="flex flex-col items-center gap-2 min-w-[80px] sm:min-w-[88px]">
+                    <div className="w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 rounded-full bg-muted animate-pulse" />
                     <div className="w-12 h-3 bg-muted rounded animate-pulse" />
                   </div>
                 ))
@@ -934,10 +934,10 @@ export default function Home() {
                   <button
                     key={category.id}
                     onClick={() => handleBrowseCategory(category.id)}
-                    className={`flex flex-col items-center gap-2 min-w-[70px] sm:min-w-[80px] group transition-all ${selectedCategoryTab === category.id ? "scale-105" : ""}`}
+                    className={`flex flex-col items-center gap-2 min-w-[80px] sm:min-w-[88px] md:min-w-[96px] group transition-all ${selectedCategoryTab === category.id ? "scale-105" : ""}`}
                     data-testid={`button-category-${category.id}`}
                   >
-                    <div className={`relative w-16 h-16 sm:w-18 sm:h-18 md:w-20 md:h-20 rounded-full overflow-hidden shadow-md group-hover:shadow-lg transition-all group-hover:scale-105 flex-shrink-0 ${selectedCategoryTab === category.id ? "ring-2 ring-primary ring-offset-2" : ""
+                    <div className={`relative w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 rounded-full overflow-hidden shadow-md group-hover:shadow-lg transition-all group-hover:scale-105 flex-shrink-0 ${selectedCategoryTab === category.id ? "ring-2 ring-primary ring-offset-2" : ""
                       }`}>
                       <img
                         src={category.image}
@@ -946,7 +946,7 @@ export default function Home() {
                         loading="lazy"
                       />
                     </div>
-                    <span className={`text-xs font-medium text-center whitespace-nowrap max-w-[70px] sm:max-w-[80px] truncate ${selectedCategoryTab === category.id ? "text-primary font-bold" : "text-muted-foreground"
+                    <span className={`text-xs font-medium text-center whitespace-nowrap max-w-[80px] sm:max-w-[88px] md:max-w-[96px] truncate ${selectedCategoryTab === category.id ? "text-primary font-bold" : "text-muted-foreground"
                       }`}>{category.name}</span>
                   </button>
                 ))
@@ -1191,9 +1191,17 @@ export default function Home() {
                           )}
                         </div>
                         <div className="p-3">
-                          <h3 className="font-bold text-base line-clamp-1" data-testid={`text-partner-name-${chef.id}`}>
-                            {chef.name}
-                          </h3>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="font-bold text-base line-clamp-1" data-testid={`text-partner-name-${chef.id}`}>
+                              {chef.name}
+                            </h3>
+                            {(chef as any).isVerified && (
+                              <Badge variant="secondary" className="gap-1 text-[10px] px-1.5 py-0 bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 border-0">
+                                <BadgeCheck className="h-3 w-3" />
+                                Verified by Roti Hai
+                              </Badge>
+                            )}
+                          </div>
                           <p className="text-sm text-muted-foreground line-clamp-1 mt-0.5">
                             {chef.description}
                           </p>
@@ -1338,9 +1346,17 @@ export default function Home() {
                           <div className="p-3 sm:p-4">
                             <div className="flex items-start justify-between gap-2">
                               <div className="flex-1 min-w-0">
-                                <h3 className={`font-bold text-base sm:text-lg truncate ${!isChefActive ? "text-muted-foreground" : ""}`}>
-                                  {chef.name}
-                                </h3>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <h3 className={`font-bold text-base sm:text-lg truncate ${!isChefActive ? "text-muted-foreground" : ""}`}>
+                                    {chef.name}
+                                  </h3>
+                                  {(chef as any).isVerified && (
+                                    <Badge variant="secondary" className="gap-1 text-[10px] px-1.5 py-0 bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 border-0">
+                                      <BadgeCheck className="h-3 w-3" />
+                                      Verified by Roti Hai
+                                    </Badge>
+                                  )}
+                                </div>
                                 <p className="text-xs sm:text-sm text-muted-foreground line-clamp-1 mt-0.5">
                                   {chef.description}
                                 </p>
@@ -1428,8 +1444,8 @@ export default function Home() {
               }`}
             data-testid="nav-offers"
           >
-            <Percent className="h-5 w-5" />
-            <span className="text-[10px] font-medium">Under ₹200</span>
+            <Repeat className="h-5 w-5" />
+            <span className="text-[10px] font-medium">Roti subscription</span>
           </button>
 
           <button

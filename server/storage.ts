@@ -649,6 +649,7 @@ export class MemStorage implements IStorage {
       freeDeliveryThreshold: (data as any).freeDeliveryThreshold ?? 200,
       servicePincodes: (data as any).servicePincodes || null,
       maxDeliveryDistanceKm: (data as any).maxDeliveryDistanceKm ?? 5,
+      isVerified: (data as any).isVerified === true,
     };
     
     await db.insert(chefs).values(chefData as any);
@@ -679,6 +680,7 @@ export class MemStorage implements IStorage {
     if ((data as any).freeDeliveryThreshold !== undefined) updateData.freeDeliveryThreshold = (data as any).freeDeliveryThreshold;
     if ((data as any).maxDeliveryDistanceKm !== undefined) updateData.maxDeliveryDistanceKm = (data as any).maxDeliveryDistanceKm;
     if ((data as any).servicePincodes !== undefined) updateData.servicePincodes = (data as any).servicePincodes;
+    if ((data as any).isVerified !== undefined) updateData.isVerified = (data as any).isVerified;
     
     console.log("🔥 updateChef() - Received data:", { id, incomingMaxDeliveryDistanceKm: (data as any).maxDeliveryDistanceKm, servicePincodes: (data as any).servicePincodes, updateData });
     

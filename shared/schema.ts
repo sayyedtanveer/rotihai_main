@@ -90,6 +90,7 @@ export const chefs = pgTable("chefs", {
   maxDeliveryDistanceKm: integer("max_delivery_distance_km").notNull().default(5), // Max delivery distance in km
   // Service pincodes - which pincodes this chef serves (pincode-based filtering)
   servicePincodes: text("service_pincodes").array(), // Array of valid pincodes like ["400070", "400086", "400025"]
+  isVerified: boolean("is_verified").notNull().default(false), // Verified chef badge (verified by platform)
 });
 
 

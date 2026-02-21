@@ -1,4 +1,4 @@
-import { X, Star, Plus, Minus, Leaf } from "lucide-react";
+import { X, Star, Plus, Minus, Leaf, BadgeCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
@@ -84,7 +84,15 @@ export default function CategoryMenuDrawer({
         <div className="flex flex-col h-full">
           <div className="p-4 border-b">
             <div className="flex items-center justify-between gap-2 mb-2">
-              <h3 className="font-semibold text-lg">{chef.name}</h3>
+              <div className="flex items-center gap-2 flex-wrap min-w-0">
+                <h3 className="font-semibold text-lg">{chef.name}</h3>
+                {(chef as any).isVerified && (
+                  <Badge variant="secondary" className="gap-1 text-xs bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 border-0 shrink-0">
+                    <BadgeCheck className="h-3.5 w-3.5" />
+                    Verified by Roti Hai
+                  </Badge>
+                )}
+              </div>
               <Button
                 variant="ghost"
                 size="icon"

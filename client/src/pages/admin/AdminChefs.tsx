@@ -16,7 +16,7 @@ import { getImageUrl, handleImageError } from "@/lib/imageUrl";
 import { adminApiRequest } from "@/hooks/useAdminAuth";
 import { queryClient } from "@/lib/queryClient";
 import type { Chef, Category } from "@shared/schema";
-import { Star, Pencil, Trash2, Plus, Store, Loader2, MapPin } from "lucide-react";
+import { Star, Pencil, Trash2, Plus, Store, Loader2, MapPin, BadgeCheck } from "lucide-react";
 import { ImageUploader } from "@/components/ImageUploader";
 import { getDeliveryAreas } from "@/lib/deliveryAreas";
 
@@ -43,6 +43,7 @@ export default function AdminChefs() {
     longitude: 72.8826,
     maxDeliveryDistanceKm: 5, // Default 5km delivery radius
     servicePincodes: null as string[] | null, // NEW: Service pincodes
+    isVerified: false, // Verified chef badge (verified by us)
   });
 
   // Separate state for servicePincodes input display (allows partial typing)
@@ -195,6 +196,7 @@ export default function AdminChefs() {
       longitude: 72.8826,
       maxDeliveryDistanceKm: 5,
       servicePincodes: null, // NEW: Initialize service pincodes
+      isVerified: false,
     });
     setServicePincodesInput(""); // Reset display input
     setGeocodeError("");
@@ -313,6 +315,7 @@ export default function AdminChefs() {
       longitude: (chef as any).longitude || 72.8826,
       maxDeliveryDistanceKm: (chef as any).maxDeliveryDistanceKm || 5,
       servicePincodes: (chef as any).servicePincodes || null, // NEW: Load service pincodes
+      isVerified: (chef as any).isVerified === true,
     });
     // Initialize servicePincodes input field with comma-separated values
     const servicePincodes = (chef as any).servicePincodes;
@@ -419,9 +422,17 @@ export default function AdminChefs() {
                 </div>
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between gap-2 mb-2">
-                    <h3 className={`font-semibold text-lg text-slate-900 dark:text-slate-100 ${chef.isActive === false ? "text-muted-foreground" : ""}`}>
-                      {chef.name}
-                    </h3>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className={`font-semibold text-lg text-slate-900 dark:text-slate-100 ${chef.isActive === false ? "text-muted-foreground" : ""}`}>
+                        {chef.name}
+                      </h3>
+                      {(chef as any).isVerified && (
+                        <Badge variant="secondary" className="gap-1 text-xs bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 border-0">
+                          <BadgeCheck className="h-3.5 w-3.5" />
+                          Verified by Roti Hai
+                        </Badge>
+                      )}
+                    </div>
                     <div className="flex items-center gap-2">
                       <Store className={`h-4 w-4 ${chef.isActive !== false ? "text-green-600" : "text-red-600"}`} />
                       <Switch
@@ -575,6 +586,21 @@ export default function AdminChefs() {
                   data-testid="input-chef-reviews"
                 />
               </div>
+            </div>
+
+            <div className="flex items-center justify-between rounded-lg border p-4">
+              <div className="space-y-0.5">
+                <Label className="text-base flex items-center gap-2">
+                  <BadgeCheck className="h-4 w-4 text-green-600" />
+                  Verified chef
+                </Label>
+                <p className="text-sm text-muted-foreground">Show &quot;Verified by Roti Hai&quot; badge to customers</p>
+              </div>
+              <Switch
+                checked={(formData as any).isVerified === true}
+                onCheckedChange={(checked) => setFormData({ ...formData, isVerified: checked })}
+                data-testid="switch-chef-verified"
+              />
             </div>
 
             {/* Chef Address & Location - Structured */}
@@ -916,6 +942,21 @@ export default function AdminChefs() {
                   data-testid="input-edit-reviews"
                 />
               </div>
+            </div>
+
+            <div className="flex items-center justify-between rounded-lg border p-4">
+              <div className="space-y-0.5">
+                <Label className="text-base flex items-center gap-2">
+                  <BadgeCheck className="h-4 w-4 text-green-600" />
+                  Verified chef
+                </Label>
+                <p className="text-sm text-muted-foreground">Show &quot;Verified by Roti Hai&quot; badge to customers</p>
+              </div>
+              <Switch
+                checked={(formData as any).isVerified === true}
+                onCheckedChange={(checked) => setFormData({ ...formData, isVerified: checked })}
+                data-testid="switch-edit-chef-verified"
+              />
             </div>
 
             {/* Chef Address & Location - Structured */}
