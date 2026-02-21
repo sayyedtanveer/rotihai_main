@@ -26,7 +26,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { useWalletUpdates } from "@/hooks/useWalletUpdates";
 import { useApplyReferral } from "@/hooks/useApplyReferral";
-import { Loader2, Clock, MapPin } from "lucide-react";
+import { Loader2, Clock, MapPin, CheckCircle2 } from "lucide-react";
 import { getDeliveryMessage, calculateDistance as calculateDistanceLoc } from "@/lib/locationUtils";
 import { calculateDistance, calculateDelivery } from "@shared/deliveryUtils";
 import api from "@/lib/apiClient";
@@ -1173,6 +1173,9 @@ export default function CheckoutDialog({
     }
   };
 
+  // State for View/Edit mode
+  const [isEditingAddress, setIsEditingAddress] = useState(true);
+
   // Handle any address field change - NO AUTO-GEOCODING anymore
   // User must click "Validate Address" button to trigger validation
   const handleAddressChange = (field: string, value: string) => {
@@ -1201,21 +1204,24 @@ export default function CheckoutDialog({
         break;
       case 'pincode':
         setAddressPincode(value);
-        // 🔥 PINCODE CHANGED: Trigger comprehensive re-validation
-        handlePincodeChange(value);
+        // 🔥 REMOVED auto-validation on typing
         break;
     }
 
-    // Clear validation status when user edits address (they need to re-validate)
-    // But DON'T clear the text input fields
+    // Any edit means we are in "Editing" mode and validation is invalid
+    setIsEditingAddress(true);
     setAddressZoneValidated(false);
+    setAddressInDeliveryZone(false);
     setLocationError("");
+    setDeliveryLocation({ ...deliveryLocation, isInZone: false }); // Hide menu temporarily
 
     // Clear previous timeout if any
     if (autoGeocodeTimeoutRef.current) {
       clearTimeout(autoGeocodeTimeoutRef.current);
     }
   };
+
+
 
   // 🔥 NEW: Comprehensive pincode change handler
   // Re-validates everything when user changes pincode at checkout
@@ -1411,6 +1417,8 @@ export default function CheckoutDialog({
 
           setAddressInDeliveryZone(true);
           setAddressZoneValidated(true);
+          setIsEditingAddress(false); // Collapsed View mode
+          setAddressConfirmed(true);  // Allow viewing payment immediately since they already pushed validate
           setLocationError("");
 
           // Update Context
@@ -1654,6 +1662,7 @@ export default function CheckoutDialog({
         setLocationError("");
         setAddressInDeliveryZone(true);
         setAddressZoneValidated(true);
+        setIsEditingAddress(false); // Switch to View Mode on success
         // Update Context to SHOW menu (this triggers Home.tsx to load categories!)
         setDeliveryLocation({
           isInZone: true,
@@ -2290,176 +2299,200 @@ export default function CheckoutDialog({
                     </div>
 
                     {/* Structured Address Fields */}
-                    <div className="space-y-3">
-                      <Label className="text-sm font-semibold">Delivery Address *</Label>
+                    {isEditingAddress ? (
+                      <div className="space-y-3">
+                        <Label className="text-sm font-semibold">Delivery Address *</Label>
 
-                      {/* Row 1: Building/House Number and Street */}
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <Label htmlFor="building" className="text-xs text-gray-600">
-                            Building/House No
-                          </Label>
-                          <Input
-                            id="building"
-                            value={addressBuilding}
-                            onChange={(e) => handleAddressChange('building', e.target.value)}
-                            placeholder="e.g., 18/20"
-                            className="text-sm"
-                          />
+                        {/* Row 1: Building/House Number and Street */}
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <Label htmlFor="building" className="text-xs text-gray-600">
+                              Building/House No
+                            </Label>
+                            <Input
+                              id="building"
+                              value={addressBuilding}
+                              onChange={(e) => handleAddressChange('building', e.target.value)}
+                              placeholder="e.g., 18/20"
+                              className="text-sm"
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="street" className="text-xs text-gray-600">
+                              Street/Colony
+                            </Label>
+                            <Input
+                              id="street"
+                              value={addressStreet}
+                              onChange={(e) => handleAddressChange('street', e.target.value)}
+                              placeholder="e.g., LJG Colony"
+                              className="text-sm"
+                            />
+                          </div>
                         </div>
-                        <div>
-                          <Label htmlFor="street" className="text-xs text-gray-600">
-                            Street/Colony
-                          </Label>
-                          <Input
-                            id="street"
-                            value={addressStreet}
-                            onChange={(e) => handleAddressChange('street', e.target.value)}
-                            placeholder="e.g., LJG Colony"
-                            className="text-sm"
-                          />
-                        </div>
-                      </div>
 
-                      {/* Row 2: GPS and Area */}
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <Label htmlFor="area" className="text-xs text-gray-600 font-semibold">
-                            Area/Locality *
-                          </Label>
-                          {!deliveryLocation.pincode && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-6 text-xs text-blue-600 px-2"
-                              onClick={handleUseCurrentLocation}
-                              disabled={isGettingLocation}
-                            >
-                              {isGettingLocation ? (
-                                <>
-                                  <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                                  Locating...
-                                </>
-                              ) : (
-                                <>
-                                  <MapPin className="mr-1 h-3 w-3" />
-                                  Use My Location
-                                </>
-                              )}
-                            </Button>
-                          )}
-                        </div>
-                        <div className="relative">
-                          <Input
-                            id="area"
-                            value={addressArea}
-                            onChange={(e) => handleAddressChange('area', e.target.value)}
-                            onFocus={() => {
-                              if (addressArea.trim().length > 0) {
-                                const suggestions = getAreaSuggestions(addressArea);
-                                setAreaSuggestions(suggestions);
-                                setShowAreaSuggestions(suggestions.length > 0);
-                              }
-                            }}
-                            placeholder="e.g., Kurla West"
-                            className="text-sm"
-                            required
-                          />
-                          {isGeocodingAddress && (
-                            <div className="absolute right-3 top-2.5">
-                              <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                            </div>
-                          )}
-
-                          {/* Area Suggestions Dropdown */}
-                          {showAreaSuggestions && areaSuggestions.length > 0 && (
-                            <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg z-50">
-                              {areaSuggestions.map((suggestion, idx) => (
-                                <div
-                                  key={idx}
-                                  onClick={() => {
-                                    setAddressArea(suggestion);
-                                    setShowAreaSuggestions(false);
-                                    setAreaSuggestions([]);
-                                    // Use pincode validation instead of full-address geocoding (more reliable)
-                                    console.log("[LOCATION] Selected suggestion:", suggestion, "will validate via pincode");
-                                    if (addressPincode && /^\d{5,6}$/.test(addressPincode)) {
-                                      setTimeout(() => {
-                                        handlePincodeChange(addressPincode);
-                                      }, 100);
-                                    } else {
-                                      console.log("[LOCATION] Pincode not ready, validation will trigger on pincode entry");
-                                    }
-                                  }}
-                                  className="w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm border-b border-gray-200 dark:border-gray-700 last:border-0 cursor-pointer"
-                                >
-                                  {suggestion}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Row 3: City and Pincode */}
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <Label htmlFor="city" className="text-xs text-gray-600">
-                            City
-                          </Label>
-                          <Input
-                            id="city"
-                            value={addressCity}
-                            onChange={(e) => handleAddressChange('city', e.target.value)}
-                            placeholder="Mumbai"
-                            className="text-sm"
-                          />
-                        </div>
-                        <div>
-                          <Label htmlFor="pincode" className="text-xs text-gray-600 flex items-center justify-between">
-                            <span>Pincode <span className="text-red-500">*</span></span>
-                            {isReValidatingPincode && (
-                              <span className="text-xs text-blue-600 dark:text-blue-400 flex items-center gap-1">
-                                <Loader2 className="h-3 w-3 animate-spin" />
-                                Checking...
-                              </span>
+                        {/* Row 2: GPS and Area */}
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <Label htmlFor="area" className="text-xs text-gray-600 font-semibold">
+                              Area/Locality *
+                            </Label>
+                            {!deliveryLocation.pincode && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 text-xs text-blue-600 px-2"
+                                onClick={handleUseCurrentLocation}
+                                disabled={isGettingLocation}
+                              >
+                                {isGettingLocation ? (
+                                  <>
+                                    <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                    Locating...
+                                  </>
+                                ) : (
+                                  <>
+                                    <MapPin className="mr-1 h-3 w-3" />
+                                    Use My Location
+                                  </>
+                                )}
+                              </Button>
                             )}
-                          </Label>
+                          </div>
                           <div className="relative">
                             <Input
-                              id="pincode"
-                              value={addressPincode}
-                              onChange={(e) => handleAddressChange('pincode', e.target.value)}
-                              placeholder="e.g., 400070"
-                              className={`text-sm ${isReValidatingPincode ? 'border-blue-500 border-2' : ''} ${deliveryLocation.pincode ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`}
-                              readOnly={!!deliveryLocation.pincode}
+                              id="area"
+                              value={addressArea}
+                              onChange={(e) => handleAddressChange('area', e.target.value)}
+                              onFocus={() => {
+                                if (addressArea.trim().length > 0) {
+                                  const suggestions = getAreaSuggestions(addressArea);
+                                  setAreaSuggestions(suggestions);
+                                  setShowAreaSuggestions(suggestions.length > 0);
+                                }
+                              }}
+                              placeholder="e.g., Kurla West"
+                              className="text-sm"
                               required
                             />
-                            {isReValidatingPincode && (
-                              <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
-                                <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+                            {isGeocodingAddress && (
+                              <div className="absolute right-3 top-2.5">
+                                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                              </div>
+                            )}
+
+                            {/* Area Suggestions Dropdown */}
+                            {showAreaSuggestions && areaSuggestions.length > 0 && (
+                              <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg z-50">
+                                {areaSuggestions.map((suggestion, idx) => (
+                                  <div
+                                    key={idx}
+                                    onClick={() => {
+                                      setAddressArea(suggestion);
+                                      setShowAreaSuggestions(false);
+                                      setAreaSuggestions([]);
+                                      // NO Auto-validation! User must click Validate Address
+                                      console.log("[LOCATION] Selected suggestion:", suggestion, "waiting for manual validation");
+                                      // Just update the field state (which is already done via setAddressArea but let's be safe if needed)
+                                      // handleAddressChange('area', suggestion); // Already called by setAddressArea effectively
+                                    }}
+                                    className="w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm border-b border-gray-200 dark:border-gray-700 last:border-0 cursor-pointer"
+                                  >
+                                    {suggestion}
+                                  </div>
+                                ))}
                               </div>
                             )}
                           </div>
                         </div>
-                      </div>
 
-                      {/* Pincode Validation Messages */}
-                      <div>
-                        {isReValidatingPincode && (
-                          <p className="text-xs text-blue-600 dark:text-blue-400 mt-0.5">⏳ Validating pincode...</p>
-                        )}
-                        {!isReValidatingPincode && addressPincode && !/^\d{5,6}$/.test(addressPincode) && (
-                          <p className="text-xs text-red-500 mt-0.5">Pincode must be 5-6 digits</p>
-                        )}
-                        {!isReValidatingPincode && addressZoneValidated && addressInDeliveryZone && addressPincode && (
-                          <p className="text-xs text-green-600 mt-0.5">✅ Valid pincode for this delivery area</p>
-                        )}
-                        {!isReValidatingPincode && addressZoneValidated && !addressInDeliveryZone && addressPincode && (
-                          <p className="text-xs text-red-600 mt-0.5">❌ Pincode outside delivery zone</p>
-                        )}
+                        {/* Row 3: City and Pincode */}
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <Label htmlFor="city" className="text-xs text-gray-600">
+                              City
+                            </Label>
+                            <Input
+                              id="city"
+                              value={addressCity}
+                              onChange={(e) => handleAddressChange('city', e.target.value)}
+                              placeholder="Mumbai"
+                              className="text-sm"
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="pincode" className="text-xs text-gray-600 flex items-center justify-between">
+                              <span>Pincode <span className="text-red-500">*</span></span>
+                              {isReValidatingPincode && (
+                                <span className="text-xs text-blue-600 dark:text-blue-400 flex items-center gap-1">
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                  Checking...
+                                </span>
+                              )}
+                            </Label>
+                            <div className="relative">
+                              <Input
+                                id="pincode"
+                                value={addressPincode}
+                                onChange={(e) => handleAddressChange('pincode', e.target.value)}
+                                placeholder="e.g., 400070"
+                                className={`text-sm ${isReValidatingPincode ? 'border-blue-500 border-2' : ''} bg-gray-100 text-gray-500 cursor-not-allowed`}
+                                readOnly={true}
+                                required
+                              />
+                            </div>
+                          </div>
+                        </div>
                       </div>
+                    ) : (
+                      <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg border border-green-200 dark:border-green-800 mb-4">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <h4 className="font-semibold text-green-800 dark:text-green-300 flex items-center gap-2">
+                              <CheckCircle2 className="h-4 w-4" />
+                              Address Validated
+                            </h4>
+                            <p className="text-sm text-gray-700 dark:text-gray-300 mt-1">
+                              {addressBuilding}, {addressStreet}
+                            </p>
+                            <p className="text-sm text-gray-600 dark:text-gray-400">
+                              {addressArea}, {addressCity} - {addressPincode}
+                            </p>
+                            <p className="text-xs text-green-600 dark:text-green-400 mt-2 font-medium">
+                              Distance: {deliveryDistance !== null && deliveryDistance > 0 ? deliveryDistance.toFixed(2) : '0.00'} km
+                            </p>
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setIsEditingAddress(true);
+                              setAddressZoneValidated(false);
+                            }}
+                            className="h-7 text-xs"
+                          >
+                            Edit
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Pincode Validation Messages */}
+                    <div>
+                      {isReValidatingPincode && (
+                        <p className="text-xs text-blue-600 dark:text-blue-400 mt-0.5">⏳ Validating pincode...</p>
+                      )}
+                      {!isReValidatingPincode && addressPincode && !/^\d{5,6}$/.test(addressPincode) && (
+                        <p className="text-xs text-red-500 mt-0.5">Pincode must be 5-6 digits</p>
+                      )}
+                      {!isReValidatingPincode && addressZoneValidated && addressInDeliveryZone && addressPincode && (
+                        <p className="text-xs text-green-600 mt-0.5">✅ Valid pincode for this delivery area</p>
+                      )}
+                      {!isReValidatingPincode && addressZoneValidated && !addressInDeliveryZone && addressPincode && (
+                        <p className="text-xs text-red-600 mt-0.5">❌ Pincode outside delivery zone</p>
+                      )}
                     </div>
+
 
                     {/* Full Address Display */}
                     <div className="bg-gray-50 dark:bg-gray-900 p-2 rounded text-xs text-gray-700 dark:text-gray-300">
@@ -2467,16 +2500,40 @@ export default function CheckoutDialog({
                       <p>{address || "(Enter details above)"}</p>
                     </div>
 
-                    {/* Auto-Validation Status - Shows automatically while validating */}
-                    {(isGeocodingAddress || isReValidatingPincode) && (
-                      <div className="w-full flex items-center justify-center gap-2 py-2 text-sm text-blue-600 dark:text-blue-400">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        <span>Validating address...</span>
+                    {/* Manual Validation Button */}
+                    {!addressZoneValidated && isEditingAddress && (
+                      <div className="w-full flex flex-col items-center justify-center gap-2 py-2 mt-2">
+                        <Button
+                          type="button"
+                          onClick={() => {
+                            if (addressPincode && addressArea && addressStreet) {
+                              handlePincodeChange(addressPincode);
+                            } else {
+                              toast({
+                                title: "Incomplete Address",
+                                description: "Please enter your street and area details before validating.",
+                                variant: "destructive"
+                              });
+                            }
+                          }}
+                          disabled={isReValidatingPincode || !addressPincode || !addressArea || !addressStreet}
+                          className="w-full sm:w-auto"
+                        >
+                          {isReValidatingPincode ? (
+                            <>
+                              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                              Validating...
+                            </>
+                          ) : (
+                            "Validate Address"
+                          )}
+                        </Button>
+                        <p className="text-xs text-gray-500">Tap to confirm your exact location and see delivery fees.</p>
                       </div>
                     )}
 
                     {/* Smart Location Validation Feedback - Zomato Style */}
-                    {addressZoneValidated && (
+                    {addressZoneValidated && !isEditingAddress && (
                       <div
                         className={`rounded-md p-3 border ${addressInDeliveryZone
                           ? "bg-green-50 dark:bg-green-950/20 border-green-300 dark:border-green-700"
@@ -2531,7 +2588,7 @@ export default function CheckoutDialog({
                   {/* ============================================
                         SHOW DELIVERY, COUPONS, TOTALS ONLY AFTER ADDRESS IS CONFIRMED
                         ============================================ */}
-                  {addressConfirmed && addressZoneValidated && addressInDeliveryZone && (
+                  {!isEditingAddress && addressZoneValidated && addressInDeliveryZone && (
                     <div>
                       {/* Delivery Time Selection - OPTIONAL for Roti orders */}
                       {isRotiCategory && (
@@ -3053,6 +3110,7 @@ export default function CheckoutDialog({
           </div>
 
           {/* Footer - Always at bottom */}
+          {/* Footer - Always at bottom */}
           <DialogFooter className="flex-shrink-0 border-t px-4 sm:px-6 py-4 bg-background">
             <div className="flex gap-2 w-full flex-col-reverse sm:flex-row sm:justify-end">
               <Button
@@ -3136,7 +3194,7 @@ export default function CheckoutDialog({
             </div>
           </DialogFooter>
         </DialogContent>
-      </Dialog >
+      </Dialog>
     </>
   );
 }
