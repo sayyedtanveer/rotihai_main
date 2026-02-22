@@ -267,12 +267,20 @@ export default function CheckoutDialog({
       if (!cart?.categoryId) return null;
       // We don't have a single category endpoint, so get all and filter
       const res = await api.get("/api/categories");
-      return res.data?.find((c: any) => c.id === cart.categoryId) || null;
+      const found = res.data?.find((c: any) => c.id === cart.categoryId) || null;
+      console.log("[DEBUG CheckoutDialog] Fetched Categories. Found match for", cart.categoryId, ":", found);
+      return found;
     },
     enabled: !!cart?.categoryId && isOpen,
   });
 
   const requiresDeliverySlot = !!categoryData?.requiresDeliverySlot;
+
+  useEffect(() => {
+    if (isOpen) {
+      console.log("[DEBUG CheckoutDialog] requiresDeliverySlot evaluates to:", requiresDeliverySlot, "based on categoryData:", categoryData);
+    }
+  }, [isOpen, requiresDeliverySlot, categoryData]);
 
   // Fetch wallet settings (maxUsagePerOrder and minOrderAmount limits)
   const { data: walletSettings } = useQuery<{
