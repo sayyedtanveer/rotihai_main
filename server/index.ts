@@ -86,7 +86,7 @@ app.use((req, res, next) => {
   res.header("Access-Control-Allow-Credentials", "true");
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
   res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
-  
+
   if (req.method === "OPTIONS") {
     return res.sendStatus(200);
   }
@@ -379,7 +379,7 @@ app.use((req, res, next) => {
   });
 
   // ===== IMAGE UPLOAD & SERVING =====
-  
+
   // POST /api/upload - Upload image (Admin only)
   app.post("/api/upload", upload.single("image"), async (req: Request, res: Response) => {
     try {
@@ -425,17 +425,17 @@ app.use((req, res, next) => {
         return;
       }
 
+      // the imageExists and getImagePath functions are already imported at the top of the file
       if (!imageExists(filename)) {
         res.status(404).json({ message: "Image not found" });
         return;
       }
 
       const filepath = getImagePath(filename);
-      
+
       // Set cache headers for images
       res.setHeader("Cache-Control", "public, max-age=86400"); // 24 hours
-      res.setHeader("Content-Type", "image/*");
-      
+
       res.sendFile(filepath);
     } catch (error: any) {
       console.error("Image serving error:", error);
@@ -466,14 +466,14 @@ app.use((req, res, next) => {
   // importantly only setup vite in development and after
   // setting up all the other routes so the catch-all route
   // doesn't interfere with the other routes
-if (process.env.NODE_ENV === "development") {
-  const { setupVite } = await import("./vite.js");
-  await setupVite(app, server);
+  if (process.env.NODE_ENV === "development") {
+    const { setupVite } = await import("./vite.js");
+    await setupVite(app, server);
 
-} else if (process.env.SERVE_CLIENT === "true") {
-  const { serveStatic } = await import("./vite.js");
-  serveStatic(app);
-}
+  } else if (process.env.SERVE_CLIENT === "true") {
+    const { serveStatic } = await import("./vite.js");
+    serveStatic(app);
+  }
 
 
 
