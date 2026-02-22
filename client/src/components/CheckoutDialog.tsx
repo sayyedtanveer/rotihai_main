@@ -260,10 +260,19 @@ export default function CheckoutDialog({
   const [checkoutStep, setCheckoutStep] = useState<"address" | "confirmation">("address");
   const [addressValidationMessage, setAddressValidationMessage] = useState("");
 
-  // Check if this is a Roti category order
-  const isRotiCategory =
-    cart?.categoryName?.toLowerCase() === "roti" ||
-    cart?.categoryName?.toLowerCase().includes("roti");
+  // Fetch category data to see if it requires delivery slots
+  const { data: categoryData } = useQuery({
+    queryKey: ["/api/categories", cart?.categoryId],
+    queryFn: async () => {
+      if (!cart?.categoryId) return null;
+      // We don't have a single category endpoint, so get all and filter
+      const res = await api.get("/api/categories");
+      return res.data?.find((c: any) => c.id === cart.categoryId) || null;
+    },
+    enabled: !!cart?.categoryId && isOpen,
+  });
+
+  const requiresDeliverySlot = !!categoryData?.requiresDeliverySlot;
 
   // Fetch wallet settings (maxUsagePerOrder and minOrderAmount limits)
   const { data: walletSettings } = useQuery<{
@@ -393,12 +402,12 @@ export default function CheckoutDialog({
     currentTime: string;
   }>({
     queryKey: ["/api/roti-settings"],
-    enabled: isRotiCategory && isOpen,
+    enabled: requiresDeliverySlot && isOpen,
     refetchInterval: 60000,
   });
 
   // Determine if Roti ordering is blocked
-  const isRotiOrderBlocked = isRotiCategory && rotiSettings?.isBlocked;
+  const isRotiOrderBlocked = requiresDeliverySlot && rotiSettings?.isBlocked;
   const rotiBlockMessage =
     rotiSettings?.blockMessage ||
     "Roti orders are not available from 8 AM to 11 AM. Please order before 11 PM for next morning delivery.";
@@ -416,7 +425,7 @@ export default function CheckoutDialog({
     }>
   >({
     queryKey: ["/api/delivery-slots"],
-    enabled: isRotiCategory,
+    enabled: requiresDeliverySlot,
   });
 
   // Compute cutoff info for each slot (client-side advisory). Keep in sync with server logic.
@@ -1830,7 +1839,7 @@ export default function CheckoutDialog({
     const currentHour = now.getHours();
     const inMorningRestriction = currentHour >= 8 && currentHour < 11;
 
-    if (isRotiCategory && inMorningRestriction && selectedDeliverySlotId) {
+    if (requiresDeliverySlot && inMorningRestriction && selectedDeliverySlotId) {
       const selectedSlotInfo = slotCutoffMap[selectedDeliverySlotId];
       if (selectedSlotInfo?.isMorningSlot) {
         toast({
@@ -1843,7 +1852,7 @@ export default function CheckoutDialog({
       }
     }
 
-    // Delivery time is optional for Roti orders
+    // Delivery time is optional for delivery slot orders
 
     setIsLoading(true);
 
@@ -1887,15 +1896,15 @@ export default function CheckoutDialog({
         categoryId: cart.categoryId,
         categoryName: cart.categoryName,
         deliveryTime:
-          isRotiCategory && selectedDeliveryTime
+          requiresDeliverySlot && selectedDeliveryTime
             ? selectedDeliveryTime
             : undefined,
         deliverySlotId:
-          isRotiCategory && selectedDeliverySlotId
+          requiresDeliverySlot && selectedDeliverySlotId
             ? selectedDeliverySlotId
             : undefined,
         deliveryDate:
-          isRotiCategory && deliveryDateStr ? deliveryDateStr : undefined,
+          requiresDeliverySlot && deliveryDateStr ? deliveryDateStr : undefined,
         status: "pending" as const,
         paymentStatus: "pending" as const,
         bonusUsedAtCheckout: useBonusAtCheckout ? user?.pendingBonus?.amount || 0 : 0,
@@ -2588,8 +2597,8 @@ export default function CheckoutDialog({
                         ============================================ */}
                   {!isEditingAddress && addressZoneValidated && addressInDeliveryZone && (
                     <div>
-                      {/* Delivery Time Selection - OPTIONAL for Roti orders */}
-                      {isRotiCategory && (
+                      {/* Delivery Time Selection - OPTIONAL for delivery slot orders */}
+                      {requiresDeliverySlot && (
                         <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-300 dark:border-blue-700 rounded-md p-2 sm:p-3">
                           <div className="space-y-1.5 sm:space-y-2 w-full">
                             <Label
@@ -2691,6 +2700,12 @@ export default function CheckoutDialog({
                                   )}
                               </SelectContent>
                             </Select>
+                            {/* Validation message for missing slot */}
+                            {requiresDeliverySlot && !selectedDeliverySlotId && !isRotiOrderBlocked && (
+                              <p className="text-[11px] text-red-500 font-medium px-4 pb-2 -mt-1 text-center bg-white dark:bg-slate-900">
+                                Please select a delivery time slot to continue
+                              </p>
+                            )}
                             {selectedDeliverySlotId &&
                               slotCutoffMap[selectedDeliverySlotId] && (
                                 <div className="mt-1 text-center">

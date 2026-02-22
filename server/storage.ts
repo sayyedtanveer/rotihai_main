@@ -2,8 +2,10 @@ import { type Category, type InsertCategory, type Product, type InsertProduct, t
 import { randomUUID } from "crypto";
 import { nanoid } from "nanoid";
 import { eq, and, gte, lte, desc, asc, or, isNull, sql, count, lt } from "drizzle-orm";
-import { db, users, categories, products, orders, chefs, adminUsers, partnerUsers, subscriptions,
-  subscriptionPlans, subscriptionDeliveryLogs, deliverySettings, cartSettings, deliveryPersonnel, coupons, couponUsages, referrals, walletTransactions, referralRewards, promotionalBanners, deliveryTimeSlots, rotiSettings, visitors, deliveryAreas, adminSettings } from "@shared/db";
+import {
+  db, users, categories, products, orders, chefs, adminUsers, partnerUsers, subscriptions,
+  subscriptionPlans, subscriptionDeliveryLogs, deliverySettings, cartSettings, deliveryPersonnel, coupons, couponUsages, referrals, walletTransactions, referralRewards, promotionalBanners, deliveryTimeSlots, rotiSettings, visitors, deliveryAreas, adminSettings
+} from "@shared/db";
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
@@ -252,7 +254,7 @@ export interface IStorage {
  */
 function convertDateForDB(value: any): Date | null {
   if (value === null || value === undefined) return null;
-  
+
   if (typeof value === 'string') {
     // Parse ISO string to Date object
     const date = new Date(value);
@@ -260,13 +262,13 @@ function convertDateForDB(value: any): Date | null {
     if (isNaN(timestamp)) return null;
     return date;
   }
-  
+
   if (value instanceof Date) {
     const timestamp = value.getTime();
     if (isNaN(timestamp)) return null;
     return value;
   }
-  
+
   return null;
 }
 
@@ -284,7 +286,7 @@ function convertDateForDB(value: any): Date | null {
 function serializeSubscription(sub: any): any {
   if (!sub) return sub;
   const serialized = { ...sub };
-  
+
   // Helper to safely convert any date field
   const convertDateField = (dateValue: any, fieldName: string = "unknown"): string | null => {
     if (!dateValue) {
@@ -293,16 +295,16 @@ function serializeSubscription(sub: any): any {
     }
     try {
       console.log(`[CONVERT-FIELD] ${fieldName}: type=${typeof dateValue}, isDate=${dateValue instanceof Date}, value=${dateValue}`);
-      
+
       // If already a string and looks like ISO string, return as-is
       if (typeof dateValue === 'string') {
         // Validate it's a proper ISO string by checking if parsing works
         const dateObj = new Date(dateValue);
         const timestamp = dateObj.getTime();
         const year = dateObj.getFullYear();
-        
+
         console.log(`[CONVERT-FIELD] ${fieldName} (string): timestamp=${timestamp}, isNaN=${isNaN(timestamp)}, year=${year}`);
-        
+
         if (!isNaN(timestamp) && year >= 1980 && year <= 2100) {
           console.log(`[CONVERT-FIELD] ${fieldName}: returning ISO string as-is`);
           return dateValue; // Return the original ISO string
@@ -310,14 +312,14 @@ function serializeSubscription(sub: any): any {
         console.log(`[CONVERT-FIELD] ${fieldName}: invalid string date, returning null`);
         return null; // Invalid or out of range
       }
-      
+
       // If it's a Date object
       const dateObj = new Date(dateValue);
       const timestamp = dateObj.getTime();
       const year = dateObj.getFullYear();
-      
+
       console.log(`[CONVERT-FIELD] ${fieldName} (Date obj): timestamp=${timestamp}, isNaN=${isNaN(timestamp)}, year=${year}`);
-      
+
       // Check if date is valid (not NaN)
       if (!isNaN(timestamp)) {
         // Reject epoch (1970), very old dates (before 1980), and dates too far in future (after 2100)
@@ -337,7 +339,7 @@ function serializeSubscription(sub: any): any {
       return null;
     }
   };
-  
+
   // Convert ALL date fields to ISO strings or null
   // CRITICAL: This prevents epoch (1970) dates from being sent to frontend
   serialized.startDate = convertDateField(serialized.startDate, 'startDate');
@@ -349,7 +351,7 @@ function serializeSubscription(sub: any): any {
   serialized.pauseResumeDate = convertDateField(serialized.pauseResumeDate, 'pauseResumeDate');
   serialized.createdAt = convertDateField(serialized.createdAt, 'createdAt');
   serialized.updatedAt = convertDateField(serialized.updatedAt, 'updatedAt');
-  
+
   // VALIDATION: Ensure nextDeliveryDate is valid (not 1970 or null)
   if (serialized.nextDeliveryDate === null) {
     console.warn(`[SERIALIZE] ${serialized.id}: nextDeliveryDate is NULL after conversion`);
@@ -362,7 +364,7 @@ function serializeSubscription(sub: any): any {
       console.error(`  Original input: ${sub.nextDeliveryDate}`);
     }
   }
-  
+
   return serialized;
 }
 
@@ -398,10 +400,10 @@ export class MemStorage implements IStorage {
 
   async createUser(userData: Omit<User, "id" | "createdAt" | "updatedAt" | "lastLoginAt">): Promise<User> {
     const id = randomUUID();
-    
+
     // Auto-generate referral code for new user
     const referralCode = userData.referralCode || `REF${nanoid(8).toUpperCase()}`;
-    
+
     const user: User = {
       ...userData,
       referralCode,
@@ -446,7 +448,7 @@ export class MemStorage implements IStorage {
 
   async createCategory(insertCategory: InsertCategory): Promise<Category> {
     const id = randomUUID();
-    const category: Category = { ...insertCategory, id };
+    const category: Category = { requiresDeliverySlot: false, ...insertCategory, id };
     await db.insert(categories).values(category);
     return category;
   }
@@ -478,12 +480,12 @@ export class MemStorage implements IStorage {
 
   async createProduct(insertProduct: InsertProduct): Promise<Product> {
     const id = randomUUID();
-    const marginPercent = insertProduct.marginPercent !== undefined 
-      ? typeof insertProduct.marginPercent === 'number' 
-        ? insertProduct.marginPercent.toString() 
-        : insertProduct.marginPercent 
+    const marginPercent = insertProduct.marginPercent !== undefined
+      ? typeof insertProduct.marginPercent === 'number'
+        ? insertProduct.marginPercent.toString()
+        : insertProduct.marginPercent
       : "0";
-    
+
     const product: Product = {
       ...insertProduct,
       id,
@@ -505,12 +507,12 @@ export class MemStorage implements IStorage {
 
   async updateProduct(id: string, updateData: Partial<InsertProduct>): Promise<Product | undefined> {
     const sanitizedData: any = { ...updateData };
-    
+
     // Convert marginPercent to string if it's a number
     if (sanitizedData.marginPercent !== undefined && typeof sanitizedData.marginPercent === 'number') {
       sanitizedData.marginPercent = sanitizedData.marginPercent.toString();
     }
-    
+
     await db.update(products).set(sanitizedData).where(eq(products.id, id));
     return this.getProductById(id);
   }
@@ -600,7 +602,7 @@ export class MemStorage implements IStorage {
     await db.delete(orders).where(eq(orders.id, id));
   }
 
-   async getChefs(): Promise<Chef[]> {
+  async getChefs(): Promise<Chef[]> {
     // If filtering by category is intended to show partners/restaurants,
     // this query should select from `partnerUsers` or `chefs` based on context.
     // For now, returning all chefs as per original implementation.
@@ -651,7 +653,7 @@ export class MemStorage implements IStorage {
       maxDeliveryDistanceKm: (data as any).maxDeliveryDistanceKm ?? 5,
       isVerified: (data as any).isVerified === true,
     };
-    
+
     await db.insert(chefs).values(chefData as any);
     const created = await this.getChefById(id);
     return created || (chefData as any as Chef);
@@ -681,9 +683,9 @@ export class MemStorage implements IStorage {
     if ((data as any).maxDeliveryDistanceKm !== undefined) updateData.maxDeliveryDistanceKm = (data as any).maxDeliveryDistanceKm;
     if ((data as any).servicePincodes !== undefined) updateData.servicePincodes = (data as any).servicePincodes;
     if ((data as any).isVerified !== undefined) updateData.isVerified = (data as any).isVerified;
-    
+
     console.log("🔥 updateChef() - Received data:", { id, incomingMaxDeliveryDistanceKm: (data as any).maxDeliveryDistanceKm, servicePincodes: (data as any).servicePincodes, updateData });
-    
+
     await db.update(chefs).set(updateData).where(eq(chefs.id, id));
     const chef = await this.getChefById(id);
     return chef || undefined;
@@ -740,7 +742,7 @@ export class MemStorage implements IStorage {
     return db.query.adminUsers.findMany();
   }
 
-  async getAllUsers(): Promise<User[]>{
+  async getAllUsers(): Promise<User[]> {
     return db.query.users.findMany();
   }
 
@@ -1037,7 +1039,7 @@ export class MemStorage implements IStorage {
 
   async getSubscription(id: string): Promise<Subscription | undefined> {
     const sub = await db.query.subscriptions.findFirst({ where: (s, { eq }) => eq(s.id, id) });
-    
+
     // DEBUG: Log raw database response to understand date field types
     if (sub) {
       console.log(`\n[DB-DEBUG] getSubscription(${id}) - Raw DB response:`);
@@ -1051,7 +1053,7 @@ export class MemStorage implements IStorage {
         console.log(`  nextDeliveryDate getTime()=${sub.nextDeliveryDate.getTime()}, year=${sub.nextDeliveryDate.getFullYear()}`);
       }
     }
-    
+
     return sub ? serializeSubscription(sub) : undefined;
   }
 
@@ -1064,13 +1066,13 @@ export class MemStorage implements IStorage {
       createdAt: now,
       updatedAt: now,
     };
-    
+
     console.log(`[CREATE-SUB-DEBUG] Input nextDeliveryDate:`, {
       value: data.nextDeliveryDate,
       type: typeof data.nextDeliveryDate,
       isDate: data.nextDeliveryDate instanceof Date,
     });
-    
+
     // Convert all date fields to Date objects for Drizzle ORM
     insertData.startDate = convertDateForDB(insertData.startDate);
     insertData.endDate = convertDateForDB(insertData.endDate);
@@ -1081,32 +1083,32 @@ export class MemStorage implements IStorage {
     insertData.pauseResumeDate = convertDateForDB(insertData.pauseResumeDate);
     insertData.createdAt = convertDateForDB(insertData.createdAt);
     insertData.updatedAt = convertDateForDB(insertData.updatedAt);
-    
+
     console.log(`[CREATE-SUB-DEBUG] After conversion nextDeliveryDate:`, {
       value: insertData.nextDeliveryDate,
       type: typeof insertData.nextDeliveryDate,
       isDate: insertData.nextDeliveryDate instanceof Date,
     });
-    
+
     // CRITICAL: Ensure nextDeliveryDate is NEVER null (it's NOT NULL in schema)
     // If not provided, use startDate as the first delivery date
     if (!insertData.nextDeliveryDate && insertData.startDate) {
       insertData.nextDeliveryDate = insertData.startDate;
       console.log(`[CREATE-SUB] nextDeliveryDate not provided, using startDate as default`);
     }
-    
+
     // Fallback: if still no date, use today
     if (!insertData.nextDeliveryDate) {
       insertData.nextDeliveryDate = now;
       console.log(`[CREATE-SUB] nextDeliveryDate still missing, defaulting to now`);
     }
-    
+
     console.log(`[CREATE-SUB-DEBUG] Final insertData:`, {
       nextDeliveryDate: insertData.nextDeliveryDate,
       startDate: insertData.startDate,
       endDate: insertData.endDate,
     });
-    
+
     await db.insert(subscriptions).values(insertData);
     const created = await this.getSubscription(id);
     return created!;
@@ -1115,23 +1117,23 @@ export class MemStorage implements IStorage {
   async updateSubscription(id: string, data: Partial<Subscription>): Promise<Subscription | undefined> {
     // Convert Date objects to ISO strings before updating, since database stores ISO strings
     const updateData: any = { ...data };
-    
+
     console.log(`[UPDATE-SUB] Starting update for subscription ${id}`);
     console.log(`[UPDATE-SUB] Input data keys:`, Object.keys(updateData));
-    
+
     // List of date field names that need conversion
     const dateFields = ['startDate', 'endDate', 'nextDeliveryDate', 'chefAssignedAt', 'pauseStartDate', 'pauseResumeDate', 'lastDeliveryDate'];
-    
+
     // Process ONLY date fields - safely convert Date objects to ISO strings
     for (const fieldName of dateFields) {
       if (fieldName in updateData) {
         const value = updateData[fieldName];
-        
+
         if (value === undefined || value === null) {
           // Keep null values as-is (nullable columns)
           continue;
         }
-        
+
         const converted = convertDateForDB(value);
         if (converted === null) {
           // Don't update if conversion fails (invalid date)
@@ -1143,15 +1145,15 @@ export class MemStorage implements IStorage {
         }
       }
     }
-    
+
     // Always update updatedAt
     updateData.updatedAt = new Date();
-    
+
     console.log(`[UPDATE-SUB] Final updateData:`, updateData);
     console.log(`[UPDATE-SUB] About to call db.update...`);
-    
+
     await db.update(subscriptions).set(updateData).where(eq(subscriptions.id, id));
-    
+
     console.log(`[UPDATE-SUB] Update successful, calling getSubscription...`);
     return this.getSubscription(id);
   }
@@ -1261,26 +1263,26 @@ export class MemStorage implements IStorage {
       createdAt: now,
       updatedAt: now,
     };
-    
+
     // Convert date field to ISO string if it's a Date object
     const insertData: any = { ...logData };
     insertData.date = convertDateForDB(insertData.date);
     insertData.createdAt = convertDateForDB(insertData.createdAt);
     insertData.updatedAt = convertDateForDB(insertData.updatedAt);
-    
+
     await db.insert(subscriptionDeliveryLogs).values(insertData);
     return logData;
   }
 
   async updateSubscriptionDeliveryLog(id: string, data: Partial<SubscriptionDeliveryLog>): Promise<SubscriptionDeliveryLog | undefined> {
     const updateData: any = { ...data, updatedAt: new Date() };
-    
+
     // Convert date field to ISO string if it's a Date object
     if (updateData.date !== undefined) {
       updateData.date = convertDateForDB(updateData.date);
     }
     updateData.updatedAt = convertDateForDB(updateData.updatedAt);
-    
+
     await db.update(subscriptionDeliveryLogs).set(updateData).where(eq(subscriptionDeliveryLogs.id, id));
     return this.getSubscriptionDeliveryLog(id);
   }
@@ -1412,7 +1414,7 @@ export class MemStorage implements IStorage {
 
   // NEW: Get delivery settings filtered by pincode
   async getDeliverySettingsByPincode(pincode: string): Promise<DeliverySetting[]> {
-    return db.query.deliverySettings.findMany({ 
+    return db.query.deliverySettings.findMany({
       where: (ds, { eq, and, or, isNull }) => and(
         eq(ds.isActive, true),
         or(
@@ -1426,22 +1428,22 @@ export class MemStorage implements IStorage {
   // NEW: Get best matching delivery setting for pincode and distance
   async getDeliverySettingByPincodeAndDistance(pincode: string, distance: number): Promise<DeliverySetting | undefined> {
     const settings = await this.getDeliverySettingsByPincode(pincode);
-    
+
     // Find the setting where distance falls within minDistance and maxDistance
     for (const setting of settings) {
       const minDist = parseFloat(String(setting.minDistance));
       const maxDist = parseFloat(String(setting.maxDistance));
-      
+
       if (distance >= minDist && distance <= maxDist) {
         return setting;
       }
     }
-    
+
     // If no exact match found, return the closest one (useful for edge cases)
     if (settings.length > 0) {
       return settings[0];
     }
-    
+
     return undefined;
   }
 
@@ -1969,11 +1971,11 @@ export class MemStorage implements IStorage {
 
     // Check minimum order amount
     if (orderTotal < minOrderAmount) {
-      return { 
-        eligible: false, 
-        bonus: referredBonus, 
+      return {
+        eligible: false,
+        bonus: referredBonus,
         minOrderAmount,
-        reason: `Minimum order amount ₹${minOrderAmount} required to claim bonus. Current order: ₹${orderTotal}` 
+        reason: `Minimum order amount ₹${minOrderAmount} required to claim bonus. Current order: ₹${orderTotal}`
       };
     }
 
@@ -1987,7 +1989,7 @@ export class MemStorage implements IStorage {
   }> {
     // Validate eligibility
     const validation = await this.validateBonusEligibility(userId, orderTotal);
-    
+
     if (!validation.eligible) {
       return {
         bonusClaimed: false,
@@ -2112,10 +2114,10 @@ export class MemStorage implements IStorage {
 
     const balanceBefore = user.walletBalance;
     console.log(`💳 [STORAGE]   Read from DB - walletBalance: ${balanceBefore} (type: ${typeof balanceBefore})`);
-    
+
     const amountChange = transaction.type === "debit" ? -transaction.amount : transaction.amount;
     console.log(`💳 [STORAGE]   AmountChange: ${amountChange}`);
-    
+
     const balanceAfter = balanceBefore + amountChange;
     console.log(`💳 [STORAGE]   Calculation: ${balanceBefore} + ${amountChange} = ${balanceAfter}`);
 
@@ -2365,7 +2367,7 @@ export class MemStorage implements IStorage {
   async updateRotiSettings(data: Partial<InsertRotiSettings>): Promise<RotiSettings> {
     // Get existing settings or create new
     const existing = await this.getRotiSettings();
-    
+
     if (existing) {
       const [updated] = await db.update(rotiSettings)
         .set({ ...data, updatedAt: new Date() })
@@ -2403,7 +2405,7 @@ export class MemStorage implements IStorage {
         apiKey: settings.apiKey || "",
         updatedAt: new Date()
       };
-      
+
       console.log(`✅ SMS Settings updated: ${smsSettings.enableSMS ? "ENABLED" : "DISABLED"}`);
       return smsSettings;
     } catch (error) {
@@ -2559,7 +2561,7 @@ export class MemStorage implements IStorage {
   }
 
   // ==================== VISITOR TRACKING ====================
-  
+
   async trackVisitor(data: any): Promise<any> {
     try {
       const result = await db.insert(visitors).values(data).returning();
@@ -2608,7 +2610,7 @@ export class MemStorage implements IStorage {
           gte(visitors.createdAt, today),
           lt(visitors.createdAt, tomorrow)
         ));
-      
+
       return result[0]?.count || 0;
     } catch (error) {
       console.error("Error getting today's visitors:", error);
@@ -2626,7 +2628,7 @@ export class MemStorage implements IStorage {
         .from(visitors)
         .groupBy(visitors.page)
         .orderBy((t) => desc(t.count));
-      
+
       return result;
     } catch (error) {
       console.error("Error getting visitors by page:", error);
@@ -2648,7 +2650,7 @@ export class MemStorage implements IStorage {
         .where(gte(visitors.createdAt, startDate))
         .groupBy(sql`DATE(${visitors.createdAt})`)
         .orderBy((t) => t.date);
-      
+
       return result;
     } catch (error) {
       console.error("Error getting visitors by date:", error);
@@ -2688,10 +2690,10 @@ export class MemStorage implements IStorage {
     try {
       const trimmedName = name.trim();
       if (!trimmedName) return undefined;
-      
+
       const result = await db.insert(deliveryAreas)
-        .values({ 
-          name: trimmedName, 
+        .values({
+          name: trimmedName,
           isActive: true,
           pincodes: pincodes && pincodes.length > 0 ? pincodes : []
         })
@@ -2711,12 +2713,12 @@ export class MemStorage implements IStorage {
       if (pincodes !== undefined) updateData.pincodes = pincodes;
       if (latitude !== undefined) updateData.latitude = latitude;
       if (longitude !== undefined) updateData.longitude = longitude;
-      
+
       const result = await db.update(deliveryAreas)
         .set(updateData)
         .where(eq(deliveryAreas.id, id))
         .returning();
-      
+
       console.log("[STORAGE] Delivery area updated:", id, updateData);
       return result[0];
     } catch (error) {
@@ -2729,17 +2731,17 @@ export class MemStorage implements IStorage {
     try {
       // Delete all existing areas
       await db.delete(deliveryAreas);
-      
+
       // Insert new areas
       const trimmedAreas = areaNames
         .map(a => a.trim())
         .filter(a => a.length > 0);
-      
+
       if (trimmedAreas.length > 0) {
         await db.insert(deliveryAreas)
           .values(trimmedAreas.map(name => ({ name, isActive: true })));
       }
-      
+
       console.log("[STORAGE] Delivery areas updated:", trimmedAreas);
       return true;
     } catch (error) {
@@ -2793,7 +2795,7 @@ export class MemStorage implements IStorage {
         .set({ value, description: description || null, updatedAt: new Date() })
         .where(eq(adminSettings.key, key))
         .returning();
-      
+
       // If no existing setting, insert new one
       if (updated.length === 0) {
         await db.insert(adminSettings).values({
@@ -2813,7 +2815,7 @@ export class MemStorage implements IStorage {
     try {
       const lat = await this.getAdminSetting("default_latitude");
       const lon = await this.getAdminSetting("default_longitude");
-      
+
       return {
         latitude: parseFloat(lat || "19.0728"),
         longitude: parseFloat(lon || "72.8826"),
@@ -2835,6 +2837,6 @@ export class MemStorage implements IStorage {
     }
   }
 
-  }
+}
 
 export const storage = new MemStorage();

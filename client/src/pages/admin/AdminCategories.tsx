@@ -18,6 +18,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertCategorySchema } from "@shared/schema";
 import { ImageUploader } from "@/components/ImageUploader";
+import { Switch } from "@/components/ui/switch";
 
 export default function AdminCategories() {
   const { toast } = useToast();
@@ -40,6 +41,7 @@ export default function AdminCategories() {
       image: "",
       iconName: "UtensilsCrossed",
       itemCount: "0 items",
+      requiresDeliverySlot: false,
     },
   });
 
@@ -92,6 +94,7 @@ export default function AdminCategories() {
       image: category.image,
       iconName: category.iconName,
       itemCount: category.itemCount,
+      requiresDeliverySlot: category.requiresDeliverySlot ?? false,
     });
     setIsDialogOpen(true);
   };
@@ -193,6 +196,26 @@ export default function AdminCategories() {
                           <Input {...field} placeholder="20+ items" data-testid="input-category-count" />
                         </FormControl>
                         <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="requiresDeliverySlot"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm">
+                        <div className="space-y-0.5">
+                          <FormLabel>Require Delivery Slot</FormLabel>
+                          <div className="text-sm text-muted-foreground">
+                            Users will be asked to choose a specific delivery time interval during checkout (e.g., for Roti or Ghar Ka Khana)
+                          </div>
+                        </div>
+                        <FormControl>
+                          <Switch
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                          />
+                        </FormControl>
                       </FormItem>
                     )}
                   />
