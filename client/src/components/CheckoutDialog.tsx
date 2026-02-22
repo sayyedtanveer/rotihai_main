@@ -261,7 +261,8 @@ export default function CheckoutDialog({
   const [addressValidationMessage, setAddressValidationMessage] = useState("");
 
   // Fetch category data to see if it requires delivery slots
-  const { data: categoryData } = useQuery({
+  // Fetch category data to see if it requires delivery slots
+  const { data: categoryData, isLoading: isCategoryLoading } = useQuery({
     queryKey: ["/api/categories", cart?.categoryId],
     queryFn: async () => {
       if (!cart?.categoryId) return null;
@@ -341,8 +342,9 @@ export default function CheckoutDialog({
               const chef = chefRes.data;
               const distance = calculateDistance(chef.latitude, chef.longitude, latitude, longitude);
 
-              if (distance > chef.maxDeliveryDistanceKm) {
-                setLocationError(`This location is ${distance.toFixed(1)}km away. We only deliver within ${chef.maxDeliveryDistanceKm}km.`);
+              const maxDist = parseFloat(chef.maxDeliveryDistanceKm);
+              if (distance > maxDist) {
+                setLocationError(`This location is ${distance.toFixed(1)}km away. We only deliver within ${maxDist}km.`);
                 setAddressInDeliveryZone(false);
               } else {
                 setAddressInDeliveryZone(true);
@@ -2606,7 +2608,12 @@ export default function CheckoutDialog({
                   {!isEditingAddress && addressZoneValidated && addressInDeliveryZone && (
                     <div>
                       {/* Delivery Time Selection - OPTIONAL for delivery slot orders */}
-                      {requiresDeliverySlot && (
+                      {isCategoryLoading ? (
+                        <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-300 dark:border-blue-700 rounded-md p-4 flex items-center justify-center">
+                          <Loader2 className="h-5 w-5 animate-spin text-blue-500 mr-2" />
+                          <span className="text-sm font-medium text-blue-700 dark:text-blue-300">Checking delivery options...</span>
+                        </div>
+                      ) : requiresDeliverySlot && (
                         <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-300 dark:border-blue-700 rounded-md p-2 sm:p-3">
                           <div className="space-y-1.5 sm:space-y-2 w-full">
                             <Label

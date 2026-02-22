@@ -157,7 +157,8 @@ export function useCheckoutAddress({ cart, isOpen }: UseCheckoutAddressProps) {
         longitude
       );
 
-      const inZone = distance <= chef.maxDeliveryDistanceKm;
+      const maxDist = parseFloat(chef.maxDeliveryDistanceKm);
+      const inZone = distance <= maxDist;
 
       setCustomerLatitude(latitude);
       setCustomerLongitude(longitude);
@@ -169,7 +170,7 @@ export function useCheckoutAddress({ cart, isOpen }: UseCheckoutAddressProps) {
         setLocationError(
           `Pincode ${newPincode} is ${distance.toFixed(
             1
-          )}km away. Delivery radius is ${chef.maxDeliveryDistanceKm}km`
+          )}km away. Delivery radius is ${maxDist}km`
         );
         return;
       }
@@ -199,7 +200,7 @@ export function useCheckoutAddress({ cart, isOpen }: UseCheckoutAddressProps) {
     } catch (err: any) {
       setLocationError(
         err?.response?.data?.message ||
-          "Could not validate pincode. Please try again."
+        "Could not validate pincode. Please try again."
       );
       setAddressZoneValidated(false);
     } finally {
@@ -252,7 +253,8 @@ export function useCheckoutAddress({ cart, isOpen }: UseCheckoutAddressProps) {
         longitude
       );
 
-      const inZone = distance <= chef.maxDeliveryDistanceKm;
+      const maxDist = parseFloat(chef.maxDeliveryDistanceKm);
+      const inZone = distance <= maxDist;
 
       setCustomerLatitude(latitude);
       setCustomerLongitude(longitude);
@@ -264,7 +266,7 @@ export function useCheckoutAddress({ cart, isOpen }: UseCheckoutAddressProps) {
         setLocationError(
           `Address is ${distance.toFixed(
             1
-          )}km away. Delivery radius is ${chef.maxDeliveryDistanceKm}km`
+          )}km away. Delivery radius is ${maxDist}km`
         );
         return;
       }

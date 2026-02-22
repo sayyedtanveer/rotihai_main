@@ -70,13 +70,14 @@ export default function Hero() {
         return;
       }
 
-      // STEP 3: No saved location, try auto-detect GPS on first load
-      console.log("[HERO] No saved location, attempting auto-GPS detection...");
-      attemptAutoGPS();
+      // STEP 3: No saved location, require manual pincode input
+      console.log("[HERO] No saved location, skipping auto-GPS to require Pincode...");
+      setIsGettingLocation(false);
+      setHasLocation(false);
     };
 
     checkLocationOnLoad();
-  }, [toast]);
+  }, [toast, setUserLocation]);
 
   // AUTO-DETECT GPS on first load
   const attemptAutoGPS = () => {

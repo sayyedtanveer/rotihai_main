@@ -185,71 +185,11 @@ export default function Home() {
           return; // Pincode is authoritative - no need for GPS
         }
 
-        // THIRD: Only if NO PINCODE, try GPS as fallback
-        console.log("[LOCATION-DETECTION] No pincode found, attempting GPS fallback...");
-
-        // Check Safari/iPhone
-        const userAgent = navigator.userAgent.toLowerCase();
-        const isSafari = /safari/.test(userAgent) && !/chrome/.test(userAgent);
-        const isIOS = /iphone|ipad|ipod/.test(userAgent);
-        const onSafariIOS = isSafari && isIOS;
-
-        if (onSafariIOS) {
-          console.log("[LOCATION-DETECTION] ⚠️ Safari on iOS detected - showing browser recommendation");
-          setIsSafariOnIOS(true);
-        }
-
-        // Try GPS only as secondary option
-        if (navigator.geolocation) {
-          navigator.geolocation.getCurrentPosition(
-            async (position) => {
-              const lat = position.coords.latitude;
-              const lng = position.coords.longitude;
-
-              console.log("[LOCATION-DETECTION] GPS detected (fallback):", lat, lng);
-              console.log("[LOCATION-DETECTION] ⚠️ Note: GPS will be overridden if user enters pincode later");
-
-              // Set location in cart store
-              setUserLocation(lat, lng);
-
-              // Check if location is in delivery zone (within 2.5km of chef)
-              // Chef is at Kurla West, Mumbai (19.068604, 72.87658)
-              const CHEF_LAT = 19.068604;
-              const CHEF_LNG = 72.87658;
-              const MAX_DELIVERY_DISTANCE = 2.5; // km
-
-              const distance = calculateDistance(lat, lng, CHEF_LAT, CHEF_LNG);
-              console.log("[LOCATION-DETECTION] GPS distance to chef:", distance, "km");
-
-              if (distance <= MAX_DELIVERY_DISTANCE) {
-                setUserInDeliveryZone(true);
-                setLocationPermissionDenied(false);
-                console.log("[LOCATION-DETECTION] ✅ GPS is in delivery zone");
-              } else {
-                // GPS is outside, but user might enter valid pincode - don't block
-                console.log("[LOCATION-DETECTION] ⚠️ GPS outside zone, but pincode input will be available");
-                setUserInDeliveryZone(false);
-                setLocationPermissionDenied(false); // ALLOW pincode input
-              }
-
-              setDeliveryZoneDetected(true);
-            },
-            (error) => {
-              console.log("[LOCATION-DETECTION] GPS failed (expected):", error.message);
-              console.log("[LOCATION-DETECTION] User will enter pincode instead");
-              // GPS denied/failed - ALLOW pincode input
-              setDeliveryZoneDetected(true);
-              setUserInDeliveryZone(false);
-              setLocationPermissionDenied(false); // Allow pincode input
-            },
-            { timeout: 5000, enableHighAccuracy: false }
-          );
-        } else {
-          console.log("[LOCATION-DETECTION] Geolocation not supported - pincode input available");
-          setDeliveryZoneDetected(true);
-          setUserInDeliveryZone(false);
-          setLocationPermissionDenied(false); // Allow pincode input
-        }
+        // THIRD: Only if NO PINCODE, require manual input
+        console.log("[LOCATION-DETECTION] No pincode found, skipping GPS fallback to require Pincode input...");
+        setDeliveryZoneDetected(true);
+        setUserInDeliveryZone(false);
+        setLocationPermissionDenied(false); // Allow pincode input
       } catch (error) {
         console.error("[LOCATION-DETECTION] Error detecting location:", error);
         setDeliveryZoneDetected(true);
