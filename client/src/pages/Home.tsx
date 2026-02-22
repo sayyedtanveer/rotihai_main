@@ -940,10 +940,11 @@ export default function Home() {
                     <div className={`relative w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 rounded-full overflow-hidden shadow-md group-hover:shadow-lg transition-all group-hover:scale-105 flex-shrink-0 ${selectedCategoryTab === category.id ? "ring-2 ring-primary ring-offset-2" : ""
                       }`}>
                       <img
-                        src={category.image}
+                        src={getImageUrl(category.image)}
                         alt={category.name}
                         className="w-full h-full object-cover object-center"
                         loading="lazy"
+                        onError={handleImageError}
                       />
                     </div>
                     <span className={`text-xs font-medium text-center whitespace-nowrap max-w-[80px] sm:max-w-[88px] md:max-w-[96px] truncate ${selectedCategoryTab === category.id ? "text-primary font-bold" : "text-muted-foreground"

@@ -120,10 +120,11 @@ export default function CategoryMenuDrawer({
             <div className="p-4 border-b bg-muted/30" data-testid={`header-${category.id}`}>
               <div className="flex items-start gap-3">
                 <img
-                  src={category.image}
+                  src={getImageUrl(category.image)}
                   alt={category.name}
                   className="w-16 h-16 rounded-lg object-cover"
                   data-testid={`img-category-${category.id}`}
+                  onError={handleImageError}
                 />
                 <div className="flex-1">
                   <h3 className="text-lg font-bold mb-1" data-testid={`text-category-name-${category.id}`}>
