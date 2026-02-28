@@ -14,7 +14,7 @@ import SubscriptionDrawer from "@/components/SubscriptionDrawer";
 import LoginDialog from "@/components/LoginDialog";
 import Footer from "@/components/Footer";
 import PromotionalBannersSection from "@/components/PromotionalBannersSection";
-import { LocationPermissionModal } from "@/components/LocationPermissionModal";
+
 import { DeliveryAddressSelector } from "@/components/DeliveryAddressSelector";
 import { getImageUrl, handleImageError } from "@/lib/imageUrl";
 import { Button } from "@/components/ui/button";
@@ -86,7 +86,7 @@ export default function Home() {
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
   const [mobileNavTab, setMobileNavTab] = useState<string>("delivery");
   const [vegOnly, setVegOnly] = useState(false);
-  const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
+
   const [isPincodeModalOpen, setIsPincodeModalOpen] = useState(false);
   const [isAddressVerificationOpen, setIsAddressVerificationOpen] = useState(false);
   const [verifiedAddressData, setVerifiedAddressData] = useState<{
@@ -108,8 +108,7 @@ export default function Home() {
   const [showAddressModal, setShowAddressModal] = useState(false);
   const [detectedAddress, setDetectedAddress] = useState("");
   const [manualAddress, setManualAddress] = useState("");
-  const [locationPermissionDenied, setLocationPermissionDenied] = useState(false);
-  const [isSafariOnIOS, setIsSafariOnIOS] = useState(false); // Detect Safari on iPhone
+
 
   // Get delivery location from Context (syncs with CheckoutDialog)
   const { location: deliveryLocation } = useDeliveryLocation();
@@ -149,7 +148,6 @@ export default function Home() {
           console.log("[LOCATION-DETECTION] ✅ Using previously validated address from Context:", deliveryLocation.address);
           setUserInDeliveryZone(true);
           setDeliveryZoneDetected(true);
-          setLocationPermissionDenied(false);
           setIsDetectingLocation(false);
           return; // Use context location, no need for GPS
         }
@@ -171,7 +169,6 @@ export default function Home() {
           setUserLocation(deliveryLocation.latitude, deliveryLocation.longitude);
           setUserInDeliveryZone(true);
           setDeliveryZoneDetected(true);
-          setLocationPermissionDenied(false);
           setIsDetectingLocation(false);
 
           // Safari-specific: Log state for debugging
@@ -189,12 +186,10 @@ export default function Home() {
         console.log("[LOCATION-DETECTION] No pincode found, skipping GPS fallback to require Pincode input...");
         setDeliveryZoneDetected(true);
         setUserInDeliveryZone(false);
-        setLocationPermissionDenied(false); // Allow pincode input
       } catch (error) {
         console.error("[LOCATION-DETECTION] Error detecting location:", error);
         setDeliveryZoneDetected(true);
         setUserInDeliveryZone(false); // BLOCK categories on error
-        setLocationPermissionDenied(true);
       } finally {
         setIsDetectingLocation(false);
       }
@@ -203,24 +198,7 @@ export default function Home() {
     detectLocationAndZone();
   }, [setUserLocation, deliveryLocation, deliveryLocation.pincode, deliveryLocation.latitude, deliveryLocation.longitude]); // Added specific properties for Safari compatibility
 
-  // Auto-open location permission modal on page load (ONLY if location is actually needed)
-  useEffect(() => {
-    // Don't auto-open if already in delivery zone or if modals are already open
-    if (userInDeliveryZone || isLocationModalOpen || isPincodeModalOpen) {
-      return;
-    }
 
-    // Don't auto-open if we're still detecting on initial load
-    if (!deliveryZoneDetected) {
-      return;
-    }
-
-    // Only open if location was actually needed but denied/failed
-    if (deliveryZoneDetected && !userInDeliveryZone && locationPermissionDenied) {
-      console.log("[HOME] Location detection failed, showing modal");
-      setIsLocationModalOpen(true);
-    }
-  }, [deliveryZoneDetected, userInDeliveryZone, locationPermissionDenied, isLocationModalOpen, isPincodeModalOpen]);
 
   const handleCategoryTabChange = (value: string) => {
     setSelectedCategoryTab(value);
@@ -721,43 +699,12 @@ export default function Home() {
     return matchesSearch && matchesCategory;
   });
 
-  const requestLocationPermission = () => {
-    // Modal will handle location requests with better UX
-    setIsLocationModalOpen(true);
-  };
 
-  const handleLocationGranted = (lat: number, lng: number) => {
-    console.log("[HOME] handleLocationGranted called with:", lat, lng);
-    // Update cart store with location
-    setUserLocation(lat, lng);
-
-    // Check if location is in delivery zone
-    const CHEF_LAT = 19.068604;
-    const CHEF_LNG = 72.87658;
-    const MAX_DELIVERY_DISTANCE = 2.5;
-    const distance = calculateDistance(lat, lng, CHEF_LAT, CHEF_LNG);
-
-    if (distance <= MAX_DELIVERY_DISTANCE) {
-      console.log("[HOME] ✅ Location is in delivery zone");
-      setUserInDeliveryZone(true);
-      setLocationPermissionDenied(false);
-    } else {
-      console.log("[HOME] ❌ Location is outside delivery zone:", distance, "km");
-      setUserInDeliveryZone(false);
-      setLocationPermissionDenied(true);
-    }
-
-    setDeliveryZoneDetected(true);
-    setIsLocationModalOpen(false);
-  };
 
   const { setDeliveryLocation } = useDeliveryLocation();
 
   const handlePincodeSubmitted = (pincode: string, latitude: number, longitude: number) => {
     console.log("[Home] Pincode submitted:", pincode, "Coordinates:", latitude, longitude);
-
-    // CRITICAL: Close location permission modal if it's still open
-    setIsLocationModalOpen(false);
 
     // Store pincode and coordinates in delivery location context
     setDeliveryLocation({
@@ -779,7 +726,6 @@ export default function Home() {
     // So we can allow browsing
     console.log("[HOME] ✅ Pincode verified with coordinates, allowing browsing");
     setUserInDeliveryZone(true);
-    setLocationPermissionDenied(false);
     setDeliveryZoneDetected(true);
 
     // Close pincode modal
@@ -1328,11 +1274,11 @@ export default function Home() {
                                     <button
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        setIsLocationModalOpen(true);
+                                        setIsPincodeModalOpen(true);
                                       }}
                                       className="text-blue-600 hover:underline font-medium"
                                     >
-                                      Get accurate fee
+                                      Enter pincode for accurate fee
                                     </button>
                                   </p>
                                 )}
@@ -1514,23 +1460,7 @@ export default function Home() {
         }}
       />
 
-      {/* Location Permission Modal - Zomato Style */}
-      <LocationPermissionModal
-        isOpen={isLocationModalOpen}
-        onLocationGranted={(lat, lng) => {
-          console.log("[HOME] LocationPermissionModal.onLocationGranted triggered");
-          handleLocationGranted(lat, lng);
-        }}
-        onClose={() => {
-          console.log("[HOME] LocationPermissionModal.onClose triggered");
-          setIsLocationModalOpen(false);
-          // Delay showing pincode modal to avoid modal stacking
-          setTimeout(() => {
-            console.log("[HOME] Opening pincode modal");
-            setIsPincodeModalOpen(true);
-          }, 300);
-        }}
-      />
+
 
       {/* Pincode Selector for Home Page */}
       <DeliveryAddressSelector
