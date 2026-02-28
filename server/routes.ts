@@ -11,7 +11,7 @@ import { verifyToken as verifyUserToken } from "./userAuth";
 import { requireAdmin } from "./adminAuth";
 import { sendEmail, createWelcomeEmail, createPasswordResetEmail, createPasswordChangeConfirmationEmail } from "./emailService";
 import { sendOrderPlacedAdminNotification } from "./whatsappService";
-import { db, subscriptions, orders, walletSettings, referralRewards } from "@shared/db";
+import { db, subscriptions, orders, walletSettings, referralRewards, newsletterSubscribers } from "@shared/db";
 import { eq } from "drizzle-orm";
 import { ZodError } from "zod";
 import axios from "axios";
@@ -4918,6 +4918,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
         success: false,
         message: "Failed to calculate delivery fee",
       });
+    }
+  });
+
+  // ============================================
+  // NEWSLETTER SUBSCRIPTION
+  // ============================================
+  app.post("/api/newsletter/subscribe", async (req, res) => {
+    try {
+      const { email } = req.body;
+
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return res.status(400).json({ success: false, message: "Please enter a valid email address." });
+      }
+
+      // Check if already subscribed
+      const existing = await db.select().from(newsletterSubscribers).where(eq(newsletterSubscribers.email, email.toLowerCase().trim())).limit(1);
+
+      if (existing.length > 0) {
+        if (existing[0].isActive) {
+          return res.json({ success: true, message: "You're already subscribed!" });
+        }
+        // Re-activate
+        await db.update(newsletterSubscribers)
+          .set({ isActive: true, unsubscribedAt: null })
+          .where(eq(newsletterSubscribers.email, email.toLowerCase().trim()));
+        return res.json({ success: true, message: "Welcome back! You've been re-subscribed." });
+      }
+
+      // New subscription
+      await db.insert(newsletterSubscribers).values({
+        email: email.toLowerCase().trim(),
+      });
+
+      console.log(`📧 New newsletter subscriber: ${email}`);
+      res.json({ success: true, message: "Successfully subscribed! You'll receive special offers and updates." });
+    } catch (error: any) {
+      console.error("Newsletter subscription error:", error);
+      res.status(500).json({ success: false, message: "Something went wrong. Please try again." });
     }
   });
 

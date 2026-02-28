@@ -40,8 +40,7 @@ import { useCustomerNotifications } from "@/hooks/useCustomerNotifications";
 import { useAuth } from "@/hooks/useAuth";
 import { calculateDistance } from "@/lib/locationUtils";
 import { useDeliveryLocation } from "@/contexts/DeliveryLocationContext";
-import { detectDeliveryArea } from "@/lib/deliveryAreas";
-import { AreaSelector } from "@/components/AreaSelector";
+
 
 const iconMap: Record<string, React.ReactNode> = {
   UtensilsCrossed: <UtensilsCrossed className="h-6 w-6 text-primary" />,
@@ -214,50 +213,15 @@ export default function Home() {
   // Can be from GPS OR validated address from Context
   const shouldLoadMenu = userInDeliveryZone && deliveryZoneDetected;
 
-  // ============================================
-  // PHASE 4: SMART AREA DETECTION WITH FALLBACK
-  // ============================================
-  const [detectedArea, setDetectedArea] = useState<string | null>(null);
-  const [detectionSource, setDetectionSource] = useState<'address' | 'gps' | 'fallback' | 'manual' | null>(null);
-
-  // Smart detection: Try Tier 1 (address) → Tier 2 (GPS) → Tier 3 (fallback/selector)
-  useEffect(() => {
-    const detectArea = async () => {
-      const contextLocation = deliveryLocation as any;
-      if (!contextLocation?.address && !contextLocation?.latitude && !contextLocation?.longitude) {
-        return; // No location data available
-      }
-
-      const detected = await detectDeliveryArea(
-        contextLocation?.address || null,
-        contextLocation?.latitude || null,
-        contextLocation?.longitude || null
-      );
-
-      if (detected) {
-        setDetectedArea(detected.name);
-        setDetectionSource(detected.source);
-        console.log(`🎯 Area detected: ${detected.name} (source: ${detected.source})`);
-      } else {
-        setDetectedArea(null);
-        setDetectionSource('fallback');
-        console.log("🎯 Area detection failed, showing selector");
-      }
-    };
-
-    detectArea();
-  }, [deliveryLocation]);
+  // Derive area name from delivery context for chef query fallback
+  const contextLocation = deliveryLocation as any;
+  const selectedArea = contextLocation?.areaName
+    || (contextLocation?.address ? contextLocation.address.split(",")[0].trim() : null);
 
   const { data: categories = [], isLoading: categoriesLoading } = useQuery<Category[]>({
     queryKey: ["/api/categories"],
     enabled: shouldLoadMenu, // Only load if location confirmed
   });
-
-  // Use smart detected area, fallback to context address parsing
-  const contextLocation = deliveryLocation as any;
-  const selectedArea = detectedArea || (contextLocation?.address
-    ? contextLocation.address.split(",")[0].trim()
-    : null);
 
   const { data: chefs = [], isLoading: chefsLoading } = useQuery<Chef[]>({
     // ✅ FIXED: Use pincode coordinates (if available) over GPS for chef loading
@@ -833,7 +797,7 @@ export default function Home() {
                         onError={handleImageError}
                       />
                     </div>
-                    <span className={`text-xs font-medium text-center whitespace-nowrap max-w-[80px] sm:max-w-[88px] md:max-w-[96px] truncate ${selectedCategoryTab === category.id ? "text-primary font-bold" : "text-muted-foreground"
+                    <span className={`text-xs font-medium text-center leading-tight line-clamp-2 max-w-[88px] sm:max-w-[96px] md:max-w-[112px] ${selectedCategoryTab === category.id ? "text-primary font-bold" : "text-muted-foreground"
                       }`}>{category.name}</span>
                   </button>
                 ))
@@ -868,7 +832,6 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Dynamic Promotional Banners */}
         <PromotionalBannersSection
           onSubscriptionClick={() => setIsSubscriptionOpen(true)}
           onCategoryClick={(categoryId) => {
@@ -877,32 +840,32 @@ export default function Home() {
           }}
         />
 
-        {/* PHASE 4: Area Selector - Show when area detection fails (fallback mode) */}
-        {detectionSource === 'fallback' && (
-          <div className="max-w-7xl mx-auto px-3 py-2">
-            <AreaSelector
-              selectedArea={selectedArea}
-              onAreaChange={(area) => {
-                setDetectedArea(area);
-                setDetectionSource('manual');
-                console.log(`🎯 User manually selected area: ${area}`);
-              }}
-            />
-          </div>
-        )}
-
-        {/* Area detection indicator for debugging (optional) */}
-        {selectedArea && detectionSource && (
-          <div className="max-w-7xl mx-auto px-3 py-1">
-            <div className="text-xs text-gray-500 dark:text-gray-400">
-              📍 Showing chefs for: {selectedArea}
-              {detectionSource === 'gps' && " (GPS detected)"}
-              {detectionSource === 'address' && " (Address detected)"}
-              {detectionSource === 'manual' && " (You selected)"}
-              {detectionSource === 'fallback' && " (Select above)"}
+        {/* Refer & Earn Banner - Below promotional banners */}
+        <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-8 py-2">
+          <div
+            className="bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 border border-amber-200 dark:border-amber-800 rounded-xl p-3 sm:p-4 flex items-center gap-3 cursor-pointer hover:shadow-md transition-shadow"
+            onClick={() => {
+              window.location.href = user ? "/invite" : "/profile";
+            }}
+          >
+            <div className="text-2xl sm:text-3xl flex-shrink-0">🎁</div>
+            <div className="flex-1 min-w-0">
+              <h3 className="font-bold text-sm text-amber-900 dark:text-amber-100">
+                Refer & Earn ₹50!
+              </h3>
+              <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">
+                {user
+                  ? "Get your code & share with friends"
+                  : "Login to get your referral code"}
+              </p>
+            </div>
+            <div className="flex-shrink-0 text-amber-600 dark:text-amber-400">
+              <ArrowRight className="h-5 w-5" />
             </div>
           </div>
-        )}
+        </div>
+
+
 
         {/* Main Content Section */}
         <section className="max-w-7xl mx-auto px-3 py-4" id="products-section">
@@ -1294,6 +1257,7 @@ export default function Home() {
           )}
         </section>
       </main>
+
 
       <Footer />
 

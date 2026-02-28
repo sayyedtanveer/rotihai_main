@@ -45,5 +45,6 @@ export const {
   rotiSettings,
   visitors,
   deliveryAreas,
-  adminSettings
+  adminSettings,
+  newsletterSubscribers
 } = schema;

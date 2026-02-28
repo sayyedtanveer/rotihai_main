@@ -141,6 +141,9 @@ export default function CheckoutDialog({
   // Address confirmation state - controls visibility of below content
   const [addressConfirmed, setAddressConfirmed] = useState(false);
 
+  // State for View/Edit mode
+  const [isEditingAddress, setIsEditingAddress] = useState(true);
+
   // Log when cart changes
   useEffect(() => {
     console.log("[CHECKOUT-DIALOG] Received cart prop:", {
@@ -203,7 +206,7 @@ export default function CheckoutDialog({
         clearTimeout(autoGeocodeTimeoutRef.current);
       }
     };
-  }, [addressPincode, addressArea, isOpen, cart?.chefId]);
+  }, [addressPincode, addressArea, isOpen, cart?.chefId, isEditingAddress]);
 
   // ============================================
   // AUTO-SYNC STORED PINCODE FROM HERO
@@ -1193,8 +1196,7 @@ export default function CheckoutDialog({
     }
   };
 
-  // State for View/Edit mode
-  const [isEditingAddress, setIsEditingAddress] = useState(true);
+
 
   // Handle any address field change - NO AUTO-GEOCODING anymore
   // User must click "Validate Address" button to trigger validation

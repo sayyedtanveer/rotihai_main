@@ -115,7 +115,15 @@ export default function InviteEarn() {
 
   return (
     <div className="container max-w-2xl mx-auto py-6 px-4 space-y-6">
-      <div className="text-center">
+      <div className="text-center relative">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="absolute left-0 top-0"
+          onClick={() => { window.location.href = "/"; }}
+        >
+          ← Home
+        </Button>
         <h1 className="text-2xl font-bold" data-testid="text-page-title">Invite & Earn</h1>
         <p className="text-muted-foreground">Refer friends and earn rewards</p>
       </div>
