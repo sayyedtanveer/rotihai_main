@@ -169,44 +169,8 @@ export default function CheckoutDialog({
     }
   }, [cart?.chefId]);
 
-  // ============================================
-  // AUTO-VALIDATION ON DEBOUNCE (Zomato/Swiggy Style)
-  // Remove manual button - validate automatically when user stops typing
-  // ============================================
-  useEffect(() => {
-    // Only auto-validate if we have required fields and dialog is open
-    // AND user is actively editing (don't re-fire after manual validation succeeded)
-    if (!isOpen || !cart?.chefId || !isEditingAddress) {
-      return;
-    }
-
-    // Check if we have complete address to validate
-    const hasPincode = addressPincode && /^\d{5,6}$/.test(addressPincode);
-    const hasArea = addressArea.trim().length >= 2;
-
-    // If either is missing or invalid, don't attempt validation
-    if (!hasPincode || !hasArea) {
-      return;
-    }
-
-    // Clear any existing timeout
-    if (autoGeocodeTimeoutRef.current) {
-      clearTimeout(autoGeocodeTimeoutRef.current);
-    }
-
-    // Set new debounce timer
-    console.log("[AUTO-VALIDATE] Debounce triggered for:", { addressPincode, addressArea });
-    autoGeocodeTimeoutRef.current = setTimeout(() => {
-      console.log("[AUTO-VALIDATE] Debounce fired - starting auto-validation");
-      handlePincodeChange(addressPincode);
-    }, 600); // 600ms debounce
-
-    return () => {
-      if (autoGeocodeTimeoutRef.current) {
-        clearTimeout(autoGeocodeTimeoutRef.current);
-      }
-    };
-  }, [addressPincode, addressArea, isOpen, cart?.chefId, isEditingAddress]);
+  // NOTE: Auto-validation removed — validation only occurs via explicit
+  // "Validate Address" button click (handleValidateAddressClick)
 
   // ============================================
   // AUTO-SYNC STORED PINCODE FROM HERO

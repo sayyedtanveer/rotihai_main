@@ -46,6 +46,11 @@ export default function InviteEarn() {
     queryKey: ["/api/user/referral-stats"],
   });
 
+  const { data: userOrders = [] } = useQuery<any[]>({
+    queryKey: ["/api/orders"],
+  });
+  const hasOrders = userOrders.length > 0;
+
   const { data: referrals = [], isLoading: referralsLoading } = useQuery<Referral[]>({
     queryKey: ["/api/user/referrals"],
   });
@@ -137,7 +142,15 @@ export default function InviteEarn() {
           <CardDescription>Share this code with your friends</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {stats?.referralCode ? (
+          {!hasOrders ? (
+            <div className="text-center py-6">
+              <Gift className="w-12 h-12 text-amber-500 mx-auto mb-4 opacity-50" />
+              <p className="font-semibold text-lg text-amber-900 dark:text-amber-100 mb-2">Unlock Referral Rewards</p>
+              <p className="text-muted-foreground max-w-sm mx-auto">
+                Complete your first order to get your unique referral code and start earning ₹50 for every friend you invite!
+              </p>
+            </div>
+          ) : stats?.referralCode ? (
             <>
               <div className="flex items-center justify-center gap-2">
                 <div className="text-3xl font-bold font-mono tracking-wider px-6 py-3 bg-background rounded-lg border-2 border-dashed border-primary/50" data-testid="text-referral-code">

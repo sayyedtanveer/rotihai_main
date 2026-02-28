@@ -31,7 +31,7 @@ import { Input } from "@/components/ui/input";
 import {
   UtensilsCrossed, ChefHat, Hotel, MessageCircle, Star, Clock,
   SlidersHorizontal, Zap, Sparkles, CalendarClock, Home as HomeIcon, ShoppingBag,
-  User, Percent, ArrowRight, TrendingUp, MapPin, AlertCircle, Repeat, BadgeCheck
+  User, Percent, ArrowRight, TrendingUp, MapPin, AlertCircle, Repeat, BadgeCheck, Gift
 } from "lucide-react";
 import type { Category, Chef, Product } from "@shared/schema";
 import { useCart } from "@/hooks/use-cart";
@@ -55,6 +55,77 @@ const filterOptions = [
   { id: "rating", label: "Rating 4.0+", icon: Star },
   { id: "offers", label: "Great Offers", icon: Percent },
 ];
+
+// Sub-component for Refer & Earn (logged-in users) — needs its own useQuery for order count
+function ReferEarnBanner({ user }: { user: any }) {
+  const { data: orders = [] } = useQuery<any[]>({
+    queryKey: ["/api/orders", "refer-check"],
+    queryFn: async () => {
+      const token = localStorage.getItem("userToken");
+      if (!token) return [];
+      const res = await fetch("/api/orders", { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    staleTime: 1000 * 60 * 10, // Cache for 10 minutes
+    enabled: !!user,
+  });
+
+  const hasOrders = orders.length > 0;
+
+  if (!hasOrders) {
+    // Case 2: Logged in, 0 orders
+    return (
+      <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-8 py-2">
+        <div
+          className="bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 border border-amber-200 dark:border-amber-800 rounded-xl p-3 sm:p-4 flex items-center gap-3 cursor-pointer hover:shadow-md transition-shadow"
+          onClick={() => {
+            toast({
+              title: "🎁 Almost there!",
+              description: "Complete your first order to unlock referral rewards and start earning ₹50 per friend!",
+            });
+          }}
+        >
+          <div className="text-2xl sm:text-3xl flex-shrink-0">🎁</div>
+          <div className="flex-1 min-w-0">
+            <h3 className="font-bold text-sm text-amber-900 dark:text-amber-100">
+              Refer & Earn ₹50!
+            </h3>
+            <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">
+              Complete your first order to unlock referral rewards
+            </p>
+          </div>
+          <div className="flex-shrink-0 text-amber-600 dark:text-amber-400">
+            <Gift className="h-5 w-5" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Case 3: Logged in, has orders — full referral
+  return (
+    <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-8 py-2">
+      <div
+        className="bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 border border-amber-200 dark:border-amber-800 rounded-xl p-3 sm:p-4 flex items-center gap-3 cursor-pointer hover:shadow-md transition-shadow"
+        onClick={() => { window.location.href = "/invite"; }}
+      >
+        <div className="text-2xl sm:text-3xl flex-shrink-0">🎁</div>
+        <div className="flex-1 min-w-0">
+          <h3 className="font-bold text-sm text-amber-900 dark:text-amber-100">
+            Refer & Earn ₹50!
+          </h3>
+          <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">
+            Get your referral code & share with friends
+          </p>
+        </div>
+        <div className="flex-shrink-0 text-amber-600 dark:text-amber-400">
+          <ArrowRight className="h-5 w-5" />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function Home() {
   const [isCartOpen, setIsCartOpen] = useState(false);
@@ -840,30 +911,46 @@ export default function Home() {
           }}
         />
 
-        {/* Refer & Earn Banner - Below promotional banners */}
-        <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-8 py-2">
-          <div
-            className="bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 border border-amber-200 dark:border-amber-800 rounded-xl p-3 sm:p-4 flex items-center gap-3 cursor-pointer hover:shadow-md transition-shadow"
-            onClick={() => {
-              window.location.href = user ? "/invite" : "/profile";
-            }}
-          >
-            <div className="text-2xl sm:text-3xl flex-shrink-0">🎁</div>
-            <div className="flex-1 min-w-0">
-              <h3 className="font-bold text-sm text-amber-900 dark:text-amber-100">
-                Refer & Earn ₹50!
-              </h3>
-              <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">
-                {user
-                  ? "Get your code & share with friends"
-                  : "Login to get your referral code"}
-              </p>
-            </div>
-            <div className="flex-shrink-0 text-amber-600 dark:text-amber-400">
-              <ArrowRight className="h-5 w-5" />
-            </div>
-          </div>
-        </div>
+        {/* Refer & Earn Banner - 3-tier business logic */}
+        {(() => {
+          const userToken = localStorage.getItem("userToken");
+          const isLoggedIn = !!user && !!userToken;
+
+          // Guest: teaser with info toast
+          if (!isLoggedIn) {
+            return (
+              <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-8 py-2">
+                <div
+                  className="bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 border border-amber-200 dark:border-amber-800 rounded-xl p-3 sm:p-4 flex items-center gap-3 cursor-pointer hover:shadow-md transition-shadow"
+                  onClick={() => {
+                    toast({
+                      title: "🎁 Refer & Earn",
+                      description: "Place your first order to unlock referral rewards! You'll earn ₹50 for every friend you invite.",
+                    });
+                  }}
+                >
+                  <div className="text-2xl sm:text-3xl flex-shrink-0">🎁</div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-bold text-sm text-amber-900 dark:text-amber-100">
+                      Refer & Earn ₹50!
+                    </h3>
+                    <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">
+                      Start sharing and earning rewards after your first order
+                    </p>
+                  </div>
+                  <div className="flex-shrink-0 text-amber-600 dark:text-amber-400">
+                    <Gift className="h-5 w-5" />
+                  </div>
+                </div>
+              </div>
+            );
+          }
+
+          // Logged in: check order count to decide full vs teaser
+          return (
+            <ReferEarnBanner user={user} />
+          );
+        })()}
 
 
 

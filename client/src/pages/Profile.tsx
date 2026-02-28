@@ -118,6 +118,19 @@ export default function Profile() {
     enabled: !!userToken,
   });
 
+  // 📦 Orders for referral eligibility
+  const { data: userOrders = [] } = useQuery<any[]>({
+    queryKey: ["/api/orders", "referral-check"],
+    queryFn: async () => {
+      if (!userToken) return [];
+      const response = await api.get("/api/orders");
+      return response.data;
+    },
+    staleTime: 1000 * 60 * 10,
+    enabled: !!userToken,
+  });
+  const hasOrders = userOrders.length > 0;
+
   // ALL useState hooks must be called before any conditional returns
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isCartOpen, setIsCartOpen] = useState(false);
@@ -215,13 +228,13 @@ export default function Profile() {
 
   const handleUpdateProfile = (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     const updateData: { name?: string; email?: string; address?: string } = {};
-    
+
     if (profileFormData.name.trim() && profileFormData.name !== user?.name) {
       updateData.name = profileFormData.name.trim();
     }
-    
+
     if (profileFormData.email.trim()) {
       if (!profileFormData.email.includes("@")) {
         toast({
@@ -235,11 +248,11 @@ export default function Profile() {
         updateData.email = profileFormData.email.trim();
       }
     }
-    
+
     if (profileFormData.address.trim() && profileFormData.address !== user?.address) {
       updateData.address = profileFormData.address.trim();
     }
-    
+
     if (Object.keys(updateData).length === 0) {
       toast({
         title: "No changes",
@@ -248,7 +261,7 @@ export default function Profile() {
       setIsEditingProfile(false);
       return;
     }
-    
+
     updateProfileMutation.mutate(updateData);
   };
 
@@ -467,7 +480,17 @@ export default function Profile() {
                       {/* Referral Code */}
                       <div>
                         <h3 className="font-semibold mb-3">Your Referral Code</h3>
-                        {referralCode?.referralCode ? (
+                        {!hasOrders ? (
+                          <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 p-4 rounded-lg flex items-start gap-3">
+                            <Gift className="h-5 w-5 text-amber-600 dark:text-amber-400 mt-0.5" />
+                            <div>
+                              <p className="font-medium text-amber-900 dark:text-amber-100">Unlock Referral Rewards</p>
+                              <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
+                                Complete your first order to get your referral code and start earning ₹50 for every friend you invite!
+                              </p>
+                            </div>
+                          </div>
+                        ) : referralCode?.referralCode ? (
                           <div className="space-y-3">
                             {/* Referral Code Card */}
                             <div className="bg-primary/10 p-4 rounded-lg border-2 border-primary/20">
