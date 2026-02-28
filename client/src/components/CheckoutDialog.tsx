@@ -884,7 +884,7 @@ export default function CheckoutDialog({
       customerLongitude,
     });
 
-    if (isOpen && cart && !addressZoneValidated) {
+    if (isOpen && cart && !addressZoneValidated && !isEditingAddress) {
       // If area is empty, use chef's coordinates for validation
       if (!addressArea.trim() && cart.chefLatitude && cart.chefLongitude) {
         console.log("[DELIVERY-ZONE] Area empty - using chef's coordinates for validation");
@@ -2485,6 +2485,9 @@ export default function CheckoutDialog({
                             onClick={() => {
                               setIsEditingAddress(true);
                               setAddressZoneValidated(false);
+                              setAddressInDeliveryZone(false);
+                              setAddressConfirmed(false);
+                              setLocationError("");
                             }}
                             className="h-7 text-xs"
                           >
