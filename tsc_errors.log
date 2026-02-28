@@ -1,0 +1,13 @@
+client/src/components/CheckoutDialog.tsx(1842,9): error TS2304: Cannot find name 'isRotiCategory'.
+client/src/components/CheckoutDialog.tsx(1899,11): error TS2304: Cannot find name 'isRotiCategory'.
+client/src/components/CheckoutDialog.tsx(1903,11): error TS2304: Cannot find name 'isRotiCategory'.
+client/src/components/CheckoutDialog.tsx(1907,11): error TS2304: Cannot find name 'isRotiCategory'.
+client/src/components/CheckoutDialog.tsx(2601,24): error TS2304: Cannot find name 'isRotiCategory'.
+client/src/pages/MyOrders.tsx(572,9): error TS2322: Type 'Category[]' is not assignable to type '{ image: string; id: string; name: string; description: string; iconName: string; itemCount: string; requiresDeliverySlot: boolean; }[]'.
+  Property 'requiresDeliverySlot' is missing in type 'Category' but required in type '{ image: string; id: string; name: string; description: string; iconName: string; itemCount: string; requiresDeliverySlot: boolean; }'.
+client/src/pages/MyOrders.tsx(585,9): error TS2322: Type 'Category | null' is not assignable to type '{ image: string; id: string; name: string; description: string; iconName: string; itemCount: string; requiresDeliverySlot: boolean; } | null'.
+  Property 'requiresDeliverySlot' is missing in type 'Category' but required in type '{ image: string; id: string; name: string; description: string; iconName: string; itemCount: string; requiresDeliverySlot: boolean; }'.
+server/storage.ts(449,11): error TS2322: Type '{ id: `${string}-${string}-${string}-${string}-${string}`; image: string; name: string; description: string; iconName: string; itemCount: string; requiresDeliverySlot?: boolean | undefined; }' is not assignable to type '{ image: string; id: string; name: string; description: string; iconName: string; itemCount: string; requiresDeliverySlot: boolean; }'.
+  Types of property 'requiresDeliverySlot' are incompatible.
+    Type 'boolean | undefined' is not assignable to type 'boolean'.
+      Type 'undefined' is not assignable to type 'boolean'.

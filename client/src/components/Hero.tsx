@@ -181,6 +181,7 @@ export default function Hero() {
 
       setPincodeArea(data.area);
       setPincodeValidated(true);
+      setIsValidatingPincode(false);
 
       toast({
         title: "Location Confirmed",
@@ -203,6 +204,7 @@ export default function Hero() {
     setPincodeError("");
     setPincodeValidated(false);
     setPincodeArea("");
+    setIsValidatingPincode(false);
     localStorage.removeItem('userPincode');
     localStorage.removeItem('pincodeArea');
   };
