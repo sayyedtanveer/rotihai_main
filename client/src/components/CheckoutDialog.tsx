@@ -172,7 +172,8 @@ export default function CheckoutDialog({
   // ============================================
   useEffect(() => {
     // Only auto-validate if we have required fields and dialog is open
-    if (!isOpen || !cart?.chefId) {
+    // AND user is actively editing (don't re-fire after manual validation succeeded)
+    if (!isOpen || !cart?.chefId || !isEditingAddress) {
       return;
     }
 
@@ -2520,36 +2521,11 @@ export default function CheckoutDialog({
                       <p>{address || "(Enter details above)"}</p>
                     </div>
 
-                    {/* Manual Validation Button */}
+                    {/* Validation hint - button is in footer */}
                     {!addressZoneValidated && isEditingAddress && (
-                      <div className="w-full flex flex-col items-center justify-center gap-2 py-2 mt-2">
-                        <Button
-                          type="button"
-                          onClick={() => {
-                            if (addressPincode && addressArea && addressStreet) {
-                              handlePincodeChange(addressPincode);
-                            } else {
-                              toast({
-                                title: "Incomplete Address",
-                                description: "Please enter your street and area details before validating.",
-                                variant: "destructive"
-                              });
-                            }
-                          }}
-                          disabled={isReValidatingPincode || !addressPincode || !addressArea || !addressStreet}
-                          className="w-full sm:w-auto"
-                        >
-                          {isReValidatingPincode ? (
-                            <>
-                              <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                              Validating...
-                            </>
-                          ) : (
-                            "Validate Address"
-                          )}
-                        </Button>
-                        <p className="text-xs text-gray-500">Tap to confirm your exact location and see delivery fees.</p>
-                      </div>
+                      <p className="text-xs text-gray-500 text-center py-2">
+                        Fill in your address details and tap "Validate Delivery Address" below.
+                      </p>
                     )}
 
                     {/* Smart Location Validation Feedback - Zomato Style */}
@@ -3154,20 +3130,31 @@ export default function CheckoutDialog({
               </Button>
               {activeTab === "checkout" ? (
                 <>
-                  {!addressConfirmed && addressZoneValidated && addressInDeliveryZone ? (
+                  {isEditingAddress && !addressZoneValidated ? (
+                    // While editing and not yet validated, show Validate button in footer
                     <Button
                       type="button"
-                      onClick={() => setAddressConfirmed(true)}
-                      disabled={isLoading || isRotiOrderBlocked || isReValidatingPincode}
+                      onClick={() => {
+                        if (addressPincode && addressArea && addressStreet) {
+                          handlePincodeChange(addressPincode);
+                        } else {
+                          toast({
+                            title: "Incomplete Address",
+                            description: "Please enter your street and area details before validating.",
+                            variant: "destructive"
+                          });
+                        }
+                      }}
+                      disabled={isLoading || isReValidatingPincode || !addressPincode || !addressArea || !addressStreet}
                       className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700"
                     >
-                      {isLoading ? (
+                      {isReValidatingPincode ? (
                         <>
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Processing...
+                          Validating...
                         </>
                       ) : (
-                        "✓ Confirm Address"
+                        "✓ Validate Delivery Address"
                       )}
                     </Button>
                   ) : (
