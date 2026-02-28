@@ -683,9 +683,21 @@ export default function CheckoutDialog({
       if (user.address) {
         setAddressBuilding(user.address);
       }
+
+      // ✅ Restore coordinates from DB if localStorage is empty and we don't have them yet
+      const hasStoredCoords = !!localStorage.getItem("lastValidatedDeliveryAddress") || !!localStorage.getItem("lastValidatedAddressStructured");
+      const userWithLocation = user as any; // Cast to bypass TS if User type is missing these fields
+      if (userWithLocation.latitude && userWithLocation.longitude && !hasStoredCoords && customerLatitude === null) {
+        console.log("[CHECKOUT] Restoring coordinates from DB profile:", userWithLocation.latitude, userWithLocation.longitude);
+        setCustomerLatitude(userWithLocation.latitude);
+        setCustomerLongitude(userWithLocation.longitude);
+        setAddressZoneValidated(true);
+        setAddressInDeliveryZone(true);
+      }
+
       setActiveTab("checkout");
     }
-  }, [user, isAuthenticated, isOpen]);
+  }, [user, isAuthenticated, isOpen, customerLatitude]);
 
   // Restore saved address fields from Context and localStorage when checkout opens
   useEffect(() => {
