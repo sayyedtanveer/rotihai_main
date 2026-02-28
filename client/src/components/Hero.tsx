@@ -32,15 +32,25 @@ export default function Hero() {
         setPincodeArea(savedArea);
         setPincodeValidated(true);
 
-        // CRITICAL: Update cart store to trigger chef loading
         const lat = parseFloat(savedLat);
         const lng = parseFloat(savedLng);
+
+        // CRITICAL: Update cart store to trigger chef loading
         setUserLocation(lat, lng);
+
+        // CRITICAL: Update delivery context so Home.tsx detects pincode and loads chefs
+        setDeliveryLocation({
+          pincode: savedPincode,
+          latitude: lat,
+          longitude: lng,
+          address: savedArea,
+          source: "pincode"
+        });
 
         console.log("[HERO] Loaded saved pincode and triggered chef loading:", savedPincode);
       }
     }
-  }, [setUserLocation]);
+  }, [setUserLocation, setDeliveryLocation]);
 
   const handleValidatePincode = async () => {
     setPincodeError("");
