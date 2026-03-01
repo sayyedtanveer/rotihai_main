@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { MapPin, Search, Loader2, ChevronDown, AlertCircle, CheckCircle2 } from "lucide-react";
+import { MapPin, Search, Loader2, ChevronDown, AlertCircle, CheckCircle2, ArrowRight } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useDeliveryLocation } from "@/contexts/DeliveryLocationContext";
@@ -146,14 +146,14 @@ export default function Hero() {
   };
 
   return (
-    <section className="relative h-[38vh] sm:h-[50vh] min-h-[300px] sm:min-h-[400px] lg:min-h-[500px] max-h-none overflow-hidden">
+    <section className="relative min-h-[280px] sm:min-h-[350px] lg:min-h-[450px] w-full flex items-center justify-center">
       <div
         className="absolute inset-0 bg-cover bg-center"
         style={{ backgroundImage: `url(${heroImage})` }}
       />
       <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/40 to-black/60" />
 
-      <div className="relative h-full max-w-7xl mx-auto px-3 sm:px-4 lg:px-8 flex flex-col items-center justify-center text-center py-6 sm:py-8">
+      <div className="relative h-full w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col items-center justify-center text-center pt-16 sm:pt-24 lg:pt-32 pb-4 sm:pb-6">
         <h2
           className="text-3xl sm:text-4xl lg:text-6xl font-bold text-white mb-2 sm:mb-3 drop-shadow-lg"
           data-testid="text-hero-title"
@@ -169,43 +169,38 @@ export default function Hero() {
         <div className="w-full max-w-xl px-2 sm:px-3">
           {/* Show PINCODE CONFIRMED (if pincode was validated) */}
           {pincodeValidated && pincodeArea ? (
-            <div className="bg-white rounded-xl shadow-2xl overflow-hidden">
-              <div className="p-3 sm:p-4">
-                <div className="flex items-center gap-2 sm:gap-3">
-                  <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
-                    <CheckCircle2 className="h-5 w-5 text-green-600" />
+            <div className="bg-white/95 backdrop-blur-sm rounded-full shadow-lg overflow-hidden border border-white/20">
+              <div className="px-4 py-2 sm:px-6 sm:py-3 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+                  <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
+                    <CheckCircle2 className="h-4 w-4 sm:h-5 sm:w-5 text-green-600" />
                   </div>
-                  <div className="flex-1 min-w-0 text-left">
-                    <p className="text-xs sm:text-sm font-semibold text-foreground">Pincode {pincode}</p>
-                    <p className="text-xs text-muted-foreground">{pincodeArea}</p>
+                  <div className="text-left flex-1 min-w-0 hidden xs:block">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <p className="text-sm font-bold text-slate-900 leading-tight">Delivering to {pincode}</p>
+                      <span className="text-[10px] bg-green-100 text-green-800 px-1.5 py-0.5 rounded-full font-medium">Verified</span>
+                    </div>
+                    <p className="text-xs text-slate-500 truncate mt-0.5">{pincodeArea}</p>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-primary hover:text-primary hover:bg-primary/10 flex-shrink-0 text-xs sm:text-sm"
-                    onClick={handleChangePincode}
-                    data-testid="button-change-pincode"
-                  >
-                    Change
-                    <ChevronDown className="h-3 w-3 sm:h-4 sm:w-4 ml-1" />
-                  </Button>
+                  <div className="text-left flex-1 min-w-0 xs:hidden">
+                    <p className="text-sm font-bold text-slate-900 truncate">{pincode}</p>
+                  </div>
                 </div>
-              </div>
-
-              <div className="border-t px-3 sm:px-4 py-2 sm:py-3 bg-green-50">
                 <Button
-                  className="w-full gap-2 text-sm sm:text-base h-9 sm:h-10"
-                  onClick={scrollToProducts}
-                  data-testid="button-browse-menu"
+                  variant="ghost"
+                  size="sm"
+                  className="text-primary hover:text-primary hover:bg-primary/10 flex-shrink-0 text-xs sm:text-sm px-2"
+                  onClick={handleChangePincode}
+                  data-testid="button-change-pincode"
                 >
-                  <Search className="h-3 w-3 sm:h-4 sm:w-4" />
-                  Browse Menu
+                  Change
+                  <ChevronDown className="h-3 w-3 sm:h-4 sm:w-4 ml-1" />
                 </Button>
               </div>
             </div>
           ) : (
             /* Show PINCODE INPUT FORM */
-            <div className="bg-white rounded-xl shadow-2xl overflow-hidden">
+            <div className="bg-white rounded-xl sm:rounded-2xl shadow-2xl overflow-hidden w-full max-w-sm sm:max-w-md mx-auto transform transition-all duration-300">
               <div className="p-3 sm:p-4 lg:p-5">
                 <div className="flex flex-col gap-3 sm:gap-4">
                   <div className="text-center pb-1 sm:pb-2">
@@ -219,11 +214,11 @@ export default function Hero() {
                   </div>
 
                   {/* Pincode Input */}
-                  <div className="space-y-2">
-                    <div className="relative">
+                  <div className="space-y-3">
+                    <div className="relative flex items-center">
                       <Input
                         type="text"
-                        placeholder="Enter 5-6 digit pincode"
+                        placeholder="Enter 6-digit pincode"
                         value={pincode}
                         onChange={(e) => {
                           const digits = e.target.value.replace(/\D/g, "");
@@ -232,61 +227,54 @@ export default function Hero() {
                             setPincodeError("");
                           }
                         }}
-                        onKeyDown={(e) => e.key === 'Enter' && handleValidatePincode()}
+                        onKeyDown={(e) => e.key === 'Enter' && pincode.length === 6 && handleValidatePincode()}
                         disabled={isValidatingPincode}
                         maxLength={6}
-                        className="text-lg font-semibold tracking-widest h-10 sm:h-11 text-center"
+                        className="text-lg sm:text-xl font-semibold tracking-widest h-12 sm:h-14 text-center pr-14 shadow-inner"
                         data-testid="input-pincode"
                         autoFocus
                       />
-                      <p className="text-xs text-muted-foreground text-right mt-1">
-                        {pincode.length}/6 digits
-                      </p>
+
+                      {/* Inline Submit Button */}
+                      <div className="absolute right-1 sm:right-2">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-10 w-10 sm:h-11 sm:w-11 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800"
+                          onClick={handleValidatePincode}
+                          disabled={isValidatingPincode || pincode.length !== 6}
+                          data-testid="button-check-delivery-inline"
+                        >
+                          {isValidatingPincode ? (
+                            <Loader2 className="h-5 w-5 sm:h-6 sm:w-6 animate-spin text-primary" />
+                          ) : (
+                            <ArrowRight className={`h-5 w-5 sm:h-6 sm:w-6 transition-colors ${pincode.length === 6 ? 'text-primary' : 'text-muted-foreground'}`} />
+                          )}
+                        </Button>
+                      </div>
                     </div>
 
                     {/* Error Alert */}
                     {pincodeError && (
-                      <div className="rounded-lg bg-red-50 border border-red-200 p-3 flex gap-2">
-                        <AlertCircle className="h-4 w-4 text-red-600 flex-shrink-0 mt-0.5" />
+                      <div className="rounded-lg bg-red-50 border border-red-200 p-2 sm:p-3 flex gap-2">
+                        <AlertCircle className="h-4 w-4 sm:h-5 sm:w-5 text-red-600 flex-shrink-0 mt-0.5" />
                         <p className="text-xs sm:text-sm text-red-700">{pincodeError}</p>
                       </div>
                     )}
 
                     {/* Info Box */}
-                    <div className="rounded-lg bg-blue-50 border border-blue-200 p-3">
+                    <div className="rounded-lg bg-blue-50 border border-blue-200 p-2 sm:p-3">
                       <p className="text-xs sm:text-sm text-blue-800">
                         💡 Enter your delivery pincode to see available restaurants and delivery charges.
                       </p>
                     </div>
                   </div>
-
-                  {/* Check Delivery Button */}
-                  <Button
-                    size="lg"
-                    variant="default"
-                    onClick={handleValidatePincode}
-                    disabled={isValidatingPincode || pincode.length === 0}
-                    className="w-full h-10 sm:h-11 text-sm sm:text-base"
-                    data-testid="button-check-delivery"
-                  >
-                    {isValidatingPincode ? (
-                      <>
-                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                        Checking Delivery...
-                      </>
-                    ) : (
-                      <>
-                        <Search className="h-4 w-4 mr-2" />
-                        Check Delivery
-                      </>
-                    )}
-                  </Button>
                 </div>
               </div>
             </div>
           )}
         </div>
       </div>
-    </section>
+    </section >
   );
 }
