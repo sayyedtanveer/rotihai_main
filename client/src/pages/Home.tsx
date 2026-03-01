@@ -378,12 +378,14 @@ export default function Home() {
   });
 
   // 🔴 FILTER CATEGORIES: Only show categories that have chefs available in selected area
+  // Backend now returns categories sorted by display_order ASC — no frontend sort needed.
   const filteredCategories = selectedArea
     ? categories.filter(category => {
       const chefsInCategory = chefsFilteredByPincode.filter(chef => chef.categoryId === category.id);
       return chefsInCategory.length > 0;
     })
     : categories;
+
 
   const handleAddToCart = (product: Product) => {
     const category = categories.find(c => c.id === product.categoryId);
@@ -1341,30 +1343,6 @@ export default function Home() {
                               </div>
                             </div>
 
-                            {/* Delivery Fee Display - Zomato Style */}
-                            {deliveryFee !== null && (
-                              <div className="mt-2 pt-2 border-t border-muted">
-                                {userLatitude && userLongitude ? (
-                                  <p className="text-xs text-muted-foreground">
-                                    Delivery: <span className="font-semibold text-foreground">₹{deliveryFee}</span>
-                                  </p>
-                                ) : (
-                                  <p className="text-xs text-amber-600 dark:text-amber-400">
-                                    Estimated delivery: <span className="font-semibold">₹{deliveryFee}</span>
-                                    <br />
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setIsPincodeModalOpen(true);
-                                      }}
-                                      className="text-blue-600 hover:underline font-medium"
-                                    >
-                                      Enter pincode for accurate fee
-                                    </button>
-                                  </p>
-                                )}
-                              </div>
-                            )}
                           </div>
                         </Card>
                       );

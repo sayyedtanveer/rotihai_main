@@ -21,6 +21,7 @@ export interface IStorage {
   createCategory(category: InsertCategory): Promise<Category>;
   updateCategory(id: string, category: Partial<InsertCategory>): Promise<Category | undefined>;
   deleteCategory(id: string): Promise<boolean>;
+  reorderCategories(items: { id: string; displayOrder: number }[]): Promise<void>;
 
   getAllProducts(): Promise<Product[]>;
   getProductById(id: string): Promise<Product | undefined>;
@@ -453,7 +454,9 @@ export class MemStorage implements IStorage {
   }
 
   async getAllCategories(): Promise<Category[]> {
-    return db.query.categories.findMany();
+    return db.query.categories.findMany({
+      orderBy: (c, { asc }) => [asc(c.displayOrder)],
+    });
   }
 
   async getCategoryById(id: string): Promise<Category | undefined> {
@@ -462,7 +465,7 @@ export class MemStorage implements IStorage {
 
   async createCategory(insertCategory: InsertCategory): Promise<Category> {
     const id = randomUUID();
-    const category: Category = { requiresDeliverySlot: false, ...insertCategory, id };
+    const category: Category = { requiresDeliverySlot: false, displayOrder: 999, ...insertCategory, id };
     await db.insert(categories).values(category);
     return category;
   }
@@ -475,6 +478,18 @@ export class MemStorage implements IStorage {
   async deleteCategory(id: string): Promise<boolean> {
     await db.delete(categories).where(eq(categories.id, id));
     return true;
+  }
+
+  async reorderCategories(items: { id: string; displayOrder: number }[]): Promise<void> {
+    // Batch update each category's displayOrder inside a single transaction
+    await db.transaction(async (tx) => {
+      for (const item of items) {
+        await tx
+          .update(categories)
+          .set({ displayOrder: item.displayOrder })
+          .where(eq(categories.id, item.id));
+      }
+    });
   }
 
   async getAllProducts(): Promise<Product[]> {

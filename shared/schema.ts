@@ -62,7 +62,8 @@ export const categories = pgTable("categories", {
   image: text("image").notNull(),
   iconName: text("icon_name").notNull(),
   itemCount: text("item_count").notNull(),
-  requiresDeliverySlot: boolean("requires_delivery_slot").notNull().default(false)
+  requiresDeliverySlot: boolean("requires_delivery_slot").notNull().default(false),
+  displayOrder: integer("display_order").notNull().default(999),
 });
 
 export const chefs = pgTable("chefs", {

@@ -660,6 +660,22 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // PATCH /api/admin/categories/reorder – batch update display_order
+  app.patch("/api/admin/categories/reorder", requireAdminOrManager(), async (req, res) => {
+    try {
+      const items = req.body;
+      if (!Array.isArray(items) || items.some(i => !i.id || typeof i.displayOrder !== "number")) {
+        res.status(400).json({ message: "Body must be an array of { id, displayOrder } objects" });
+        return;
+      }
+      await storage.reorderCategories(items);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Reorder categories error:", error);
+      res.status(500).json({ message: "Failed to reorder categories" });
+    }
+  });
+
   app.patch("/api/admin/categories/:id", requireAdminOrManager(), async (req, res) => {
     try {
       const { id } = req.params;
