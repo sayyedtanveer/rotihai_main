@@ -3705,4 +3705,78 @@ export function registerAdminRoutes(app: Express) {
       res.status(500).json({ message: "Failed to update default coordinates" });
     }
   });
+
+  // ============================================================
+  // ADMIN REFERRAL MANAGEMENT
+  // ============================================================
+
+  // GET /api/admin/referrals — list all referrals enriched with user & order data
+  app.get("/api/admin/referrals", requireAdmin(), async (req: AuthenticatedAdminRequest, res) => {
+    try {
+      const referrals = await storage.getAdminReferrals();
+      res.json(referrals);
+    } catch (error: any) {
+      console.error("Error fetching admin referrals:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch referrals" });
+    }
+  });
+
+  // GET /api/admin/referral-stats — aggregate stats
+  app.get("/api/admin/referral-stats", requireAdmin(), async (req: AuthenticatedAdminRequest, res) => {
+    try {
+      const stats = await storage.getAdminReferralStats();
+      res.json(stats);
+    } catch (error: any) {
+      console.error("Error fetching referral stats:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch referral stats" });
+    }
+  });
+
+  // PATCH /api/admin/referrals/:id/status — approve or cancel a referral
+  app.patch("/api/admin/referrals/:id/status", requireAdminOrManager(), async (req: AuthenticatedAdminRequest, res) => {
+    try {
+      const { id } = req.params;
+      const { status, adminNote } = req.body;
+
+      if (!status || !["approved", "cancelled"].includes(status)) {
+        res.status(400).json({ message: "Status must be 'approved' or 'cancelled'" });
+        return;
+      }
+
+      if (status === "cancelled" && !adminNote) {
+        res.status(400).json({ message: "Admin note (reason) is required when cancelling a referral" });
+        return;
+      }
+
+      if (status === "approved") {
+        await storage.adminApproveReferral(id, adminNote);
+        res.json({ message: "Referral approved and bonus credited to referrer's wallet" });
+      } else {
+        await storage.adminCancelReferral(id, adminNote);
+        res.json({ message: "Referral cancelled. Bonus reversed if previously credited." });
+      }
+    } catch (error: any) {
+      console.error("Error updating referral status:", error);
+      res.status(400).json({ message: error.message || "Failed to update referral status" });
+    }
+  });
+
+  // PATCH /api/admin/referrals/:id/fraud-flag — toggle fraud flag
+  app.patch("/api/admin/referrals/:id/fraud-flag", requireAdminOrManager(), async (req: AuthenticatedAdminRequest, res) => {
+    try {
+      const { id } = req.params;
+      const { fraudFlag } = req.body;
+
+      if (typeof fraudFlag !== "boolean") {
+        res.status(400).json({ message: "fraudFlag must be a boolean (true or false)" });
+        return;
+      }
+
+      await storage.setReferralFraudFlag(id, fraudFlag);
+      res.json({ message: `Referral fraud flag set to: ${fraudFlag}` });
+    } catch (error: any) {
+      console.error("Error updating referral fraud flag:", error);
+      res.status(500).json({ message: error.message || "Failed to update fraud flag" });
+    }
+  });
 }

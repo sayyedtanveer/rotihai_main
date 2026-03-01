@@ -235,10 +235,12 @@ export const referrals = pgTable("referrals", {
   referrerId: varchar("referrer_id").notNull(), // User who refers
   referredId: varchar("referred_id").notNull(), // User who was referred
   referralCode: varchar("referral_code", { length: 20 }).notNull(),
-  status: varchar("status", { length: 20 }).notNull().default("pending"), // pending, completed, expired
+  status: varchar("status", { length: 20 }).notNull().default("pending"), // pending, completed, expired, approved, cancelled
   referrerBonus: integer("referrer_bonus").notNull().default(0), // Bonus amount for referrer
   referredBonus: integer("referred_bonus").notNull().default(0), // Bonus amount for referred user
   referredOrderCompleted: boolean("referred_order_completed").notNull().default(false),
+  adminNote: text("admin_note"), // Admin reason for approve/cancel
+  fraudFlag: boolean("fraud_flag").notNull().default(false), // Soft fraud flag set by admin
   createdAt: timestamp("created_at").notNull().defaultNow(),
   completedAt: timestamp("completed_at"),
 }, (table) => [

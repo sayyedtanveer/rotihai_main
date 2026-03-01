@@ -221,6 +221,20 @@ export interface IStorage {
   getAllReferrals(): Promise<any[]>;
   getReferralById(id: string): Promise<any | undefined>;
   updateReferralStatus(id: string, status: string, referrerBonus: number, referredBonus: number): Promise<void>;
+  // Admin referral review methods
+  getAdminReferrals(): Promise<any[]>;
+  getAdminReferralStats(): Promise<{
+    totalReferrals: number;
+    pendingReferrals: number;
+    approvedReferrals: number;
+    cancelledReferrals: number;
+    completedReferrals: number;
+    totalBonusPaid: number;
+  }>;
+  adminApproveReferral(id: string, adminNote?: string): Promise<void>;
+  adminCancelReferral(id: string, adminNote: string): Promise<void>;
+  setReferralFraudFlag(id: string, fraudFlag: boolean): Promise<void>;
+
 
   // Wallet transaction methods
   getAllWalletTransactions(dateFilter?: string): Promise<WalletTransaction[]>;
@@ -2243,6 +2257,8 @@ export class MemStorage implements IStorage {
     return { eligible: true };
   }
 
+
+
   // Promotional Banners
   async getAllPromotionalBanners(): Promise<PromotionalBanner[]> {
     return db.query.promotionalBanners.findMany({ orderBy: [desc(promotionalBanners.displayOrder)] });
@@ -2535,6 +2551,177 @@ export class MemStorage implements IStorage {
       })
       .where(eq(referrals.id, id));
   }
+
+  // ================= ADMIN REFERRAL REVIEW METHODS =================
+
+  // Get all referrals enriched with referrer/referred user data and first order info
+  async getAdminReferrals(): Promise<any[]> {
+    const allReferrals = await db.query.referrals.findMany({
+      orderBy: (r, { desc }) => [desc(r.createdAt)],
+    });
+
+    // Enrich each referral with user data and first order info
+    const enriched = await Promise.all(
+      allReferrals.map(async (referral) => {
+        const [referrer, referred] = await Promise.all([
+          this.getUser(referral.referrerId),
+          this.getUser(referral.referredId),
+        ]);
+
+        // Get referred user's first completed order
+        let firstOrder: any = null;
+        if (referral.referredId) {
+          const referredOrders = await db.query.orders.findMany({
+            where: (o, { eq: eqOp }) => eqOp(o.userId, referral.referredId),
+            orderBy: (o, { asc }) => [asc(o.createdAt)],
+          });
+          firstOrder = referredOrders.find(
+            (o) => o.status === "delivered" || o.status === "completed"
+          ) || referredOrders[0] || null;
+        }
+
+        return {
+          id: referral.id,
+          referrerId: referral.referrerId,
+          referredId: referral.referredId,
+          referralCode: referral.referralCode,
+          status: referral.status,
+          referrerBonus: referral.referrerBonus,
+          referredBonus: referral.referredBonus,
+          referredOrderCompleted: referral.referredOrderCompleted,
+          adminNote: referral.adminNote,
+          fraudFlag: referral.fraudFlag,
+          createdAt: referral.createdAt,
+          completedAt: referral.completedAt,
+          // Referrer info
+          referrerName: referrer?.name || null,
+          referrerPhone: referrer?.phone || null,
+          // Referred user info
+          referredName: referred?.name || null,
+          referredPhone: referred?.phone || null,
+          referredAddress: referred?.address || firstOrder?.address || null,
+          referredLatitude: referred?.latitude || null,
+          referredLongitude: referred?.longitude || null,
+          // First order info
+          firstOrderId: firstOrder?.id || null,
+          firstOrderPaymentStatus: firstOrder?.paymentStatus || null,
+        };
+      })
+    );
+
+    return enriched;
+  }
+
+  // Get aggregate admin referral stats
+  async getAdminReferralStats(): Promise<{
+    totalReferrals: number;
+    pendingReferrals: number;
+    approvedReferrals: number;
+    cancelledReferrals: number;
+    completedReferrals: number;
+    totalBonusPaid: number;
+  }> {
+    const allReferrals = await db.query.referrals.findMany();
+
+    const totalReferrals = allReferrals.length;
+    const pendingReferrals = allReferrals.filter((r) => r.status === "pending").length;
+    const approvedReferrals = allReferrals.filter((r) => r.status === "approved").length;
+    const cancelledReferrals = allReferrals.filter((r) => r.status === "cancelled").length;
+    const completedReferrals = allReferrals.filter((r) => r.status === "completed").length;
+    const totalBonusPaid = allReferrals
+      .filter((r) => r.status === "completed" || r.status === "approved")
+      .reduce((sum, r) => sum + r.referrerBonus + r.referredBonus, 0);
+
+    return {
+      totalReferrals,
+      pendingReferrals,
+      approvedReferrals,
+      cancelledReferrals,
+      completedReferrals,
+      totalBonusPaid,
+    };
+  }
+
+  // Admin approve referral — credits referrer bonus to their wallet
+  async adminApproveReferral(id: string, adminNote?: string): Promise<void> {
+    const referral = await this.getReferralById(id);
+    if (!referral) throw new Error("Referral not found");
+    if (referral.status !== "pending") {
+      throw new Error(`Cannot approve referral with status: ${referral.status}`);
+    }
+
+    await db.transaction(async (tx) => {
+      // Credit referrer bonus if > 0
+      if (referral.referrerBonus > 0) {
+        await this.createWalletTransaction({
+          userId: referral.referrerId,
+          amount: referral.referrerBonus,
+          type: "referral_bonus",
+          description: `Admin approved referral bonus (Referral ID: ${id})`,
+          referenceId: id,
+          referenceType: "referral",
+        }, tx);
+      }
+
+      // Update referral status
+      await tx.update(referrals)
+        .set({
+          status: "approved",
+          adminNote: adminNote || null,
+          completedAt: new Date(),
+        })
+        .where(eq(referrals.id, id));
+    });
+  }
+
+  // Admin cancel referral — reverses referrer bonus if already credited, marks as cancelled
+  async adminCancelReferral(id: string, adminNote: string): Promise<void> {
+    const referral = await this.getReferralById(id);
+    if (!referral) throw new Error("Referral not found");
+    if (referral.status === "cancelled") {
+      throw new Error("Referral is already cancelled");
+    }
+
+    await db.transaction(async (tx) => {
+      // If referrer bonus was credited (approved or completed), try to reverse it
+      if (
+        (referral.status === "approved" || referral.status === "completed") &&
+        referral.referrerBonus > 0
+      ) {
+        try {
+          await this.createWalletTransaction({
+            userId: referral.referrerId,
+            amount: referral.referrerBonus,
+            type: "debit",
+            description: `Referral bonus reversed by admin (Referral ID: ${id}). Reason: ${adminNote}`,
+            referenceId: id,
+            referenceType: "referral_reversal",
+          }, tx);
+        } catch (err: any) {
+          // Insufficient balance — cancel proceeds but wallet not debited
+          console.warn(
+            `⚠️ adminCancelReferral: Could not reverse referrer bonus for referral ${id} — ${err.message}. Cancelling without reversal.`
+          );
+        }
+      }
+
+      // Mark referral as cancelled
+      await tx.update(referrals)
+        .set({
+          status: "cancelled",
+          adminNote,
+        })
+        .where(eq(referrals.id, id));
+    });
+  }
+
+  // Toggle fraud flag on a referral
+  async setReferralFraudFlag(id: string, fraudFlag: boolean): Promise<void> {
+    await db.update(referrals)
+      .set({ fraudFlag })
+      .where(eq(referrals.id, id));
+  }
+
 
   // ================= NEW WALLET TRANSACTION METHODS =================
 

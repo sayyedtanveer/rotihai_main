@@ -821,6 +821,37 @@ export default function Home() {
       <main className="flex-1">
         <Hero />
 
+        {/* 🫓 Fresh Rotis Near You – header + browse button only */}
+        {(() => {
+          const gkCategory = categories.find(c =>
+            c.name.toLowerCase().includes("ghar")
+          );
+          if (!gkCategory) return null;
+
+          return (
+            <section className="mt-5 max-w-7xl mx-auto px-4" data-testid="section-fresh-rotis">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
+                    🫓 Fresh Rotis Near You
+                  </h2>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Top picks from Ghar Ka Khana chefs near you
+                  </p>
+                </div>
+                <button
+                  onClick={() => handleBrowseCategory(gkCategory.id)}
+                  className="text-xs sm:text-sm text-primary font-medium flex items-center gap-1 hover:underline flex-shrink-0"
+                  data-testid="button-browse-all-rotis"
+                >
+                  Browse All Rotis
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </section>
+          );
+        })()}
+
         {/* Zomato-style Category Tabs - Circular Icons */}
         <section className="bg-background py-4 border-b">
           <div className="max-w-7xl mx-auto px-3">

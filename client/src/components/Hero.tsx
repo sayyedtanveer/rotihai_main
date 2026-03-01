@@ -146,7 +146,7 @@ export default function Hero() {
   };
 
   return (
-    <section className="relative h-[50vh] sm:h-[60vh] min-h-[480px] sm:min-h-[500px] lg:min-h-[600px] max-h-none overflow-hidden">
+    <section className="relative h-[38vh] sm:h-[50vh] min-h-[300px] sm:min-h-[400px] lg:min-h-[500px] max-h-none overflow-hidden">
       <div
         className="absolute inset-0 bg-cover bg-center"
         style={{ backgroundImage: `url(${heroImage})` }}
