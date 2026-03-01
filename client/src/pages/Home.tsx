@@ -837,9 +837,7 @@ export default function Home() {
                   <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
                     🫓 Fresh Rotis Near You
                   </h2>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Top picks from Ghar Ka Khana chefs near you
-                  </p>
+
                 </div>
                 <button
                   onClick={() => handleBrowseCategory(gkCategory.id)}
