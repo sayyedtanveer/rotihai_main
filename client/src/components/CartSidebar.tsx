@@ -49,7 +49,7 @@ export default function CartSidebar({
   onClose,
   onCheckout,
 }: CartSidebarProps) {
-  const { getAllCartsWithDelivery, updateQuantity, fetchDeliverySettings, setUserLocation, fetchChefStatuses, updateChefStatus } = useCart();
+  const { getAllCartsWithDelivery, updateQuantity, fetchDeliverySettings, setUserLocation, fetchChefStatuses, updateChefStatus, updateSpecialInstructions } = useCart();
   const cartsWithDelivery = getAllCartsWithDelivery();
 
   // Use WebSocket for real-time chef status and product availability updates
@@ -182,6 +182,9 @@ export default function CartSidebar({
                     subtotal={cart.total || 0}
                     onUpdateQuantity={(itemId, quantity) =>
                       handleUpdateQuantity(cart.categoryId, itemId, quantity)
+                    }
+                    onUpdateInstructions={(itemId, instructions) =>
+                      updateSpecialInstructions(cart.categoryId, itemId, instructions)
                     }
                     onCheckout={() => handleCheckout(cart.categoryId)}
                     chefClosed={isChefClosed}

@@ -328,7 +328,7 @@ export default function PartnerDashboard() {
     try {
       // Parse the delivery time (HH:mm format)
       const [hours, minutes] = order.deliveryTime.split(":").map(Number);
-      
+
       // Use deliveryDate if available, otherwise use today
       let deliveryDate: Date;
       if (order.deliveryDate) {
@@ -337,7 +337,7 @@ export default function PartnerDashboard() {
       } else {
         deliveryDate = new Date(currentTime.getFullYear(), currentTime.getMonth(), currentTime.getDate(), 0, 0, 0);
       }
-      
+
       const deliveryDateTime = new Date(deliveryDate.getFullYear(), deliveryDate.getMonth(), deliveryDate.getDate(), hours, minutes, 0);
 
       // Calculate prepare window before delivery time using admin-configured hours
@@ -346,7 +346,7 @@ export default function PartnerDashboard() {
       // Button is enabled once we reach the prepare window start time
       // It stays enabled even if delivery time has passed (until order is accepted)
       const canPrepare = isAfter(currentTime, prepareWindowStart) || currentTime.getTime() === prepareWindowStart.getTime();
-      
+
       return canPrepare;
     } catch (error) {
       console.error("Error parsing delivery time:", error);
@@ -370,11 +370,10 @@ export default function PartnerDashboard() {
                 {chefName}
               </h1>
               <div
-                className={`flex items-center gap-1.5 px-2 py-1 rounded-full border transition-all flex-shrink-0 ${
-                  chefDetails?.isActive
-                    ? "bg-green-50 dark:bg-green-950 border-green-500"
-                    : "bg-red-50 dark:bg-red-950 border-red-500"
-                }`}
+                className={`flex items-center gap-1.5 px-2 py-1 rounded-full border transition-all flex-shrink-0 ${chefDetails?.isActive
+                  ? "bg-green-50 dark:bg-green-950 border-green-500"
+                  : "bg-red-50 dark:bg-red-950 border-red-500"
+                  }`}
               >
                 <Store className={`h-3 w-3 ${chefDetails?.isActive ? "text-green-600" : "text-red-600"}`} />
                 <span className={`text-xs font-medium ${chefDetails?.isActive ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"}`}>
@@ -525,9 +524,16 @@ export default function PartnerDashboard() {
                           </p>
                           <div className="mt-2 text-xs space-y-0.5">
                             {(order.items as any[]).slice(0, 2).map((item, idx) => (
-                              <p key={idx} className="text-muted-foreground">
-                                {item.name} x{item.quantity}
-                              </p>
+                              <div key={idx}>
+                                <p className="text-muted-foreground">
+                                  {item.name} x{item.quantity}
+                                </p>
+                                {item.specialInstructions && (
+                                  <p className="text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 px-1.5 py-0.5 rounded mt-0.5 flex items-center gap-1">
+                                    🍴 <span className="italic">{item.specialInstructions}</span>
+                                  </p>
+                                )}
+                              </div>
                             ))}
                             {(order.items as any[]).length > 2 && (
                               <p className="text-muted-foreground text-xs">+{(order.items as any[]).length - 2} more</p>
@@ -684,11 +690,10 @@ export default function PartnerDashboard() {
                 {products.map((product) => (
                   <Card
                     key={product.id}
-                    className={`overflow-hidden transition-all hover:shadow-lg ${
-                      product.isAvailable
-                        ? "bg-white dark:bg-slate-800"
-                        : "opacity-60"
-                    }`}
+                    className={`overflow-hidden transition-all hover:shadow-lg ${product.isAvailable
+                      ? "bg-white dark:bg-slate-800"
+                      : "opacity-60"
+                      }`}
                     data-testid={`card-product-${product.id}`}
                   >
                     <div className="relative h-40 sm:h-48 overflow-hidden">
@@ -843,9 +848,16 @@ export default function PartnerDashboard() {
                           </p>
                           <div className="mt-2 text-xs space-y-0.5">
                             {(order.items as any[]).slice(0, 2).map((item, idx) => (
-                              <p key={idx} className="text-muted-foreground">
-                                {item.name} x{item.quantity}
-                              </p>
+                              <div key={idx}>
+                                <p className="text-muted-foreground">
+                                  {item.name} x{item.quantity}
+                                </p>
+                                {item.specialInstructions && (
+                                  <p className="text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 px-1.5 py-0.5 rounded mt-0.5 flex items-center gap-1">
+                                    🍴 <span className="italic">{item.specialInstructions}</span>
+                                  </p>
+                                )}
+                              </div>
                             ))}
                             {(order.items as any[]).length > 2 && (
                               <p className="text-muted-foreground text-xs">+{(order.items as any[]).length - 2} more</p>
@@ -1023,9 +1035,16 @@ export default function PartnerDashboard() {
                             </p>
                             <div className="mt-2 text-xs space-y-0.5">
                               {(order.items as any[]).slice(0, 2).map((item, idx) => (
-                                <p key={idx} className="text-muted-foreground">
-                                  {item.name} x{item.quantity}
-                                </p>
+                                <div key={idx}>
+                                  <p className="text-muted-foreground">
+                                    {item.name} x{item.quantity}
+                                  </p>
+                                  {item.specialInstructions && (
+                                    <p className="text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 px-1.5 py-0.5 rounded mt-0.5 flex items-center gap-1">
+                                      🍴 <span className="italic">{item.specialInstructions}</span>
+                                    </p>
+                                  )}
+                                </div>
                               ))}
                               {(order.items as any[]).length > 2 && (
                                 <p className="text-muted-foreground text-xs">+{(order.items as any[]).length - 2} more</p>
@@ -1045,7 +1064,7 @@ export default function PartnerDashboard() {
                                     const today = new Date();
                                     const [hours, mins] = order.deliveryTime.split(":").map(Number);
                                     const deliveryTime = new Date(today.getFullYear(), today.getMonth(), today.getDate(), hours, mins);
-                                    
+
                                     // Check if delivery time has passed today
                                     if (currentTime > deliveryTime) {
                                       // If delivery time has passed, it's tomorrow
@@ -1200,7 +1219,7 @@ export default function PartnerDashboard() {
                               {sub.nextDeliveryDate ? (() => {
                                 try {
                                   let dateObj: Date;
-                                  
+
                                   if (typeof sub.nextDeliveryDate === 'string') {
                                     dateObj = new Date(sub.nextDeliveryDate);
                                   } else if (sub.nextDeliveryDate instanceof Date) {
@@ -1208,9 +1227,9 @@ export default function PartnerDashboard() {
                                   } else {
                                     dateObj = new Date(sub.nextDeliveryDate as any);
                                   }
-                                  
+
                                   const timestamp = dateObj.getTime();
-                                  
+
                                   // CRITICAL: Check if date is valid (not NaN) and is in a reasonable range (1980-2100)
                                   // This matches the backend serialization validation
                                   if (!isNaN(timestamp)) {
@@ -1224,7 +1243,7 @@ export default function PartnerDashboard() {
                                   } else {
                                     console.warn(`[Partner Sub] ${sub.planName} - Invalid timestamp (NaN)`);
                                   }
-                                  
+
                                   return "Not scheduled";
                                 } catch (error) {
                                   console.error(`[Partner Sub] Error parsing date for ${sub.planName}:`, error);
@@ -1331,14 +1350,13 @@ export default function PartnerDashboard() {
                               </p>
                             )}
                           </div>
-                          <Badge className={`${
-                            delivery.status === "delivered" ? "bg-green-500" :
+                          <Badge className={`${delivery.status === "delivered" ? "bg-green-500" :
                             delivery.status === "out_for_delivery" ? "bg-blue-500" :
-                            delivery.status === "preparing" ? "bg-yellow-500" :
-                            "bg-slate-400"
-                          } hover:opacity-90`}>
+                              delivery.status === "preparing" ? "bg-yellow-500" :
+                                "bg-slate-400"
+                            } hover:opacity-90`}>
                             {delivery.status === "out_for_delivery" ? "Out for Delivery" :
-                             delivery.status.charAt(0).toUpperCase() + delivery.status.slice(1).replace(/_/g, " ")}
+                              delivery.status.charAt(0).toUpperCase() + delivery.status.slice(1).replace(/_/g, " ")}
                           </Badge>
                         </div>
                         <div className="space-y-2 border-t border-slate-200 dark:border-slate-700 pt-3">

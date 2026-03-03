@@ -333,9 +333,16 @@ export default function AdminOrders() {
                         <TableCell>
                           <div className="max-w-xs">
                             {(order.items as any[]).map((item, idx) => (
-                              <p key={idx} className="text-sm">
-                                {item.name} x{item.quantity}
-                              </p>
+                              <div key={idx} className="mb-1">
+                                <p className="text-sm">
+                                  {item.name} x{item.quantity}
+                                </p>
+                                {item.specialInstructions && (
+                                  <p className="text-xs text-muted-foreground italic mt-0.5">
+                                    Note: {item.specialInstructions}
+                                  </p>
+                                )}
+                              </div>
                             ))}
                           </div>
                         </TableCell>

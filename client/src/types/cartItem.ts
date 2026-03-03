@@ -1,5 +1,5 @@
-export 
-interface CartItem {
+export
+  interface CartItem {
   id: string;
   name: string;
   price: number;
@@ -9,4 +9,5 @@ interface CartItem {
   chefName?: string;
   categoryId?: string;
   offerPercentage?: number; // Add offer percentage
+  specialInstructions?: string; // Optional cooking instructions
 }

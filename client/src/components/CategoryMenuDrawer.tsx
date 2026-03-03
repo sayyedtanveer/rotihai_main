@@ -32,7 +32,8 @@ export default function CategoryMenuDrawer({
   onProceedToCart,
 }: CategoryMenuDrawerProps) {
   const { productAvailability, chefStatuses } = useCustomerNotifications();
-  
+  // Removed instructionProduct and specialInstruction state
+
   if (!isOpen || !category || !chef) return null;
 
   // Use realtime chef status from WebSocket, fallback to chef prop
@@ -160,18 +161,17 @@ export default function CategoryMenuDrawer({
                 categoryProducts.map((product) => {
                   const currentQuantity = getProductQuantity(product.id);
                   const cartItem = cartItems.find(item => item.id === product.id);
-                  
+
                   // Get real-time availability or fall back to product data
                   const realtimeAvailability = productAvailability[product.id];
                   const isProductAvailable = realtimeAvailability?.isAvailable ?? product.isAvailable ?? true;
                   const productStock = realtimeAvailability?.stock ?? product.stockQuantity ?? 0;
-                  
+
                   return (
                     <div
                       key={product.id}
-                      className={`border rounded-lg p-4 space-y-3 transition-shadow ${
-                        isProductAvailable ? "hover:shadow-md" : "opacity-60 bg-muted/30"
-                      }`}
+                      className={`border rounded-lg p-4 space-y-3 transition-shadow ${isProductAvailable ? "hover:shadow-md" : "opacity-60 bg-muted/30"
+                        }`}
                       data-testid={`product-card-${product.id}`}
                     >
                       <div className="flex gap-4">

@@ -387,7 +387,7 @@ export default function Home() {
     : categories;
 
 
-  const handleAddToCart = (product: Product) => {
+  const handleAddToCart = (product: Product, specialInstructions?: string) => {
     const category = categories.find(c => c.id === product.categoryId);
     const categoryName = category?.name || "Unknown";
 
@@ -432,6 +432,7 @@ export default function Home() {
       chefId: product.chefId || undefined,
       chefName: selectedChefForMenu?.name || chef?.name || undefined,
       categoryId: product.categoryId,
+      specialInstructions,
     };
 
     const checkResult = canAddItem(cartItem.chefId, cartItem.categoryId);

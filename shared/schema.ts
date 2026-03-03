@@ -399,6 +399,7 @@ export const insertOrderSchema = createInsertSchema(orders, {
     price: z.number(),
     hotelPrice: z.number().optional(), // ← Partner's cost price
     quantity: z.number(),
+    specialInstructions: z.string().optional(), // ← Optional cooking instructions
   })),
   status: z.enum([
     'pending',              // Order placed, waiting for payment confirmation

@@ -42,9 +42,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { format } from "date-fns";
-import type { Category } from "../types/category";
-import type { Order } from "../types/order";
-import type { Chef } from "@shared/schema";
+import type { Category, Order, Chef } from "@shared/schema";
 import { queryClient } from "@/lib/queryClient";
 
 export default function MyOrders() {
@@ -382,8 +380,8 @@ export default function MyOrders() {
                               <div className="relative flex flex-col items-center">
                                 <div
                                   className={`w-8 h-8 md:w-10 md:h-10 rounded-full flex items-center justify-center z-10 flex-shrink-0 ${step.completed
-                                      ? "bg-primary text-primary-foreground"
-                                      : "bg-muted text-muted-foreground"
+                                    ? "bg-primary text-primary-foreground"
+                                    : "bg-muted text-muted-foreground"
                                     }`}
                                 >
                                   {step.icon}
@@ -398,8 +396,8 @@ export default function MyOrders() {
                               <div className="flex-1 -mt-1">
                                 <p
                                   className={`text-xs md:text-sm font-semibold ${step.completed
-                                      ? "text-foreground"
-                                      : "text-muted-foreground"
+                                    ? "text-foreground"
+                                    : "text-muted-foreground"
                                     }`}
                                 >
                                   {step.label}
@@ -442,7 +440,7 @@ export default function MyOrders() {
                                 </p>
                               </div>
                             )}
-                            {activeOrder.items.map((item: any, idx: number) => (
+                            {(activeOrder.items as any[]).map((item: any, idx: number) => (
                               <div key={idx} className="flex justify-between text-xs md:text-sm">
                                 <span className="text-muted-foreground">
                                   {item.name} × {item.quantity}
@@ -512,15 +510,15 @@ export default function MyOrders() {
                         {/* Items */}
                         <div className="bg-muted/30 rounded p-2">
                           <div className="text-xs space-y-1">
-                            {order.items.slice(0, 3).map((item: any, idx: number) => (
+                            {(order.items as any[]).slice(0, 3).map((item: any, idx: number) => (
                               <div key={idx} className="flex justify-between text-muted-foreground">
                                 <span>{item.name} ×{item.quantity}</span>
                                 <span>₹{item.price * item.quantity}</span>
                               </div>
                             ))}
-                            {order.items.length > 3 && (
+                            {(order.items as any[]).length > 3 && (
                               <p className="text-muted-foreground pt-1">
-                                +{order.items.length - 3} more items
+                                +{(order.items as any[]).length - 3} more items
                               </p>
                             )}
                           </div>

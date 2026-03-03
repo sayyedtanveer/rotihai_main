@@ -13,6 +13,7 @@ interface CartItem {
   chefName?: string;
   categoryId?: string;
   offerPercentage?: number; // Add offer percentage
+  specialInstructions?: string; // Optional cooking instructions
 }
 
 interface CategoryCart {
@@ -71,6 +72,7 @@ interface CartStore {
     chefId?: string,
     categoryId?: string
   ) => { canAdd: boolean; conflictChef?: string };
+  updateSpecialInstructions: (categoryId: string, itemId: string, instructions: string) => void;
 }
 
 export const useCart = create<CartStore>()(
@@ -269,6 +271,21 @@ export const useCart = create<CartStore>()(
       // ✅ Clear all carts (for logout or full reset)
       clearAllCarts: () => {
         set({ carts: [] });
+      },
+
+      // ✅ Update special cooking instructions for a specific cart item
+      updateSpecialInstructions: (categoryId: string, itemId: string, instructions: string) => {
+        const { carts } = get();
+        const updatedCarts = carts.map((cart) => {
+          if (cart.categoryId === categoryId) {
+            const updatedItems = cart.items.map((item) =>
+              item.id === itemId ? { ...item, specialInstructions: instructions || undefined } : item
+            );
+            return { ...cart, items: updatedItems };
+          }
+          return cart;
+        });
+        set({ carts: updatedCarts });
       },
 
       // ✅ Get total number of items

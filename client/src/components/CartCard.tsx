@@ -2,9 +2,10 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Progress } from "@/components/ui/progress";
-import { MapPin, Package, Plus, Minus } from "lucide-react";
+import { MapPin, Package, Plus, Minus, ChevronDown, UtensilsCrossed } from "lucide-react";
 import { Card, CardHeader, CardContent, CardFooter } from "@/components/ui/card";
 import { getImageUrl, handleImageError } from "@/lib/imageUrl";
+import { useState } from "react";
 
 interface CartItem {
   id: string;
@@ -12,6 +13,7 @@ interface CartItem {
   price: number;
   quantity: number;
   image: string;
+  specialInstructions?: string;
 }
 
 interface CartCardProps {
@@ -26,6 +28,7 @@ interface CartCardProps {
   deliveryRangeName?: string;
   minOrderAmount?: number; // Minimum order for this distance range
   onUpdateQuantity?: (itemId: string, quantity: number) => void;
+  onUpdateInstructions?: (itemId: string, instructions: string) => void;
   onCheckout?: () => void;
   disabled?: boolean;
   chefClosed?: boolean;
@@ -45,6 +48,7 @@ export default function CartCard({
   deliveryRangeName,
   minOrderAmount,
   onUpdateQuantity,
+  onUpdateInstructions,
   onCheckout,
   disabled = false,
   chefClosed = false,
@@ -53,6 +57,8 @@ export default function CartCard({
 }: CartCardProps) {
   const total = subtotal + deliveryFee;
   const totalItems = items.reduce((sum, item) => sum + item.quantity, 0);
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [draftInstruction, setDraftInstruction] = useState("");
 
   // Check if all items are unavailable
   const allItemsUnavailable = items.length > 0 && items.every(
@@ -138,58 +144,122 @@ export default function CartCard({
         <div className="space-y-2">
           {items.map((item) => {
             const isUnavailable = productAvailability[item.id]?.isAvailable === false;
+            const isEditing = editingItemId === item.id;
+            const hasInstruction = !!(item.specialInstructions && item.specialInstructions.trim());
             return (
               <div
                 key={item.id}
-                className={`flex gap-2 sm:gap-3 overflow-hidden ${isUnavailable ? 'opacity-50' : ''}`}
                 data-testid={`item-${item.id}`}
               >
-                <img
-                  src={getImageUrl(item.image)}
-                  alt={item.name}
-                  className={`w-10 h-10 sm:w-12 sm:h-12 object-cover rounded-md flex-shrink-0 ${isUnavailable ? 'grayscale' : ''}`}
-                  onError={handleImageError}
-                  data-testid={`img-item-${item.id}`}
-                />
-                <div className="flex-1 min-w-0">
-                  <h4 className={`font-medium text-xs sm:text-sm truncate ${isUnavailable ? 'line-through text-muted-foreground' : ''}`} data-testid={`text-item-name-${item.id}`}>
-                    {item.name}
-                  </h4>
-                  <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
-                    <p className={`text-xs font-semibold ${isUnavailable ? 'text-muted-foreground' : 'text-primary'}`} data-testid={`text-item-price-${item.id}`}>
-                      ₹{item.price}
-                    </p>
-                    {isUnavailable && (
-                      <span className="text-xs px-1 py-0.5 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded-sm font-medium whitespace-nowrap">
-                        Out of Stock
-                      </span>
+                <div className={`flex gap-2 sm:gap-3 overflow-hidden ${isUnavailable ? 'opacity-50' : ''}`}>
+                  <img
+                    src={getImageUrl(item.image)}
+                    alt={item.name}
+                    className={`w-10 h-10 sm:w-12 sm:h-12 object-cover rounded-md flex-shrink-0 ${isUnavailable ? 'grayscale' : ''}`}
+                    onError={handleImageError}
+                    data-testid={`img-item-${item.id}`}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <h4 className={`font-medium text-xs sm:text-sm truncate ${isUnavailable ? 'line-through text-muted-foreground' : ''}`} data-testid={`text-item-name-${item.id}`}>
+                      {item.name}
+                    </h4>
+                    <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
+                      <p className={`text-xs font-semibold ${isUnavailable ? 'text-muted-foreground' : 'text-primary'}`} data-testid={`text-item-price-${item.id}`}>
+                        ₹{item.price}
+                      </p>
+                      {isUnavailable && (
+                        <span className="text-xs px-1 py-0.5 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded-sm font-medium whitespace-nowrap">
+                          Out of Stock
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Zomato-style inline cooking instructions */}
+                    {!isEditing ? (
+                      <button
+                        type="button"
+                        className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground mt-1 transition-colors"
+                        onClick={() => {
+                          setEditingItemId(item.id);
+                          setDraftInstruction(item.specialInstructions || "");
+                        }}
+                        data-testid={`button-add-instruction-${item.id}`}
+                      >
+                        <UtensilsCrossed className="h-3 w-3" />
+                        {hasInstruction ? (
+                          <span className="text-orange-600 dark:text-orange-400 font-medium">
+                            {item.specialInstructions}
+                          </span>
+                        ) : (
+                          <span className="underline underline-offset-2">Add cooking instructions</span>
+                        )}
+                        <ChevronDown className="h-3 w-3" />
+                      </button>
+                    ) : (
+                      <div className="mt-1.5 space-y-1">
+                        <textarea
+                          autoFocus
+                          className="w-full text-xs border border-border rounded-md px-2 py-1.5 bg-muted/40 focus:outline-none focus:ring-1 focus:ring-primary resize-none"
+                          placeholder="E.g. No salt, less oil, extra soft..."
+                          rows={2}
+                          value={draftInstruction}
+                          onChange={(e) => setDraftInstruction(e.target.value)}
+                          data-testid={`input-instruction-${item.id}`}
+                        />
+                        <div className="flex gap-1.5">
+                          <button
+                            type="button"
+                            className="text-[11px] font-semibold text-primary hover:opacity-80 transition-opacity"
+                            onClick={() => {
+                              onUpdateInstructions?.(item.id, draftInstruction.trim());
+                              setEditingItemId(null);
+                            }}
+                            data-testid={`button-save-instruction-${item.id}`}
+                          >
+                            Done
+                          </button>
+                          {hasInstruction && (
+                            <button
+                              type="button"
+                              className="text-[11px] text-muted-foreground hover:text-red-500 transition-colors"
+                              onClick={() => {
+                                onUpdateInstructions?.(item.id, "");
+                                setEditingItemId(null);
+                              }}
+                              data-testid={`button-clear-instruction-${item.id}`}
+                            >
+                              Remove
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     )}
                   </div>
-                </div>
-                <div className="flex items-center gap-0.5 sm:gap-1 flex-shrink-0">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => onUpdateQuantity?.(item.id, item.quantity - 1)}
-                    disabled={isUnavailable}
-                    data-testid={`button-decrease-${item.id}`}
-                    className="h-8 w-8 p-0"
-                  >
-                    <Minus className="h-3 w-3 sm:h-4 sm:w-4" />
-                  </Button>
-                  <span className="w-6 sm:w-8 text-center text-xs sm:text-sm font-medium flex-shrink-0" data-testid={`text-quantity-${item.id}`}>
-                    {item.quantity}
-                  </span>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => onUpdateQuantity?.(item.id, item.quantity + 1)}
-                    disabled={isUnavailable}
-                    data-testid={`button-increase-${item.id}`}
-                    className="h-8 w-8 p-0"
-                  >
-                    <Plus className="h-3 w-3 sm:h-4 sm:w-4" />
-                  </Button>
+                  <div className="flex items-center gap-0.5 sm:gap-1 flex-shrink-0">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onUpdateQuantity?.(item.id, item.quantity - 1)}
+                      disabled={isUnavailable}
+                      data-testid={`button-decrease-${item.id}`}
+                      className="h-8 w-8 p-0"
+                    >
+                      <Minus className="h-3 w-3 sm:h-4 sm:w-4" />
+                    </Button>
+                    <span className="w-6 sm:w-8 text-center text-xs sm:text-sm font-medium flex-shrink-0" data-testid={`text-quantity-${item.id}`}>
+                      {item.quantity}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onUpdateQuantity?.(item.id, item.quantity + 1)}
+                      disabled={isUnavailable}
+                      data-testid={`button-increase-${item.id}`}
+                      className="h-8 w-8 p-0"
+                    >
+                      <Plus className="h-3 w-3 sm:h-4 sm:w-4" />
+                    </Button>
+                  </div>
                 </div>
               </div>
             );
