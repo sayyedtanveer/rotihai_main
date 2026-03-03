@@ -1872,6 +1872,7 @@ export default function CheckoutDialog({
           quantity: item.quantity,
           categoryId: item.categoryId,
           chefId: item.chefId,
+          specialInstructions: item.specialInstructions || undefined,
         })),
         subtotal,
         deliveryFee,

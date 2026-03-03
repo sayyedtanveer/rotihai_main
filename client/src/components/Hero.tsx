@@ -5,6 +5,7 @@ import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useDeliveryLocation } from "@/contexts/DeliveryLocationContext";
 import { useCart } from "@/hooks/use-cart";
+import { storePincodeValidation, clearPincodeValidation } from "@/lib/pincodeUtils";
 import heroImage from '@assets/generated_images/Indian_food_spread_hero_01f8cdab.png';
 
 export default function Hero() {
@@ -39,15 +40,17 @@ export default function Hero() {
         setUserLocation(lat, lng);
 
         // CRITICAL: Update delivery context so Home.tsx detects pincode and loads chefs
+        // isInZone: true so Home.tsx uses the fast path (line 217) on return visits
         setDeliveryLocation({
           pincode: savedPincode,
           latitude: lat,
           longitude: lng,
           address: savedArea,
+          isInZone: true,
           source: "pincode"
         });
 
-        console.log("[HERO] Loaded saved pincode and triggered chef loading:", savedPincode);
+        console.log("[HERO] ✅ Restored saved pincode on return visit:", savedPincode);
       }
     }
   }, [setUserLocation, setDeliveryLocation]);
@@ -88,11 +91,19 @@ export default function Hero() {
         lon: data.longitude,
       });
 
-      // Save to localStorage
+      // Save to localStorage (raw keys for Hero restore)
       localStorage.setItem('userPincode', data.pincode);
       localStorage.setItem('pincodeArea', data.area);
       localStorage.setItem('userLatitude', data.latitude.toString());
       localStorage.setItem('userLongitude', data.longitude.toString());
+
+      // Also save via pincodeUtils (used by CheckoutDialog auto-fill)
+      storePincodeValidation({
+        pincode: data.pincode,
+        area: data.area,
+        latitude: data.latitude,
+        longitude: data.longitude,
+      });
 
       // CRITICAL: Update cart store coordinates FIRST (triggers chef query in Home.tsx)
       setUserLocation(data.latitude, data.longitude);
@@ -132,8 +143,13 @@ export default function Hero() {
     setPincodeValidated(false);
     setPincodeArea("");
     setIsValidatingPincode(false);
+    // Clear ALL pincode-related localStorage keys
     localStorage.removeItem('userPincode');
     localStorage.removeItem('pincodeArea');
+    localStorage.removeItem('userLatitude');
+    localStorage.removeItem('userLongitude');
+    clearPincodeValidation(); // clears validatedPincode key (used by CheckoutDialog)
+    console.log("[HERO] Pincode cleared by user");
   };
 
   const scrollToProducts = () => {
