@@ -1183,6 +1183,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
             name: i.name,
             price: sanitizeNumber(i.price),
             quantity: sanitizeNumber(i.quantity),
+            categoryId: i.categoryId || undefined,
+            chefId: i.chefId || undefined,
+            // Preserve special cooking instructions — this is saved in JSONB items column
+            ...(i.specialInstructions ? { specialInstructions: String(i.specialInstructions).trim() } : {}),
           }))
           : [],
         subtotal: sanitizeNumber(body.subtotal),

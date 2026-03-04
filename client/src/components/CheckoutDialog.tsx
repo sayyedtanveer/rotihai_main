@@ -67,6 +67,9 @@ export default function CheckoutDialog({
 
 
   const [customerName, setCustomerName] = useState("");
+  // Track if user has manually edited the name field in this dialog session
+  // Resets to false each time the dialog opens so the latest profile name is always applied on fresh open
+  const nameManuallyEdited = useRef(false);
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
 
@@ -156,6 +159,14 @@ export default function CheckoutDialog({
       cartDistance: cart?.distance,
     });
   }, [cart, isOpen]);
+  // Reset the manual-edit flag every time the dialog opens fresh
+  // This ensures the latest profile name is always shown on next open
+  useEffect(() => {
+    if (isOpen) {
+      nameManuallyEdited.current = false;
+    }
+  }, [isOpen]);
+
   // Listen to cart changes and clear validation when cart/chef changes
   // This forces user to re-validate address when selecting a different chef
   useEffect(() => {
@@ -676,8 +687,8 @@ export default function CheckoutDialog({
   useEffect(() => {
     if (isOpen && isAuthenticated && user) {
       // Use data from useAuth() hook which fetches from /api/user/profile
-      // Only pre-fill name if the user hasn't already typed something
-      if (!customerName) {
+      // Always update name from latest profile UNLESS user has manually edited it in this session
+      if (!nameManuallyEdited.current) {
         setCustomerName(user.name || "");
       }
       setPhone(user.phone || "");
@@ -2241,7 +2252,10 @@ export default function CheckoutDialog({
                       <Input
                         id="customerName"
                         value={customerName}
-                        onChange={(e) => setCustomerName(e.target.value)}
+                        onChange={(e) => {
+                          nameManuallyEdited.current = true;
+                          setCustomerName(e.target.value);
+                        }}
                         required
                         data-testid="input-customer-name"
                       />
