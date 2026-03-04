@@ -53,7 +53,14 @@ export function usePartnerNotifications() {
               console.log(`✅ New order notification counted for ${order.id.slice(0, 8)}`);
             }
 
-            // Browser notification
+            // Always show in-app toast so chef sees the alert even if browser notifications blocked
+            toast({
+              title: "🍽️ New Order Received!",
+              description: `Order #${order.id.slice(0, 8)} - ₹${order.total} from ${order.customerName}`,
+              duration: 8000,
+            });
+
+            // Browser notification (if permission granted)
             if (Notification.permission === "granted") {
               new Notification("New Order Received!", {
                 body: `Order #${order.id.slice(0, 8)} - ₹${order.total} from ${order.customerName}`,
@@ -63,7 +70,7 @@ export function usePartnerNotifications() {
 
               // Play sound
               const audio = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBTGH0fPTgjMGHm7A7+OZURE=");
-              audio.play().catch(() => {});
+              audio.play().catch(() => { });
             }
           } else if (data.type === "order_update") {
             const order = data.data as Order;
@@ -73,7 +80,13 @@ export function usePartnerNotifications() {
               paymentStatus: order.paymentStatus
             });
 
-            // Show notification ONLY when admin confirms payment (status=confirmed AND paymentStatus=confirmed)
+            // Show in-app toast for admin-confirmed orders too
+            toast({
+              title: "✅ Order Confirmed - Action Required!",
+              description: `Order #${order.id.slice(0, 8)} - ₹${order.total} is ready to accept.`,
+              duration: 8000,
+            });
+
             if (order.status === "confirmed" && order.paymentStatus === "confirmed" && Notification.permission === "granted") {
               // Only increment once per order - prevent duplicate counts
               if (!processedOrderIds.current.has(order.id)) {
@@ -90,7 +103,7 @@ export function usePartnerNotifications() {
 
               // Play sound for admin-confirmed orders
               const audio = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBTGH0fPTgjMGHm7A7+OZURE=");
-              audio.play().catch(() => {});
+              audio.play().catch(() => { });
 
               // Refetch orders to show the new order
               queryClient.invalidateQueries({ queryKey: ["/api/partner/orders"] });
@@ -103,7 +116,7 @@ export function usePartnerNotifications() {
 
               // Play a different sound for prepared orders
               const audio = new Audio("data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YV9vT19/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v78=");
-              audio.play().catch(() => {});
+              audio.play().catch(() => { });
             }
           }
         }
@@ -112,7 +125,7 @@ export function usePartnerNotifications() {
           console.log("📅 Subscription update received");
           queryClient.invalidateQueries({ queryKey: ["/api/partner/subscriptions"] });
           queryClient.invalidateQueries({ queryKey: ["/api/partner/subscription-deliveries"] });
-          
+
           // Show toast notification for subscription updates
           toast({
             title: "Subscription Updated",
@@ -122,14 +135,14 @@ export function usePartnerNotifications() {
 
         if (data.type === "subscription_assigned") {
           console.log("✅ NEW SUBSCRIPTION ASSIGNED:", data.data);
-          
+
           const subscriptionData = data.data;
-          
+
           // Invalidate queries to refresh subscription data
           queryClient.invalidateQueries({ queryKey: ["/api/partner/subscriptions"] });
           queryClient.invalidateQueries({ queryKey: ["/api/partner/subscription-deliveries"] });
           queryClient.invalidateQueries({ queryKey: ["/api/partner/dashboard/metrics"] });
-          
+
           // Show browser notification
           if (Notification.permission === "granted") {
             new Notification("New Subscription Assigned! 🎉", {
@@ -140,9 +153,9 @@ export function usePartnerNotifications() {
 
             // Play notification sound
             const audio = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBTGH0fPTgjMGHm7A7+OZURE=");
-            audio.play().catch(() => {});
+            audio.play().catch(() => { });
           }
-          
+
           // Show toast notification
           toast({
             title: "New Subscription Assigned! 🎉",

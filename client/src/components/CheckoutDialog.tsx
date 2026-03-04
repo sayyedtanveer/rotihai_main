@@ -676,7 +676,10 @@ export default function CheckoutDialog({
   useEffect(() => {
     if (isOpen && isAuthenticated && user) {
       // Use data from useAuth() hook which fetches from /api/user/profile
-      setCustomerName(user.name || "");
+      // Only pre-fill name if the user hasn't already typed something
+      if (!customerName) {
+        setCustomerName(user.name || "");
+      }
       setPhone(user.phone || "");
       setEmail(user.email || "");
       // Parse structured address if available

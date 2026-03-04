@@ -100,6 +100,7 @@ export default function PartnerDashboard() {
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
     },
+    refetchInterval: 30000, // Fallback polling every 30 seconds in case WebSocket misses an event
   });
 
   // Fetch subscription orders for the chef panel
@@ -523,7 +524,7 @@ export default function PartnerDashboard() {
                             {format(new Date(order.createdAt), "MMM d, h:mm a")}
                           </p>
                           <div className="mt-2 text-xs space-y-0.5">
-                            {(order.items as any[]).slice(0, 2).map((item, idx) => (
+                            {(order.items as any[]).map((item, idx) => (
                               <div key={idx}>
                                 <p className="text-muted-foreground">
                                   {item.name} x{item.quantity}
@@ -847,7 +848,7 @@ export default function PartnerDashboard() {
                             {format(new Date(order.createdAt), "MMM d, h:mm a")}
                           </p>
                           <div className="mt-2 text-xs space-y-0.5">
-                            {(order.items as any[]).slice(0, 2).map((item, idx) => (
+                            {(order.items as any[]).map((item, idx) => (
                               <div key={idx}>
                                 <p className="text-muted-foreground">
                                   {item.name} x{item.quantity}
@@ -1034,7 +1035,7 @@ export default function PartnerDashboard() {
                               {format(new Date(order.createdAt), "MMM d, h:mm a")}
                             </p>
                             <div className="mt-2 text-xs space-y-0.5">
-                              {(order.items as any[]).slice(0, 2).map((item, idx) => (
+                              {(order.items as any[]).map((item, idx) => (
                                 <div key={idx}>
                                   <p className="text-muted-foreground">
                                     {item.name} x{item.quantity}
@@ -1444,7 +1445,7 @@ export default function PartnerDashboard() {
                           <p className="text-xs text-muted-foreground mt-1">{order.customerName}</p>
                           <p className="text-xs text-muted-foreground">{new Date(order.createdAt).toLocaleDateString()} {new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                           <div className="mt-2 text-xs space-y-0.5">
-                            {(order.items as any[]).slice(0, 2).map((item: any, itemIdx: number) => (
+                            {(order.items as any[]).map((item: any, itemIdx: number) => (
                               <p key={itemIdx} className="text-muted-foreground">
                                 {item.name} x{item.quantity} = ₹{Math.round((item.hotelPrice || item.price) * item.quantity)}
                               </p>
