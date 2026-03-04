@@ -46,7 +46,7 @@ export default function PaymentQRDialog({
   const [hasPaid, setHasPaid] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
   const [upiIntent, setUpiIntent] = useState("");
-  const [showQRCode, setShowQRCode] = useState(false); // Collapsible QR section
+  const [showQRCode, setShowQRCode] = useState(false); // Collapsed by default
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const isMobile = isMobileDevice();
@@ -61,7 +61,7 @@ export default function PaymentQRDialog({
       console.log("[PAYMENT QR] Dialog closed - resetting state");
       setIsConfirming(false);
       setHasPaid(false);
-      setShowQRCode(false); // Reset collapsible state
+      setShowQRCode(false); // Reset to false
     }
   }, [isOpen]);
 
@@ -83,7 +83,7 @@ export default function PaymentQRDialog({
 
   // Render QR code to canvas separately after intent is set
   useEffect(() => {
-    if (upiIntent && canvasRef.current) {
+    if (upiIntent && canvasRef.current && showQRCode) {
       console.log("[PAYMENT QR] Rendering QR code to canvas");
       const qrSize = window.innerWidth < 768 ? 200 : 256;
 
@@ -110,7 +110,7 @@ export default function PaymentQRDialog({
         }
       );
     }
-  }, [upiIntent, toast]);
+  }, [upiIntent, toast, showQRCode]);
 
   useEffect(() => {
     console.log("[PAYMENT QR] upiIntent state changed:", upiIntent ? "SET (buttons should render)" : "NOT SET (buttons hidden)");
@@ -377,18 +377,20 @@ export default function PaymentQRDialog({
                     </Button>
                     <Button
                       variant="outline"
-                      className="flex flex-col items-center gap-1 h-auto py-3"
-                      onClick={() => handlePayWithApp("phonepe")}
+                      className="flex flex-col items-center gap-1 h-auto py-3 opacity-50 cursor-not-allowed"
                       data-testid="button-pay-phonepe"
+                      disabled={true}
+                      title="Currently unavailable"
                     >
                       <SiPhonepe className="h-6 w-6" />
                       <span className="text-xs">PhonePe</span>
                     </Button>
                     <Button
                       variant="outline"
-                      className="flex flex-col items-center gap-1 h-auto py-3"
-                      onClick={() => handlePayWithApp("paytm")}
+                      className="flex flex-col items-center gap-1 h-auto py-3 opacity-50 cursor-not-allowed"
                       data-testid="button-pay-paytm"
+                      disabled={true}
+                      title="Currently unavailable"
                     >
                       <SiPaytm className="h-6 w-6" />
                       <span className="text-xs">Paytm</span>

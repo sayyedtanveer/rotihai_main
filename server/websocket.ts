@@ -130,7 +130,7 @@ export function broadcastNewOrder(order: Order) {
   clients.forEach((client) => {
     if (client.type === "admin") {
       client.ws.send(message);
-    } else if (client.type === "chef" && client.chefId === order.chefId) {
+    } else if (client.type === "chef" && String(client.chefId) === String(order.chefId)) {
       client.ws.send(message);
     }
   });
@@ -146,7 +146,7 @@ export function broadcastSubscriptionDelivery(subscription: any) {
   clients.forEach((client) => {
     if (client.type === "admin") {
       client.ws.send(message);
-    } else if (client.type === "chef" && subscription.chefId && client.chefId === subscription.chefId) {
+    } else if (client.type === "chef" && subscription.chefId && String(client.chefId) === String(subscription.chefId)) {
       client.ws.send(message);
       console.log(`  ✅ Sent subscription delivery to chef ${client.id} (chefId: ${client.chefId})`);
     }
@@ -190,7 +190,7 @@ export function broadcastSubscriptionUpdate(subscription: any) {
       client.ws.send(message);
       adminNotified++;
       console.log(`  ✅ Sent to admin ${clientId}`);
-    } else if (client.type === "chef" && safeSubscription.chefId && client.chefId === safeSubscription.chefId && client.ws.readyState === WebSocket.OPEN) {
+    } else if (client.type === "chef" && safeSubscription.chefId && String(client.chefId) === String(safeSubscription.chefId) && client.ws.readyState === WebSocket.OPEN) {
       client.ws.send(message);
       chefNotified = true;
       console.log(`  ✅ Sent to partner ${clientId} (chefId: ${client.chefId})`);
@@ -363,7 +363,7 @@ export function broadcastOrderUpdate(order: Order) {
         client.ws.send(message);
         adminNotified++;
         console.log(`  ✅ Sent to admin ${clientId}`);
-      } else if (client.type === "chef" && client.chefId === order.chefId) {
+      } else if (client.type === "chef" && String(client.chefId) === String(order.chefId)) {
         client.ws.send(message);
         chefNotified = true;
         console.log(`  ✅ Sent to chef ${clientId} (chefId: ${client.chefId})`);
@@ -375,7 +375,7 @@ export function broadcastOrderUpdate(order: Order) {
         client.ws.send(message);
         customerNotified = true;
         console.log(`  ✅ Sent to customer ${clientId}`);
-      } else if (client.type === "chef" && client.chefId !== order.chefId) {
+      } else if (client.type === "chef" && String(client.chefId) !== String(order.chefId)) {
         console.log(`  ❌ Chef ${clientId} skipped - chefId mismatch (client: ${client.chefId}, order: ${order.chefId})`);
       }
     } catch (error) {
@@ -561,7 +561,7 @@ export function broadcastChefStatusUpdate(chef: any) {
       client.ws.send(message);
       browserNotified++;
       console.log(`  ✅ Sent to browser ${clientId}`);
-    } else if (client.type === "chef" && client.chefId === chef.id && client.ws.readyState === WebSocket.OPEN) {
+    } else if (client.type === "chef" && String(client.chefId) === String(chef.id) && client.ws.readyState === WebSocket.OPEN) {
       client.ws.send(message);
       partnerNotified = true;
       console.log(`  ✅ Sent to partner ${clientId}`);
@@ -697,7 +697,7 @@ export function broadcastSubscriptionAssignmentToPartner(subscription: any, chef
   let partnerNotified = false;
 
   clients.forEach((client, clientId) => {
-    if (client.type === "chef" && client.chefId === subscription.chefId && client.ws.readyState === WebSocket.OPEN) {
+    if (client.type === "chef" && String(client.chefId) === String(subscription.chefId) && client.ws.readyState === WebSocket.OPEN) {
       client.ws.send(message);
       partnerNotified = true;
       console.log(`  ✅ Sent to partner ${clientId} (chefId: ${client.chefId})`);
