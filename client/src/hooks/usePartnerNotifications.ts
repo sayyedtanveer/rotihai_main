@@ -4,6 +4,7 @@ import { getWebSocketURL } from "@/lib/fetchClient";
 import { queryClient } from "@/lib/queryClient";
 import type { Order } from "@shared/schema";
 import { toast } from "@/hooks/use-toast";
+import { usePartnerNotificationStore } from "@/store/partnerNotificationStore";
 
 export function usePartnerNotifications() {
   const [wsConnected, setWsConnected] = useState(false);
@@ -12,6 +13,7 @@ export function usePartnerNotifications() {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isUnmountedRef = useRef(false);
+  const addNotification = usePartnerNotificationStore((s) => s.addNotification);
 
   const connect = useCallback(() => {
     if (isUnmountedRef.current) return;
@@ -66,6 +68,15 @@ export function usePartnerNotifications() {
             if (!processedOrderIds.current.has(order.id)) {
               processedOrderIds.current.add(order.id);
               setNewOrdersCount((prev) => prev + 1);
+              // Add to persistent notification store (shows in bell dropdown)
+              addNotification({
+                id: `new_${order.id}`,
+                orderId: order.id,
+                status: "pending",
+                message: `🍴 New order from ${order.customerName} — ₹${order.total}`,
+                total: order.total,
+                customerName: order.customerName,
+              });
             }
 
             // Always show in-app toast (never gated on browser permission)
@@ -96,6 +107,15 @@ export function usePartnerNotifications() {
               if (!processedOrderIds.current.has(order.id)) {
                 processedOrderIds.current.add(order.id);
                 setNewOrdersCount((prev) => prev + 1);
+                // Add to persistent notification store (shows in bell dropdown)
+                addNotification({
+                  id: `confirmed_${order.id}`,
+                  orderId: order.id,
+                  status: "confirmed",
+                  message: `✅ Order #${order.id.slice(0, 8)} confirmed — ₹${order.total} from ${order.customerName}. Ready to accept!`,
+                  total: order.total,
+                  customerName: order.customerName,
+                });
               }
 
               // Always show in-app toast

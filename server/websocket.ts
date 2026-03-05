@@ -2,7 +2,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import type { Server } from "http";
 import { verifyToken as verifyAdminToken } from "./adminAuth";
 import { verifyToken as verifyDeliveryToken } from "./deliveryAuth";
-import jwt from "jsonwebtoken";
+import { verifyToken as verifyPartnerToken } from "./partnerAuth";
 import type { Order } from "@shared/schema";
 
 interface ConnectedClient {
@@ -71,14 +71,15 @@ export function setupWebSocket(server: Server) {
           ws.close(1008, "Token required");
           return;
         }
-        const JWT_SECRET = process.env.JWT_SECRET || "partner-jwt-secret-change-in-production";
-        const payload = jwt.verify(token, JWT_SECRET) as { partnerId: string; chefId: string };
+        // Use the same verifyToken from partnerAuth to guarantee JWT_SECRET consistency
+        const payload = verifyPartnerToken(token);
         if (!payload || !payload.chefId) {
           ws.close(1008, "Invalid chef token");
           return;
         }
         clientId = payload.partnerId;
         chefId = payload.chefId;
+        console.log(`[WS-AUTH] Chef authenticated: partnerId=${payload.partnerId}, chefId=${payload.chefId}`);
       } else if (type === "delivery") {
         if (!token) {
           ws.close(1008, "Token required");
@@ -127,13 +128,30 @@ export function broadcastNewOrder(order: Order) {
     data: order
   });
 
-  clients.forEach((client) => {
-    if (client.type === "admin") {
-      client.ws.send(message);
-    } else if (client.type === "chef" && String(client.chefId) === String(order.chefId)) {
-      client.ws.send(message);
+  console.log(`\n📡 BROADCASTING NEW ORDER: ${order.id} to ${clients.size} clients`);
+  let adminCount = 0;
+  let chefNotified = false;
+
+  clients.forEach((client, clientId) => {
+    try {
+      if (client.ws.readyState !== WebSocket.OPEN) return;
+      if (client.type === "admin") {
+        client.ws.send(message);
+        adminCount++;
+      } else if (client.type === "chef" && String(client.chefId) === String(order.chefId)) {
+        client.ws.send(message);
+        chefNotified = true;
+        console.log(`  ✅ New order sent to chef ${clientId} (chefId: ${client.chefId})`);
+      }
+    } catch (err) {
+      console.error(`  ❌ broadcastNewOrder send error to ${client.type} ${clientId}:`, err);
     }
   });
+
+  console.log(`  Admins: ${adminCount} | Chef notified: ${chefNotified}`);
+  if (!chefNotified && order.chefId) {
+    console.warn(`  ⚠️ No chef WS connected for chefId=${order.chefId}`);
+  }
 }
 
 // Broadcast subscription delivery to admins and assigned chef

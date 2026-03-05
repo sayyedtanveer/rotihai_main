@@ -11,6 +11,7 @@ import { format, startOfMonth, endOfMonth, subMonths, parse, isBefore, subHours,
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 import { usePartnerNotifications } from "@/hooks/usePartnerNotifications";
+import PartnerNotificationBell from "@/components/PartnerNotificationBell";
 import { formatTime12Hour, formatDeliveryTime } from "@shared/timeFormatter";
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
@@ -389,18 +390,8 @@ export default function PartnerDashboard() {
               </div>
             </div>
             <div className="flex items-center gap-1">
-              {/* Bell notification badge - always visible */}
-              {newOrdersCount > 0 && (
-                <Badge variant="destructive" className="text-xs flex items-center gap-1 mr-1 cursor-pointer" onClick={() => { setSelectedTab("orders"); clearNewOrdersCount(); }}>
-                  <Bell className="h-3 w-3" />
-                  {newOrdersCount}
-                </Badge>
-              )}
-              {/* Live/Offline indicator - always visible */}
-              <div className={`flex items-center gap-1 text-xs px-2 py-1 rounded-full border ${wsConnected ? "text-green-600 border-green-400 bg-green-50" : "text-red-600 border-red-400 bg-red-50"}`}>
-                {wsConnected ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
-                <span className="hidden sm:inline">{wsConnected ? "Live" : "Offline"}</span>
-              </div>
+              {/* Real-time Partner Notification Bell and Live Indicator */}
+              <PartnerNotificationBell wsConnected={wsConnected} />
               <Button
                 variant="ghost"
                 size="icon"
