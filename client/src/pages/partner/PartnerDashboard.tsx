@@ -389,6 +389,18 @@ export default function PartnerDashboard() {
               </div>
             </div>
             <div className="flex items-center gap-1">
+              {/* Bell notification badge - always visible */}
+              {newOrdersCount > 0 && (
+                <Badge variant="destructive" className="text-xs flex items-center gap-1 mr-1 cursor-pointer" onClick={() => { setSelectedTab("orders"); clearNewOrdersCount(); }}>
+                  <Bell className="h-3 w-3" />
+                  {newOrdersCount}
+                </Badge>
+              )}
+              {/* Live/Offline indicator - always visible */}
+              <div className={`flex items-center gap-1 text-xs px-2 py-1 rounded-full border ${wsConnected ? "text-green-600 border-green-400 bg-green-50" : "text-red-600 border-red-400 bg-red-50"}`}>
+                {wsConnected ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
+                <span className="hidden sm:inline">{wsConnected ? "Live" : "Offline"}</span>
+              </div>
               <Button
                 variant="ghost"
                 size="icon"
@@ -410,19 +422,8 @@ export default function PartnerDashboard() {
             </div>
           </div>
 
-          {/* Status Row - Hidden on md and above */}
-          <div className="md:hidden flex items-center gap-2 text-xs">
-            {newOrdersCount > 0 && (
-              <Badge variant="destructive" className="text-xs flex items-center gap-1">
-                <Bell className="h-2.5 w-2.5" />
-                {newOrdersCount} New
-              </Badge>
-            )}
-            <div className={`flex items-center gap-1 ${wsConnected ? "text-green-600" : "text-red-600"}`}>
-              {wsConnected ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
-              <span>{wsConnected ? "Live" : "Offline"}</span>
-            </div>
-          </div>
+          {/* Removed mobile-only status row — indicators are now always in header */}
+
         </div>
       </header>
 
