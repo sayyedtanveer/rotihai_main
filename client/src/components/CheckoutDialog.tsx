@@ -22,6 +22,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { useWalletUpdates } from "@/hooks/useWalletUpdates";
@@ -67,9 +68,6 @@ export default function CheckoutDialog({
 
 
   const [customerName, setCustomerName] = useState("");
-  // Track if user has manually edited the name field in this dialog session
-  // Resets to false each time the dialog opens so the latest profile name is always applied on fresh open
-  const nameManuallyEdited = useRef(false);
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
 
@@ -159,13 +157,6 @@ export default function CheckoutDialog({
       cartDistance: cart?.distance,
     });
   }, [cart, isOpen]);
-  // Reset the manual-edit flag every time the dialog opens fresh
-  // This ensures the latest profile name is always shown on next open
-  useEffect(() => {
-    if (isOpen) {
-      nameManuallyEdited.current = false;
-    }
-  }, [isOpen]);
 
   // Listen to cart changes and clear validation when cart/chef changes
   // This forces user to re-validate address when selecting a different chef
@@ -687,10 +678,8 @@ export default function CheckoutDialog({
   useEffect(() => {
     if (isOpen && isAuthenticated && user) {
       // Use data from useAuth() hook which fetches from /api/user/profile
-      // Always update name from latest profile UNLESS user has manually edited it in this session
-      if (!nameManuallyEdited.current) {
-        setCustomerName(user.name || "");
-      }
+      // Always update name from latest profile
+      setCustomerName(user.name || "");
       setPhone(user.phone || "");
       setEmail(user.email || "");
       // Parse structured address if available
@@ -1692,6 +1681,14 @@ export default function CheckoutDialog({
           pincode: addressPincode,
         }));
         console.log("[CONTEXT] Updated delivery location - Home.tsx will now show menu!");
+
+        // Ensure the delivery slot and pay section is visible to the user after validation
+        setTimeout(() => {
+          const summarySection = document.getElementById("delivery-and-summary-section");
+          if (summarySection) {
+            summarySection.scrollIntoView({ behavior: "smooth", block: "start" });
+          }
+        }, 150);
       }
     } catch (error: any) {
       console.error("[LOCATION] Auto-geocoding failed:", {
@@ -1961,8 +1958,13 @@ export default function CheckoutDialog({
       }
 
       const result = response.data;
-
       console.log("Order created successfully:", result);
+
+      // Force refresh of user profile to pull latest state (e.g. updated name or address during checkout)
+      if (isAuthenticated) {
+        queryClient.invalidateQueries({ queryKey: ["/api/user"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/user/profile"] });
+      }
 
       // Claim referral bonus if eligible and user wants to use it
       if (
@@ -2252,10 +2254,7 @@ export default function CheckoutDialog({
                       <Input
                         id="customerName"
                         value={customerName}
-                        onChange={(e) => {
-                          nameManuallyEdited.current = true;
-                          setCustomerName(e.target.value);
-                        }}
+                        onChange={(e) => setCustomerName(e.target.value)}
                         required
                         data-testid="input-customer-name"
                       />
@@ -2581,7 +2580,7 @@ export default function CheckoutDialog({
                         SHOW DELIVERY, COUPONS, TOTALS ONLY AFTER ADDRESS IS CONFIRMED
                         ============================================ */}
                   {!isEditingAddress && addressZoneValidated && addressInDeliveryZone && (
-                    <div>
+                    <div id="delivery-and-summary-section">
                       {/* Delivery Time Selection - OPTIONAL for delivery slot orders */}
                       {isCategoryLoading ? (
                         <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-300 dark:border-blue-700 rounded-md p-4 flex items-center justify-center">
