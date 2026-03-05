@@ -1,7 +1,7 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import api from "@/lib/apiClient";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Package, DollarSign, Clock, CheckCircle, Bell, Wifi, WifiOff, TrendingUp, Calendar, UserCircle, LogOut, Store, UtensilsCrossed, ToggleLeft, ToggleRight, Repeat, Truck, Loader2, Star, MapPin, Phone, AlertCircle } from "lucide-react";
+import { Package, DollarSign, Clock, CheckCircle, Bell, Wifi, WifiOff, TrendingUp, Calendar, UserCircle, LogOut, Store, UtensilsCrossed, ToggleLeft, ToggleRight, Repeat, Truck, Loader2, Star, MapPin, Phone, AlertCircle, Sun, Moon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -11,6 +11,7 @@ import { format, startOfMonth, endOfMonth, subMonths, parse, isBefore, subHours,
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 import { usePartnerNotifications } from "@/hooks/usePartnerNotifications";
+import { useWakeLock } from "@/hooks/useWakeLock";
 import PartnerNotificationBell from "@/components/PartnerNotificationBell";
 import { formatTime12Hour, formatDeliveryTime } from "@shared/timeFormatter";
 import { useEffect, useState } from "react";
@@ -29,13 +30,32 @@ export default function PartnerDashboard() {
   const chefName = localStorage.getItem("partnerChefName");
   const { toast } = useToast();
   const [, setLocation] = useLocation();
-  const { wsConnected, newOrdersCount, requestNotificationPermission, clearNewOrdersCount } = usePartnerNotifications();
+  const { wsConnected, newOrdersCount, requestNotificationPermission, clearNewOrdersCount, disconnect } = usePartnerNotifications();
   const [selectedTab, setSelectedTab] = useState("dashboard");
   const [currentTime, setCurrentTime] = useState(new Date());
+  const { isSupported: isWakeLockSupported, isAwake, toggleWakeLock } = useWakeLock();
 
   const handleLogout = () => {
+    // Gracefully disconnect WebSocket
+    disconnect();
+
+    // Clear partner specific local storage items
     localStorage.removeItem("partnerToken");
     localStorage.removeItem("partnerChefName");
+    localStorage.removeItem("partnerChefId");
+    localStorage.removeItem("partnerChefTheme");
+
+    // Clear any cached partner queries
+    queryClient.removeQueries({ queryKey: ["/api/partner"] });
+    queryClient.removeQueries({ queryKey: ["/api/chefs"] });
+
+    // Stop polling
+    queryClient.clear();
+
+    toast({
+      title: "Logged out successfully"
+    });
+
     setLocation("/partner/login");
   };
 
@@ -390,6 +410,23 @@ export default function PartnerDashboard() {
               </div>
             </div>
             <div className="flex items-center gap-1">
+              {/* Wake Lock Toggle */}
+              {isWakeLockSupported && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={toggleWakeLock}
+                  className={`h-8 hidden md:flex items-center gap-1 text-xs border ${isAwake
+                      ? "border-orange-300 text-orange-600 bg-orange-50 dark:bg-orange-950/30"
+                      : "text-muted-foreground"
+                    }`}
+                  data-testid="button-wakelock"
+                >
+                  {isAwake ? <Sun className="h-3 w-3" /> : <Moon className="h-3 w-3" />}
+                  {isAwake ? "Awake" : "Sleep OK"}
+                </Button>
+              )}
+
               {/* Real-time Partner Notification Bell and Live Indicator */}
               <PartnerNotificationBell wsConnected={wsConnected} />
               <Button

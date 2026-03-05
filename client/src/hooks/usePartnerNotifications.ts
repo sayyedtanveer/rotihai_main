@@ -14,6 +14,7 @@ export function usePartnerNotifications() {
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isUnmountedRef = useRef(false);
   const addNotification = usePartnerNotificationStore((s) => s.addNotification);
+  const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const connect = useCallback(() => {
     if (isUnmountedRef.current) return;
@@ -38,11 +39,18 @@ export function usePartnerNotifications() {
       if (isUnmountedRef.current) return;
       console.log("✅ Partner WebSocket connected");
       setWsConnected(true);
-      // Clear any pending reconnect timer on successful connect
+      // Clear any pending reconnect timer
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current);
         reconnectTimerRef.current = null;
       }
+      // Start heartbeat ping
+      if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
+      pingIntervalRef.current = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "ping" }));
+        }
+      }, 20000); // 20 second heartbeat to keep connection alive
     };
 
     ws.onmessage = (event) => {
@@ -199,6 +207,25 @@ export function usePartnerNotifications() {
     };
   }, []);
 
+  // Set up visibility change listener for instant reconnect when returning from background
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        console.log("📱 App returned to foreground");
+        if (!wsRef.current || wsRef.current.readyState === WebSocket.CLOSED) {
+          console.log("🔄 Instant foreground reconnect triggered");
+          connect();
+          // Force a full refetch of orders to catch anything missed while backgrounded
+          queryClient.invalidateQueries({ queryKey: ["/api/partner/orders"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/partner/dashboard/metrics"] });
+        }
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [connect]);
+
   useEffect(() => {
     isUnmountedRef.current = false;
     connect();
@@ -206,6 +233,7 @@ export function usePartnerNotifications() {
     return () => {
       isUnmountedRef.current = true;
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+      if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
       if (wsRef.current) {
         wsRef.current.onclose = null;
         wsRef.current.onerror = null;
@@ -225,10 +253,25 @@ export function usePartnerNotifications() {
     processedOrderIds.current.clear();
   };
 
+  const disconnect = useCallback(() => {
+    console.log("🔌 Manual logout - disconnecting WebSocket");
+    isUnmountedRef.current = true;
+    if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+    if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
+    if (wsRef.current) {
+      wsRef.current.onclose = null;
+      wsRef.current.onerror = null;
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    setWsConnected(false);
+  }, []);
+
   return {
     wsConnected,
     newOrdersCount,
     requestNotificationPermission,
     clearNewOrdersCount,
+    disconnect,
   };
 }
