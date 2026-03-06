@@ -157,7 +157,7 @@ export const getImagePath = (filename: string): string => {
  */
 export const imageExists = (filename: string): boolean => {
   // For Cloudinary URLs, assume they exist
-  return filename && (filename.startsWith("http") || filename.length > 0);
+  return !!filename && (filename.startsWith("http") || filename.length > 0);
 };
 
 /**
