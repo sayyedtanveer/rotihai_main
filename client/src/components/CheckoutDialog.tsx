@@ -1945,48 +1945,11 @@ export default function CheckoutDialog({
       console.log("================");
 
       const response = await api.post("/api/orders", orderData);
-
-      try {
-        const result = response.data;
-      } catch (error: any) {
-        const errorData = error.response?.data || {};
-        if (errorData.requiresLogin) {
-          toast({
-            title: "Login Required",
-            description:
-              errorData.message ||
-              "This phone number is already registered. Please login.",
-            variant: "destructive",
-          });
-          setIsLoading(false);
-          return;
-        }
-
-        // Handle server telling client to reschedule due to cutoff
-        if (errorData.requiresReschedule) {
-          setSuggestedReschedule({
-            slotId: orderData.deliverySlotId as string,
-            nextAvailableDate: errorData.nextAvailableDate,
-          });
-          toast({
-            title: "Selected slot passed cutoff",
-            description:
-              errorData.message ||
-              "Selected delivery slot missed the ordering cutoff. Please schedule for the next available date.",
-            variant: "destructive",
-          });
-          setIsLoading(false);
-          return;
-        }
-
-        throw new Error(errorData.message || "Failed to create order");
-      }
-
       const result = response.data;
       console.log("Order created successfully:", result);
 
       // Force refresh of user profile to pull latest state (e.g. updated name or address during checkout)
-      if (isAuthenticated) {
+      if (isAuthenticated || result.accountCreated || (!isAuthenticated && result.accessToken)) {
         queryClient.invalidateQueries({ queryKey: ["/api/user"] });
         queryClient.invalidateQueries({ queryKey: ["/api/user/profile"] });
       }
@@ -2102,14 +2065,37 @@ export default function CheckoutDialog({
 
       // Close the checkout dialog
       onClose();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Order creation error:", error);
+
+      const errorData = error.response?.data || {};
+
+      if (errorData.requiresLogin) {
+        toast({
+          title: "Login Required",
+          description: errorData.message || "This phone number is already registered. Please login.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Handle server telling client to reschedule due to cutoff
+      if (errorData.requiresReschedule) {
+        setSuggestedReschedule({
+          slotId: selectedDeliverySlotId as string,
+          nextAvailableDate: errorData.nextAvailableDate,
+        });
+        toast({
+          title: "Selected slot passed cutoff",
+          description: errorData.message || "Selected delivery slot missed the ordering cutoff. Please schedule for the next available date.",
+          variant: "destructive",
+        });
+        return;
+      }
+
       toast({
         title: "Order failed",
-        description:
-          error instanceof Error
-            ? error.message
-            : "Failed to create order. Please try again.",
+        description: errorData.message || (error instanceof Error ? error.message : "Failed to create order. Please try again."),
         variant: "destructive",
       });
     } finally {

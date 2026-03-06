@@ -1464,13 +1464,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let generatedPassword: string | undefined;
       let emailSent = false;
       let appliedReferralBonus = 0;
-      const referralCodeInput = (req.body as any).referralCode; if (req.headers.authorization?.startsWith("Bearer ")) {
+
+      const referralCodeInput = (req.body as any).referralCode;
+
+      if (req.headers.authorization?.startsWith("Bearer ")) {
         const token = req.headers.authorization.substring(7);
         const payload = verifyUserToken(token);
         if (payload?.userId) userId = payload.userId;
-      } else if (sanitized.phone) {
-        // Auto-register user if phone is provided and user doesn't exist
-        // Phone is the PRIMARY identifier (unique per account)
+      }
+
+      // Auto-register user if phone is provided and we don't already have a valid userId
+      // Phone is the PRIMARY identifier (unique per account)
+      if (!userId && sanitized.phone) {
         let user = await storage.getUserByPhone(sanitized.phone);
 
         if (!user) {
