@@ -1445,6 +1445,7 @@ export default function CheckoutDialog({
           setIsEditingAddress(false); // Collapsed View mode
           setAddressConfirmed(true);  // Allow viewing payment immediately since they already pushed validate
           setLocationError("");
+          setShouldScrollToSlots(true); // ✅ Trigger auto-scroll
 
           // Update Context
           setDeliveryLocation({
