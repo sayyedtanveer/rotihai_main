@@ -37,6 +37,7 @@ export function ImageUploader({ onImageUpload, disabled = false }: ImageUploader
   const [completedCrop, setCompletedCrop] = useState<PixelCrop>();
   const [selectedFileName, setSelectedFileName] = useState<string>("");
   const imgRef = useRef<HTMLImageElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const aspect = 16 / 9; // Enforce widescreen for chef cards
 
@@ -146,7 +147,7 @@ export function ImageUploader({ onImageUpload, disabled = false }: ImageUploader
           variant="outline"
           size="sm"
           disabled={isUploading || disabled}
-          onClick={() => document.getElementById("image-input")?.click()}
+          onClick={() => fileInputRef.current?.click()}
         >
           {isUploading ? (
             <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Processing...</>
@@ -157,7 +158,7 @@ export function ImageUploader({ onImageUpload, disabled = false }: ImageUploader
           )}
         </Button>
         <input
-          id="image-input"
+          ref={fileInputRef}
           type="file"
           accept="image/*"
           onChange={handleFileSelect}
@@ -168,7 +169,7 @@ export function ImageUploader({ onImageUpload, disabled = false }: ImageUploader
       </div>
 
       <Dialog open={isCropDialogOpen} onOpenChange={setIsCropDialogOpen}>
-        <DialogContent className="max-w-xl flex flex-col max-h-[90vh]">
+        <DialogContent className="max-w-xl flex flex-col max-h-[90vh] z-[100]">
           <DialogHeader>
             <DialogTitle>Crop Image</DialogTitle>
             <DialogDescription>
