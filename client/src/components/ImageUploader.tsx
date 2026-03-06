@@ -3,7 +3,6 @@ import api from "@/lib/apiClient";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { Upload, Loader2, Check, Crop } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import ReactCrop, { type Crop as CropType, PixelCrop, centerCrop, makeAspectCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
 
@@ -168,46 +167,49 @@ export function ImageUploader({ onImageUpload, disabled = false }: ImageUploader
         {uploadedFileName && <span className="text-xs text-gray-500 break-all">{uploadedFileName}</span>}
       </div>
 
-      <Dialog open={isCropDialogOpen} onOpenChange={setIsCropDialogOpen}>
-        <DialogContent className="max-w-xl flex flex-col max-h-[90vh] z-[100]">
-          <DialogHeader>
-            <DialogTitle>Crop Image</DialogTitle>
-            <DialogDescription>
-              Adjust the crop area. The image must be a widescreen (16:9) aspect ratio to fit the Chef cards perfectly.
-            </DialogDescription>
-          </DialogHeader>
+      {/* Native Fixed Overlay for Cropper to avoid Radix nested Dialog portal bugs */}
+      {isCropDialogOpen && (
+        <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-background rounded-xl shadow-2xl w-full max-w-xl flex flex-col max-h-[90vh] overflow-hidden border border-border">
+            <div className="p-4 sm:p-6 border-b border-border">
+              <h2 className="text-lg font-semibold leading-none tracking-tight">Crop Image</h2>
+              <p className="text-sm text-muted-foreground mt-2">
+                Adjust the crop area. The image must be a widescreen (16:9) aspect ratio to fit the Chef cards perfectly.
+              </p>
+            </div>
 
-          <div className="flex-1 overflow-auto bg-slate-900/5 rounded-md p-2 flex items-center justify-center min-h-[300px]">
-            {!!imgSrc && (
-              <ReactCrop
-                crop={crop}
-                onChange={(_, percentCrop) => setCrop(percentCrop)}
-                onComplete={(c) => setCompletedCrop(c)}
-                aspect={aspect}
-                className="max-h-full max-w-full"
-              >
-                <img
-                  ref={imgRef}
-                  alt="Crop preview"
-                  src={imgSrc}
-                  onLoad={onImageLoad}
-                  className="max-h-[60vh] object-contain"
-                />
-              </ReactCrop>
-            )}
+            <div className="flex-1 overflow-auto bg-slate-900/5 p-4 flex items-center justify-center min-h-[300px]">
+              {!!imgSrc && (
+                <ReactCrop
+                  crop={crop}
+                  onChange={(_, percentCrop) => setCrop(percentCrop)}
+                  onComplete={(c) => setCompletedCrop(c)}
+                  aspect={aspect}
+                  className="max-h-full max-w-full shadow-md rounded-sm overflow-hidden"
+                >
+                  <img
+                    ref={imgRef}
+                    alt="Crop preview"
+                    src={imgSrc}
+                    onLoad={onImageLoad}
+                    className="max-h-[50vh] object-contain border border-border pointer-events-none"
+                  />
+                </ReactCrop>
+              )}
+            </div>
+
+            <div className="p-4 sm:p-6 border-t border-border bg-muted/20 flex flex-col-reverse sm:flex-row justify-end gap-2">
+              <Button variant="outline" onClick={() => setIsCropDialogOpen(false)} className="w-full sm:w-auto">
+                Cancel
+              </Button>
+              <Button onClick={uploadCroppedImage} disabled={!completedCrop?.width || !completedCrop?.height} className="w-full sm:w-auto">
+                <Crop className="w-4 h-4 mr-2" />
+                Crop & Upload
+              </Button>
+            </div>
           </div>
-
-          <DialogFooter className="mt-4 flex-shrink-0 gap-2 sm:gap-0">
-            <Button variant="outline" onClick={() => setIsCropDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={uploadCroppedImage} disabled={!completedCrop?.width || !completedCrop?.height}>
-              <Crop className="w-4 h-4 mr-2" />
-              Crop & Upload
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        </div>
+      )}
     </div>
   );
 }

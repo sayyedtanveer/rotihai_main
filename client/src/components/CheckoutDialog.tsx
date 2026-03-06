@@ -1050,13 +1050,14 @@ export default function CheckoutDialog({
   };
 
   const handlePhoneChange = async (value: string) => {
-    setPhone(value.replace(/\D/g, "").slice(0, 10)); // Allow only digits, max 10
-    if (value.length === 10) {
+    const cleanPhone = value.replace(/\D/g, "").slice(0, 10);
+    setPhone(cleanPhone); // Allow only digits, max 10
+    if (cleanPhone.length === 10) {
       setIsCheckingPhone(true);
       setPhoneExists(null); // Reset previous state
       try {
         const response = await api.post("/api/user/check-phone", {
-          phone: value,
+          phone: cleanPhone,
         });
         const data = response.data;
         setPhoneExists(data.exists);
@@ -2255,8 +2256,8 @@ export default function CheckoutDialog({
                 <TabsTrigger
                   value="login"
                   onClick={() => setActiveTab("login")}
-                  disabled={!!userToken}
-                  className={userToken ? "cursor-not-allowed opacity-50" : ""}
+                  disabled={isAuthenticated}
+                  className={isAuthenticated ? "cursor-not-allowed opacity-50" : ""}
                 >
                   Login
                 </TabsTrigger>
@@ -2296,9 +2297,9 @@ export default function CheckoutDialog({
                           value={phone}
                           onChange={(e) => handlePhoneChange(e.target.value)}
                           maxLength={10}
-                          className={`pr-10 ${phoneExists && !userToken ? "border-orange-500 ring-orange-500" : ""}`}
+                          className={`pr-10 ${phoneExists && !isAuthenticated ? "border-orange-500 ring-orange-500" : ""}`}
                           required
-                          disabled={!!userToken}
+                          disabled={isAuthenticated}
                           placeholder="Enter 10-digit mobile number"
                           data-testid="input-phone"
                         />
@@ -3050,6 +3051,23 @@ export default function CheckoutDialog({
                     </div>
                   )}
 
+                  {/* Hidden Submit Button to Capture "Enter" Key Presses on Inputs */}
+                  <button
+                    type="submit"
+                    className="hidden"
+                    disabled={
+                      isLoading ||
+                      !isFormValid ||
+                      (phoneExists && !userToken) ||
+                      cart?.chefIsActive === false ||
+                      isRotiOrderBlocked ||
+                      !addressZoneValidated ||
+                      (addressZoneValidated && !addressInDeliveryZone) ||
+                      !addressConfirmed
+                    }
+                  >
+                    Submit
+                  </button>
                 </form>
               </TabsContent>
 
