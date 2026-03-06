@@ -226,6 +226,123 @@ export function usePartnerNotifications() {
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, [connect]);
 
+  // ✅ CRITICAL FIX: Detect when network reconnects after coming back online
+  // This handles the case where chef was offline (WiFi off / away from phone)
+  // When network restores, we must:
+  //   1. Reconnect the WebSocket immediately
+  //   2. Refetch all data to get orders missed while offline
+  //   3. Synthesize notifications for any missed orders so nothing is silent
+  useEffect(() => {
+    let offlineAt: number | null = null; // Track when we went offline
+
+    const handleOffline = () => {
+      offlineAt = Date.now();
+      console.log("📴 Network went OFFLINE at:", new Date(offlineAt).toISOString());
+      setWsConnected(false);
+      // Clear reconnect timers — no point retrying while network is down
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+    };
+
+    const handleOnline = async () => {
+      console.log("📶 Network back ONLINE — triggering full recovery...");
+
+      // Step 1: Immediately reconnect WebSocket
+      connect();
+
+      // Step 2: Invalidate all cached partner queries to force fresh fetch
+      queryClient.invalidateQueries({ queryKey: ["/api/partner/orders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/partner/dashboard/metrics"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/partner/income-report"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/partner/subscriptions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/partner/subscription-deliveries"] });
+
+      // Step 3: Fetch orders placed while offline and generate missed notifications
+      try {
+        const token = localStorage.getItem("partnerToken");
+        if (!token) return;
+
+        // Use a short since window (last 2 hours) to catch any missed orders
+        const sinceMs = offlineAt || Date.now() - 2 * 60 * 60 * 1000;
+        const sinceISO = new Date(sinceMs - 5000).toISOString(); // 5 second buffer
+
+        const { default: api } = await import("@/lib/apiClient");
+        const response = await api.get("/api/partner/orders");
+        const allOrders: Order[] = response.data || [];
+
+        // Find orders created AFTER we went offline (missed while network was down)
+        const missedOrders = allOrders.filter((order: Order) => {
+          const rawDate = order.createdAt as unknown as string | Date;
+          const orderTime = new Date(rawDate).getTime();
+          return orderTime >= sinceMs && !processedOrderIds.current.has(order.id);
+        });
+
+        if (missedOrders.length > 0) {
+          console.log(`📬 Found ${missedOrders.length} missed order(s) while offline — generating notifications...`);
+
+          // Show a summary toast first
+          toast({
+            title: `📶 Back Online — ${missedOrders.length} Order${missedOrders.length > 1 ? "s" : ""} Received While Offline!`,
+            description: `You missed ${missedOrders.length} order(s). Check your order list.`,
+            duration: 10000,
+          });
+
+          // Generate individual notifications for each missed order
+          missedOrders.forEach((order: Order) => {
+            processedOrderIds.current.add(order.id);
+            setNewOrdersCount((prev) => prev + 1);
+
+            addNotification({
+              id: `missed_${order.id}`,
+              orderId: order.id,
+              status: order.status,
+              message: `📲 Missed order from ${order.customerName} — ₹${order.total} (placed while offline)`,
+              total: order.total,
+              customerName: order.customerName,
+            });
+
+            // Browser push notification for each missed order
+            if (Notification.permission === "granted") {
+              new Notification("Missed Order While Offline!", {
+                body: `Order #${order.id.slice(0, 8)} — ₹${order.total} from ${order.customerName}`,
+                icon: "/favicon.png",
+                tag: `missed_${order.id}`,
+              });
+            }
+          });
+
+          // Play alert sound once for the batch
+          try {
+            const alertAudio = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBTGH0fPTgjMGHm7A7+OZURE=");
+            alertAudio.play().catch(() => { });
+          } catch (_) { }
+        } else {
+          console.log("✅ No missed orders while offline.");
+          toast({
+            title: "📶 Back Online",
+            description: "Connection restored. Orders are up to date.",
+            duration: 4000,
+          });
+        }
+      } catch (err) {
+        console.warn("⚠️ Could not fetch missed orders after reconnect:", err);
+        // Non-fatal: the 30s polling will catch orders soon anyway
+      }
+
+      offlineAt = null; // Reset offline timestamp
+    };
+
+    window.addEventListener("offline", handleOffline);
+    window.addEventListener("online", handleOnline);
+
+    return () => {
+      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [connect, addNotification]);
+
   useEffect(() => {
     isUnmountedRef.current = false;
     connect();
