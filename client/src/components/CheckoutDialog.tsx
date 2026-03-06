@@ -180,12 +180,22 @@ export default function CheckoutDialog({
 
   // Handle smooth scrolling to delivery slots upon validation success
   useEffect(() => {
-    if (shouldScrollToSlots && deliverySlotRef.current) {
-      // Small timeout to ensure DOM has updated
+    if (shouldScrollToSlots) {
+      // Timeout to ensure DOM has completely updated and the section is mounted
       const timer = setTimeout(() => {
-        deliverySlotRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        const container = document.getElementById("checkout-scroll-container");
+        const target = deliverySlotRef.current || document.getElementById("delivery-and-summary-section");
+
+        if (container && target) {
+          // Precise relative scrolling inside the overflow container
+          const targetPos = target.offsetTop - 20; // 20px padding
+          container.scrollTo({ top: targetPos, behavior: "smooth" });
+        } else if (target) {
+          // Fallback
+          target.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
         setShouldScrollToSlots(false); // Reset after scrolling
-      }, 150);
+      }, 300); // increased to 300ms for safety
       return () => clearTimeout(timer);
     }
   }, [shouldScrollToSlots]);
@@ -2203,7 +2213,7 @@ export default function CheckoutDialog({
             </DialogDescription>
           </DialogHeader>
 
-          <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 pb-0 space-y-4">
+          <div id="checkout-scroll-container" className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 pb-0 space-y-4">
             {/* Chef closed warning */}
             {cart?.chefIsActive === false && (
               <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-md p-3 mb-1">
