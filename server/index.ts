@@ -7,7 +7,7 @@ import fs from "fs";
 import { registerRoutes } from "./routes";
 import { generateAccessToken, generateRefreshToken, verifyPassword, hashPassword, requirePartner, type AuthenticatedPartnerRequest } from "./partnerAuth";
 import { storage } from "./storage";
-import { saveImageFile, getImagePath, imageExists } from "./imageService";
+import { saveImageFile, getImagePath, imageExists, deleteImageFile } from "./imageService";
 
 // Simple logger function - avoid importing from vite which is dev-only
 const log = (message: string, source = "express") => {
@@ -395,8 +395,8 @@ app.use((req, res, next) => {
         return;
       }
 
-      // Save image file
-      const result = saveImageFile(req.file);
+      // Save image file to Cloudinary
+      const result = await saveImageFile(req.file, "rotihai");
       if (!result.success) {
         res.status(400).json({ message: result.error });
         return;

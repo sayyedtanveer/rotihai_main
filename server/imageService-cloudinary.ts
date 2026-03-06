@@ -8,8 +8,6 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-console.log(`☁️  Cloudinary configured: ${process.env.CLOUDINARY_CLOUD_NAME}`);
-
 export interface ImageUploadResult {
   success: boolean;
   filename?: string;
@@ -56,7 +54,7 @@ export const validateImageFile = (
 };
 
 /**
- * Upload image to Cloudinary (async)
+ * Upload image to Cloudinary (replaces saveImageFile)
  */
 export const saveImageFile = async (
   file: Express.Multer.File,
@@ -71,14 +69,13 @@ export const saveImageFile = async (
 
     // Check if Cloudinary is configured
     if (!process.env.CLOUDINARY_CLOUD_NAME) {
-      console.error("❌ Cloudinary not configured. Check .env for CLOUDINARY_CLOUD_NAME");
       return {
         success: false,
         error: "Cloudinary not configured. Set CLOUDINARY_CLOUD_NAME in environment",
       };
     }
 
-    console.log(`⏳ Uploading to Cloudinary/${folder}...`);
+    console.log(`⏳ Uploading image to Cloudinary/${folder}...`);
 
     // Upload to Cloudinary
     const result = await new Promise<any>((resolve, reject) => {
@@ -100,7 +97,7 @@ export const saveImageFile = async (
 
     const url = result.secure_url; // Use HTTPS URL
 
-    console.log(`✅ Uploaded to Cloudinary: ${url}`);
+    console.log(`✅ Image uploaded to Cloudinary: ${url}`);
 
     return {
       success: true,
@@ -125,12 +122,6 @@ export const deleteImageFile = async (public_id: string): Promise<boolean> => {
   try {
     if (!public_id) return false;
 
-    // If it's a URL, we can't easily delete it
-    if (public_id.startsWith("http")) {
-      console.warn("⚠️  Cannot delete by URL, use public_id instead");
-      return false;
-    }
-
     await cloudinary.uploader.destroy(public_id);
     console.log(`✅ Deleted from Cloudinary: ${public_id}`);
     return true;
@@ -145,7 +136,7 @@ export const deleteImageFile = async (public_id: string): Promise<boolean> => {
  */
 export const getImagePath = (filename: string): string => {
   // For Cloudinary URLs, return as-is since they're already full URLs
-  if (filename && filename.startsWith("http")) {
+  if (filename.startsWith("http")) {
     return filename;
   }
   // Fallback for old local URLs
@@ -156,58 +147,8 @@ export const getImagePath = (filename: string): string => {
  * Check if image exists (Cloudinary doesn't need this, but keep for compatibility)
  */
 export const imageExists = (filename: string): boolean => {
-  // For Cloudinary URLs, assume they exist
-  return filename && (filename.startsWith("http") || filename.length > 0);
+  // For Cloudinary URLs, assume they exist (no need to check)
+  return filename.startsWith("http") || filename.length > 0;
 };
 
-/**
- * Extract filename from URL (for migration purposes)
- */
-export const extractFilenameFromUrl = (url: string): string | null => {
-  if (!url || !url.startsWith("/uploads/")) {
-    return null;
-  }
-  return url.substring("/uploads/".length);
-};
-
-/**
- * Replace old image with new one
- */
-export const replaceImageFile = async (
-  oldUrl: string,
-  newFile: Express.Multer.File,
-  folder: string = "rotihai"
-): Promise<ImageUploadResult> => {
-  // Save new image first
-  const result = await saveImageFile(newFile, folder);
-  if (!result.success) {
-    return result;
-  }
-
-  // Delete old image if exists and is a Cloudinary public_id
-  if (oldUrl && !oldUrl.startsWith("http")) {
-    await deleteImageFile(oldUrl);
-  }
-
-  return result;
-};
-
-/**
- * Get uploads directory path
- */
-export const getUploadsDir = (): string => {
-  return "rotihai"; // Cloudinary folder
-};
-
-export default {
-  validateImageFile,
-  saveImageFile,
-  getImagePath,
-  imageExists,
-  deleteImageFile,
-  extractFilenameFromUrl,
-  replaceImageFile,
-  getUploadsDir,
-  IMAGE_CONFIG,
-};
-
+export { cloudinary };
