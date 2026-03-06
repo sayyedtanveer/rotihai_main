@@ -12,6 +12,7 @@ export default function Hero() {
   // PINCODE-ONLY interface
   const [pincode, setPincode] = useState("");
   const [pincodeError, setPincodeError] = useState("");
+  const [isNotServiceable, setIsNotServiceable] = useState(false);
   const [isValidatingPincode, setIsValidatingPincode] = useState(false);
   const [pincodeValidated, setPincodeValidated] = useState(false);
   const [pincodeArea, setPincodeArea] = useState("");
@@ -78,8 +79,9 @@ export default function Hero() {
 
       if (!response.ok || !data.success) {
         setIsValidatingPincode(false);
-        setPincodeError(data.message || "Pincode validation failed. Please try again.");
-        console.warn("[HERO] Validation failed:", data.message);
+        setIsNotServiceable(true);
+        setPincodeError("");
+        console.warn("[HERO] Validation failed. Area not serviceable:", data.message);
         return;
       }
 
@@ -140,6 +142,7 @@ export default function Hero() {
   const handleChangePincode = () => {
     setPincode("");
     setPincodeError("");
+    setIsNotServiceable(false);
     setPincodeValidated(false);
     setPincodeArea("");
     setIsValidatingPincode(false);
@@ -211,6 +214,31 @@ export default function Hero() {
                 >
                   Change
                   <ChevronDown className="h-3 w-3 sm:h-4 sm:w-4 ml-1" />
+                </Button>
+              </div>
+            </div>
+          ) : isNotServiceable ? (
+            <div className="bg-white rounded-xl sm:rounded-2xl shadow-2xl overflow-hidden w-full max-w-sm sm:max-w-md mx-auto transform transition-all duration-300">
+              <div className="p-4 sm:p-6 lg:p-8 flex flex-col items-center text-center">
+                <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mb-4">
+                  <MapPin className="h-8 w-8 text-orange-500" />
+                </div>
+                <h3 className="text-xl font-bold text-slate-900 mb-2">We're not here yet!</h3>
+                <p className="text-sm sm:text-base text-slate-600 mb-6 font-medium">
+                  RotiHai is not delivering in your area yet. We are expanding soon and will start delivering fresh ghar ka khana here shortly.
+                </p>
+                <Button
+                  onClick={() => {
+                    setIsNotServiceable(false);
+                    setPincode("");
+                    setPincodeError("");
+                  }}
+                  className="w-full gap-2"
+                  variant="outline"
+                  size="lg"
+                >
+                  <MapPin className="h-4 w-4" />
+                  Try another pincode
                 </Button>
               </div>
             </div>

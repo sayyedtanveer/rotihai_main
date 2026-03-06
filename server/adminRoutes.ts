@@ -3580,6 +3580,7 @@ export function registerAdminRoutes(app: Express) {
       }
 
       // Validate and update each area with pincodes and coordinates
+      const failures: string[] = [];
       for (const area of areas) {
         if (!area.name || typeof area.name !== "string" || area.name.trim().length === 0) {
           res.status(400).json({ message: "Each area must have a non-empty name" });
@@ -3591,31 +3592,49 @@ export function registerAdminRoutes(app: Express) {
           : [];
 
         try {
-          if (area.id) {
+          // Check if ID looks like a real DB UUID (not a fake Date.now() ID from the frontend)
+          const isRealDbId = area.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(area.id);
+
+          if (isRealDbId) {
             // Update existing area with coordinates
-            await storage.updateDeliveryArea(
+            const updated = await storage.updateDeliveryArea(
               area.id,
               area.name.trim(),
               pincodes,
               area.latitude !== undefined ? parseFloat(String(area.latitude)) : undefined,
               area.longitude !== undefined ? parseFloat(String(area.longitude)) : undefined
             );
+            if (!updated) {
+              console.warn(`[ADMIN] ⚠️ updateDeliveryArea returned undefined for area id=${area.id}, name=${area.name}`);
+              failures.push(`Update failed for: ${area.name} (id: ${area.id})`);
+            }
           } else {
             // Add new area
-            await storage.addDeliveryArea(area.name.trim(), pincodes);
+            const added = await storage.addDeliveryArea(area.name.trim(), pincodes);
+            if (!added) {
+              console.warn(`[ADMIN] ⚠️ addDeliveryArea returned undefined for: ${area.name}`);
+              failures.push(`Add failed for: ${area.name}`);
+            }
           }
         } catch (err) {
-          console.error(`Error updating area ${area.name}:`, err);
+          console.error(`[ADMIN] ❌ Error saving area ${area.name}:`, err);
+          failures.push(`Exception for: ${area.name} - ${err instanceof Error ? err.message : 'Unknown error'}`);
           // Continue with next area
         }
       }
 
       const updatedAreas = await storage.getAllDeliveryAreas();
 
-      console.log(`[ADMIN] Updated delivery areas with pincodes and coordinates:`, updatedAreas);
+      if (failures.length > 0) {
+        console.warn(`[ADMIN] ⚠️ ${failures.length} area(s) failed to save:`, failures);
+      }
+      console.log(`[ADMIN] Updated delivery areas with pincodes and coordinates:`, updatedAreas.length, 'area(s)');
       res.json({
-        message: "Delivery areas updated successfully",
+        message: failures.length > 0
+          ? `Delivery areas updated with ${failures.length} warning(s): ${failures.join('; ')}`
+          : "Delivery areas updated successfully",
         areas: updatedAreas,
+        warnings: failures.length > 0 ? failures : undefined,
       });
     } catch (error) {
       console.error("Error updating delivery areas:", error);
