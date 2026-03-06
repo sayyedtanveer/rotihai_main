@@ -142,6 +142,10 @@ export default function CheckoutDialog({
   // Address confirmation state - controls visibility of below content
   const [addressConfirmed, setAddressConfirmed] = useState(false);
 
+  // Auto-scroll state for UX improvement
+  const deliverySlotRef = useRef<HTMLDivElement>(null);
+  const [shouldScrollToSlots, setShouldScrollToSlots] = useState(false);
+
   // State for View/Edit mode
   const [isEditingAddress, setIsEditingAddress] = useState(true);
 
@@ -173,6 +177,18 @@ export default function CheckoutDialog({
 
   // NOTE: Auto-validation removed — validation only occurs via explicit
   // "Validate Address" button click (handleValidateAddressClick)
+
+  // Handle smooth scrolling to delivery slots upon validation success
+  useEffect(() => {
+    if (shouldScrollToSlots && deliverySlotRef.current) {
+      // Small timeout to ensure DOM has updated
+      const timer = setTimeout(() => {
+        deliverySlotRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        setShouldScrollToSlots(false); // Reset after scrolling
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [shouldScrollToSlots]);
 
   // ============================================
   // AUTO-SYNC STORED PINCODE FROM HERO
@@ -1682,13 +1698,10 @@ export default function CheckoutDialog({
         }));
         console.log("[CONTEXT] Updated delivery location - Home.tsx will now show menu!");
 
-        // Ensure the delivery slot and pay section is visible to the user after validation
-        setTimeout(() => {
-          const summarySection = document.getElementById("delivery-and-summary-section");
-          if (summarySection) {
-            summarySection.scrollIntoView({ behavior: "smooth", block: "start" });
-          }
-        }, 150);
+        console.log("[CONTEXT] Updated delivery location - Home.tsx will now show menu!");
+
+        // Trigger safe auto-scroll via state and ref mechanism
+        setShouldScrollToSlots(true);
       }
     } catch (error: any) {
       console.error("[LOCATION] Auto-geocoding failed:", {
@@ -2580,7 +2593,7 @@ export default function CheckoutDialog({
                         SHOW DELIVERY, COUPONS, TOTALS ONLY AFTER ADDRESS IS CONFIRMED
                         ============================================ */}
                   {!isEditingAddress && addressZoneValidated && addressInDeliveryZone && (
-                    <div id="delivery-and-summary-section">
+                    <div id="delivery-and-summary-section" ref={deliverySlotRef}>
                       {/* Delivery Time Selection - OPTIONAL for delivery slot orders */}
                       {isCategoryLoading ? (
                         <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-300 dark:border-blue-700 rounded-md p-4 flex items-center justify-center">
