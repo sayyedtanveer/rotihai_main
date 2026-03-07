@@ -1,6 +1,23 @@
 // Service Worker version - increment this to force cache invalidation
-const SW_VERSION = 'v1-' + new Date().toISOString().split('T')[0]; // Changes daily
+// Using timestamp down to minutes to force immediate invalidation on each deployment
+const SW_VERSION = 'v1-' + new Date().toISOString().slice(0, 16); // Changes every minute
 const OFFLINE_CACHE = 'rotihai-offline-' + SW_VERSION;
+
+// Force service worker update check more aggressively
+self.addEventListener('install', event => {
+  console.log('🔧 Service Worker installing, version:', SW_VERSION);
+  // Clear ALL caches immediately on install
+  event.waitUntil(
+    caches.keys().then(cacheNames => 
+      Promise.all(cacheNames.map(name => caches.delete(name)))
+    ).then(() => 
+      caches.open(OFFLINE_CACHE).then(() => {
+        console.log('✅ All old caches cleared, new cache ready');
+        return self.skipWaiting();
+      })
+    )
+  );
+});
 
 // Install event - skip waiting to activate immediately
 self.addEventListener('install', event => {
@@ -103,8 +120,28 @@ self.addEventListener('fetch', event => {
         .then(response => response)
         .catch(() => caches.match(event.request))
     );
+  } else if (event.request.url.endsWith('.js') || event.request.url.endsWith('.css')) {
+    // JavaScript & CSS: NETWORK-FIRST (always get latest versions)
+    // These files have hashes in production, so new versions have different URLs
+    event.respondWith(
+      fetch(event.request)
+        .then(response => {
+          if (response && response.status === 200) {
+            const responseToCache = response.clone();
+            caches.open(OFFLINE_CACHE).then(cache => {
+              cache.put(event.request, responseToCache);
+            });
+          }
+          return response;
+        })
+        .catch(() => {
+          // Network failed, fallback to cache
+          return caches.match(event.request)
+            .then(response => response || new Response('Offline', { status: 503 }));
+        })
+    );
   } else {
-    // Static assets: cache-first (they're hashed in build)
+    // Other static assets (images, fonts, manifests): cache-first (immutable due to hashing)
     event.respondWith(
       caches.match(event.request)
         .then(response => {
