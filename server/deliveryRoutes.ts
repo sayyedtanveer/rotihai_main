@@ -13,7 +13,7 @@ export function registerDeliveryRoutes(app: Express) {
     try {
       const deliveryPersonId = req.delivery!.deliveryId;
       const deliveryPerson = await storage.getDeliveryPersonnelById(deliveryPersonId);
-      
+
       if (!deliveryPerson) {
         return res.status(404).json({ message: "Delivery person not found" });
       }
@@ -150,7 +150,7 @@ export function registerDeliveryRoutes(app: Express) {
   app.get("/api/delivery/available-orders", requireDeliveryAuth(), async (req: AuthenticatedDeliveryRequest, res) => {
     try {
       const deliveryPersonId = req.delivery!.deliveryId;
-      
+
       // Check if delivery person is active
       const deliveryPerson = await storage.getDeliveryPersonnelById(deliveryPersonId);
       console.log(`📦 Delivery person ${deliveryPersonId}:`, {
@@ -158,7 +158,7 @@ export function registerDeliveryRoutes(app: Express) {
         name: deliveryPerson?.name,
         status: deliveryPerson?.status
       });
-      
+
       if (!deliveryPerson) {
         console.log(`❌ Delivery person ${deliveryPersonId} not found`);
         res.json([]);
@@ -174,7 +174,7 @@ export function registerDeliveryRoutes(app: Express) {
       // Get all orders that are waiting for delivery assignment
       const allOrders = await storage.getAllOrders();
       console.log(`📋 Total orders in system: ${allOrders.length}`);
-      
+
       const availableOrders = allOrders.filter(order => {
         const validStatuses = ["confirmed", "accepted_by_chef", "preparing", "prepared"];
         const isValid = validStatuses.includes(order.status) && !order.assignedTo;
@@ -194,85 +194,85 @@ export function registerDeliveryRoutes(app: Express) {
 
   // Claim an available order (auto-assignment) - claiming means auto-accepting
   app.post("/api/delivery/orders/:id/claim", requireDeliveryAuth(), async (req: AuthenticatedDeliveryRequest, res) => {
-  try {
-    const orderId = req.params.id;
-    const deliveryPersonId = req.delivery!.deliveryId;
+    try {
+      const orderId = req.params.id;
+      const deliveryPersonId = req.delivery!.deliveryId;
 
-    console.log(`\n📦 CLAIM REQUEST - Delivery person ${deliveryPersonId} attempting to claim order ${orderId}`);
+      console.log(`\n📦 CLAIM REQUEST - Delivery person ${deliveryPersonId} attempting to claim order ${orderId}`);
 
-    const deliveryPerson = await storage.getDeliveryPersonnelById(deliveryPersonId);
-    console.log(`  📋 Delivery person found: ${deliveryPerson ? 'YES' : 'NO'}`);
-    if (deliveryPerson) {
-      console.log(`     - Name: ${deliveryPerson.name}`);
-      console.log(`     - isActive: ${deliveryPerson.isActive}`);
-      console.log(`     - status: ${deliveryPerson.status}`);
+      const deliveryPerson = await storage.getDeliveryPersonnelById(deliveryPersonId);
+      console.log(`  📋 Delivery person found: ${deliveryPerson ? 'YES' : 'NO'}`);
+      if (deliveryPerson) {
+        console.log(`     - Name: ${deliveryPerson.name}`);
+        console.log(`     - isActive: ${deliveryPerson.isActive}`);
+        console.log(`     - status: ${deliveryPerson.status}`);
+      }
+      if (!deliveryPerson || !deliveryPerson.isActive) {
+        console.log(`  ❌ BLOCKED: Delivery person not found or inactive`);
+        return res.status(403).json({ message: "You are not active to claim orders" });
+      }
+
+      const order = await storage.getOrderById(orderId);
+      console.log(`  📋 Order found: ${order ? 'YES' : 'NO'}`);
+      if (order) {
+        console.log(`     - Full order object keys: ${Object.keys(order).join(', ')}`);
+        console.log(`     - Status field: '${order.status}' (type: ${typeof order.status})`);
+        console.log(`     - Status === 'prepared'? ${order.status === 'prepared'}`);
+        console.log(`     - Status === 'preparing'? ${order.status === 'preparing'}`);
+        console.log(`     - Status === 'confirmed'? ${order.status === 'confirmed'}`);
+        console.log(`     - Status === 'accepted_by_chef'? ${order.status === 'accepted_by_chef'}`);
+        console.log(`     - Assigned to: ${order.assignedTo || 'UNASSIGNED'}`);
+      }
+      if (!order) {
+        console.log(`  ❌ BLOCKED: Order not found`);
+        return res.status(404).json({ message: "Order not found" });
+      }
+
+      // Valid claim statuses — IMPORTANT: DO NOT change status here
+      // "confirmed" = admin just confirmed payment, waiting for chef or delivery
+      // "accepted_by_chef" = chef accepted
+      // "preparing" = chef is preparing
+      // "prepared" = chef marked ready for delivery
+      const validStatuses = ["confirmed", "accepted_by_chef", "preparing", "prepared"];
+      console.log(`  ✅ Status check: "${order.status}" in [${validStatuses.join(', ')}]? ${validStatuses.includes(order.status) ? 'YES' : 'NO'}`);
+      if (!validStatuses.includes(order.status)) {
+        console.log(`  ❌ BLOCKED: Order status not claimable`);
+        return res.status(400).json({ message: "Order is not available for delivery assignment" });
+      }
+
+      if (order.assignedTo) {
+        console.log(`  ❌ BLOCKED: Order already assigned to ${order.assignedTo}`);
+        return res.status(400).json({ message: "Order already claimed by another delivery person" });
+      }
+
+      // Assignment only — NO STATUS UPDATE
+      const assignedOrder = await storage.assignOrderToDeliveryPerson(orderId, deliveryPersonId);
+
+      if (!assignedOrder) {
+        console.log(`  ❌ BLOCKED: Failed to assign order in database`);
+        return res.status(500).json({ message: "Failed to claim order" });
+      }
+
+      console.log(`  ✅ SUCCESS: Order ${orderId} assigned to delivery person ${deliveryPerson.name}`);
+
+      // Do NOT update order.status → keeps “preparing”
+      console.log(`🟢 Order ${orderId} assigned to delivery person. Chef must mark prepared manually.`);
+
+      // Cancel auto-timeout
+      cancelPreparedOrderTimeout(orderId);
+
+      broadcastOrderUpdate(assignedOrder);
+
+      return res.json({
+        ...assignedOrder,
+        assignmentMessage: "Order assigned. Chef will mark it prepared manually."
+      });
+
+    } catch (error) {
+      console.error("Error claiming order:", error);
+      res.status(500).json({ message: "Failed to claim order" });
     }
-    if (!deliveryPerson || !deliveryPerson.isActive) {
-      console.log(`  ❌ BLOCKED: Delivery person not found or inactive`);
-      return res.status(403).json({ message: "You are not active to claim orders" });
-    }
-
-    const order = await storage.getOrderById(orderId);
-    console.log(`  📋 Order found: ${order ? 'YES' : 'NO'}`);
-    if (order) {
-      console.log(`     - Full order object keys: ${Object.keys(order).join(', ')}`);
-      console.log(`     - Status field: '${order.status}' (type: ${typeof order.status})`);
-      console.log(`     - Status === 'prepared'? ${order.status === 'prepared'}`);
-      console.log(`     - Status === 'preparing'? ${order.status === 'preparing'}`);
-      console.log(`     - Status === 'confirmed'? ${order.status === 'confirmed'}`);
-      console.log(`     - Status === 'accepted_by_chef'? ${order.status === 'accepted_by_chef'}`);
-      console.log(`     - Assigned to: ${order.assignedTo || 'UNASSIGNED'}`);
-    }
-    if (!order) {
-      console.log(`  ❌ BLOCKED: Order not found`);
-      return res.status(404).json({ message: "Order not found" });
-    }
-
-    // Valid claim statuses — IMPORTANT: DO NOT change status here
-    // "confirmed" = admin just confirmed payment, waiting for chef or delivery
-    // "accepted_by_chef" = chef accepted
-    // "preparing" = chef is preparing
-    // "prepared" = chef marked ready for delivery
-    const validStatuses = ["confirmed", "accepted_by_chef", "preparing", "prepared"];
-    console.log(`  ✅ Status check: "${order.status}" in [${validStatuses.join(', ')}]? ${validStatuses.includes(order.status) ? 'YES' : 'NO'}`);
-    if (!validStatuses.includes(order.status)) {
-      console.log(`  ❌ BLOCKED: Order status not claimable`);
-      return res.status(400).json({ message: "Order is not available for delivery assignment" });
-    }
-
-    if (order.assignedTo) {
-      console.log(`  ❌ BLOCKED: Order already assigned to ${order.assignedTo}`);
-      return res.status(400).json({ message: "Order already claimed by another delivery person" });
-    }
-
-    // Assignment only — NO STATUS UPDATE
-    const assignedOrder = await storage.assignOrderToDeliveryPerson(orderId, deliveryPersonId);
-
-    if (!assignedOrder) {
-      console.log(`  ❌ BLOCKED: Failed to assign order in database`);
-      return res.status(500).json({ message: "Failed to claim order" });
-    }
-
-    console.log(`  ✅ SUCCESS: Order ${orderId} assigned to delivery person ${deliveryPerson.name}`);
-
-    // Do NOT update order.status → keeps “preparing”
-    console.log(`🟢 Order ${orderId} assigned to delivery person. Chef must mark prepared manually.`);
-
-    // Cancel auto-timeout
-    cancelPreparedOrderTimeout(orderId);
-
-    broadcastOrderUpdate(assignedOrder);
-
-    return res.json({
-      ...assignedOrder,
-      assignmentMessage: "Order assigned. Chef will mark it prepared manually."
-    });
-
-  } catch (error) {
-    console.error("Error claiming order:", error);
-    res.status(500).json({ message: "Failed to claim order" });
-  }
-});
+  });
 
 
   app.post("/api/delivery/orders/:id/accept", requireDeliveryAuth(), async (req: AuthenticatedDeliveryRequest, res) => {
@@ -320,7 +320,7 @@ export function registerDeliveryRoutes(app: Express) {
 
       // Change status to accepted_by_delivery when delivery person accepts
       const updatedOrder = await storage.updateOrderStatus(orderId, "accepted_by_delivery");
-      
+
       if (updatedOrder) {
         // Cancel the timeout since delivery person accepted the order
         cancelPreparedOrderTimeout(orderId);
@@ -360,7 +360,7 @@ export function registerDeliveryRoutes(app: Express) {
 
       // Change status to out_for_delivery and record pickup time
       const updatedOrder = await storage.updateOrderPickup(orderId);
-      
+
       if (updatedOrder) {
         broadcastOrderUpdate(updatedOrder);
       }
@@ -389,7 +389,7 @@ export function registerDeliveryRoutes(app: Express) {
       }
 
       const updatedOrder = await storage.updateOrderDelivery(orderId);
-      
+
       if (updatedOrder) {
         broadcastOrderUpdate(updatedOrder);
       }
@@ -429,20 +429,20 @@ export function registerDeliveryRoutes(app: Express) {
     try {
       const deliveryPersonId = req.delivery!.deliveryId;
       const orders = await storage.getOrdersByDeliveryPerson(deliveryPersonId);
-      
+
       // Calculate delivery fees (assuming delivery fee goes to delivery person)
       const completedOrders = orders.filter(o => o.status === "delivered");
       const totalEarnings = completedOrders.reduce((sum, order) => sum + order.deliveryFee, 0);
-      
+
       const now = new Date();
       const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       const startOfThisWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
       const startOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      
+
       const todayOrders = completedOrders.filter(o => new Date(o.deliveredAt!) >= startOfToday);
       const weekOrders = completedOrders.filter(o => new Date(o.deliveredAt!) >= startOfThisWeek);
       const monthOrders = completedOrders.filter(o => new Date(o.deliveredAt!) >= startOfThisMonth);
-      
+
       const todayEarnings = todayOrders.reduce((sum, order) => sum + order.deliveryFee, 0);
       const weekEarnings = weekOrders.reduce((sum, order) => sum + order.deliveryFee, 0);
       const monthEarnings = monthOrders.reduce((sum, order) => sum + order.deliveryFee, 0);
@@ -469,14 +469,14 @@ export function registerDeliveryRoutes(app: Express) {
       const deliveryPersonId = req.delivery!.deliveryId;
       const deliveryPerson = await storage.getDeliveryPersonnelById(deliveryPersonId);
       const orders = await storage.getOrdersByDeliveryPerson(deliveryPersonId);
-      
+
       const pendingOrders = orders.filter(o => o.assignedTo && !["accepted_by_delivery", "out_for_delivery", "delivered", "completed", "cancelled"].includes(o.status));
       const activeOrders = orders.filter(o => ["accepted_by_delivery", "out_for_delivery"].includes(o.status));
       const completedOrders = orders.filter(o => o.status === "delivered");
 
       const now = new Date();
       const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const todayCompletedOrders = completedOrders.filter(o => 
+      const todayCompletedOrders = completedOrders.filter(o =>
         new Date(o.deliveredAt!) >= startOfToday
       );
 
@@ -499,19 +499,19 @@ export function registerDeliveryRoutes(app: Express) {
     try {
       const deliveryPersonId = req.delivery!.deliveryId;
       const today = new Date();
-      
+
       // Get all subscription delivery logs for today
       const todayLogs = await storage.getSubscriptionDeliveryLogsByDate(today);
-      
+
       // Filter logs assigned to this delivery person
       const myDeliveries = todayLogs.filter(log => log.deliveryPersonId === deliveryPersonId);
-      
+
       // Enrich with subscription and customer details
       const enrichedDeliveries = await Promise.all(
         myDeliveries.map(async (log) => {
           const subscription = await storage.getSubscription(log.subscriptionId);
           const plan = subscription ? await storage.getSubscriptionPlan(subscription.planId) : null;
-          
+
           return {
             ...log,
             subscription: subscription ? {
@@ -524,7 +524,7 @@ export function registerDeliveryRoutes(app: Express) {
           };
         })
       );
-      
+
       res.json(enrichedDeliveries);
     } catch (error) {
       console.error("Error fetching subscription deliveries:", error);
@@ -536,7 +536,7 @@ export function registerDeliveryRoutes(app: Express) {
   app.get("/api/delivery/available-subscription-deliveries", requireDeliveryAuth(), async (req: AuthenticatedDeliveryRequest, res) => {
     try {
       const deliveryPersonId = req.delivery!.deliveryId;
-      
+
       // Check if delivery person is active
       const deliveryPerson = await storage.getDeliveryPersonnelById(deliveryPersonId);
       if (!deliveryPerson || !deliveryPerson.isActive) {
@@ -546,19 +546,19 @@ export function registerDeliveryRoutes(app: Express) {
 
       const today = new Date();
       const todayLogs = await storage.getSubscriptionDeliveryLogsByDate(today);
-      
+
       // Filter unassigned deliveries that are scheduled or preparing
-      const availableDeliveries = todayLogs.filter(log => 
-        !log.deliveryPersonId && 
+      const availableDeliveries = todayLogs.filter(log =>
+        !log.deliveryPersonId &&
         (log.status === "scheduled" || log.status === "preparing")
       );
-      
+
       // Enrich with subscription details
       const enrichedDeliveries = await Promise.all(
         availableDeliveries.map(async (log) => {
           const subscription = await storage.getSubscription(log.subscriptionId);
           const plan = subscription ? await storage.getSubscriptionPlan(subscription.planId) : null;
-          
+
           return {
             ...log,
             subscription: subscription ? {
@@ -571,7 +571,7 @@ export function registerDeliveryRoutes(app: Express) {
           };
         })
       );
-      
+
       res.json(enrichedDeliveries);
     } catch (error) {
       console.error("Error fetching available subscription deliveries:", error);
@@ -584,23 +584,23 @@ export function registerDeliveryRoutes(app: Express) {
     try {
       const deliveryPersonId = req.delivery!.deliveryId;
       const logId = req.params.id;
-      
+
       const log = await storage.getSubscriptionDeliveryLog(logId);
       if (!log) {
         res.status(404).json({ message: "Delivery log not found" });
         return;
       }
-      
+
       if (log.deliveryPersonId) {
         res.status(400).json({ message: "This delivery is already claimed" });
         return;
       }
-      
+
       const updated = await storage.updateSubscriptionDeliveryLog(logId, {
         deliveryPersonId: deliveryPersonId,
         status: "preparing",
       });
-      
+
       console.log(`📦 Delivery person ${deliveryPersonId} claimed subscription delivery ${logId}`);
       res.json(updated);
     } catch (error) {
@@ -615,36 +615,36 @@ export function registerDeliveryRoutes(app: Express) {
       const deliveryPersonId = req.delivery!.deliveryId;
       const logId = req.params.id;
       const { status, notes } = req.body;
-      
+
       const log = await storage.getSubscriptionDeliveryLog(logId);
       if (!log) {
         res.status(404).json({ message: "Delivery log not found" });
         return;
       }
-      
+
       // Verify this delivery is assigned to this person
       if (log.deliveryPersonId !== deliveryPersonId) {
         res.status(403).json({ message: "This delivery is not assigned to you" });
         return;
       }
-      
+
       // Validate status transitions
       const validTransitions: Record<string, string[]> = {
         "scheduled": ["preparing"],
         "preparing": ["out_for_delivery"],
         "out_for_delivery": ["delivered", "missed"],
       };
-      
+
       if (!validTransitions[log.status]?.includes(status)) {
         res.status(400).json({ message: `Invalid status transition from ${log.status} to ${status}` });
         return;
       }
-      
+
       const updateData: any = { status };
       if (notes) updateData.notes = notes;
-      
+
       const updated = await storage.updateSubscriptionDeliveryLog(logId, updateData);
-      
+
       // If delivered, update the subscription
       if (status === "delivered") {
         const subscription = await storage.getSubscription(log.subscriptionId);
@@ -655,7 +655,7 @@ export function registerDeliveryRoutes(app: Express) {
           });
         }
       }
-      
+
       console.log(`🚚 Delivery person ${deliveryPersonId} updated subscription delivery ${logId} to ${status}`);
       res.json(updated);
     } catch (error) {
@@ -669,15 +669,15 @@ export function registerDeliveryRoutes(app: Express) {
     try {
       const deliveryPersonId = req.delivery!.deliveryId;
       const today = new Date();
-      
+
       const todayLogs = await storage.getSubscriptionDeliveryLogsByDate(today);
       const myLogs = todayLogs.filter(log => log.deliveryPersonId === deliveryPersonId);
-      
+
       const pending = myLogs.filter(log => ["scheduled", "preparing"].includes(log.status)).length;
       const outForDelivery = myLogs.filter(log => log.status === "out_for_delivery").length;
       const delivered = myLogs.filter(log => log.status === "delivered").length;
       const missed = myLogs.filter(log => log.status === "missed").length;
-      
+
       res.json({
         pending,
         outForDelivery,
@@ -688,6 +688,59 @@ export function registerDeliveryRoutes(app: Express) {
     } catch (error) {
       console.error("Error fetching subscription stats:", error);
       res.status(500).json({ message: "Failed to fetch subscription statistics" });
+    }
+  });
+
+  // Get pending broadcasts for this delivery personnel
+  app.get("/api/notifications/pending", requireDeliveryAuth(), async (req: AuthenticatedDeliveryRequest, res) => {
+    try {
+      const deliveryPersonId = req.delivery!.deliveryId;
+      if (!deliveryPersonId) return res.status(401).json({ message: "Unauthorized" });
+
+      const pending = await db.query.pendingBroadcasts.findMany({
+        where: (pb, { eq, and }) => and(
+          eq(pb.recipientId, String(deliveryPersonId)),
+          eq(pb.recipientType, "delivery"),
+          eq(pb.isDelivered, false)
+        ),
+        orderBy: (pb, { asc }) => [asc(pb.createdAt)],
+      });
+
+      res.json(pending);
+    } catch (error) {
+      console.error("Error fetching pending broadcasts:", error);
+      res.status(500).json({ message: "Failed to fetch pending broadcasts" });
+    }
+  });
+
+  // Mark broadcast as delivered
+  app.post("/api/notifications/mark-delivered", requireDeliveryAuth(), async (req: AuthenticatedDeliveryRequest, res) => {
+    try {
+      const { ids } = req.body;
+      const deliveryPersonId = req.delivery!.deliveryId;
+      if (!deliveryPersonId) return res.status(401).json({ message: "Unauthorized" });
+
+      if (!Array.isArray(ids) || ids.length === 0) {
+        return res.json({ success: true });
+      }
+
+      const { eq, inArray, and } = await import("drizzle-orm");
+      const { pendingBroadcasts } = await import("@shared/db");
+
+      await db.update(pendingBroadcasts)
+        .set({ isDelivered: true })
+        .where(
+          and(
+            eq(pendingBroadcasts.recipientId, String(deliveryPersonId)),
+            eq(pendingBroadcasts.recipientType, "delivery"),
+            inArray(pendingBroadcasts.id, ids)
+          )
+        );
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error marking broadcasts delivered:", error);
+      res.status(500).json({ message: "Failed to mark delivered" });
     }
   });
 }

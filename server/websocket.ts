@@ -4,6 +4,20 @@ import { verifyToken as verifyAdminToken } from "./adminAuth";
 import { verifyToken as verifyDeliveryToken } from "./deliveryAuth";
 import { verifyToken as verifyPartnerToken } from "./partnerAuth";
 import type { Order } from "@shared/schema";
+import { db, pendingBroadcasts } from "@shared/db";
+
+async function savePendingBroadcast(recipientId: string, recipientType: "chef" | "delivery", type: string, data: any) {
+  try {
+    await db.insert(pendingBroadcasts).values({
+      recipientId: String(recipientId),
+      recipientType,
+      eventType: type,
+      payload: data
+    });
+  } catch (err) {
+    console.error(`[PendingBroadcast Error] Failed to save for ${recipientType} ${recipientId}:`, err);
+  }
+}
 
 interface ConnectedClient {
   ws: WebSocket;
@@ -152,6 +166,11 @@ export function broadcastNewOrder(order: Order) {
   if (!chefNotified && order.chefId) {
     console.warn(`  ⚠️ No chef WS connected for chefId=${order.chefId}`);
   }
+
+  // Save pending broadcast for chef
+  if (order.chefId) {
+    savePendingBroadcast(order.chefId, "chef", "new_order", { data: order });
+  }
 }
 
 // Broadcast subscription delivery to admins and assigned chef
@@ -169,6 +188,11 @@ export function broadcastSubscriptionDelivery(subscription: any) {
       console.log(`  ✅ Sent subscription delivery to chef ${client.id} (chefId: ${client.chefId})`);
     }
   });
+
+  // Save pending broadcast for chef
+  if (subscription.chefId) {
+    savePendingBroadcast(subscription.chefId, "chef", "subscription_delivery", { data: subscription });
+  }
 }
 
 // Broadcast subscription update (assignment, status changes, etc.)
@@ -228,6 +252,11 @@ export function broadcastSubscriptionUpdate(subscription: any) {
   console.log(`  - Chef notified: ${chefNotified ? 'YES' : 'NO'}`);
   console.log(`  - Customer notified: ${customerNotified ? 'YES' : 'NO'}`);
   console.log(`================================================\n`);
+
+  // Save pending broadcast for chef
+  if (safeSubscription.chefId) {
+    savePendingBroadcast(safeSubscription.chefId, "chef", "subscription_update", { data: safeSubscription });
+  }
 }
 
 // Broadcast subscription delivery to available delivery personnel
@@ -416,6 +445,14 @@ export function broadcastOrderUpdate(order: Order) {
     })));
   }
 
+  // Save pending broadcast for chef and delivery
+  if (order.chefId) {
+    savePendingBroadcast(order.chefId, "chef", "order_update", { data: order });
+  }
+  if (order.assignedTo) {
+    savePendingBroadcast(order.assignedTo, "delivery", "order_update", { data: order });
+  }
+
   console.log(`================================================\n`);
 }
 
@@ -435,6 +472,14 @@ export function notifyDeliveryAssignment(order: Order, deliveryPersonId: string)
       console.error(`  ❌ Failed to notify delivery assignment to ${deliveryPersonId}:`, error);
     }
   }
+
+  const notificationType = order.status === "confirmed" ? "order_confirmed" : "order_assigned";
+  savePendingBroadcast(deliveryPersonId, "delivery", notificationType, {
+    data: order,
+    message: order.status === "confirmed"
+      ? `Order #${order.id.slice(0, 8)} has been confirmed and is ready for pickup`
+      : `New order #${order.id.slice(0, 8)} has been assigned to you`
+  });
 }
 
 export async function broadcastPreparedOrderToAvailableDelivery(order: any) {
@@ -467,6 +512,19 @@ export async function broadcastPreparedOrderToAvailableDelivery(order: any) {
         console.log(`✅ [${notificationStage}] Sent to delivery person: ${deliveryPersonId} (${deliveryPerson.name})`);
         deliveryPersonnelNotified++;
       }
+    }
+
+    // Save pending broadcast for ALL active delivery personnel (since any could claim it)
+    // To avoid spamming DB too much, we will rely on assigning manually, but we broadcast here
+    if (client.type === "delivery") {
+      // It's expensive to do DB queries in loop, we simplify pending broadcast
+      savePendingBroadcast(deliveryPersonId, "delivery", "new_prepared_order", {
+        order: order,
+        notificationStage: notificationStage,
+        message: notificationStage === "CHEF_ACCEPTED"
+          ? `🔔 New order alert! Chef accepted order #${order.id.slice(0, 8)} - start preparing to head out`
+          : `🍽️ Order #${order.id.slice(0, 8)} is ready for pickup!`
+      });
     }
   }
 

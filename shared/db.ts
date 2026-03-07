@@ -46,5 +46,6 @@ export const {
   visitors,
   deliveryAreas,
   adminSettings,
-  newsletterSubscribers
+  newsletterSubscribers,
+  pendingBroadcasts
 } = schema;

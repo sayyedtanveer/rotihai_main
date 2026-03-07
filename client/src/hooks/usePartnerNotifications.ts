@@ -16,6 +16,92 @@ export function usePartnerNotifications() {
   const addNotification = usePartnerNotificationStore((s) => s.addNotification);
   const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const fetchPendingBroadcasts = useCallback(async () => {
+    try {
+      const token = localStorage.getItem("partnerToken");
+      if (!token) return;
+
+      const { default: api } = await import("@/lib/apiClient");
+      const { data: pending } = await api.get("/api/notifications/pending");
+
+      if (Array.isArray(pending) && pending.length > 0) {
+        console.log(`📥 Recovered ${pending.length} pending broadcasts`);
+
+        let newOrdersCountLocal = 0;
+        const processedIds: string[] = [];
+
+        pending.forEach((broadcast: any) => {
+          if (broadcast.eventType === "new_order") {
+            const order = broadcast.payload?.data;
+            if (order && !processedOrderIds.current.has(order.id)) {
+              processedOrderIds.current.add(order.id);
+              newOrdersCountLocal++;
+
+              toast({
+                title: "🍽️ Missed Order Recovered!",
+                description: `Order #${order.id.slice(0, 8)} — ₹${order.total} from ${order.customerName}`,
+                duration: 10000,
+              });
+
+              addNotification({
+                id: `new_${order.id}`,
+                orderId: order.id,
+                status: "pending",
+                message: `🍴 Missed order from ${order.customerName} — ₹${order.total}`,
+                total: order.total,
+                customerName: order.customerName,
+              });
+            }
+          } else if (broadcast.eventType === "order_update") {
+            const order = broadcast.payload?.data;
+            if (order && order.status === "confirmed" && order.paymentStatus === "confirmed") {
+              if (!processedOrderIds.current.has(order.id)) {
+                processedOrderIds.current.add(order.id);
+                newOrdersCountLocal++;
+
+                toast({
+                  title: "✅ Missed Order Confirmation",
+                  description: `Order #${order.id.slice(0, 8)} is ready to accept.`,
+                  duration: 10000,
+                });
+
+                addNotification({
+                  id: `confirmed_${order.id}`,
+                  orderId: order.id,
+                  status: "confirmed",
+                  message: `✅ Order #${order.id.slice(0, 8)} confirmed — ₹${order.total} from ${order.customerName}. Ready to accept!`,
+                  total: order.total,
+                  customerName: order.customerName,
+                });
+              }
+            }
+            queryClient.invalidateQueries({ queryKey: ["/api/partner/orders"] });
+          } else if (broadcast.eventType === "subscription_update" || broadcast.eventType === "subscription_delivery") {
+            queryClient.invalidateQueries({ queryKey: ["/api/partner/subscriptions"] });
+            queryClient.invalidateQueries({ queryKey: ["/api/partner/subscription-deliveries"] });
+          }
+
+          processedIds.push(broadcast.id);
+        });
+
+        if (newOrdersCountLocal > 0) {
+          setNewOrdersCount(prev => prev + newOrdersCountLocal);
+          try {
+            const alertAudio = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBTGH0fPTgjMGHm7A7+OZURE=");
+            alertAudio.play().catch(() => { });
+          } catch (_) { }
+        }
+
+        // Mark them as delivered
+        if (processedIds.length > 0) {
+          await api.post("/api/notifications/mark-delivered", { ids: processedIds });
+        }
+      }
+    } catch (error) {
+      console.error("Failed to fetch pending broadcasts:", error);
+    }
+  }, [addNotification]);
+
   const connect = useCallback(() => {
     if (isUnmountedRef.current) return;
 
@@ -39,6 +125,8 @@ export function usePartnerNotifications() {
       if (isUnmountedRef.current) return;
       console.log("✅ Partner WebSocket connected");
       setWsConnected(true);
+      fetchPendingBroadcasts(); // Check for missed broadcasts on connect/reconnect
+
       // Clear any pending reconnect timer
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current);
@@ -215,6 +303,7 @@ export function usePartnerNotifications() {
         if (!wsRef.current || wsRef.current.readyState === WebSocket.CLOSED) {
           console.log("🔄 Instant foreground reconnect triggered");
           connect();
+          fetchPendingBroadcasts();
           // Force a full refetch of orders to catch anything missed while backgrounded
           queryClient.invalidateQueries({ queryKey: ["/api/partner/orders"] });
           queryClient.invalidateQueries({ queryKey: ["/api/partner/dashboard/metrics"] });
@@ -251,6 +340,7 @@ export function usePartnerNotifications() {
 
       // Step 1: Immediately reconnect WebSocket
       connect();
+      fetchPendingBroadcasts();
 
       // Step 2: Invalidate all cached partner queries to force fresh fetch
       queryClient.invalidateQueries({ queryKey: ["/api/partner/orders"] });

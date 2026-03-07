@@ -875,3 +875,24 @@ export const newsletterSubscribers = pgTable("newsletter_subscribers", {
   subscribedAt: timestamp("subscribed_at").notNull().defaultNow(),
   unsubscribedAt: timestamp("unsubscribed_at"),
 });
+
+// Pending Broadcasts for offline chefs and delivery personnel
+export const pendingBroadcasts = pgTable("pending_broadcasts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  recipientId: varchar("recipient_id").notNull(), // chefId or deliveryPersonId
+  recipientType: varchar("recipient_type", { length: 20 }).notNull(), // "chef" or "delivery"
+  eventType: varchar("event_type", { length: 50 }).notNull(), // "new_order", "order_update", "new_prepared_order", etc.
+  payload: jsonb("payload").notNull(), // The broadcast message JSON string or object
+  isDelivered: boolean("is_delivered").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("IDX_pending_broadcasts_recipient").on(table.recipientId, table.recipientType, table.isDelivered)
+]);
+
+export const insertPendingBroadcastSchema = createInsertSchema(pendingBroadcasts).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertPendingBroadcast = z.infer<typeof insertPendingBroadcastSchema>;
+export type PendingBroadcast = typeof pendingBroadcasts.$inferSelect;

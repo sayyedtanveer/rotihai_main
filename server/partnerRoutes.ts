@@ -17,13 +17,13 @@ export function registerPartnerRoutes(app: Express): void {
       }
 
       const orders = await storage.getOrdersByChefId(chefId);
-      
+
       // Remove sensitive customer information
       const sanitizedOrders = orders.map(order => {
         const { phone, address, email, ...safeOrder } = order;
         return safeOrder;
       });
-      
+
       res.json(sanitizedOrders);
     } catch (error) {
       console.error("Error fetching partner orders:", error);
@@ -238,8 +238,8 @@ export function registerPartnerRoutes(app: Express): void {
           const firstProduct = await storage.getProductById(items[0].id);
           if (firstProduct) {
             const category = await storage.getCategoryById(firstProduct.categoryId);
-            const isRotiCategory = category?.name?.toLowerCase() === 'roti' || 
-                                   category?.name?.toLowerCase().includes('roti');
+            const isRotiCategory = category?.name?.toLowerCase() === 'roti' ||
+              category?.name?.toLowerCase().includes('roti');
 
             // Only enforce slot requirement if order has deliveryTime (i.e., it was scheduled)
             // Non-scheduled Roti orders (without deliveryTime) do NOT need a slot
@@ -283,7 +283,7 @@ export function registerPartnerRoutes(app: Express): void {
           try {
             const allDeliveryPersonnel = await storage.getAllDeliveryPersonnel();
             const activeDeliveryPersonnel = allDeliveryPersonnel.filter(dp => dp.isActive);
-            
+
             if (activeDeliveryPersonnel.length > 0) {
               const deliveryPersonIds = activeDeliveryPersonnel.map(dp => dp.id);
               const deliveryPersonPhones = new Map(
@@ -371,14 +371,14 @@ export function registerPartnerRoutes(app: Express): void {
 
       const allProducts = await storage.getAllProducts();
       const chefProducts = allProducts.filter(p => p.chefId === chefId);
-      
+
       // Show partner's hotel price (their selling price), hide marginPercent (internal profit calc)
       // hotelPrice is what partner charges, so they should see it
       const sanitizedProducts = chefProducts.map((p: any) => {
         const { marginPercent, ...safeProduct } = p;
         return safeProduct;
       });
-      
+
       res.json(sanitizedProducts);
     } catch (error) {
       console.error("Error fetching partner products:", error);
@@ -482,7 +482,7 @@ export function registerPartnerRoutes(app: Express): void {
       const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
 
       const thisMonthOrders = completedOrders.filter(o => new Date(o.createdAt) >= startOfThisMonth);
-      const lastMonthOrders = completedOrders.filter(o => 
+      const lastMonthOrders = completedOrders.filter(o =>
         new Date(o.createdAt) >= startOfLastMonth && new Date(o.createdAt) <= endOfLastMonth
       );
 
@@ -559,7 +559,7 @@ export function registerPartnerRoutes(app: Express): void {
 
       // Get all subscriptions assigned to this chef and filter for active ones
       const allSubscriptions = await storage.getSubscriptions();
-      const subscriptions = allSubscriptions.filter(s => 
+      const subscriptions = allSubscriptions.filter(s =>
         s.chefId === chefId && s.isPaid && s.status !== "cancelled"
       );
 
@@ -581,7 +581,7 @@ export function registerPartnerRoutes(app: Express): void {
         if (!sub.nextDeliveryDate || isNaN(new Date(sub.nextDeliveryDate).getTime())) {
           continue;
         }
-        
+
         // Check if subscription has delivery today based on next delivery date
         const nextDelivery = new Date(sub.nextDeliveryDate);
         nextDelivery.setHours(0, 0, 0, 0);
@@ -722,6 +722,59 @@ export function registerPartnerRoutes(app: Express): void {
     } catch (error) {
       console.error("Error updating subscription delivery status:", error);
       res.status(500).json({ message: "Failed to update delivery status" });
+    }
+  });
+
+  // Get pending broadcasts for this partner
+  app.get("/api/notifications/pending", requirePartner(), async (req: AuthenticatedPartnerRequest, res) => {
+    try {
+      const chefId = req.partner?.chefId;
+      if (!chefId) return res.status(401).json({ message: "Unauthorized" });
+
+      const pending = await db.query.pendingBroadcasts.findMany({
+        where: (pb, { eq, and }) => and(
+          eq(pb.recipientId, String(chefId)),
+          eq(pb.recipientType, "chef"),
+          eq(pb.isDelivered, false)
+        ),
+        orderBy: (pb, { asc }) => [asc(pb.createdAt)],
+      });
+
+      res.json(pending);
+    } catch (error) {
+      console.error("Error fetching pending broadcasts:", error);
+      res.status(500).json({ message: "Failed to fetch pending broadcasts" });
+    }
+  });
+
+  // Mark broadcast as delivered
+  app.post("/api/notifications/mark-delivered", requirePartner(), async (req: AuthenticatedPartnerRequest, res) => {
+    try {
+      const { ids } = req.body;
+      const chefId = req.partner?.chefId;
+      if (!chefId) return res.status(401).json({ message: "Unauthorized" });
+
+      if (!Array.isArray(ids) || ids.length === 0) {
+        return res.json({ success: true });
+      }
+
+      const { eq, inArray, and } = await import("drizzle-orm");
+      const { pendingBroadcasts } = await import("@shared/db");
+
+      await db.update(pendingBroadcasts)
+        .set({ isDelivered: true })
+        .where(
+          and(
+            eq(pendingBroadcasts.recipientId, String(chefId)),
+            eq(pendingBroadcasts.recipientType, "chef"),
+            inArray(pendingBroadcasts.id, ids)
+          )
+        );
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error marking broadcasts delivered:", error);
+      res.status(500).json({ message: "Failed to mark delivered" });
     }
   });
 }
