@@ -607,6 +607,7 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
 
     // For authenticated users, proceed with normal flow
     // Try to pre-populate address from stored pincode validation (set on Home page)
+    // but mark as NOT validated initially - user must confirm validation
     let initialAddress: SubscriptionAddress | null = null;
     
     const storedPincode = getStoredPincodeValidation();
@@ -622,8 +623,10 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
         longitude: storedPincode.longitude,
       };
       setAuthenticatedSubAddress(initialAddress);
-      setIsAuthSubAddressValidated(true);
-      console.log("[SUBSCRIPTION] Pre-populated address from stored pincode:", storedPincode);
+      // IMPORTANT: Do NOT set validated = true yet
+      // User must click "Validate Address" button to confirm
+      setIsAuthSubAddressValidated(false);
+      console.log("[SUBSCRIPTION] Pre-populated address from stored pincode, awaiting validation:", storedPincode);
     } else {
       // Reset address state if no stored pincode
       setAuthenticatedSubAddress(null);
