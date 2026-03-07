@@ -245,6 +245,19 @@ export default function CheckoutDialog({
   const applyReferralMutation = useApplyReferral();
   const isMobile = useIsMobile();
 
+  // STALE TOKEN RECOVERY: If the browser has a userToken but useAuth says we are NOT authenticated
+  // (meaning the token expired or was wiped on the server back-end), we must proactively clear 
+  // localStorage here. Otherwise, the checkout form might try to use the string or accidentally 
+  // block the user from checking out because it incorrectly thinks they are halfway logged in.
+  useEffect(() => {
+    if (!isUserLoading && !isAuthenticated && userToken) {
+      console.warn("🧹 CheckoutDialog detected a stale userToken but user is not authenticated. Clearing localStorage.");
+      localStorage.removeItem("userToken");
+      localStorage.removeItem("userData");
+      // Note: we don't need a page reload, the state in useAuth already reflects !isAuthenticated
+    }
+  }, [isUserLoading, isAuthenticated, userToken]);
+
   // Listen for wallet updates via WebSocket
   useWalletUpdates();
 
@@ -1847,7 +1860,9 @@ export default function CheckoutDialog({
     }
 
     // Prevent checkout if phone exists but user is not logged in
-    if (phoneExists && !userToken) {
+    // CRITICAL: We must check !isAuthenticated, NOT just !userToken. 
+    // A stale/expired token in localStorage would bypass this check but fail the order.
+    if (phoneExists && !isAuthenticated) {
       toast({
         title: "Login Required",
         description:
