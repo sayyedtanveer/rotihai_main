@@ -37,6 +37,9 @@ interface SubscriptionAddressInputProps {
   onAddressValidated: (address: SubscriptionAddress) => void;
   isEditing?: boolean;
   onEditModeChange?: (isEditing: boolean) => void;
+  hideValidateButton?: boolean;
+  onValidationStateChange?: (state: { isValidating: boolean; canValidate: boolean; isReValidatingPincode?: boolean; addressPincode?: string; addressArea?: string; addressStreet?: string }) => void;
+  actionRef?: React.MutableRefObject<{ validate: () => void } | null>;
 }
 
 export function SubscriptionAddressInput({
@@ -44,6 +47,9 @@ export function SubscriptionAddressInput({
   onAddressValidated,
   isEditing: initialIsEditing = true,
   onEditModeChange,
+  hideValidateButton = false,
+  onValidationStateChange,
+  actionRef,
 }: SubscriptionAddressInputProps) {
   const { toast } = useToast();
   const [isEditing, setIsEditing] = useState(initialIsEditing);
@@ -138,7 +144,7 @@ export function SubscriptionAddressInput({
         console.log("[SUBSCRIPTION-ADDR] Pincode validated successfully");
         setIsInServiceArea(true);
         setLocationError("");
-        
+
         // Geocode the address to get coordinates
         await geocodeAddress();
       } else {
@@ -167,7 +173,7 @@ export function SubscriptionAddressInput({
 
     try {
       console.log("[SUBSCRIPTION-ADDR] Geocoding address:", addressToGeocode);
-      
+
       const response = await api.post("/api/geocode-full-address", {
         address: addressToGeocode,
         pincode: pincode.trim(),
@@ -177,9 +183,9 @@ export function SubscriptionAddressInput({
       if (response.data?.latitude && response.data?.longitude) {
         const lat = response.data.latitude;
         const lon = response.data.longitude;
-        
+
         console.log("[SUBSCRIPTION-ADDR] Geocoding successful:", { lat, lon });
-        
+
         setCoordinates({ latitude: lat, longitude: lon });
         setIsValidated(true);
         setIsEditing(false);
@@ -210,6 +216,27 @@ export function SubscriptionAddressInput({
       setIsValidated(false);
     }
   };
+
+  useEffect(() => {
+    if (actionRef) {
+      actionRef.current = {
+        validate: handleValidatePincode,
+      };
+    }
+  });
+
+  useEffect(() => {
+    if (onValidationStateChange) {
+      onValidationStateChange({
+        isValidating,
+        canValidate: !!pincode && !!area && !!building,
+        isReValidatingPincode: isValidating,
+        addressPincode: pincode,
+        addressArea: area,
+        addressStreet: street,
+      });
+    }
+  }, [isValidating, pincode, area, building, street, onValidationStateChange]);
 
   // Display validated address
   if (isValidated && !isEditing) {
@@ -296,7 +323,7 @@ export function SubscriptionAddressInput({
             disabled={isValidating}
             autoComplete="off"
           />
-          
+
           {/* Area Suggestions Dropdown */}
           {showAreaSuggestions && areaSuggestions.length > 0 && (
             <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg z-50">
@@ -368,24 +395,26 @@ export function SubscriptionAddressInput({
         )}
 
         {/* Validation button */}
-        <Button
-          type="button"
-          onClick={handleValidatePincode}
-          disabled={isValidating || !pincode || !area || !building}
-          className="w-full"
-        >
-          {isValidating ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Validating...
-            </>
-          ) : (
-            <>
-              <MapPin className="mr-2 h-4 w-4" />
-              Validate Service Area
-            </>
-          )}
-        </Button>
+        {!hideValidateButton && (
+          <Button
+            type="button"
+            onClick={handleValidatePincode}
+            disabled={isValidating || !pincode || !area || !building}
+            className="w-full"
+          >
+            {isValidating ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Validating...
+              </>
+            ) : (
+              <>
+                <MapPin className="mr-2 h-4 w-4" />
+                Validate Service Area
+              </>
+            )}
+          </Button>
+        )}
       </div>
 
       {/* Help text */}

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -18,7 +18,7 @@ import LoginDialog from "./LoginDialog";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 import { format, addDays, differenceInDays, isPast, isAfter, add } from "date-fns";
-import { Calendar, Pause, Play, Clock, CheckCircle2, AlertCircle, Settings2, CalendarDays, History, RefreshCw, AlertTriangle, User } from "lucide-react";
+import { Calendar, Pause, Play, Clock, CheckCircle2, AlertCircle, Settings2, CalendarDays, History, RefreshCw, AlertTriangle, User, Loader2 } from "lucide-react";
 import type { SubscriptionPlan, Subscription } from "@shared/schema";
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/useAuth";
@@ -53,6 +53,8 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
   // Authentication subscription address state
   const [authenticatedSubAddress, setAuthenticatedSubAddress] = useState<SubscriptionAddress | null>(null);
   const [isAuthSubAddressValidated, setIsAuthSubAddressValidated] = useState(false);
+  const authAddressActionRef = useRef<{ validate: () => void } | null>(null);
+  const [authValidationState, setAuthValidationState] = useState({ isValidating: false, canValidate: false });
 
   // Advanced pause modal state
   const [showPauseModal, setShowPauseModal] = useState(false);
@@ -105,6 +107,8 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
   });
   const [guestAddress, setGuestAddress] = useState<SubscriptionAddress | null>(null);
   const [isGuestAddressValidated, setIsGuestAddressValidated] = useState(false);
+  const guestAddressActionRef = useRef<{ validate: () => void } | null>(null);
+  const [guestValidationState, setGuestValidationState] = useState({ isValidating: false, canValidate: false });
   const [guestPhoneExists, setGuestPhoneExists] = useState<boolean | null>(null);
   const [guestPhoneChecking, setGuestPhoneChecking] = useState(false);
   const [showLoginDialog, setShowLoginDialog] = useState(false);
@@ -185,13 +189,13 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
   });
 
   const subscribeMutation = useMutation({
-    mutationFn: async ({ planId, deliverySlotId, address }: { 
-      planId: string; 
-      deliverySlotId?: string; 
+    mutationFn: async ({ planId, deliverySlotId, address }: {
+      planId: string;
+      deliverySlotId?: string;
       address?: SubscriptionAddress;
     }) => {
       const body: any = { planId, deliverySlotId };
-      
+
       // Include address data if provided
       if (address) {
         body.address = `${address.building}, ${address.street}, ${address.area}, ${address.city} - ${address.pincode}`;
@@ -201,7 +205,7 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
 
       const response = await fetch("/api/subscriptions", {
         method: "POST",
-        headers: { 
+        headers: {
           "Content-Type": "application/json",
           ...getAuthHeaders(),
         },
@@ -242,9 +246,9 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
       });
       setShowPaymentQR(true);
 
-      toast({ 
-        title: "Subscription Created!", 
-        description: `Complete payment of ₹${plan?.price || 0} to activate your subscription` 
+      toast({
+        title: "Subscription Created!",
+        description: `Complete payment of ₹${plan?.price || 0} to activate your subscription`
       });
     },
     onError: () => {
@@ -254,8 +258,8 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
 
   // Guest subscription mutation (for users not logged in)
   const guestSubscribeMutation = useMutation({
-    mutationFn: async ({ planId, deliverySlotId, customerName, phone, email, address }: { 
-      planId: string; 
+    mutationFn: async ({ planId, deliverySlotId, customerName, phone, email, address }: {
+      planId: string;
       deliverySlotId?: string;
       customerName: string;
       phone: string;
@@ -263,12 +267,12 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
       address: SubscriptionAddress;
     }) => {
       const addressString = `${address.building}, ${address.street}, ${address.area}, ${address.city} - ${address.pincode}`;
-      
+
       const response = await fetch("/api/subscriptions/public", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          planId, 
+        body: JSON.stringify({
+          planId,
           deliverySlotId,
           customerName,
           phone,
@@ -323,18 +327,18 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
       });
       setShowPaymentQR(true);
 
-      toast({ 
-        title: "Subscription Created!", 
-        description: data.isNewUser 
+      toast({
+        title: "Subscription Created!",
+        description: data.isNewUser
           ? `Account created! Complete payment of ₹${plan?.price || 0} to activate your subscription. Your login credentials have been sent to your email.`
           : `Complete payment of ₹${plan?.price || 0} to activate your subscription`
       });
     },
     onError: (error: Error) => {
-      toast({ 
-        title: "Error", 
-        description: error.message || "Failed to create subscription", 
-        variant: "destructive" 
+      toast({
+        title: "Error",
+        description: error.message || "Failed to create subscription",
+        variant: "destructive"
       });
     },
   });
@@ -347,7 +351,7 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
 
       const response = await fetch(`/api/subscriptions/${subscriptionId}/payment-confirmed`, {
         method: "POST",
-        headers: { 
+        headers: {
           "Content-Type": "application/json",
           ...getAuthHeaders(),
         },
@@ -423,23 +427,23 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
     },
     onError: (error: Error) => {
       console.error("Payment confirmation error:", error);
-      toast({ 
-        title: "Payment Confirmation Failed", 
-        description: error.message || "Failed to confirm payment. Please try again.", 
-        variant: "destructive" 
+      toast({
+        title: "Payment Confirmation Failed",
+        description: error.message || "Failed to confirm payment. Please try again.",
+        variant: "destructive"
       });
     },
   });
 
   const pauseMutation = useMutation({
-    mutationFn: async ({ subscriptionId, pauseStartDate, pauseResumeDate }: { 
-      subscriptionId: string; 
-      pauseStartDate?: string; 
+    mutationFn: async ({ subscriptionId, pauseStartDate, pauseResumeDate }: {
+      subscriptionId: string;
+      pauseStartDate?: string;
       pauseResumeDate?: string;
     }) => {
       const response = await fetch(`/api/subscriptions/${subscriptionId}/pause`, {
         method: "POST",
-        headers: { 
+        headers: {
           "Content-Type": "application/json",
           ...getAuthHeaders(),
         },
@@ -470,7 +474,7 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
     mutationFn: async ({ subscriptionId, deliveryTime }: { subscriptionId: string; deliveryTime: string }) => {
       const response = await fetch(`/api/subscriptions/${subscriptionId}/delivery-time`, {
         method: "PATCH",
-        headers: { 
+        headers: {
           "Content-Type": "application/json",
           ...getAuthHeaders(),
         },
@@ -527,9 +531,9 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
       });
       setShowPaymentQR(true);
 
-      toast({ 
-        title: "Renewal Created!", 
-        description: "Complete payment to activate your renewal" 
+      toast({
+        title: "Renewal Created!",
+        description: "Complete payment to activate your renewal"
       });
     },
     onError: () => {
@@ -609,7 +613,7 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
     // Try to pre-populate address from stored pincode validation (set on Home page)
     // but mark as NOT validated initially - user must confirm validation
     let initialAddress: SubscriptionAddress | null = null;
-    
+
     const storedPincode = getStoredPincodeValidation();
     if (storedPincode?.pincode && storedPincode?.latitude && storedPincode?.longitude) {
       // Pre-populate from stored pincode data
@@ -706,25 +710,25 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
     if (!selectedPlanForSubscription) return;
 
     if (!selectedSubscriptionSlotId) {
-      toast({ 
-        title: "Slot Required", 
-        description: "Please select a delivery time slot", 
-        variant: "destructive" 
+      toast({
+        title: "Slot Required",
+        description: "Please select a delivery time slot",
+        variant: "destructive"
       });
       return;
     }
 
     if (!isAuthSubAddressValidated || !authenticatedSubAddress) {
-      toast({ 
-        title: "Address Required", 
-        description: "Please validate your delivery address", 
-        variant: "destructive" 
+      toast({
+        title: "Address Required",
+        description: "Please validate your delivery address",
+        variant: "destructive"
       });
       return;
     }
 
-    subscribeMutation.mutate({ 
-      planId: selectedPlanForSubscription, 
+    subscribeMutation.mutate({
+      planId: selectedPlanForSubscription,
       deliverySlotId: selectedSubscriptionSlotId,
       address: authenticatedSubAddress,
     }, {
@@ -742,7 +746,7 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
   };
 
   return (
-  <>
+    <>
       <Sheet open={isOpen} onOpenChange={onClose}>
         <SheetContent side="right" className="w-full sm:max-w-2xl !overflow-y-auto !max-h-screen">
           <SheetHeader>
@@ -1015,29 +1019,27 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
                             {/* Expiration Warning and Renewal */}
                             {sub.isPaid && (expirationStatus.isExpiringSoon || expirationStatus.isExpired) && (
                               <div className="space-y-3 pt-2">
-                                <div className={`p-3 rounded-md border ${
-                                  expirationStatus.isExpired 
-                                    ? "bg-destructive/10 border-destructive/20" 
+                                <div className={`p-3 rounded-md border ${expirationStatus.isExpired
+                                    ? "bg-destructive/10 border-destructive/20"
                                     : "bg-yellow-500/10 border-yellow-500/20"
-                                }`}>
+                                  }`}>
                                   <div className="flex items-center gap-2 justify-center">
                                     {expirationStatus.isExpired ? (
                                       <AlertCircle className="w-4 h-4 text-destructive" />
                                     ) : (
                                       <AlertTriangle className="w-4 h-4 text-yellow-600 dark:text-yellow-500" />
                                     )}
-                                    <span className={`text-sm font-medium ${
-                                      expirationStatus.isExpired ? "text-destructive" : "text-yellow-600 dark:text-yellow-500"
-                                    }`}>
-                                      {expirationStatus.isExpired 
-                                        ? "Subscription Expired" 
+                                    <span className={`text-sm font-medium ${expirationStatus.isExpired ? "text-destructive" : "text-yellow-600 dark:text-yellow-500"
+                                      }`}>
+                                      {expirationStatus.isExpired
+                                        ? "Subscription Expired"
                                         : `Only ${expirationStatus.daysRemaining} ${expirationStatus.daysRemaining === 1 ? 'delivery' : 'deliveries'} remaining`
                                       }
                                     </span>
                                   </div>
                                   <p className="text-xs text-center text-muted-foreground mt-2">
-                                    {expirationStatus.isExpired 
-                                      ? "Renew to continue enjoying your subscription" 
+                                    {expirationStatus.isExpired
+                                      ? "Renew to continue enjoying your subscription"
                                       : "Renew now to avoid interruption"
                                     }
                                   </p>
@@ -1063,19 +1065,19 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
                         )}
                       </div>
                     );
-                })}
-              </div>
-            ) : (
-              <Card>
-                <CardContent className="text-center py-12">
-                  <Calendar className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-                  <p className="text-muted-foreground">No active subscriptions</p>
-                  <p className="text-sm text-muted-foreground mt-2">
-                    Subscribe to a plan to see it here
-                  </p>
-                </CardContent>
-              </Card>
-            )}
+                  })}
+                </div>
+              ) : (
+                <Card>
+                  <CardContent className="text-center py-12">
+                    <Calendar className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+                    <p className="text-muted-foreground">No active subscriptions</p>
+                    <p className="text-sm text-muted-foreground mt-2">
+                      Subscribe to a plan to see it here
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
             </TabsContent>
           </Tabs>
         </SheetContent>
@@ -1239,8 +1241,8 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
                   <Badge
                     variant={
                       log.status === "delivered" ? "default" :
-                      log.status === "missed" ? "destructive" :
-                      "secondary"
+                        log.status === "missed" ? "destructive" :
+                          "secondary"
                     }
                   >
                     {log.status.replace(/_/g, " ")}
@@ -1292,14 +1294,17 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
                     setIsAuthSubAddressValidated(false);
                   }
                 }}
+                hideValidateButton={true}
+                onValidationStateChange={setAuthValidationState}
+                actionRef={authAddressActionRef}
               />
             </div>
 
             {/* Delivery Time Slot */}
             <div className="space-y-2">
               <Label htmlFor="subscriptionSlot">Delivery Time Slot *</Label>
-              <Select 
-                value={selectedSubscriptionSlotId} 
+              <Select
+                value={selectedSubscriptionSlotId}
                 onValueChange={setSelectedSubscriptionSlotId}
               >
                 <SelectTrigger data-testid="select-subscription-slot">
@@ -1309,8 +1314,8 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
                   {availableSlots
                     .filter((slot: any) => slot.isActive && slot.currentOrders < slot.capacity)
                     .map((slot: any) => (
-                      <SelectItem 
-                        key={slot.id} 
+                      <SelectItem
+                        key={slot.id}
                         value={slot.id}
                         data-testid={`subscription-slot-${slot.id}`}
                       >
@@ -1336,20 +1341,40 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
               </p>
             </div>
           </div>
-          <DialogFooter className="flex-shrink-0">
-            <Button 
-              variant="outline" 
-              onClick={() => setShowSlotSelectionModal(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={confirmSubscriptionWithSlot}
-              disabled={!selectedSubscriptionSlotId || !isAuthSubAddressValidated || subscribeMutation.isPending}
-              data-testid="button-confirm-subscription-slot"
-            >
-              {subscribeMutation.isPending ? "Creating..." : "Continue to Payment"}
-            </Button>
+          <DialogFooter className="flex-shrink-0 border-t px-4 sm:px-6 py-4 bg-background">
+            <div className="flex gap-2 w-full flex-col-reverse sm:flex-row sm:justify-end">
+              <Button
+                variant="outline"
+                onClick={() => setShowSlotSelectionModal(false)}
+                className="w-full sm:w-auto"
+              >
+                Cancel
+              </Button>
+              {!isAuthSubAddressValidated ? (
+                <Button
+                  type="button"
+                  onClick={() => authAddressActionRef.current?.validate()}
+                  disabled={authValidationState.isValidating || !authValidationState.canValidate}
+                  className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700"
+                >
+                  {authValidationState.isValidating ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Validating...
+                    </>
+                  ) : "✓ Validate Delivery Address"}
+                </Button>
+              ) : (
+                <Button
+                  onClick={confirmSubscriptionWithSlot}
+                  disabled={!selectedSubscriptionSlotId || !isAuthSubAddressValidated || subscribeMutation.isPending}
+                  data-testid="button-confirm-subscription-slot"
+                  className="w-full sm:w-auto"
+                >
+                  {subscribeMutation.isPending ? "Creating..." : "Continue to Payment"}
+                </Button>
+              )}
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1533,6 +1558,9 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
                     setIsGuestAddressValidated(false);
                   }
                 }}
+                hideValidateButton={true}
+                onValidationStateChange={setGuestValidationState}
+                actionRef={guestAddressActionRef}
               />
             </div>
 
@@ -1581,22 +1609,41 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
               By subscribing, an account will be created for you. Your login details will be sent to your phone/email.
             </p>
           </div>
-          <DialogFooter className="flex-shrink-0">
-            <Button variant="outline" onClick={() => setShowGuestForm(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleGuestFormSubmit}
-              disabled={guestSubscribeMutation.isPending}
-              data-testid="button-guest-subscribe"
-            >
-              {guestSubscribeMutation.isPending ? "Creating..." : "Subscribe Now"}
-            </Button>
+          <DialogFooter className="flex-shrink-0 border-t px-4 sm:px-6 py-4 bg-background">
+            <div className="flex gap-2 w-full flex-col-reverse sm:flex-row sm:justify-end">
+              <Button variant="outline" onClick={() => setShowGuestForm(false)} className="w-full sm:w-auto">
+                Cancel
+              </Button>
+              {!isGuestAddressValidated ? (
+                <Button
+                  type="button"
+                  onClick={() => guestAddressActionRef.current?.validate()}
+                  disabled={guestValidationState.isValidating || !guestValidationState.canValidate}
+                  className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700"
+                >
+                  {guestValidationState.isValidating ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Validating...
+                    </>
+                  ) : "✓ Validate Delivery Address"}
+                </Button>
+              ) : (
+                <Button
+                  onClick={handleGuestFormSubmit}
+                  disabled={guestSubscribeMutation.isPending}
+                  data-testid="button-guest-subscribe"
+                  className="w-full sm:w-auto"
+                >
+                  {guestSubscribeMutation.isPending ? "Creating..." : "Subscribe Now"}
+                </Button>
+              )}
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-  {/* Success Confirmation Dialog */}
+      {/* Success Confirmation Dialog */}
       <Dialog open={showSuccessDialog} onOpenChange={setShowSuccessDialog}>
         <DialogContent className="sm:max-w-md max-h-[90vh] flex flex-col !overflow-y-auto">
           <DialogHeader className="text-center flex-shrink-0">
@@ -1675,7 +1722,7 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
           )}
 
           <DialogFooter className="flex-col gap-2 sm:flex-col flex-shrink-0">
-            <Button 
+            <Button
               onClick={() => {
                 setShowSuccessDialog(false);
                 setSuccessDetails(null);
@@ -1687,8 +1734,8 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
             >
               View My Subscriptions
             </Button>
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               onClick={() => {
                 setShowSuccessDialog(false);
                 setSuccessDetails(null);
