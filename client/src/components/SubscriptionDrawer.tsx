@@ -17,11 +17,13 @@ import PaymentQRDialog from "./PaymentQRDialog";
 import LoginDialog from "./LoginDialog";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { format, addDays, differenceInDays, isPast, isAfter } from "date-fns";
+import { format, addDays, differenceInDays, isPast, isAfter, add } from "date-fns";
 import { Calendar, Pause, Play, Clock, CheckCircle2, AlertCircle, Settings2, CalendarDays, History, RefreshCw, AlertTriangle, User } from "lucide-react";
 import type { SubscriptionPlan, Subscription } from "@shared/schema";
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/useAuth";
+import { useDeliveryLocation } from "@/contexts/DeliveryLocationContext";
+import { getStoredPincodeValidation } from "@/lib/pincodeUtils";
 
 interface SubscriptionDrawerProps {
   isOpen: boolean;
@@ -95,12 +97,12 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
   const [showGuestForm, setShowGuestForm] = useState(false);
   const [guestPlanId, setGuestPlanId] = useState<string | null>(null);
   const [guestSlotId, setGuestSlotId] = useState<string>("");
-      const [guestFormData, setGuestFormData] = useState({
-        name: "",
-        phone: "",
-        email: "",
-        address: "",
-      });
+  const [guestFormData, setGuestFormData] = useState({
+    name: "",
+    phone: "",
+    email: "",
+    address: "",
+  });
   const [guestAddress, setGuestAddress] = useState<SubscriptionAddress | null>(null);
   const [isGuestAddressValidated, setIsGuestAddressValidated] = useState(false);
   const [guestPhoneExists, setGuestPhoneExists] = useState<boolean | null>(null);
@@ -140,6 +142,9 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
     if (!token) return {};
     return { Authorization: `Bearer ${token}` };
   };
+
+  // Get delivery location from context (pincode, coordinates, etc)
+  const { location: deliveryLocation } = useDeliveryLocation();
 
   // Fetch user profile to get user details
   const { data: userProfile } = useQuery({
@@ -601,9 +606,29 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
     }
 
     // For authenticated users, proceed with normal flow
-    // Reset address state
-    setAuthenticatedSubAddress(null);
-    setIsAuthSubAddressValidated(false);
+    // Try to pre-populate address from stored pincode validation (set on Home page)
+    let initialAddress: SubscriptionAddress | null = null;
+    
+    const storedPincode = getStoredPincodeValidation();
+    if (storedPincode?.pincode && storedPincode?.latitude && storedPincode?.longitude) {
+      // Pre-populate from stored pincode data
+      initialAddress = {
+        building: "",
+        street: "",
+        area: storedPincode.area || "",
+        city: "Mumbai",
+        pincode: storedPincode.pincode,
+        latitude: storedPincode.latitude,
+        longitude: storedPincode.longitude,
+      };
+      setAuthenticatedSubAddress(initialAddress);
+      setIsAuthSubAddressValidated(true);
+      console.log("[SUBSCRIPTION] Pre-populated address from stored pincode:", storedPincode);
+    } else {
+      // Reset address state if no stored pincode
+      setAuthenticatedSubAddress(null);
+      setIsAuthSubAddressValidated(false);
+    }
 
     if (isRotiCategory) {
       // Show slot selection modal for Roti plans (requires address)
@@ -1317,7 +1342,7 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
             </Button>
             <Button
               onClick={confirmSubscriptionWithSlot}
-              disabled={!selectedSubscriptionSlotId || subscribeMutation.isPending}
+              disabled={!selectedSubscriptionSlotId || !isAuthSubAddressValidated || subscribeMutation.isPending}
               data-testid="button-confirm-subscription-slot"
             >
               {subscribeMutation.isPending ? "Creating..." : "Continue to Payment"}

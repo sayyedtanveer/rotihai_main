@@ -134,7 +134,7 @@ export function SubscriptionAddressInput({
         area: area.trim(),
       });
 
-      if (response.data?.valid) {
+      if (response.data?.success) {
         console.log("[SUBSCRIPTION-ADDR] Pincode validated successfully");
         setIsInServiceArea(true);
         setLocationError("");
