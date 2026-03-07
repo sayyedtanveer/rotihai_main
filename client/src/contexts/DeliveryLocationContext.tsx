@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
-import { getDeliveryAreas } from "@/lib/deliveryAreas";
+import { getDeliveryAreas, getAreaSuggestions as getDynamicAreaSuggestions, isValidArea as isDynamicValidArea } from "@/lib/deliveryAreas";
 
 // ============================================
 // DELIVERY LOCATION INTERFACE
@@ -198,8 +198,10 @@ export function useDeliveryLocation() {
 }
 
 // ============================================
-// VALID DELIVERY AREAS (for suggestions)
+// VALID DELIVERY AREAS (DEPRECATED - kept for backward compatibility)
 // ============================================
+// NOTE: These are fallback values only. Actual delivery areas come from database.
+// Use getDeliveryAreas() or getAreaSuggestions() for dynamic values.
 export const VALID_DELIVERY_AREAS = [
   "Kurla West",
   "Kurla East",
@@ -223,23 +225,27 @@ export const VALID_DELIVERY_AREAS = [
 ];
 
 // ============================================
-// HELPER FUNCTIONS
+// HELPER FUNCTIONS - NOW DYNAMIC
 // ============================================
 
-// Filter areas by search query for suggestions
+/**
+ * Get area suggestions from database delivery areas
+ * Uses dynamic data from admin API, with caching and fallback
+ * 
+ * @deprecated Import directly from '@/lib/deliveryAreas' instead
+ * This re-export is kept for backward compatibility only
+ */
 export const getAreaSuggestions = (query: string): string[] => {
-  if (!query.trim()) return VALID_DELIVERY_AREAS.slice(0, 5);
-
-  const lowerQuery = query.toLowerCase();
-  return VALID_DELIVERY_AREAS.filter((area) =>
-    area.toLowerCase().includes(lowerQuery)
-  ).slice(0, 5); // Return max 5 suggestions
+  return getDynamicAreaSuggestions(query);
 };
 
-// Check if entered area is valid (exact or close match)
+/**
+ * Check if entered area is valid
+ * Uses dynamic data from admin API, with caching and fallback
+ * 
+ * @deprecated Import directly from '@/lib/deliveryAreas' instead
+ * This re-export is kept for backward compatibility only
+ */
 export const isValidArea = (area: string): boolean => {
-  const lowerArea = area.toLowerCase().trim();
-  return VALID_DELIVERY_AREAS.some(
-    (validArea) => validArea.toLowerCase() === lowerArea
-  );
+  return isDynamicValidArea(area);
 };

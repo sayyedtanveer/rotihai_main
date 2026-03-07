@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SubscriptionCard } from "./SubscriptionCard";
 import { SubscriptionSchedule } from "./SubscriptionSchedule";
+import { SubscriptionAddressInput, type SubscriptionAddress } from "./SubscriptionAddressInput";
 import PaymentQRDialog from "./PaymentQRDialog";
 import LoginDialog from "./LoginDialog";
 import { useToast } from "@/hooks/use-toast";
@@ -46,6 +47,10 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
   const [showSlotSelectionModal, setShowSlotSelectionModal] = useState(false);
   const [selectedPlanForSubscription, setSelectedPlanForSubscription] = useState<string | null>(null);
   const [selectedSubscriptionSlotId, setSelectedSubscriptionSlotId] = useState<string>("");
+
+  // Authentication subscription address state
+  const [authenticatedSubAddress, setAuthenticatedSubAddress] = useState<SubscriptionAddress | null>(null);
+  const [isAuthSubAddressValidated, setIsAuthSubAddressValidated] = useState(false);
 
   // Advanced pause modal state
   const [showPauseModal, setShowPauseModal] = useState(false);
@@ -90,12 +95,14 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
   const [showGuestForm, setShowGuestForm] = useState(false);
   const [guestPlanId, setGuestPlanId] = useState<string | null>(null);
   const [guestSlotId, setGuestSlotId] = useState<string>("");
-  const [guestFormData, setGuestFormData] = useState({
-    name: "",
-    phone: "",
-    email: "",
-    address: "",
-  });
+      const [guestFormData, setGuestFormData] = useState({
+        name: "",
+        phone: "",
+        email: "",
+        address: "",
+      });
+  const [guestAddress, setGuestAddress] = useState<SubscriptionAddress | null>(null);
+  const [isGuestAddressValidated, setIsGuestAddressValidated] = useState(false);
   const [guestPhoneExists, setGuestPhoneExists] = useState<boolean | null>(null);
   const [guestPhoneChecking, setGuestPhoneChecking] = useState(false);
   const [showLoginDialog, setShowLoginDialog] = useState(false);
@@ -173,14 +180,27 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
   });
 
   const subscribeMutation = useMutation({
-    mutationFn: async ({ planId, deliverySlotId }: { planId: string; deliverySlotId?: string }) => {
+    mutationFn: async ({ planId, deliverySlotId, address }: { 
+      planId: string; 
+      deliverySlotId?: string; 
+      address?: SubscriptionAddress;
+    }) => {
+      const body: any = { planId, deliverySlotId };
+      
+      // Include address data if provided
+      if (address) {
+        body.address = `${address.building}, ${address.street}, ${address.area}, ${address.city} - ${address.pincode}`;
+        body.latitude = address.latitude;
+        body.longitude = address.longitude;
+      }
+
       const response = await fetch("/api/subscriptions", {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
           ...getAuthHeaders(),
         },
-        body: JSON.stringify({ planId, deliverySlotId }),
+        body: JSON.stringify(body),
       });
       if (!response.ok) {
         if (response.status === 401) {
@@ -235,8 +255,10 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
       customerName: string;
       phone: string;
       email: string;
-      address: string;
+      address: SubscriptionAddress;
     }) => {
+      const addressString = `${address.building}, ${address.street}, ${address.area}, ${address.city} - ${address.pincode}`;
+      
       const response = await fetch("/api/subscriptions/public", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -246,7 +268,9 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
           customerName,
           phone,
           email,
-          address
+          address: addressString,
+          latitude: address.latitude,
+          longitude: address.longitude,
         }),
       });
       if (!response.ok) {
@@ -283,6 +307,8 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
       setGuestPlanId(null);
       setGuestSlotId("");
       setGuestFormData({ name: "", phone: "", email: "", address: "" });
+      setGuestAddress(null);
+      setIsGuestAddressValidated(false);
 
       // Show payment QR dialog
       setPaymentDetails({
@@ -564,6 +590,8 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
     // For guest users, show guest subscription form
     if (!isAuthenticated) {
       setGuestPlanId(planId);
+      setGuestAddress(null);
+      setIsGuestAddressValidated(false);
       if (isRotiCategory) {
         // Will show slot selection in guest form
         setGuestSlotId("");
@@ -573,13 +601,17 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
     }
 
     // For authenticated users, proceed with normal flow
+    // Reset address state
+    setAuthenticatedSubAddress(null);
+    setIsAuthSubAddressValidated(false);
+
     if (isRotiCategory) {
-      // Show slot selection modal for Roti plans
+      // Show slot selection modal for Roti plans (requires address)
       setSelectedPlanForSubscription(planId);
       setSelectedSubscriptionSlotId("");
       setShowSlotSelectionModal(true);
     } else {
-      // Subscribe directly for non-Roti plans
+      // For non-Roti plans, subscribe directly without address
       subscribeMutation.mutate({ planId });
     }
   };
@@ -597,8 +629,8 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
       toast({ title: "Valid Phone Required", description: "Please enter a valid 10-digit phone number", variant: "destructive" });
       return;
     }
-    if (!guestFormData.address.trim()) {
-      toast({ title: "Address Required", description: "Please enter your delivery address", variant: "destructive" });
+    if (!isGuestAddressValidated || !guestAddress) {
+      toast({ title: "Address Required", description: "Please validate your delivery address", variant: "destructive" });
       return;
     }
 
@@ -637,7 +669,7 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
       customerName: guestFormData.name.trim(),
       phone: guestFormData.phone.trim(),
       email: guestFormData.email.trim(),
-      address: guestFormData.address.trim(),
+      address: guestAddress,
     });
   };
 
@@ -654,14 +686,26 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
       return;
     }
 
+    if (!isAuthSubAddressValidated || !authenticatedSubAddress) {
+      toast({ 
+        title: "Address Required", 
+        description: "Please validate your delivery address", 
+        variant: "destructive" 
+      });
+      return;
+    }
+
     subscribeMutation.mutate({ 
       planId: selectedPlanForSubscription, 
-      deliverySlotId: selectedSubscriptionSlotId 
+      deliverySlotId: selectedSubscriptionSlotId,
+      address: authenticatedSubAddress,
     }, {
       onSuccess: () => {
         setShowSlotSelectionModal(false);
         setSelectedPlanForSubscription(null);
         setSelectedSubscriptionSlotId("");
+        setAuthenticatedSubAddress(null);
+        setIsAuthSubAddressValidated(false);
       },
       onError: () => {
         // Modal stays open so user can retry
@@ -1205,6 +1249,25 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4 overflow-y-auto flex-1">
+            {/* Delivery Address Input */}
+            <div className="space-y-2">
+              <Label className="font-semibold">Delivery Address *</Label>
+              <SubscriptionAddressInput
+                initialAddress={authenticatedSubAddress || undefined}
+                onAddressValidated={(address) => {
+                  setAuthenticatedSubAddress(address);
+                  setIsAuthSubAddressValidated(true);
+                }}
+                isEditing={!isAuthSubAddressValidated}
+                onEditModeChange={(isEditing) => {
+                  if (isEditing) {
+                    setIsAuthSubAddressValidated(false);
+                  }
+                }}
+              />
+            </div>
+
+            {/* Delivery Time Slot */}
             <div className="space-y-2">
               <Label htmlFor="subscriptionSlot">Delivery Time Slot *</Label>
               <Select 
@@ -1235,6 +1298,13 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
               </Select>
               <p className="text-xs text-muted-foreground">
                 Your rotis will be delivered daily at your selected time slot
+              </p>
+            </div>
+
+            {/* Delivery Included Note */}
+            <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-md">
+              <p className="text-sm text-green-800 dark:text-green-300">
+                ✓ <strong>Delivery Included</strong> - No additional delivery charges
               </p>
             </div>
           </div>
@@ -1422,14 +1492,19 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
 
             {/* Address */}
             <div className="space-y-2">
-              <Label htmlFor="guest-address">Delivery Address *</Label>
-              <Textarea
-                id="guest-address"
-                placeholder="Enter your complete delivery address"
-                value={guestFormData.address}
-                onChange={(e) => setGuestFormData(prev => ({ ...prev, address: e.target.value }))}
-                rows={3}
-                data-testid="input-guest-address"
+              <Label className="font-semibold">Delivery Address *</Label>
+              <SubscriptionAddressInput
+                initialAddress={guestAddress || undefined}
+                onAddressValidated={(address) => {
+                  setGuestAddress(address);
+                  setIsGuestAddressValidated(true);
+                }}
+                isEditing={!isGuestAddressValidated}
+                onEditModeChange={(isEditing) => {
+                  if (isEditing) {
+                    setIsGuestAddressValidated(false);
+                  }
+                }}
               />
             </div>
 
@@ -1442,26 +1517,35 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
               if (!isRotiCategory) return null;
 
               return (
-                <div className="space-y-2">
-                  <Label htmlFor="guest-slot">Delivery Time Slot *</Label>
-                  <Select value={guestSlotId} onValueChange={setGuestSlotId}>
-                    <SelectTrigger data-testid="select-guest-slot">
-                      <SelectValue placeholder="Choose a delivery time slot" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {availableSlots
-                        .filter((slot: any) => slot.isActive && slot.currentOrders < slot.capacity)
-                        .map((slot: any) => (
-                          <SelectItem key={slot.id} value={slot.id}>
-                            {slot.label} ({slot.capacity - slot.currentOrders} slots available)
-                          </SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">
-                    Your rotis will be delivered daily at your selected time slot
-                  </p>
-                </div>
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="guest-slot">Delivery Time Slot *</Label>
+                    <Select value={guestSlotId} onValueChange={setGuestSlotId}>
+                      <SelectTrigger data-testid="select-guest-slot">
+                        <SelectValue placeholder="Choose a delivery time slot" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableSlots
+                          .filter((slot: any) => slot.isActive && slot.currentOrders < slot.capacity)
+                          .map((slot: any) => (
+                            <SelectItem key={slot.id} value={slot.id}>
+                              {slot.label} ({slot.capacity - slot.currentOrders} slots available)
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Your rotis will be delivered daily at your selected time slot
+                    </p>
+                  </div>
+
+                  {/* Delivery Included Note */}
+                  <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-md">
+                    <p className="text-sm text-green-800 dark:text-green-300">
+                      ✓ <strong>Delivery Included</strong> - No additional delivery charges
+                    </p>
+                  </div>
+                </>
               );
             })()}
 

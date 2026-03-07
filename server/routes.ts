@@ -2384,6 +2384,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         phone,
         email,
         address,
+        latitude,
+        longitude,
         planId,
         deliveryTime = "09:00",
         deliverySlotId,
@@ -2412,6 +2414,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!plan) {
         res.status(404).json({ message: "Subscription plan not found" });
         return;
+      }
+
+      // Auto-calculate durationDays based on plan frequency if using default value
+      let calculatedDurationDays = durationDays;
+      if (durationDays === 30) { // Using default - adjust based on frequency
+        if (plan.frequency === "weekly") {
+          calculatedDurationDays = 7;
+        } else if (plan.frequency === "monthly") {
+          calculatedDurationDays = 30;
+        } else if (plan.frequency === "daily") {
+          calculatedDurationDays = 1;
+        }
       }
 
       // Get category to check if it's Roti
@@ -2470,8 +2484,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             passwordHash,
             referralCode: null,
             walletBalance: 0,
-            latitude: null,
-            longitude: null,
+            latitude: latitude || null,
+            longitude: longitude || null,
           });
 
           console.log(`✅ New account created during subscription with phone: ${sanitizedPhone}, Email: ${email || 'Not provided'}`);
@@ -2525,18 +2539,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const endDate = new Date(now);
-      endDate.setDate(endDate.getDate() + durationDays);
+      endDate.setDate(endDate.getDate() + calculatedDurationDays);
 
       // Calculate total deliveries based on frequency and duration
       const deliveryDays = plan.deliveryDays as string[];
       let totalDeliveries = 0;
 
       if (plan.frequency === "daily") {
-        totalDeliveries = deliveryDays.length > 0 ? Math.floor(durationDays / 7) * deliveryDays.length : durationDays;
+        totalDeliveries = deliveryDays.length > 0 ? Math.floor(calculatedDurationDays / 7) * deliveryDays.length : calculatedDurationDays;
       } else if (plan.frequency === "weekly") {
-        totalDeliveries = Math.floor(durationDays / 7);
+        totalDeliveries = Math.floor(calculatedDurationDays / 7) * deliveryDays.length;
       } else {
-        totalDeliveries = Math.floor(durationDays / 30);
+        totalDeliveries = Math.floor(calculatedDurationDays / 30);
       }
 
       const subscriptionData: any = {
@@ -2759,7 +2773,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/subscriptions", requireUser(), async (req: AuthenticatedUserRequest, res) => {
     try {
       const userId = req.authenticatedUser!.userId;
-      const { planId, deliveryTime = "09:00", deliverySlotId, durationDays = 30 } = req.body;
+      const { 
+        planId, 
+        deliveryTime = "09:00", 
+        deliverySlotId, 
+        durationDays = 30,
+        address,
+        latitude,
+        longitude
+      } = req.body;
 
       if (!planId) {
         res.status(400).json({ message: "Plan ID is required" });
@@ -2770,6 +2792,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!plan) {
         res.status(404).json({ message: "Subscription plan not found" });
         return;
+      }
+
+      // Auto-calculate durationDays based on plan frequency if using default value
+      let calculatedDurationDays = durationDays;
+      if (durationDays === 30) { // Using default - adjust based on frequency
+        if (plan.frequency === "weekly") {
+          calculatedDurationDays = 7;
+        } else if (plan.frequency === "monthly") {
+          calculatedDurationDays = 30;
+        } else if (plan.frequency === "daily") {
+          calculatedDurationDays = 1;
+        }
       }
 
       // Get category to check if it's Roti
@@ -2830,18 +2864,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[SUB-CREATE] [7] Final nextDelivery before validation: ${nextDelivery.toISOString()}, year: ${nextDelivery.getFullYear()}, time: ${nextDelivery.getTime()}`);
 
       const endDate = new Date(now);
-      endDate.setDate(endDate.getDate() + durationDays);
+      endDate.setDate(endDate.getDate() + calculatedDurationDays);
 
       // Calculate total deliveries based on frequency and duration
       const deliveryDays = plan.deliveryDays as string[];
       let totalDeliveries = 0;
 
       if (plan.frequency === "daily") {
-        totalDeliveries = deliveryDays.length > 0 ? Math.floor(durationDays / 7) * deliveryDays.length : durationDays;
+        totalDeliveries = deliveryDays.length > 0 ? Math.floor(calculatedDurationDays / 7) * deliveryDays.length : calculatedDurationDays;
       } else if (plan.frequency === "weekly") {
-        totalDeliveries = Math.floor(durationDays / 7);
+        totalDeliveries = Math.floor(calculatedDurationDays / 7) * deliveryDays.length;
       } else {
-        totalDeliveries = Math.floor(durationDays / 30);
+        totalDeliveries = Math.floor(calculatedDurationDays / 30);
       }
 
       // VALIDATION: Ensure nextDelivery is valid before saving
@@ -2867,7 +2901,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         customerName: user.name || "",
         phone: user.phone || "",
         email: user.email || "",
-        address: user.address || "",
+        address: address ? address.trim() : (user.address || ""),
         status: "pending", // Start as pending until payment is confirmed
         startDate: now,
         endDate,
@@ -3222,8 +3256,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const endDate = new Date(now);
       endDate.setDate(endDate.getDate() + 30);
 
+      // Calculate duration based on plan frequency for renewal
+      let renewalDurationDays = 30;
+      if (plan.frequency === "weekly") {
+        renewalDurationDays = 7;
+      } else if (plan.frequency === "daily") {
+        renewalDurationDays = 1;
+      }
+
       const deliveryDays = plan.deliveryDays as string[];
-      let totalDeliveries = Math.floor(30 / 7) * deliveryDays.length;
+      let totalDeliveries = 0;
+      
+      if (plan.frequency === "daily") {
+        totalDeliveries = deliveryDays.length > 0 ? Math.floor(renewalDurationDays / 7) * deliveryDays.length : renewalDurationDays;
+      } else if (plan.frequency === "weekly") {
+        totalDeliveries = Math.floor(renewalDurationDays / 7) * deliveryDays.length;
+      } else {
+        totalDeliveries = Math.floor(renewalDurationDays / 30);
+      }
 
       const newSubscription = await storage.createSubscription({
         userId,
