@@ -233,6 +233,24 @@ export default function CheckoutDialog({
     }
   }, [isOpen, cart?.chefId, addressPincode]);
 
+  // ============================================
+  // RESTORE ADDRESS CONFIRMATION ON DIALOG REOPEN
+  // When dialog opens with an already-validated address,
+  // automatically confirm it to restore the Pay button's enabled state
+  // ============================================
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    // If address is validated and fields are populated, auto-confirm
+    if (addressZoneValidated && addressInDeliveryZone && addressPincode && !addressConfirmed) {
+      console.log("[RESTORE-ADDRESS] Dialog reopened with validated address. Auto-confirming.");
+      setAddressConfirmed(true);
+      setIsEditingAddress(false); // Show view mode
+    }
+  }, [isOpen, addressZoneValidated, addressInDeliveryZone, addressPincode]);
+
   // Area suggestions for autocomplete
   const [areaSuggestions, setAreaSuggestions] = useState<string[]>([]);
   const [showAreaSuggestions, setShowAreaSuggestions] = useState(false);
@@ -1254,6 +1272,7 @@ export default function CheckoutDialog({
     setIsEditingAddress(true);
     setAddressZoneValidated(false);
     setAddressInDeliveryZone(false);
+    setAddressConfirmed(false); // Reset confirmation so Pay button disables until re-validation
     setLocationError("");
     setDeliveryLocation({ ...deliveryLocation, isInZone: false }); // Hide menu temporarily
 
