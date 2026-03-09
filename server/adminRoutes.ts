@@ -2060,14 +2060,39 @@ export function registerAdminRoutes(app: Express) {
       }
 
       if (status === "delivered" && subscription.remainingDeliveries > 0) {
-        const nextDate = new Date(subscription.nextDeliveryDate);
-        nextDate.setDate(nextDate.getDate() + 1);
-
-        await storage.updateSubscription(subscriptionId, {
+        const plan = await storage.getSubscriptionPlan(subscription.planId);
+        const subscriptionUpdateData: any = {
           remainingDeliveries: subscription.remainingDeliveries - 1,
-          nextDeliveryDate: nextDate,
           lastDeliveryDate: today,
-        });
+        };
+
+        // Calculate next delivery date considering scheduled delivery days
+        if (plan) {
+          const deliveryDays = plan.deliveryDays as string[];
+          let nextDelivery = new Date(subscription.nextDeliveryDate);
+          nextDelivery.setDate(nextDelivery.getDate() + 1);
+
+          // Loop through days until we find the next scheduled delivery day
+          const maxDate = subscription.endDate || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+          for (let i = 0; i < 7; i++) {
+            const dayName = nextDelivery.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+            if (deliveryDays.includes(dayName)) {
+              break; // Found next scheduled delivery day
+            }
+            if (nextDelivery > maxDate) {
+              break; // Stop if past end date
+            }
+            nextDelivery.setDate(nextDelivery.getDate() + 1);
+          }
+          subscriptionUpdateData.nextDeliveryDate = nextDelivery;
+        } else {
+          // Fallback if plan not found
+          const nextDate = new Date(subscription.nextDeliveryDate);
+          nextDate.setDate(nextDate.getDate() + 1);
+          subscriptionUpdateData.nextDeliveryDate = nextDate;
+        }
+
+        await storage.updateSubscription(subscriptionId, subscriptionUpdateData);
       }
 
       console.log(`✅ Admin updated subscription ${subscriptionId} delivery status to: ${status}`);

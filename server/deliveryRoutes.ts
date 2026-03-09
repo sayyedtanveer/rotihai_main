@@ -645,14 +645,38 @@ export function registerDeliveryRoutes(app: Express) {
 
       const updated = await storage.updateSubscriptionDeliveryLog(logId, updateData);
 
-      // If delivered, update the subscription
+      // If delivered, update the subscription with correct next delivery date
       if (status === "delivered") {
         const subscription = await storage.getSubscription(log.subscriptionId);
-        if (subscription) {
-          await storage.updateSubscription(log.subscriptionId, {
+        if (subscription && subscription.remainingDeliveries > 0) {
+          const plan = await storage.getSubscriptionPlan(subscription.planId);
+          const subscriptionUpdateData: any = {
             lastDeliveryDate: log.date,
             remainingDeliveries: Math.max(0, subscription.remainingDeliveries - 1),
-          });
+          };
+
+          // Calculate next delivery date considering scheduled delivery days
+          if (plan) {
+            const deliveryDays = plan.deliveryDays as string[];
+            let nextDelivery = new Date(subscription.nextDeliveryDate);
+            nextDelivery.setDate(nextDelivery.getDate() + 1);
+
+            // Loop through days until we find the next scheduled delivery day
+            const maxDate = subscription.endDate || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+            for (let i = 0; i < 7; i++) {
+              const dayName = nextDelivery.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+              if (deliveryDays.includes(dayName)) {
+                break; // Found next scheduled delivery day
+              }
+              if (nextDelivery > maxDate) {
+                break; // Stop if past end date
+              }
+              nextDelivery.setDate(nextDelivery.getDate() + 1);
+            }
+            subscriptionUpdateData.nextDeliveryDate = nextDelivery;
+          }
+
+          await storage.updateSubscription(log.subscriptionId, subscriptionUpdateData);
         }
       }
 
