@@ -897,6 +897,7 @@ export default function AdminSubscriptions() {
                               </div>
                               <p className="text-sm text-slate-600 dark:text-slate-400">Plan: {plan?.name}</p>
                               <p className="text-sm text-slate-600 dark:text-slate-400">Phone: {sub.phone}</p>
+                              <p className="text-sm text-slate-600 dark:text-slate-400">Address: {sub.address || "N/A"}</p>
                               <p className="text-sm text-slate-600 dark:text-slate-400">Amount: ₹{plan?.price}</p>
                               <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded text-sm">
                                 <span className="font-medium">Transaction ID: </span>
@@ -983,6 +984,7 @@ export default function AdminSubscriptions() {
                               </div>
                               <p className="text-sm text-slate-600 dark:text-slate-400">Plan: {plan?.name}</p>
                               <p className="text-sm text-slate-600 dark:text-slate-400">Phone: {sub.phone}</p>
+                              <p className="text-sm text-slate-600 dark:text-slate-400">Address: {sub.address || "N/A"}</p>
                               <p className="text-sm text-slate-600 dark:text-slate-400">Amount: ₹{plan?.price}</p>
                               <p className="text-xs text-slate-500 mt-1">
                                 Created: {format(new Date(sub.createdAt), "PPP 'at' p")}
