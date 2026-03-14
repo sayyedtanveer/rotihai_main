@@ -128,7 +128,7 @@ function calculateTotalDeliveries(frequency: string, deliveryDays: string[], dur
     currentDate.setHours(0, 0, 0, 0);
     
     const endDate = new Date(startDate);
-    endDate.setDate(endDate.getDate() + durationDays);
+    endDate.setDate(endDate.getDate() + durationDays - 1);  // -1 to get exact duration
     endDate.setHours(23, 59, 59, 999);
     
     const hasWeekdayNames = isWeekdayNameFormat(deliveryDays);
@@ -157,7 +157,7 @@ function calculateTotalDeliveries(frequency: string, deliveryDays: string[], dur
     currentDate.setHours(0, 0, 0, 0);
     
     const endDate = new Date(startDate);
-    endDate.setDate(endDate.getDate() + durationDays);
+    endDate.setDate(endDate.getDate() + durationDays - 1);  // -1 to get exact duration
     endDate.setHours(23, 59, 59, 999);
     
     const hasWeekdayNames = isWeekdayNameFormat(deliveryDays);
@@ -186,7 +186,7 @@ function calculateTotalDeliveries(frequency: string, deliveryDays: string[], dur
       currentDate.setHours(0, 0, 0, 0);
       
       const endDate = new Date(startDate);
-      endDate.setDate(endDate.getDate() + durationDays);
+      endDate.setDate(endDate.getDate() + durationDays - 1);  // -1 to get exact duration
       endDate.setHours(23, 59, 59, 999);
       
       while (currentDate <= endDate) {
@@ -3215,7 +3215,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[SUB-CREATE] [7] Final nextDelivery before validation: ${nextDelivery.toISOString()}, year: ${nextDelivery.getFullYear()}, time: ${nextDelivery.getTime()}`);
 
       const endDate = new Date(now);
-      endDate.setDate(endDate.getDate() + calculatedDurationDays);
+      endDate.setDate(endDate.getDate() + calculatedDurationDays - 1);  // -1 to get exact duration (e.g., 30 days not 31)
 
       // Calculate total deliveries based on frequency and duration
       const deliveryDays = plan.deliveryDays as string[];
