@@ -16,6 +16,23 @@ import { eq } from "drizzle-orm";
 import { ZodError } from "zod";
 import axios from "axios";
 
+// ✅ Helper: Check if date is a scheduled delivery day based on plan frequency
+function isDeliveryDay(date: Date, frequency: string, deliveryDays: string[]): boolean {
+  if (!deliveryDays || deliveryDays.length === 0) return false;
+
+  if (frequency === "monthly") {
+    // For monthly: deliveryDays contains day numbers like ["1", "15"]
+    const dayOfMonth = date.getDate().toString();
+    return deliveryDays.includes(dayOfMonth);
+  } else if (frequency === "weekly" || frequency === "daily") {
+    // For weekly/daily: deliveryDays contains weekday names like ["monday", "tuesday", ...]
+    const dayName = date.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+    return deliveryDays.includes(dayName);
+  }
+
+  return false;
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   registerAdminRoutes(app);
   registerPartnerRoutes(app);
@@ -972,10 +989,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const currentDate = new Date(subscription.nextDeliveryDate);
       const endDate = subscription.endDate ? new Date(subscription.endDate) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
+      // ✅ Dynamic check based on plan frequency (weekly/daily vs monthly)
       while (currentDate <= endDate && schedule.length < subscription.remainingDeliveries) {
-        const dayName = currentDate.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
-
-        if (deliveryDays.includes(dayName)) {
+        if (isDeliveryDay(currentDate, plan.frequency, deliveryDays)) {
           schedule.push({
             date: new Date(currentDate),
             time: subscription.nextDeliveryTime || "09:00",
@@ -1062,17 +1078,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         let nextDelivery = new Date(subscription.nextDeliveryDate);
         nextDelivery.setDate(nextDelivery.getDate() + 1);
 
-        // Loop through days until we find the next scheduled delivery day
+        // ✅ Dynamic calculation based on plan frequency (weekly/daily vs monthly)
         const oldMaxDate = subscription.endDate || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
-        for (let i = 0; i < 7; i++) {
-          const dayName = nextDelivery.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
-          if (deliveryDays.includes(dayName)) {
+        let attempts = 0;
+        const maxAttempts = plan.frequency === "monthly" ? 31 : 7;
+        while (attempts < maxAttempts && nextDelivery <= oldMaxDate) {
+          const isDeliveryDayCheck = plan.frequency === "monthly"
+            ? deliveryDays.includes(nextDelivery.getDate().toString())
+            : deliveryDays.includes(nextDelivery.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase());
+          if (isDeliveryDayCheck) {
             break; // Found next scheduled delivery day
           }
           if (nextDelivery > oldMaxDate) {
             break; // Stop if past end date
           }
           nextDelivery.setDate(nextDelivery.getDate() + 1);
+          attempts++;
         }
 
         // Calculate how many days we shifted forward
@@ -1140,12 +1161,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let nextDelivery = new Date(subscription.nextDeliveryDate);
       nextDelivery.setDate(nextDelivery.getDate() + 1);
 
-      while (nextDelivery <= (subscription.endDate || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000))) {
-        const dayName = nextDelivery.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
-        if (deliveryDays.includes(dayName)) {
+      // ✅ Dynamic calculation based on plan frequency (weekly/daily vs monthly)
+      const maxDateLimit = subscription.endDate || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+      let attempts = 0;
+      const maxAttempts = plan.frequency === "monthly" ? 31 : 7;
+      while (nextDelivery <= maxDateLimit && attempts < maxAttempts) {
+        const isDeliveryDayCheck = plan.frequency === "monthly"
+          ? deliveryDays.includes(nextDelivery.getDate().toString())
+          : deliveryDays.includes(nextDelivery.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase());
+        if (isDeliveryDayCheck) {
           break;
         }
         nextDelivery.setDate(nextDelivery.getDate() + 1);
+        attempts++;
       }
 
       const updateData: any = {

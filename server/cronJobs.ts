@@ -7,6 +7,43 @@ import { sendMissedDeliveryEmail } from "./emailService";
 
 let isRunning = false;
 
+// ✅ Helper function: Check if a date is a scheduled delivery day based on plan frequency
+function isDeliveryDay(date: Date, frequency: string, deliveryDays: string[]): boolean {
+  if (!deliveryDays || deliveryDays.length === 0) return false;
+
+  if (frequency === "monthly") {
+    // For monthly: deliveryDays contains day numbers like ["1", "15"]
+    const dayOfMonth = date.getDate().toString();
+    return deliveryDays.includes(dayOfMonth);
+  } else if (frequency === "weekly" || frequency === "daily") {
+    // For weekly/daily: deliveryDays contains weekday names like ["monday", "tuesday", ...]
+    const dayName = date.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+    return deliveryDays.includes(dayName);
+  }
+
+  return false;
+}
+
+// ✅ Helper function: Get next delivery date based on plan frequency
+function getNextDeliveryDate(fromDate: Date, frequency: string, deliveryDays: string[]): Date {
+  const nextDate = new Date(fromDate);
+  nextDate.setDate(nextDate.getDate() + 1);
+
+  let attempts = 0;
+  const maxAttempts = frequency === "monthly" ? 31 : 7;
+
+  while (attempts < maxAttempts) {
+    if (isDeliveryDay(nextDate, frequency, deliveryDays)) {
+      return nextDate;
+    }
+    nextDate.setDate(nextDate.getDate() + 1);
+    attempts++;
+  }
+
+  // Fallback: return next date if no delivery day found
+  return nextDate;
+}
+
 export async function autoResumeSubscriptions(): Promise<void> {
   try {
     const now = new Date();
@@ -65,10 +102,9 @@ export async function generateDailyDeliveryLogs(): Promise<void> {
       const plan = await storage.getSubscriptionPlan(subscription.planId);
       if (!plan) continue;
 
-      const dayOfWeek = today.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+      // ✅ Dynamic check based on plan frequency (weekly/daily vs monthly)
       const deliveryDays = plan.deliveryDays as string[];
-      
-      if (!deliveryDays.includes(dayOfWeek)) {
+      if (!isDeliveryDay(today, plan.frequency, deliveryDays)) {
         continue;
       }
 
@@ -115,16 +151,8 @@ export async function updateNextDeliveryDates(): Promise<void> {
       if (!plan) continue;
 
       const deliveryDays = plan.deliveryDays as string[];
-      let nextDate = new Date(today);
-      nextDate.setDate(nextDate.getDate() + 1);
-
-      for (let i = 0; i < 7; i++) {
-        const dayOfWeek = nextDate.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
-        if (deliveryDays.includes(dayOfWeek)) {
-          break;
-        }
-        nextDate.setDate(nextDate.getDate() + 1);
-      }
+      // ✅ Dynamic helper: works for weekly/daily (weekday names) and monthly (day numbers)
+      const nextDate = getNextDeliveryDate(today, plan.frequency, deliveryDays);
 
       await db.update(subscriptions)
         .set({

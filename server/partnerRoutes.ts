@@ -7,6 +7,47 @@ import { db, orders } from "@shared/db";
 import { eq } from "drizzle-orm";
 
 export function registerPartnerRoutes(app: Express): void {
+  // ✅ Helper function: Check if date is a scheduled delivery day based on plan frequency
+  function isDeliveryDay(date: Date, frequency: string, deliveryDays: string[]): boolean {
+    if (!deliveryDays || deliveryDays.length === 0) return false;
+
+    if (frequency === "monthly") {
+      // For monthly: deliveryDays contains day numbers like ["1", "15"]
+      const dayOfMonth = date.getDate().toString();
+      return deliveryDays.includes(dayOfMonth);
+    } else if (frequency === "weekly" || frequency === "daily") {
+      // For weekly/daily: deliveryDays contains weekday names like ["monday", "tuesday", ...]
+      const dayName = date.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+      return deliveryDays.includes(dayName);
+    }
+
+    return false;
+  }
+
+  // ✅ Helper function: Get next delivery date based on plan frequency
+  function getNextDeliveryDate(fromDate: Date, frequency: string, deliveryDays: string[], maxDate?: Date): Date {
+    const nextDate = new Date(fromDate);
+    nextDate.setDate(nextDate.getDate() + 1);
+
+    let attempts = 0;
+    const maxAttempts = frequency === "monthly" ? 31 : 7;
+    const limit = maxDate || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+
+    while (attempts < maxAttempts) {
+      if (nextDate > limit) {
+        return nextDate; // Return even if past limit
+      }
+      if (isDeliveryDay(nextDate, frequency, deliveryDays)) {
+        return nextDate;
+      }
+      nextDate.setDate(nextDate.getDate() + 1);
+      attempts++;
+    }
+
+    // Fallback: return next date if no delivery day found
+    return nextDate;
+  }
+
   // Get orders assigned to this chef
   app.get("/api/partner/orders", requirePartner(), async (req: AuthenticatedPartnerRequest, res) => {
     try {
@@ -716,21 +757,8 @@ export function registerPartnerRoutes(app: Express): void {
         // Calculate next delivery date considering scheduled delivery days
         if (plan) {
           const deliveryDays = plan.deliveryDays as string[];
-          let nextDelivery = new Date(subscription.nextDeliveryDate);
-          nextDelivery.setDate(nextDelivery.getDate() + 1);
-
-          // Loop through days until we find the next scheduled delivery day
           const maxDate = subscription.endDate || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
-          for (let i = 0; i < 7; i++) {
-            const dayName = nextDelivery.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
-            if (deliveryDays.includes(dayName)) {
-              break; // Found next scheduled delivery day
-            }
-            if (nextDelivery > maxDate) {
-              break; // Stop if past end date
-            }
-            nextDelivery.setDate(nextDelivery.getDate() + 1);
-          }
+          const nextDelivery = getNextDeliveryDate(subscription.nextDeliveryDate, plan.frequency, deliveryDays, maxDate);
           subscriptionUpdateData.nextDeliveryDate = nextDelivery;
         } else {
           // Fallback if plan not found
