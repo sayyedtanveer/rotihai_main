@@ -2670,7 +2670,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const endDate = new Date(now);
       endDate.setDate(endDate.getDate() + calculatedDurationDays);
 
-      // Calculate total deliveries based on frequency and duration
+      // ✅ Calculate total deliveries based on frequency and duration
       const deliveryDays = plan.deliveryDays as string[];
       let totalDeliveries = 0;
 
@@ -2678,8 +2678,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         totalDeliveries = deliveryDays.length > 0 ? Math.floor(calculatedDurationDays / 7) * deliveryDays.length : calculatedDurationDays;
       } else if (plan.frequency === "weekly") {
         totalDeliveries = Math.floor(calculatedDurationDays / 7) * deliveryDays.length;
+      } else if (plan.frequency === "monthly") {
+        // For monthly plans: deliveryDays contains day numbers like ["1", "15"]
+        // Calculate how many months in duration and multiply by days per month
+        const monthsInDuration = Math.ceil(calculatedDurationDays / 30);
+        totalDeliveries = deliveryDays.length * monthsInDuration;
       } else {
-        totalDeliveries = Math.floor(calculatedDurationDays / 30);
+        // Fallback for any other frequency type
+        totalDeliveries = Math.ceil(calculatedDurationDays / 30);
       }
 
       const subscriptionData: any = {
@@ -3003,8 +3009,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         totalDeliveries = deliveryDays.length > 0 ? Math.floor(calculatedDurationDays / 7) * deliveryDays.length : calculatedDurationDays;
       } else if (plan.frequency === "weekly") {
         totalDeliveries = Math.floor(calculatedDurationDays / 7) * deliveryDays.length;
+      } else if (plan.frequency === "monthly") {
+        // ✅ For monthly plans: deliveryDays contains day numbers like ["1", "15"]
+        // Calculate how many months in duration and multiply by days per month
+        const monthsInDuration = Math.ceil(calculatedDurationDays / 30);
+        totalDeliveries = deliveryDays.length * monthsInDuration;
       } else {
-        totalDeliveries = Math.floor(calculatedDurationDays / 30);
+        // Fallback for any other frequency type
+        totalDeliveries = Math.ceil(calculatedDurationDays / 30);
       }
 
       // VALIDATION: Ensure nextDelivery is valid before saving
@@ -3400,8 +3412,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         totalDeliveries = deliveryDays.length > 0 ? Math.floor(renewalDurationDays / 7) * deliveryDays.length : renewalDurationDays;
       } else if (plan.frequency === "weekly") {
         totalDeliveries = Math.floor(renewalDurationDays / 7) * deliveryDays.length;
+      } else if (plan.frequency === "monthly") {
+        // ✅ For monthly plans: deliveryDays contains day numbers like ["1", "15"]
+        // Calculate how many months in duration and multiply by days per month
+        const monthsInDuration = Math.ceil(renewalDurationDays / 30);
+        totalDeliveries = deliveryDays.length * monthsInDuration;
       } else {
-        totalDeliveries = Math.floor(renewalDurationDays / 30);
+        // Fallback for any other frequency type
+        totalDeliveries = Math.ceil(renewalDurationDays / 30);
       }
 
       const newSubscription = await storage.createSubscription({
