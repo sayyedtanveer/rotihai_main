@@ -20,6 +20,24 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Calendar,
   Clock,
   CheckCircle,
@@ -514,13 +532,38 @@ function SubscriptionCard({
   onToggle,
 }: SubscriptionCardProps) {
   const [isSkipping, setIsSkipping] = useState(false);
+  const [showSkipConfirm, setShowSkipConfirm] = useState(false);
+  const [skipConfirmDelivery, setSkipConfirmDelivery] = useState<any>(null);
+  const [skipReason, setSkipReason] = useState("");
+  const [customReason, setCustomReason] = useState("");
   const progress = getDeliveryProgress(subscription);
   const nextDelivery = getNextDeliveryInfo(subscription);
   const deliveryHistory = (subscription.deliveryHistory as DeliveryRecord[] | null) || [];
   const userToken = localStorage.getItem("userToken");
 
-  const handleSkipDelivery = async () => {
+  const skipReasons = [
+    "Not feeling like it today",
+    "Busy today",
+    "Already have food at home",
+    "Want to take a break",
+    "Other reason",
+  ];
+
+  const handleSkipDeliveryClick = () => {
     if (!nextDelivery) return;
+    setSkipConfirmDelivery(nextDelivery);
+    setSkipReason("");
+    setCustomReason("");
+    setShowSkipConfirm(true);
+  };
+
+  const handleSkipDeliveryConfirm = async () => {
+    if (!skipConfirmDelivery) return;
+    
+    let finalReason = skipReason;
+    if (skipReason === "Other reason" && customReason.trim()) {
+      finalReason = customReason;
+    }
     
     try {
       setIsSkipping(true);
@@ -531,7 +574,8 @@ function SubscriptionCard({
           Authorization: `Bearer ${userToken}`,
         },
         body: JSON.stringify({
-          deliveryDate: nextDelivery.date.toISOString(),
+          deliveryDate: skipConfirmDelivery.date.toISOString(),
+          reason: finalReason,
         }),
       });
 
@@ -541,6 +585,10 @@ function SubscriptionCard({
 
       // Refresh subscriptions data
       queryClient.invalidateQueries({ queryKey: ["/api/subscriptions"] });
+      setShowSkipConfirm(false);
+      setSkipConfirmDelivery(null);
+      setSkipReason("");
+      setCustomReason("");
     } catch (error) {
       console.error("Error skipping delivery:", error);
       alert("Failed to skip delivery. Please try again.");
@@ -626,7 +674,7 @@ function SubscriptionCard({
             <Button
               variant="outline"
               size="sm"
-              onClick={handleSkipDelivery}
+              onClick={handleSkipDeliveryClick}
               disabled={isSkipping}
               className="w-full"
             >
@@ -795,6 +843,83 @@ function SubscriptionCard({
           </div>
         )}
       </CardContent>
+
+      {/* Skip Delivery Confirmation Dialog */}
+      <AlertDialog open={showSkipConfirm} onOpenChange={setShowSkipConfirm}>
+        <AlertDialogContent className="max-w-sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Skip This Delivery?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <div className="space-y-4 mt-4">
+                <div>
+                  <p className="text-sm font-medium mb-1">
+                    Scheduled for{" "}
+                    <strong>
+                      {skipConfirmDelivery
+                        ? format(skipConfirmDelivery.date, "EEEE, MMM d")
+                        : ""}
+                    </strong>
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    ✓ No deduction from your remaining deliveries
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="skip-reason" className="text-sm">
+                    Why are you skipping? (optional)
+                  </Label>
+                  <Select value={skipReason} onValueChange={setSkipReason}>
+                    <SelectTrigger id="skip-reason" className="w-full">
+                      <SelectValue placeholder="Select a reason..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {skipReasons.map((reason) => (
+                        <SelectItem key={reason} value={reason}>
+                          {reason}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {skipReason === "Other reason" && (
+                  <div className="space-y-2">
+                    <Label htmlFor="custom-reason" className="text-sm">
+                      Please tell us why
+                    </Label>
+                    <Input
+                      id="custom-reason"
+                      placeholder="Your reason..."
+                      value={customReason}
+                      onChange={(e) => setCustomReason(e.target.value)}
+                      maxLength={200}
+                      className="text-sm"
+                    />
+                  </div>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="flex gap-3 justify-end mt-6">
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleSkipDeliveryConfirm}
+              disabled={isSkipping || (skipReason === "Other reason" && !customReason.trim())}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isSkipping ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Skipping...
+                </>
+              ) : (
+                "Skip Delivery"
+              )}
+            </AlertDialogAction>
+          </div>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }

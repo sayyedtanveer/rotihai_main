@@ -1939,6 +1939,66 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // GET /api/admin/subscriptions/skipped-deliveries
+  app.get("/api/admin/subscriptions/skipped-deliveries", requireAdmin(), async (req: AuthenticatedAdminRequest, res) => {
+    try {
+      const { dateFrom, dateTo, userId, limit = 50, offset = 0 } = req.query;
+      const allSubscriptions = await storage.getSubscriptions();
+      const skippedDeliveries = [];
+
+      for (const sub of allSubscriptions) {
+        const logs = await storage.getSubscriptionDeliveryLogs(sub.id);
+        const skippedLogs = logs.filter(log => log.status === "skipped");
+
+        for (const log of skippedLogs) {
+          if (dateFrom) {
+            const logDate = new Date(log.date);
+            const fromDate = new Date(dateFrom as string);
+            if (logDate < fromDate) continue;
+          }
+          if (dateTo) {
+            const logDate = new Date(log.date);
+            const toDate = new Date(dateTo as string);
+            if (logDate > toDate) continue;
+          }
+          if (userId && sub.userId !== userId) continue;
+
+          skippedDeliveries.push({
+            logId: log.id,
+            subscriptionId: sub.id,
+            userId: sub.userId,
+            customerName: sub.customerName,
+            phone: sub.phone,
+            address: sub.address,
+            deliveryDate: log.date,
+            deliveryTime: log.time,
+            status: log.status,
+            reason: log.notes, // This contains the skip reason
+            createdAt: log.createdAt,
+          });
+        }
+      }
+
+      skippedDeliveries.sort((a, b) => {
+        const dateA = new Date(a.deliveryDate).getTime();
+        const dateB = new Date(b.deliveryDate).getTime();
+        return dateB - dateA;
+      });
+
+      const paginatedResults = skippedDeliveries.slice(Number(offset) || 0, (Number(offset) || 0) + Number(limit));
+      console.log(`📊 [ADMIN-SKIPPED] Retrieved ${paginatedResults.length} skipped deliveries`);
+      res.json({
+        total: skippedDeliveries.length,
+        limit: Number(limit),
+        offset: Number(offset) || 0,
+        data: paginatedResults,
+      });
+    } catch (error) {
+      console.error("Error fetching skipped deliveries:", error);
+      res.status(500).json({ message: "Failed to fetch skipped deliveries" });
+    }
+  });
+
   // GET /api/admin/subscriptions/today  
   app.get("/api/admin/subscriptions/today", requireAdmin(), async (req: AuthenticatedAdminRequest, res) => {
     try {

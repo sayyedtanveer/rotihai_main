@@ -1006,7 +1006,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.authenticatedUser!.userId;
       const subscriptionId = req.params.id;
-      const { deliveryDate } = req.body;
+      const { deliveryDate, reason } = req.body;
 
       const subscription = await storage.getSubscription(subscriptionId);
       if (!subscription) {
@@ -1031,6 +1031,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const todaysLogs = await storage.getSubscriptionDeliveryLogsByDate(date);
       let log = todaysLogs.find(l => l.subscriptionId === subscriptionId);
 
+      const skipNote = reason ? `Skipped by user: ${reason}` : "Skipped by user";
+
       if (!log) {
         // Create new delivery log with "skipped" status
         log = await storage.createSubscriptionDeliveryLog({
@@ -1038,19 +1040,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
           date,
           time: subscription.nextDeliveryTime || "09:00",
           status: "skipped",
-          notes: "Skipped by user",
+          notes: skipNote,
           deliveryPersonId: null,
         });
       } else {
         // Update existing log to "skipped"
         log = await storage.updateSubscriptionDeliveryLog(log.id, {
           status: "skipped",
-          notes: "Skipped by user",
+          notes: skipNote,
           updatedAt: new Date(),
         });
       }
 
-      console.log(`✅ User ${userId} skipped delivery for subscription ${subscriptionId} on ${date.toDateString()}`);
+      // Get user info for notification
+      const user = await storage.getUser(userId);
+
+      // Calculate next delivery date (skip to next scheduled delivery day)
+      const plan = await storage.getSubscriptionPlan(subscription.planId);
+      if (plan) {
+        const deliveryDays = plan.deliveryDays as string[];
+        let nextDelivery = new Date(subscription.nextDeliveryDate);
+        nextDelivery.setDate(nextDelivery.getDate() + 1);
+
+        // Loop through days until we find the next scheduled delivery day
+        const maxDate = subscription.endDate || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+        for (let i = 0; i < 7; i++) {
+          const dayName = nextDelivery.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+          if (deliveryDays.includes(dayName)) {
+            break; // Found next scheduled delivery day
+          }
+          if (nextDelivery > maxDate) {
+            break; // Stop if past end date
+          }
+          nextDelivery.setDate(nextDelivery.getDate() + 1);
+        }
+
+        // Update subscription with new nextDeliveryDate
+        await storage.updateSubscription(subscriptionId, {
+          nextDeliveryDate: nextDelivery,
+        });
+      }
+
+      console.log(`✅ User ${user?.name || userId} skipped delivery for subscription ${subscriptionId} on ${date.toDateString()}`);
+      console.log(`   Reason: ${skipNote}`);
       
       res.json({ 
         message: "Delivery skipped successfully",
