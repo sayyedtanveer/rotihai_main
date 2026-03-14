@@ -1110,59 +1110,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
 
   // Get subscription delivery schedule
-  app.get("/api/subscriptions/:id/schedule", requireUser(), async (req: AuthenticatedUserRequest, res) => {
-    try {
-      const userId = req.authenticatedUser!.userId;
-      const subscription = await storage.getSubscription(req.params.id);
-
-      if (!subscription) {
-        res.status(404).json({ message: "Subscription not found" });
-        return;
-      }
-
-      if (subscription.userId !== userId) {
-        res.status(403).json({ message: "Unauthorized" });
-        return;
-      }
-
-      const plan = await storage.getSubscriptionPlan(subscription.planId);
-      if (!plan) {
-        res.status(404).json({ message: "Plan not found" });
-        return;
-      }
-
-      const deliveryDays = plan.deliveryDays as string[];
-      const schedule = [];
-      const currentDate = new Date(subscription.nextDeliveryDate);
-      const endDate = subscription.endDate ? new Date(subscription.endDate) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-
-      // ✅ Dynamic check based on plan frequency (weekly/daily vs monthly)
-      while (currentDate <= endDate && schedule.length < subscription.remainingDeliveries) {
-        if (isDeliveryDay(currentDate, plan.frequency, deliveryDays)) {
-          schedule.push({
-            date: new Date(currentDate),
-            time: subscription.nextDeliveryTime || DEFAULT_DELIVERY_TIME,
-            items: plan.items,
-            status: currentDate < new Date() ? DELIVERY_LOG_STATUS.DELIVERED : DELIVERY_LOG_STATUS.SCHEDULED
-          });
-        }
-
-        currentDate.setDate(currentDate.getDate() + 1);
-      }
-
-      res.json({
-        subscription,
-        plan,
-        schedule,
-        remainingDeliveries: subscription.remainingDeliveries,
-        totalDeliveries: subscription.totalDeliveries,
-        deliveryHistory: subscription.deliveryHistory || []
-      });
-    } catch (error: any) {
-      console.error("Error fetching subscription schedule:", error);
-      res.status(500).json({ message: error.message || "Failed to fetch schedule" });
-    }
-  });
+  // REMOVED: Duplicate schedule endpoint - using database-driven approach at line 3623 instead
 
   // PHASE 4: Skip delivery endpoint - user can skip a scheduled delivery
   app.post("/api/subscriptions/:id/skip-delivery", requireUser(), async (req: AuthenticatedUserRequest, res) => {

@@ -631,6 +631,8 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
     let initialAddress: SubscriptionAddress | null = null;
 
     const storedPincode = getStoredPincodeValidation();
+    
+    // Priority 1: Use stored pincode (respects recent delivery location)
     if (storedPincode?.pincode && storedPincode?.latitude && storedPincode?.longitude) {
       // Pre-populate from stored pincode data
       initialAddress = {
@@ -647,10 +649,39 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
       // User must click "Validate Address" button to confirm
       setIsAuthSubAddressValidated(false);
       console.log("[SUBSCRIPTION] Pre-populated address from stored pincode, awaiting validation:", storedPincode);
-    } else {
-      // Reset address state if no stored pincode
+    }
+    // Priority 2: Fallback to user profile address (for returning customers with no recent pincode)
+    else if (userProfile?.address) {
+      try {
+        // Try to parse address as JSON if it's stored as object
+        const parsedAddress = typeof userProfile.address === 'string' 
+          ? JSON.parse(userProfile.address)
+          : userProfile.address;
+        
+        initialAddress = {
+          building: parsedAddress.building || "",
+          street: parsedAddress.street || "",
+          area: parsedAddress.area || "",
+          city: parsedAddress.city || "Mumbai",
+          pincode: parsedAddress.pincode || "",
+          latitude: parsedAddress.latitude || null,
+          longitude: parsedAddress.longitude || null,
+        };
+        setAuthenticatedSubAddress(initialAddress);
+        setIsAuthSubAddressValidated(false);
+        console.log("[SUBSCRIPTION] Pre-populated address from user profile (no recent pincode):", initialAddress);
+      } catch (error) {
+        // If address parsing fails, leave empty
+        setAuthenticatedSubAddress(null);
+        setIsAuthSubAddressValidated(false);
+        console.log("[SUBSCRIPTION] Failed to parse user profile address, starting fresh");
+      }
+    }
+    // Priority 3: No data available, start fresh
+    else {
       setAuthenticatedSubAddress(null);
       setIsAuthSubAddressValidated(false);
+      console.log("[SUBSCRIPTION] No stored pincode or profile address, user starting fresh");
     }
 
     if (isRotiCategory) {
