@@ -43,6 +43,7 @@ import AdminReferrals from "@/pages/admin/AdminReferrals";
 import AdminWalletLogs from "@/pages/admin/AdminWalletLogs";
 import AdminVisitorAnalytics from "@/pages/admin/AdminVisitorAnalytics";
 import AdminNotificationSettings from "@/pages/admin/AdminNotificationSettings";
+import AdminChefPerformance from "@/pages/admin/ChefPerformance";
 // Add AdminCartSettings import here
 const AdminCartSettings = lazy(() => import("@/pages/admin/AdminCartSettings"));
 
@@ -94,6 +95,7 @@ function Router() {
       <Route path="/admin/notifications" component={AdminNotifications} />
       <Route path="/admin/categories" component={AdminCategories} />
       <Route path="/admin/subscriptions" component={AdminSubscriptions} />
+      <Route path="/admin/chef-performance" component={AdminChefPerformance} />
       <Route path="/admin/promotional-banners" component={AdminPromotionalBanners} />
       <Route path="/admin/reports" component={AdminReports} />
       <Route path="/admin/chefs" component={AdminChefs} />

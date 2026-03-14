@@ -2318,6 +2318,58 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  /**
+   * GET /api/admin/subscriptions/overdue-preparations
+   * Get subscriptions that are in "preparing" status but past their scheduled delivery time
+   */
+  app.get("/api/admin/subscriptions/overdue-preparations", requireAdmin(), async (req: AuthenticatedAdminRequest, res) => {
+    try {
+      const allSubscriptions = await storage.getSubscriptions();
+      const overduePreparations = [];
+
+      for (const sub of allSubscriptions) {
+        // Get today's scheduled deliveries for this subscription
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const logs = await storage.getSubscriptionDeliveryLogsByDate(today);
+
+        const todaysLogs = logs.filter(log => log.subscriptionId === sub.id && log.status === "preparing");
+
+        for (const log of todaysLogs) {
+          // Parse the time and check if it's past the scheduled delivery time
+          const [hours, minutes] = log.time.split(":").map(Number);
+          const scheduledTime = new Date(today);
+          scheduledTime.setHours(hours, minutes, 0, 0);
+
+          const now = new Date();
+          if (now > scheduledTime) {
+            // This preparation is overdue
+            overduePreparations.push({
+              logId: log.id,
+              subscriptionId: sub.id,
+              userId: sub.userId,
+              chefId: sub.chefId,
+              chefName: sub.chefId ? (await storage.getChefById(sub.chefId))?.name : null,
+              customerName: sub.customerName,
+              phone: sub.phone,
+              address: sub.address,
+              scheduledTime: log.time,
+              status: log.status,
+              minutesOverdue: Math.floor((now.getTime() - scheduledTime.getTime()) / 60000),
+            });
+          }
+        }
+      }
+
+      console.log(`⏰ [ADMIN-OVERDUE] Found ${overduePreparations.length} overdue preparations`);
+
+      res.json(overduePreparations);
+    } catch (error) {
+      console.error("Error fetching overdue preparations:", error);
+      res.status(500).json({ message: "Failed to fetch overdue preparations" });
+    }
+  });
+
 
 
   // Manual subscription adjustment (add/remove deliveries)
