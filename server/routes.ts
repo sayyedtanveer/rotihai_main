@@ -1063,21 +1063,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
         nextDelivery.setDate(nextDelivery.getDate() + 1);
 
         // Loop through days until we find the next scheduled delivery day
-        const maxDate = subscription.endDate || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+        const oldMaxDate = subscription.endDate || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
         for (let i = 0; i < 7; i++) {
           const dayName = nextDelivery.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
           if (deliveryDays.includes(dayName)) {
             break; // Found next scheduled delivery day
           }
-          if (nextDelivery > maxDate) {
+          if (nextDelivery > oldMaxDate) {
             break; // Stop if past end date
           }
           nextDelivery.setDate(nextDelivery.getDate() + 1);
         }
 
-        // Update subscription with new nextDeliveryDate
+        // Calculate how many days we shifted forward
+        const daysDifference = Math.floor((nextDelivery.getTime() - new Date(subscription.nextDeliveryDate).getTime()) / (1000 * 60 * 60 * 24));
+
+        // Extend endDate by the same number of days to keep subscription period consistent
+        let newEndDate = new Date(oldMaxDate);
+        newEndDate.setDate(newEndDate.getDate() + daysDifference);
+
+        // Update subscription with new nextDeliveryDate and extended endDate
         await storage.updateSubscription(subscriptionId, {
           nextDeliveryDate: nextDelivery,
+          endDate: newEndDate,
         });
       }
 
