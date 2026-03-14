@@ -1338,7 +1338,6 @@ export default function AdminSubscriptions() {
                         <SelectValue placeholder="All Chefs" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">All Chefs</SelectItem>
                         {chefs?.map((chef) => (
                           <SelectItem key={chef.id} value={chef.id}>
                             {chef.name}

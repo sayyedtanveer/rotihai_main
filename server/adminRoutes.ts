@@ -1873,6 +1873,223 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  /**
+   * SPECIFIC ROUTES (must be before :id parameterized route!)
+   * These need to come first, otherwise /today, /missed-deliveries, etc. will be treated as IDs
+   */
+
+  // GET /api/admin/subscriptions/missed-deliveries
+  app.get("/api/admin/subscriptions/missed-deliveries", requireAdmin(), async (req: AuthenticatedAdminRequest, res) => {
+    try {
+      const { dateFrom, dateTo, chefId, limit = 50, offset = 0 } = req.query;
+      const allSubscriptions = await storage.getSubscriptions();
+      const missedDeliveries = [];
+
+      for (const sub of allSubscriptions) {
+        const logs = await storage.getSubscriptionDeliveryLogs(sub.id);
+        const missedLogs = logs.filter(log => log.status === "missed");
+
+        for (const log of missedLogs) {
+          if (dateFrom) {
+            const logDate = new Date(log.date);
+            const fromDate = new Date(dateFrom as string);
+            if (logDate < fromDate) continue;
+          }
+          if (dateTo) {
+            const logDate = new Date(log.date);
+            const toDate = new Date(dateTo as string);
+            if (logDate > toDate) continue;
+          }
+          if (chefId && sub.chefId !== chefId) continue;
+
+          missedDeliveries.push({
+            logId: log.id,
+            subscriptionId: sub.id,
+            userId: sub.userId,
+            chefId: sub.chefId,
+            customerName: sub.customerName,
+            phone: sub.phone,
+            address: sub.address,
+            deliveryDate: log.date,
+            deliveryTime: log.time,
+            status: log.status,
+            notes: log.notes,
+            createdAt: log.createdAt,
+          });
+        }
+      }
+
+      missedDeliveries.sort((a, b) => {
+        const dateA = new Date(a.deliveryDate).getTime();
+        const dateB = new Date(b.deliveryDate).getTime();
+        return dateB - dateA;
+      });
+
+      const paginatedResults = missedDeliveries.slice(Number(offset) || 0, (Number(offset) || 0) + Number(limit));
+      console.log(`📊 [ADMIN-MISSED] Retrieved ${paginatedResults.length} missed deliveries`);
+      res.json({
+        total: missedDeliveries.length,
+        limit: Number(limit),
+        offset: Number(offset) || 0,
+        data: paginatedResults,
+      });
+    } catch (error) {
+      console.error("Error fetching missed deliveries:", error);
+      res.status(500).json({ message: "Failed to fetch missed deliveries" });
+    }
+  });
+
+  // GET /api/admin/subscriptions/today  
+  app.get("/api/admin/subscriptions/today", requireAdmin(), async (req: AuthenticatedAdminRequest, res) => {
+    try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const todaysLogs = await storage.getSubscriptionDeliveryLogsByDate(today);
+      const enrichedDeliveries = [];
+
+      for (const log of todaysLogs) {
+        const sub = await storage.getSubscription(log.subscriptionId);
+        if (!sub) continue;
+
+        enrichedDeliveries.push({
+          logId: log.id,
+          subscriptionId: sub.id,
+          userId: sub.userId,
+          chefId: sub.chefId,
+          chefName: sub.chefId ? (await storage.getChefById(sub.chefId))?.name : null,
+          planName: (await storage.getSubscriptionPlan(sub.planId))?.name,
+          customerName: sub.customerName,
+          phone: sub.phone,
+          address: sub.address,
+          deliveryTime: log.time,
+          status: log.status,
+          notes: log.notes,
+          remainingDeliveries: sub.remainingDeliveries,
+        });
+      }
+
+      const summary = {
+        scheduled: enrichedDeliveries.filter(d => d.status === "scheduled").length,
+        preparing: enrichedDeliveries.filter(d => d.status === "preparing").length,
+        out_for_delivery: enrichedDeliveries.filter(d => d.status === "out_for_delivery").length,
+        delivered: enrichedDeliveries.filter(d => d.status === "delivered").length,
+        missed: enrichedDeliveries.filter(d => d.status === "missed").length,
+        total: enrichedDeliveries.length,
+      };
+
+      console.log(`📋 [ADMIN-TODAY] Today's subscriptions summary:`, summary);
+      res.json({
+        date: today.toISOString().split('T')[0],
+        summary,
+        deliveries: enrichedDeliveries,
+      });
+    } catch (error) {
+      console.error("Error fetching today's subscriptions:", error);
+      res.status(500).json({ message: "Failed to fetch today's subscriptions" });
+    }
+  });
+
+  // GET /api/admin/subscriptions/overdue-preparations
+  app.get("/api/admin/subscriptions/overdue-preparations", requireAdmin(), async (req: AuthenticatedAdminRequest, res) => {
+    try {
+      const allSubscriptions = await storage.getSubscriptions();
+      const overduePreparations = [];
+
+      for (const sub of allSubscriptions) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const logs = await storage.getSubscriptionDeliveryLogsByDate(today);
+        const todaysLogs = logs.filter(log => log.subscriptionId === sub.id && log.status === "preparing");
+
+        for (const log of todaysLogs) {
+          const [hours, minutes] = log.time.split(":").map(Number);
+          const scheduledTime = new Date(today);
+          scheduledTime.setHours(hours, minutes, 0, 0);
+          const now = new Date();
+
+          if (now > scheduledTime) {
+            overduePreparations.push({
+              logId: log.id,
+              subscriptionId: sub.id,
+              userId: sub.userId,
+              chefId: sub.chefId,
+              chefName: sub.chefId ? (await storage.getChefById(sub.chefId))?.name : null,
+              customerName: sub.customerName,
+              phone: sub.phone,
+              address: sub.address,
+              scheduledTime: log.time,
+              status: log.status,
+              minutesOverdue: Math.floor((now.getTime() - scheduledTime.getTime()) / 60000),
+            });
+          }
+        }
+      }
+
+      console.log(`⏰ [ADMIN-OVERDUE] Found ${overduePreparations.length} overdue preparations`);
+      res.json(overduePreparations);
+    } catch (error) {
+      console.error("Error fetching overdue preparations:", error);
+      res.status(500).json({ message: "Failed to fetch overdue preparations" });
+    }
+  });
+
+  // GET /api/admin/chef-performance
+  app.get("/api/admin/chef-performance", requireAdmin(), async (req: AuthenticatedAdminRequest, res) => {
+    try {
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      const allChefs = await storage.getChefs();
+      const allSubscriptions = await storage.getSubscriptions();
+      
+      interface ChefPerformanceData {
+        chefId: string;
+        chefName: string;
+        deliveryRate: number;
+        totalDeliveries: number;
+        delivered: number;
+        missed: number;
+      }
+
+      const performanceData: ChefPerformanceData[] = await Promise.all(
+        allChefs.map(async (chef) => {
+          // Filter subscriptions for this chef
+          const chefSubscriptions = allSubscriptions.filter(sub => sub.chefId === chef.id);
+          let totalDeliveries = 0;
+          let delivered = 0;
+          let missed = 0;
+
+          for (const sub of chefSubscriptions) {
+            const logs = await storage.getSubscriptionDeliveryLogs(sub.id);
+            const recentLogs = logs.filter(log => new Date(log.date) >= thirtyDaysAgo);
+            
+            totalDeliveries += recentLogs.length;
+            delivered += recentLogs.filter(log => log.status === "delivered").length;
+            missed += recentLogs.filter(log => log.status === "missed").length;
+          }
+
+          return {
+            chefId: chef.id,
+            chefName: chef.name,
+            deliveryRate: totalDeliveries === 0 ? 0 : Math.round((delivered / totalDeliveries) * 100),
+            totalDeliveries,
+            delivered,
+            missed,
+          };
+        })
+      );
+
+      const sorted = performanceData.sort((a: ChefPerformanceData, b: ChefPerformanceData) => b.deliveryRate - a.deliveryRate);
+      res.json({
+        leaderboard: sorted,
+        period: "Last 30 days",
+        lastUpdated: new Date(),
+      });
+    } catch (error: any) {
+      console.error("Error fetching chef performance leaderboard:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch leaderboard" });
+    }
+  });
+
   // Get subscription by ID
   app.get("/api/admin/subscriptions/:id", requireAdmin(), async (req: AuthenticatedAdminRequest, res) => {
     try {
