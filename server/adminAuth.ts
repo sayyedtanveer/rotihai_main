@@ -4,8 +4,9 @@ import type { Request, Response, NextFunction } from "express";
 import type { AdminUser } from "@shared/schema";
 
 const JWT_SECRET = process.env.JWT_SECRET || "admin-jwt-secret-change-in-production";
-const JWT_EXPIRES_IN = "7d"; // Increased from 24h to 7 days for better UX
-const REFRESH_TOKEN_EXPIRES_IN = "30d";
+// Session persists for 90 days - only explicit logout will end session
+const JWT_EXPIRES_IN = "90d"; // Admin/Partner/Delivery sessions: 90 days (only logout on explicit logout)
+const REFRESH_TOKEN_EXPIRES_IN = "90d"; // Refresh token also 90 days
 
 export interface AdminTokenPayload {
   adminId: string;

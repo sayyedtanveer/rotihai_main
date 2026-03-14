@@ -5,8 +5,9 @@ import type { Request, Response, NextFunction } from "express";
 import type { PartnerUser } from "@shared/schema";
 
 const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key-change-in-production";
-const ACCESS_TOKEN_EXPIRY = "7d"; // Increased from 24h to 7 days for better UX
-const REFRESH_TOKEN_EXPIRY = "30d";
+// Partner sessions: 90 days (only logout on explicit logout)
+const ACCESS_TOKEN_EXPIRY = "90d"; // Increased from 7d to 90d for persistent sessions
+const REFRESH_TOKEN_EXPIRY = "90d"; // Also extended refresh token
 
 export interface PartnerTokenPayload {
   partnerId: string;
