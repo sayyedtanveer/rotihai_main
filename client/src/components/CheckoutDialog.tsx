@@ -303,7 +303,11 @@ export default function CheckoutDialog({
     enabled: !!cart?.categoryId && isOpen,
   });
 
-  const requiresDeliverySlot = !!categoryData?.requiresDeliverySlot;
+  // Check if delivery slots should be shown:
+  // 1. If category has requiresDeliverySlot flag set (admin configured), OR
+  // 2. If category name contains "roti" (regular roti orders)
+  const requiresDeliverySlot = !!categoryData?.requiresDeliverySlot || 
+    (categoryData?.name?.toLowerCase().includes('roti') ?? false);
 
   useEffect(() => {
     if (isOpen) {

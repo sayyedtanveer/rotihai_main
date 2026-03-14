@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -49,6 +49,8 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
   const [showSlotSelectionModal, setShowSlotSelectionModal] = useState(false);
   const [selectedPlanForSubscription, setSelectedPlanForSubscription] = useState<string | null>(null);
   const [selectedSubscriptionSlotId, setSelectedSubscriptionSlotId] = useState<string>("");
+  const deliverySlotRef = useRef<HTMLDivElement>(null);
+  const slotModalContentRef = useRef<HTMLDivElement>(null);
 
   // Authentication subscription address state
   const [authenticatedSubAddress, setAuthenticatedSubAddress] = useState<SubscriptionAddress | null>(null);
@@ -577,6 +579,20 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
     },
   });
 
+  // Scroll to delivery slots after address validation in slot modal
+  useEffect(() => {
+    if (isAuthSubAddressValidated && deliverySlotRef.current && slotModalContentRef.current) {
+      setTimeout(() => {
+        const container = slotModalContentRef.current;
+        const slotElement = deliverySlotRef.current;
+        if (container && slotElement) {
+          const scrollTop = slotElement.offsetTop - container.offsetTop - 50;
+          container.scrollTop = Math.max(0, scrollTop);
+        }
+      }, 100);
+    }
+  }, [isAuthSubAddressValidated]);
+
   // Cancel mutation is removed as per the requirement
 
   const activePlans = plans?.filter(p => p.isActive) || [];
@@ -594,7 +610,7 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
     if (!plan) return;
 
     const category = categoryList?.find((c: any) => c.id === plan.categoryId);
-    const isRotiCategory = category?.name?.toLowerCase().includes('roti');
+    const isRotiCategory = !!category?.requiresDeliverySlot || (category?.name?.toLowerCase().includes('roti') ?? false);
 
     // For guest users, show guest subscription form
     if (!isAuthenticated) {
@@ -668,7 +684,7 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
 
     const plan = plans?.find(p => p.id === guestPlanId);
     const category = categoryList?.find((c: any) => c.id === plan?.categoryId);
-    const isRotiCategory = category?.name?.toLowerCase().includes('roti');
+    const isRotiCategory = !!category?.requiresDeliverySlot || (category?.name?.toLowerCase().includes('roti') ?? false);
 
     // Check slot required for Roti plans
     if (isRotiCategory && !guestSlotId) {
@@ -1278,7 +1294,7 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
               Choose your preferred daily delivery time for fresh rotis
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4 overflow-y-auto flex-1">
+          <div className="space-y-4 py-4 overflow-y-auto flex-1" ref={slotModalContentRef}>
             {/* Delivery Address Input */}
             <div className="space-y-2">
               <Label className="font-semibold">Delivery Address *</Label>
@@ -1301,7 +1317,7 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
             </div>
 
             {/* Delivery Time Slot */}
-            <div className="space-y-2">
+            <div className="space-y-2" ref={deliverySlotRef}>
               <Label htmlFor="subscriptionSlot">Delivery Time Slot *</Label>
               <Select
                 value={selectedSubscriptionSlotId}
@@ -1568,7 +1584,7 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
             {guestPlanId && (() => {
               const plan = plans?.find(p => p.id === guestPlanId);
               const category = categoryList?.find((c: any) => c.id === plan?.categoryId);
-              const isRotiCategory = category?.name?.toLowerCase().includes('roti');
+              const isRotiCategory = !!category?.requiresDeliverySlot || (category?.name?.toLowerCase().includes('roti') ?? false);
 
               if (!isRotiCategory) return null;
 
