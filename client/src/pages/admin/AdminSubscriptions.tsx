@@ -30,6 +30,7 @@ export default function AdminSubscriptions() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingPlan, setEditingPlan] = useState<SubscriptionPlan | null>(null);
   const [selectedDays, setSelectedDays] = useState<string[]>([]);
+  const [currentFrequency, setCurrentFrequency] = useState<string>("daily");
 
   // Subscription management modals
   const [adjustModalOpen, setAdjustModalOpen] = useState(false);
@@ -456,6 +457,13 @@ export default function AdminSubscriptions() {
     );
   };
 
+  const toggleMonthDay = (day: number) => {
+    const dayStr = String(day);
+    setSelectedDays(prev =>
+      prev.includes(dayStr) ? prev.filter(d => d !== dayStr) : [...prev, dayStr].sort((a, b) => parseInt(a) - parseInt(b))
+    );
+  };
+
   const eligibleCategories = categories?.filter(c => 
     c.name.toLowerCase().includes('roti') || 
     c.name.toLowerCase().includes('lunch') ||
@@ -544,7 +552,14 @@ export default function AdminSubscriptions() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Frequency</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value}>
+                        <Select 
+                          onValueChange={(value) => {
+                            field.onChange(value);
+                            setCurrentFrequency(value);
+                            setSelectedDays([]);
+                          }} 
+                          value={field.value}
+                        >
                           <FormControl>
                             <SelectTrigger data-testid="select-plan-frequency">
                               <SelectValue placeholder="Select frequency" />
@@ -581,18 +596,48 @@ export default function AdminSubscriptions() {
                   />
                   <div>
                     <FormLabel>Delivery Days</FormLabel>
-                    <div className="grid grid-cols-2 gap-2 mt-2">
-                      {DAYS_OF_WEEK.map(day => (
-                        <div key={day} className="flex items-center space-x-2">
-                          <Switch
-                            checked={selectedDays.includes(day)}
-                            onCheckedChange={() => toggleDay(day)}
-                            data-testid={`switch-day-${day}`}
-                          />
-                          <label className="text-sm capitalize">{day}</label>
+                    {currentFrequency === "monthly" ? (
+                      <div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
+                          Select day(s) of the month (e.g., 1st, 15th)
+                        </p>
+                        <div className="grid grid-cols-5 gap-2 mt-2">
+                          {Array.from({ length: 31 }, (_, i) => i + 1).map(day => (
+                            <button
+                              key={day}
+                              type="button"
+                              onClick={() => toggleMonthDay(day)}
+                              className={`p-2 rounded text-sm font-medium transition-colors ${
+                                selectedDays.includes(String(day))
+                                  ? "bg-blue-500 text-white"
+                                  : "bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600"
+                              }`}
+                              data-testid={`button-day-${day}`}
+                            >
+                              {day}
+                            </button>
+                          ))}
                         </div>
-                      ))}
-                    </div>
+                        {selectedDays.length > 0 && (
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
+                            Selected: {selectedDays.join(", ")}
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-2 mt-2">
+                        {DAYS_OF_WEEK.map(day => (
+                          <div key={day} className="flex items-center space-x-2">
+                            <Switch
+                              checked={selectedDays.includes(day)}
+                              onCheckedChange={() => toggleDay(day)}
+                              data-testid={`switch-day-${day}`}
+                            />
+                            <label className="text-sm capitalize">{day}</label>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <FormField
                     control={form.control}

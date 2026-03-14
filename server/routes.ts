@@ -68,11 +68,73 @@ function calculateTotalDeliveries(frequency: string, deliveryDays: string[], dur
   }
 
   if (frequency === "daily") {
-    return deliveryDays.length > 0 ? Math.floor(durationDays / 7) * deliveryDays.length : durationDays;
+    // For daily plans, count actual day occurrences within the duration
+    if (!startDate) {
+      // If no start date provided, estimate based on weekdays in deliveryDays
+      const allWeekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+      const hasWeekdayNames = isWeekdayNameFormat(deliveryDays);
+      if (hasWeekdayNames && deliveryDays.length === 7) {
+        // All 7 days included - daily delivery every day
+        return durationDays;
+      } else if (hasWeekdayNames) {
+        // Specific weekdays only (e.g., Mon-Fri)
+        return Math.floor(durationDays / 7) * deliveryDays.length;
+      } else {
+        // Day-of-month format for daily (unusual but support it)
+        return durationDays;
+      }
+    }
+    // Count actual occurrences with start date
+    let count = 0;
+    const currentDate = new Date(startDate);
+    currentDate.setHours(0, 0, 0, 0);
+    
+    const endDate = new Date(startDate);
+    endDate.setDate(endDate.getDate() + durationDays);
+    endDate.setHours(23, 59, 59, 999);
+    
+    const hasWeekdayNames = isWeekdayNameFormat(deliveryDays);
+    while (currentDate <= endDate) {
+      let shouldCount = false;
+      if (hasWeekdayNames) {
+        const dayName = currentDate.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+        shouldCount = deliveryDays.some(d => d.toLowerCase() === dayName);
+      } else {
+        shouldCount = isDeliveryDay(currentDate, "daily", deliveryDays);
+      }
+      if (shouldCount) count++;
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+    return count;
   } 
   
   if (frequency === "weekly") {
-    return Math.floor(durationDays / 7) * deliveryDays.length;
+    // For weekly plans, count actual occurrences within the duration
+    if (!startDate) {
+      return Math.floor(durationDays / 7) * deliveryDays.length;
+    }
+    // Count actual weekday occurrences
+    let count = 0;
+    const currentDate = new Date(startDate);
+    currentDate.setHours(0, 0, 0, 0);
+    
+    const endDate = new Date(startDate);
+    endDate.setDate(endDate.getDate() + durationDays);
+    endDate.setHours(23, 59, 59, 999);
+    
+    const hasWeekdayNames = isWeekdayNameFormat(deliveryDays);
+    while (currentDate <= endDate) {
+      let shouldCount = false;
+      if (hasWeekdayNames) {
+        const dayName = currentDate.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+        shouldCount = deliveryDays.some(d => d.toLowerCase() === dayName);
+      } else {
+        shouldCount = isDeliveryDay(currentDate, "weekly", deliveryDays);
+      }
+      if (shouldCount) count++;
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+    return count;
   } 
   
   if (frequency === "monthly") {
@@ -116,13 +178,11 @@ async function generateSubscriptionDeliveryLogs(
   deliveryTime: string
 ): Promise<void> {
   try {
-    // Only generate logs for monthly plans
-    if (plan.frequency !== "monthly") {
-      return;
-    }
-
+    // Generate logs for ALL plan frequencies (weekly, daily, monthly)
+    // Skip only if no delivery days configured
     const deliveryDays = plan.deliveryDays as string[];
     if (!deliveryDays || deliveryDays.length === 0) {
+      console.log(`⚠️  No delivery days configured for plan ${plan.id}, skipping log generation`);
       return;
     }
 
@@ -135,20 +195,19 @@ async function generateSubscriptionDeliveryLogs(
 
     let logsCreated = 0;
 
-    // Check if deliveryDays contains weekday names (misconfigured monthly plan)
-    // In this case, treat it as a monthly plan with weekly frequency instead
+    // Check if deliveryDays contains weekday names
     const hasWeekdayNames = isWeekdayNameFormat(deliveryDays);
 
     while (currentDate <= normalizedEndDate) {
       let shouldCreateLog = false;
 
       if (hasWeekdayNames) {
-        // If plan uses weekday names, check day of week
+        // For weekday-named plans (e.g., ["Monday", "Wednesday", "Friday"])
         const dayName = currentDate.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
         shouldCreateLog = deliveryDays.some(d => d.toLowerCase() === dayName);
       } else {
-        // Otherwise use day-of-month numbers (["1", "15"])
-        shouldCreateLog = isDeliveryDay(currentDate, "monthly", deliveryDays);
+        // For day-of-month plans (e.g., ["1", "15"] for monthly)
+        shouldCreateLog = isDeliveryDay(currentDate, plan.frequency, deliveryDays);
       }
 
       if (shouldCreateLog) {
@@ -173,7 +232,7 @@ async function generateSubscriptionDeliveryLogs(
     }
 
     if (logsCreated > 0) {
-      console.log(`📋 Generated ${logsCreated} delivery log(s) for monthly subscription ${subscription.id}`);
+      console.log(`📋 Generated ${logsCreated} delivery log(s) for ${plan.frequency} subscription ${subscription.id}`);
     }
   } catch (error) {
     console.error("Error generating subscription delivery logs:", error);
@@ -2640,6 +2699,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return;
       }
 
+      // Check for duplicate subscription (for guest subscriptions)
+      const existingGuestUser = await storage.getUserByPhone(sanitizedPhone);
+      if (existingGuestUser) {
+        const allGuestSubs = await storage.getSubscriptions();
+        const guestSubscriptions = allGuestSubs.filter((s: any) => s.userId === existingGuestUser.id);
+        const hasDuplicateSubscription = guestSubscriptions?.some(
+          (sub: any) => sub.planId === planId && sub.status !== SUBSCRIPTION_STATUS.EXPIRED && sub.status !== SUBSCRIPTION_STATUS.CANCELLED
+        );
+        if (hasDuplicateSubscription) {
+          res.status(409).json({
+            message: "You already have an active subscription to this plan",
+            code: "DUPLICATE_SUBSCRIPTION",
+            existingSubscriptionId: guestSubscriptions?.find((s: any) => s.planId === planId)?.id
+          });
+          return;
+        }
+      }
+
       // Auto-calculate durationDays based on plan frequency if using default value
       let calculatedDurationDays = durationDays;
       if (durationDays === 30) { // Using default - adjust based on frequency
@@ -2806,8 +2883,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log(`✅ Public subscription created: ${subscription.id} for user ${user.id}`);
 
-      // ✅ Generate delivery logs upfront for monthly plans
-      await generateSubscriptionDeliveryLogs(subscription, plan, now, endDate, finalDeliveryTime);
+      // ✅ Generate delivery logs upfront for all plan frequencies
+      // Start from nextDelivery (tomorrow), not from now (today)
+      await generateSubscriptionDeliveryLogs(subscription, plan, nextDelivery, endDate, finalDeliveryTime);
 
       // Broadcast new subscription notification to admin
       broadcastNewSubscriptionToAdmin(subscription, plan.name);
@@ -3013,6 +3091,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return;
       }
 
+      // Check for duplicate subscription to same plan
+      const allSubscriptions = await storage.getSubscriptions();
+      const userSubs = allSubscriptions.filter((s: any) => s.userId === userId);
+      const hasDuplicateSubscription = userSubs?.some(
+        (sub: any) => sub.planId === planId && sub.status !== SUBSCRIPTION_STATUS.EXPIRED && sub.status !== SUBSCRIPTION_STATUS.CANCELLED
+      );
+      if (hasDuplicateSubscription) {
+        res.status(409).json({
+          message: "You already have an active subscription to this plan",
+          code: "DUPLICATE_SUBSCRIPTION",
+          existingSubscriptionId: userSubs?.find((s: any) => s.planId === planId)?.id
+        });
+        return;
+      }
+
       // Auto-calculate durationDays based on plan frequency if using default value
       let calculatedDurationDays = durationDays;
       if (durationDays === 30) { // Using default - adjust based on frequency
@@ -3174,8 +3267,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log(`✅ Subscription created: ${subscription.id}`);
 
-      // ✅ Generate delivery logs upfront for monthly plans
-      await generateSubscriptionDeliveryLogs(subscription, plan, now, endDate, finalDeliveryTime);
+      // ✅ Generate delivery logs upfront for all plan frequencies
+      // Start from nextDelivery (tomorrow), not from now (today)
+      await generateSubscriptionDeliveryLogs(subscription, plan, nextDelivery, endDate, finalDeliveryTime);
 
       // Broadcast new subscription notification to admin
       broadcastNewSubscriptionToAdmin(subscription, plan.name);
@@ -3203,24 +3297,65 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return;
       }
 
-      const { pauseStartDate, pauseResumeDate } = req.body;
+      let { pauseStartDate, pauseResumeDate } = req.body;
 
-      // Prepare update data
-      const updateData: any = { status: SUBSCRIPTION_STATUS.PAUSED };
-
+      // Ensure dates are properly parsed
       if (pauseStartDate) {
-        updateData.pauseStartDate = new Date(pauseStartDate);
+        pauseStartDate = new Date(pauseStartDate);
+        pauseStartDate.setHours(0, 0, 0, 0);
       } else {
-        updateData.pauseStartDate = new Date();
+        pauseStartDate = new Date();
+        pauseStartDate.setHours(0, 0, 0, 0);
       }
 
       if (pauseResumeDate) {
-        updateData.pauseResumeDate = new Date(pauseResumeDate);
+        pauseResumeDate = new Date(pauseResumeDate);
+        pauseResumeDate.setHours(0, 0, 0, 0);
       }
+
+      // Calculate pause duration in days
+      const pauseDurationDays = pauseResumeDate 
+        ? Math.floor((pauseResumeDate.getTime() - pauseStartDate.getTime()) / (1000 * 60 * 60 * 24))
+        : 0;
+
+      // Mark all deliveries between pauseStartDate and pauseResumeDate as "skipped"
+      if (pauseResumeDate) {
+        const allLogs = await storage.getSubscriptionDeliveryLogs(req.params.id);
+        for (const log of allLogs) {
+          const logDate = new Date(log.date);
+          logDate.setHours(0, 0, 0, 0);
+          
+          // If this log falls between pause dates, mark it as skipped (paused delivery)
+          if (logDate >= pauseStartDate && logDate < pauseResumeDate) {
+            await storage.updateSubscriptionDeliveryLog(log.id, {
+              status: DELIVERY_LOG_STATUS.SKIPPED,
+              notes: "Delivery skipped due to subscription pause period",
+              updatedAt: new Date(),
+            });
+          }
+        }
+      }
+
+      // Extend endDate by pause duration to keep subscription period intact
+      const currentEndDate = subscription.endDate ? new Date(subscription.endDate) : new Date();
+      const newEndDate = new Date(currentEndDate);
+      newEndDate.setDate(newEndDate.getDate() + pauseDurationDays);
+
+      // Prepare update data
+      const updateData: any = {
+        status: SUBSCRIPTION_STATUS.PAUSED,
+        pauseStartDate: pauseStartDate,
+        pauseResumeDate: pauseResumeDate || null,
+        endDate: newEndDate, // ✅ Extend endDate by pause duration
+      };
 
       const updated = await storage.updateSubscription(req.params.id, updateData);
 
-      console.log(`⏸️ Subscription ${req.params.id} paused from ${updateData.pauseStartDate} to ${updateData.pauseResumeDate || 'indefinite'}`);
+      console.log(`⏸️ Subscription ${req.params.id} paused`);
+      console.log(`   Pause period: ${pauseStartDate.toDateString()} to ${pauseResumeDate?.toDateString() || 'indefinite'}`);
+      console.log(`   Pause duration: ${pauseDurationDays} days`);
+      console.log(`   End date extended from ${subscription.endDate?.toDateString()} to ${newEndDate.toDateString()}`);
+      console.log(`   Skipped deliveries between pause dates`);
 
       res.json(updated);
     } catch (error: any) {
@@ -3516,8 +3651,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log(`🔄 Subscription renewed for user ${userId} - New subscription ID: ${newSubscription.id}`);
 
-      // ✅ Generate delivery logs upfront for monthly plans
-      await generateSubscriptionDeliveryLogs(newSubscription, plan, now, endDate, finalDeliveryTime);
+      // ✅ Generate delivery logs upfront for all plan frequencies
+      // Start from nextDelivery (tomorrow), not from now (today)
+      await generateSubscriptionDeliveryLogs(newSubscription, plan, nextDelivery, endDate, finalDeliveryTime);
 
       res.status(201).json(newSubscription);
     } catch (error: any) {
@@ -3591,20 +3727,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const logs = await storage.getSubscriptionDeliveryLogs(req.params.id);
 
-      const scheduleItems = logs.map(log => ({
-        date: log.date,
-        time: log.time,
-        items: plan.items,
-        status: log.status === DELIVERY_LOG_STATUS.DELIVERED ? DELIVERY_LOG_STATUS.DELIVERED : DELIVERY_LOG_STATUS.SCHEDULED
-      }));
+      // Ensure dates are properly formatted as ISO strings
+      const scheduleItems = logs.map(log => {
+        const logDate = log.date instanceof Date ? log.date : new Date(log.date);
+        return {
+          date: logDate.toISOString(),
+          time: log.time,
+          items: plan.items,
+          status: log.status === DELIVERY_LOG_STATUS.DELIVERED ? DELIVERY_LOG_STATUS.DELIVERED : DELIVERY_LOG_STATUS.SCHEDULED
+        };
+      });
+
+      // Ensure subscription dates are properly formatted
+      const subscriptionFormatted = {
+        ...subscription,
+        startDate: subscription.startDate instanceof Date ? subscription.startDate.toISOString() : subscription.startDate,
+        endDate: subscription.endDate instanceof Date ? subscription.endDate.toISOString() : subscription.endDate,
+        nextDeliveryDate: subscription.nextDeliveryDate instanceof Date ? subscription.nextDeliveryDate.toISOString() : subscription.nextDeliveryDate,
+      };
 
       res.json({
-        subscription,
+        subscription: subscriptionFormatted,
         plan,
         schedule: scheduleItems,
         remainingDeliveries: subscription.remainingDeliveries,
         totalDeliveries: subscription.totalDeliveries,
-        deliveryHistory: logs
+        deliveryHistory: logs.map((log: any) => ({
+          ...log,
+          date: log.date instanceof Date ? log.date.toISOString() : log.date
+        }))
       });
     } catch (error: any) {
       console.error("Error fetching subscription schedule:", error);

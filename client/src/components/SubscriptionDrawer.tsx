@@ -214,10 +214,14 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
         body: JSON.stringify(body),
       });
       if (!response.ok) {
+        const error = await response.json();
+        if (response.status === 409 && error.code === "DUPLICATE_SUBSCRIPTION") {
+          throw new Error("DUPLICATE_SUBSCRIPTION");
+        }
         if (response.status === 401) {
           toast({ title: "Please login", description: "You need to login to subscribe", variant: "destructive" });
         }
-        throw new Error("Failed to create subscription");
+        throw new Error(error.message || "Failed to create subscription");
       }
       return response.json();
     },
@@ -253,8 +257,16 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
         description: `Complete payment of ₹${plan?.price || 0} to activate your subscription`
       });
     },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to create subscription", variant: "destructive" });
+    onError: (error: any) => {
+      if (error.message === "DUPLICATE_SUBSCRIPTION") {
+        toast({
+          title: "Already Subscribed",
+          description: "You already have an active subscription to this plan",
+          variant: "destructive"
+        });
+      } else {
+        toast({ title: "Error", description: "Failed to create subscription", variant: "destructive" });
+      }
     },
   });
 
@@ -286,6 +298,9 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
       });
       if (!response.ok) {
         const error = await response.json();
+        if (response.status === 409 && error.code === "DUPLICATE_SUBSCRIPTION") {
+          throw new Error("DUPLICATE_SUBSCRIPTION");
+        }
         throw new Error(error.message || "Failed to create subscription");
       }
       return response.json();
@@ -337,11 +352,19 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
       });
     },
     onError: (error: Error) => {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to create subscription",
-        variant: "destructive"
-      });
+      if (error.message === "DUPLICATE_SUBSCRIPTION") {
+        toast({
+          title: "Already Subscribed",
+          description: "You already have an active subscription to this plan",
+          variant: "destructive"
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: error.message || "Failed to create subscription",
+          variant: "destructive"
+        });
+      }
     },
   });
 
@@ -916,6 +939,10 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
                                   <span className="font-medium">
                                     {format(new Date(sub.nextDeliveryDate), "PPP")}
                                   </span>
+                                </div>
+                                <div className="flex justify-between gap-2">
+                                  <span className="text-muted-foreground">Delivery Time:</span>
+                                  <span className="font-medium">{sub.nextDeliveryTime}</span>
                                 </div>
                                 <div className="flex justify-between gap-2">
                                   <span className="text-muted-foreground">Remaining:</span>

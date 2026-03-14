@@ -57,7 +57,16 @@ export function SubscriptionSchedule({ subscriptionId }: SubscriptionSchedulePro
     );
   }
 
-  if (!data) return null;
+  if (!data) {
+    return (
+      <Card>
+        <CardContent className="p-6 text-center">
+          <Calendar className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+          <p className="text-muted-foreground">No schedule available yet. Please ensure your subscription is active.</p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   const { subscription, plan, schedule, remainingDeliveries, totalDeliveries } = data;
 
@@ -91,34 +100,47 @@ export function SubscriptionSchedule({ subscriptionId }: SubscriptionSchedulePro
             </div>
           </div>
 
-          <div className="space-y-2 max-h-96 overflow-y-auto">
-            {schedule.slice(0, 10).map((item, idx) => (
-              <div 
-                key={idx}
-                className={`flex items-center justify-between p-3 rounded-lg border ${
-                  item.status === "delivered" ? "bg-green-50 border-green-200" : "bg-background"
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <Calendar className="w-4 h-4 text-muted-foreground" />
-                  <div>
-                    <p className="font-medium text-sm">
-                      {format(new Date(item.date), "EEE, MMM dd, yyyy")}
-                    </p>
-                    <p className="text-xs text-muted-foreground">{item.time}</p>
-                  </div>
-                </div>
-                {item.status === "delivered" && (
-                  <CheckCircle2 className="w-5 h-5 text-green-600" />
-                )}
+          {schedule && schedule.length > 0 ? (
+            <>
+              <div className="space-y-2 max-h-96 overflow-y-auto">
+                {schedule.slice(0, 10).map((item, idx) => {
+                  // Parse date string to Date object
+                  const itemDate = typeof item.date === 'string' ? new Date(item.date) : item.date;
+                  return (
+                    <div 
+                      key={idx}
+                      className={`flex items-center justify-between p-3 rounded-lg border ${
+                        item.status === "delivered" ? "bg-green-50 border-green-200" : "bg-background"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <Calendar className="w-4 h-4 text-muted-foreground" />
+                        <div>
+                          <p className="font-medium text-sm">
+                            {format(itemDate, "EEE MMM dd yyyy")} — {item.time}
+                          </p>
+                        </div>
+                      </div>
+                      {item.status === "delivered" && (
+                        <CheckCircle2 className="w-5 h-5 text-green-600" />
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-            ))}
-          </div>
 
-          {schedule.length > 10 && (
-            <p className="text-sm text-muted-foreground text-center mt-2">
-              Showing next 10 deliveries
-            </p>
+              {schedule.length > 10 && (
+                <p className="text-sm text-muted-foreground text-center mt-2">
+                  Showing next 10 deliveries
+                </p>
+              )}
+            </>
+          ) : (
+            <div className="text-center py-8">
+              <Calendar className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+              <p className="text-muted-foreground text-sm">No upcoming deliveries scheduled</p>
+              <p className="text-xs text-muted-foreground mt-1">Your delivery schedule will appear here</p>
+            </div>
           )}
         </CardContent>
       </Card>
