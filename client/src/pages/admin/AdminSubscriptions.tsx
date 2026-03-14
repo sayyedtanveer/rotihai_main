@@ -556,7 +556,13 @@ export default function AdminSubscriptions() {
                           onValueChange={(value) => {
                             field.onChange(value);
                             setCurrentFrequency(value);
-                            setSelectedDays([]);
+                            // Auto-select all 7 days for weekly/monthly (they deliver daily)
+                            if (value === "weekly" || value === "monthly") {
+                              setSelectedDays([...DAYS_OF_WEEK]);
+                            } else {
+                              // For daily, also select all 7 days
+                              setSelectedDays([...DAYS_OF_WEEK]);
+                            }
                           }} 
                           value={field.value}
                         >
@@ -596,47 +602,30 @@ export default function AdminSubscriptions() {
                   />
                   <div>
                     <FormLabel>Delivery Days</FormLabel>
-                    {currentFrequency === "monthly" ? (
-                      <div>
-                        <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
-                          Select day(s) of the month (e.g., 1st, 15th)
-                        </p>
-                        <div className="grid grid-cols-5 gap-2 mt-2">
-                          {Array.from({ length: 31 }, (_, i) => i + 1).map(day => (
-                            <button
-                              key={day}
-                              type="button"
-                              onClick={() => toggleMonthDay(day)}
-                              className={`p-2 rounded text-sm font-medium transition-colors ${
-                                selectedDays.includes(String(day))
-                                  ? "bg-blue-500 text-white"
-                                  : "bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600"
-                              }`}
-                              data-testid={`button-day-${day}`}
-                            >
-                              {day}
-                            </button>
-                          ))}
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
+                      {currentFrequency === "monthly" 
+                        ? "Select delivery days (repeated daily for 30 days)"
+                        : currentFrequency === "weekly"
+                        ? "Select delivery days (repeated daily for 7 days)"
+                        : "Select delivery days (daily)"
+                      }
+                    </p>
+                    <div className="grid grid-cols-2 gap-2 mt-2">
+                      {DAYS_OF_WEEK.map(day => (
+                        <div key={day} className="flex items-center space-x-2">
+                          <Switch
+                            checked={selectedDays.includes(day)}
+                            onCheckedChange={() => toggleDay(day)}
+                            data-testid={`switch-day-${day}`}
+                          />
+                          <label className="text-sm capitalize">{day}</label>
                         </div>
-                        {selectedDays.length > 0 && (
-                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
-                            Selected: {selectedDays.join(", ")}
-                          </p>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-2 gap-2 mt-2">
-                        {DAYS_OF_WEEK.map(day => (
-                          <div key={day} className="flex items-center space-x-2">
-                            <Switch
-                              checked={selectedDays.includes(day)}
-                              onCheckedChange={() => toggleDay(day)}
-                              data-testid={`switch-day-${day}`}
-                            />
-                            <label className="text-sm capitalize">{day}</label>
-                          </div>
-                        ))}
-                      </div>
+                      ))}
+                    </div>
+                    {selectedDays.length > 0 && (
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
+                        Selected: {selectedDays.map(d => d.charAt(0).toUpperCase() + d.slice(1)).join(", ")}
+                      </p>
                     )}
                   </div>
                   <FormField
