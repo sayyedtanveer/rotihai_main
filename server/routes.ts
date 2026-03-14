@@ -3766,8 +3766,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const logs = await storage.getSubscriptionDeliveryLogs(req.params.id);
 
+      // Sort logs by date in ascending order (earliest first)
+      const sortedLogs = logs.sort((a, b) => {
+        const dateA = a.date instanceof Date ? a.date.getTime() : new Date(a.date).getTime();
+        const dateB = b.date instanceof Date ? b.date.getTime() : new Date(b.date).getTime();
+        return dateA - dateB;
+      });
+
       // Ensure dates are properly formatted as ISO strings
-      const scheduleItems = logs.map(log => {
+      const scheduleItems = sortedLogs.map(log => {
         const logDate = log.date instanceof Date ? log.date : new Date(log.date);
         return {
           date: logDate.toISOString(),
@@ -3791,7 +3798,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         schedule: scheduleItems,
         remainingDeliveries: subscription.remainingDeliveries,
         totalDeliveries: subscription.totalDeliveries,
-        deliveryHistory: logs.map((log: any) => ({
+        deliveryHistory: sortedLogs.map((log: any) => ({
           ...log,
           date: log.date instanceof Date ? log.date.toISOString() : log.date
         }))
