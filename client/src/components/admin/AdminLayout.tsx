@@ -27,6 +27,7 @@ import {
   Eye, // Import Eye icon for visitor analytics
   MessageSquare, // Import MessageSquare icon for SMS settings
   MapPin, // Import MapPin icon for delivery areas
+  TrendingUp, // PHASE 4: Chef Performance icon
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
@@ -87,6 +88,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     { name: "Users", href: "/admin/users", icon: Users },
     { name: "Notifications", href: "/admin/notifications", icon: Bell },
     { name: "Reports", href: "/admin/reports", icon: BarChart3 },
+    { name: "Chef Performance", href: "/admin/chef-performance", icon: TrendingUp },
   ];
 
   if (adminUser.role === "super_admin") {

@@ -279,3 +279,40 @@ Thank you for ordering with RotiHai!
 
   return true;
 }
+
+/**
+ * Send WhatsApp notification to user when scheduled delivery is missed
+ * Non-blocking, fire-and-forget with graceful error handling
+ */
+export async function sendMissedDeliveryNotification(
+  userId: string,
+  userPhone: string | null | undefined,
+  deliveryDate: string,
+  deliveryTime: string,
+  subscriptionId: string
+): Promise<boolean> {
+  if (!userPhone || typeof userPhone !== "string" || userPhone.trim().length === 0) {
+    console.warn(`⚠️ User phone not configured. Skipping missed delivery notification for user ${userId}`);
+    return false;
+  }
+
+  const message = `
+⚠️ *DELIVERY COULD NOT BE COMPLETED* ⚠️
+
+We apologize! Your scheduled delivery on ${deliveryDate} at ${deliveryTime} could not be completed.
+
+📞 Please contact our support team to reschedule or get assistance.
+
+Subscription ID: ${subscriptionId}
+
+We regret the inconvenience!
+-RotiHai Team
+  `.trim();
+
+  // Non-blocking - fire and forget
+  sendWhatsAppMessage(userPhone, message).catch(error => {
+    console.error(`⚠️ Failed to send missed delivery notification for subscription ${subscriptionId}:`, error);
+  });
+
+  return true;
+}

@@ -1143,6 +1143,71 @@ export class MemStorage implements IStorage {
     return created!;
   }
 
+  /**
+   * PHASE 2: Helper function to sync deliveryHistory when delivery status changes
+   * Ensures both subscriptionDeliveryLogs and subscriptions.deliveryHistory stay in sync
+   * 
+   * @param subscriptionId - ID of the subscription
+   * @param status - New delivery status ("delivered" | "missed" | "skipped")
+   * @param deliveryDate - Date of the delivery (defaults to today)
+   * @param notes - Optional notes about the delivery
+   */
+  async syncDeliveryHistory(
+    subscriptionId: string,
+    status: "delivered" | "missed" | "skipped",
+    deliveryDate?: Date,
+    notes?: string
+  ): Promise<void> {
+    try {
+      const subscription = await this.getSubscription(subscriptionId);
+      if (!subscription) {
+        console.warn(`[SYNC-HISTORY] Subscription ${subscriptionId} not found`);
+        return;
+      }
+
+      const deliveryHistory = (subscription.deliveryHistory as any[]) || [];
+      const today = deliveryDate || new Date();
+
+      // Create new delivery record
+      const newRecord = {
+        date: today.toISOString(),
+        status: status,
+        notes: notes || undefined,
+      };
+
+      // Check if already exists for this date (prevent duplicates)
+      const existingIndex = deliveryHistory.findIndex(
+        (record: any) => {
+          const recordDate = new Date(record.date);
+          recordDate.setHours(0, 0, 0, 0);
+          const compareDate = new Date(today);
+          compareDate.setHours(0, 0, 0, 0);
+          return recordDate.getTime() === compareDate.getTime();
+        }
+      );
+
+      if (existingIndex >= 0) {
+        // Update existing record
+        deliveryHistory[existingIndex] = { ...deliveryHistory[existingIndex], ...newRecord };
+      } else {
+        // Add new record
+        deliveryHistory.push(newRecord);
+      }
+
+      // Update subscription with new deliveryHistory
+      await db.update(subscriptions)
+        .set({
+          deliveryHistory: deliveryHistory,
+          updatedAt: new Date(),
+        })
+        .where(eq(subscriptions.id, subscriptionId));
+
+      console.log(`✅ [SYNC-HISTORY] Synced delivery history for ${subscriptionId}: status=${status}`);
+    } catch (error) {
+      console.error(`❌ [SYNC-HISTORY] Error syncing delivery history:`, error);
+    }
+  }
+
   async updateSubscription(id: string, data: Partial<Subscription>): Promise<Subscription | undefined> {
     // Convert Date objects to ISO strings before updating, since database stores ISO strings
     const updateData: any = { ...data };

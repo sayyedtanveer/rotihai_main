@@ -15,12 +15,13 @@ import { Label } from "@/components/ui/label";
 import type { Category, SubscriptionPlan, InsertSubscriptionPlan, Subscription } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Plus, Pencil, Trash2, Calendar, Users, Settings2, Pause, Play, Package, Clock, Truck, CheckCircle, AlertCircle } from "lucide-react";
+import { Plus, Pencil, Trash2, Calendar, Users, Settings2, Pause, Play, Package, Clock, Truck, CheckCircle, AlertCircle, TrendingDown, Eye } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertSubscriptionPlanSchema } from "@shared/schema";
 import { format } from "date-fns";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Loader2 } from "lucide-react";
 
 const DAYS_OF_WEEK = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 
@@ -97,6 +98,40 @@ export default function AdminSubscriptions() {
     },
     enabled: !!token,
     refetchInterval: 5 * 60 * 1000, // Refetch every 5 minutes
+  });
+
+  // PHASE 3: Fetch missed deliveries
+  const [missedDeliveriesFilter, setMissedDeliveriesFilter] = useState({ dateFrom: "", dateTo: "", chefId: "" });
+  const { data: missedDeliveries, isLoading: missedDeliveriesLoading } = useQuery<any>({
+    queryKey: ["/api/admin/subscriptions/missed-deliveries", missedDeliveriesFilter],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (missedDeliveriesFilter.dateFrom) params.append("dateFrom", missedDeliveriesFilter.dateFrom);
+      if (missedDeliveriesFilter.dateTo) params.append("dateTo", missedDeliveriesFilter.dateTo);
+      if (missedDeliveriesFilter.chefId) params.append("chefId", missedDeliveriesFilter.chefId);
+      
+      const response = await fetch(`/api/admin/subscriptions/missed-deliveries?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) throw new Error("Failed to fetch missed deliveries");
+      return response.json();
+    },
+    enabled: !!token,
+    refetchInterval: 30 * 1000, // Refetch every 30 seconds
+  });
+
+  // PHASE 3: Fetch today's overview
+  const { data: todayOverview, isLoading: todayOverviewLoading } = useQuery<any>({
+    queryKey: ["/api/admin/subscriptions/today"],
+    queryFn: async () => {
+      const response = await fetch("/api/admin/subscriptions/today", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) throw new Error("Failed to fetch today's overview");
+      return response.json();
+    },
+    enabled: !!token,
+    refetchInterval: 60 * 1000, // Refetch every minute
   });
 
   const { data: chefs } = useQuery<Array<{ id: string; name: string; isActive: boolean }>>({
@@ -588,9 +623,11 @@ export default function AdminSubscriptions() {
         </div>
 
         <Tabs defaultValue="plans" className="space-y-4">
-          <TabsList>
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="plans">Subscription Plans</TabsTrigger>
             <TabsTrigger value="active">Active Subscriptions</TabsTrigger>
+            <TabsTrigger value="today">Today Overview</TabsTrigger>
+            <TabsTrigger value="missed">Missed Deliveries</TabsTrigger>
           </TabsList>
 
           <TabsContent value="plans">
@@ -1154,6 +1191,232 @@ export default function AdminSubscriptions() {
                   </div>
                 ) : (
                   <p className="text-center text-slate-600 dark:text-slate-400 py-8">No active subscriptions</p>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* PHASE 3: Today's Overview Tab */}
+          <TabsContent value="today" className="space-y-4">
+            {todayOverviewLoading ? (
+              <Card>
+                <CardContent className="flex items-center justify-center py-12">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                </CardContent>
+              </Card>
+            ) : todayOverview ? (
+              <>
+                {/* Summary Stats */}
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium text-slate-600">Scheduled</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold text-blue-600">{todayOverview.summary?.scheduled || 0}</div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium text-slate-600">Preparing</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold text-yellow-600">{todayOverview.summary?.preparing || 0}</div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium text-slate-600">Out for Delivery</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold text-purple-600">{todayOverview.summary?.out_for_delivery || 0}</div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium text-slate-600">Delivered</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold text-green-600">{todayOverview.summary?.delivered || 0}</div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium text-slate-600 flex items-center gap-1">
+                        <TrendingDown className="w-4 h-4 text-red-600" />
+                        Missed
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold text-red-600">{todayOverview.summary?.missed || 0}</div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Deliveries List */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Calendar className="w-5 h-5" />
+                      Today's Subscription Deliveries ({todayOverview.summary?.total || 0} total)
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {todayOverview.deliveries && todayOverview.deliveries.length > 0 ? (
+                      <div className="space-y-2">
+                        {todayOverview.deliveries.map((delivery: any) => (
+                          <div
+                            key={delivery.logId}
+                            className="border rounded-lg p-3 space-y-2 hover:shadow-sm transition-shadow"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex-1 min-w-0">
+                                <p className="font-medium text-sm">{delivery.planName}</p>
+                                <p className="text-xs text-muted-foreground">{delivery.customerName} • {delivery.chefName}</p>
+                              </div>
+                              <Badge
+                                variant={
+                                  delivery.status === "delivered"
+                                    ? "default"
+                                    : delivery.status === "missed"
+                                    ? "destructive"
+                                    : "secondary"
+                                }
+                              >
+                                {delivery.status?.replace(/_/g, " ")}
+                              </Badge>
+                            </div>
+                            <div className="flex items-center justify-between text-xs text-muted-foreground">
+                              <span>{delivery.deliveryTime} • Remaining: {delivery.remainingDeliveries}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-center text-slate-600 dark:text-slate-400 py-8">No deliveries scheduled for today</p>
+                    )}
+                  </CardContent>
+                </Card>
+              </>
+            ) : null}
+          </TabsContent>
+
+          {/* PHASE 3: Missed Deliveries Tab */}
+          <TabsContent value="missed" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <TrendingDown className="w-5 h-5 text-red-600" />
+                  Missed Deliveries Monitoring
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Filters */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div>
+                    <Label className="text-xs font-medium mb-1 block">From Date</Label>
+                    <Input
+                      type="date"
+                      value={missedDeliveriesFilter.dateFrom}
+                      onChange={(e) => setMissedDeliveriesFilter({ ...missedDeliveriesFilter, dateFrom: e.target.value })}
+                      className="text-sm"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs font-medium mb-1 block">To Date</Label>
+                    <Input
+                      type="date"
+                      value={missedDeliveriesFilter.dateTo}
+                      onChange={(e) => setMissedDeliveriesFilter({ ...missedDeliveriesFilter, dateTo: e.target.value })}
+                      className="text-sm"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs font-medium mb-1 block">Chef</Label>
+                    <Select value={missedDeliveriesFilter.chefId} onValueChange={(value) => setMissedDeliveriesFilter({ ...missedDeliveriesFilter, chefId: value })}>
+                      <SelectTrigger className="text-sm">
+                        <SelectValue placeholder="All Chefs" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">All Chefs</SelectItem>
+                        {chefs?.map((chef) => (
+                          <SelectItem key={chef.id} value={chef.id}>
+                            {chef.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex items-end">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setMissedDeliveriesFilter({ dateFrom: "", dateTo: "", chefId: "" })}
+                      className="w-full"
+                    >
+                      Clear Filters
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Missed Deliveries List */}
+                {missedDeliveriesLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                  </div>
+                ) : missedDeliveries?.data && missedDeliveries.data.length > 0 ? (
+                  <>
+                    <div className="text-sm text-muted-foreground mb-2">
+                      Showing {missedDeliveries.data.length} of {missedDeliveries.total} missed deliveries
+                    </div>
+                    <div className="space-y-2 max-h-96 overflow-y-auto">
+                      {missedDeliveries.data.map((delivery: any) => (
+                        <div
+                          key={delivery.logId}
+                          className="border border-red-200 dark:border-red-900 rounded-lg p-3 bg-red-50 dark:bg-red-950/30 space-y-2"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium text-sm">{delivery.customerName}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {delivery.chefId ? `Chef: ${delivery.chefId}` : "No Chef Assigned"}
+                              </p>
+                            </div>
+                            <Badge variant="destructive" className="flex-shrink-0">MISSED</Badge>
+                          </div>
+                          <div className="text-xs space-y-1 border-t border-red-200 dark:border-red-900 pt-1">
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">Date:</span>
+                              <span className="font-medium">{format(new Date(delivery.deliveryDate), "MMM d, yyyy")}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">Time:</span>
+                              <span className="font-medium">{delivery.deliveryTime || "N/A"}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">Address:</span>
+                              <span className="font-medium text-right">{delivery.address}</span>
+                            </div>
+                            {delivery.notes && (
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Notes:</span>
+                                <span className="text-right italic">{delivery.notes}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Pagination info */}
+                    {missedDeliveries.total > missedDeliveries.limit && (
+                      <div className="text-xs text-muted-foreground pt-2 text-center">
+                        Page {Math.floor(missedDeliveries.offset / missedDeliveries.limit) + 1} of {Math.ceil(missedDeliveries.total / missedDeliveries.limit)}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-center text-slate-600 dark:text-slate-400 py-8">No missed deliveries found</p>
                 )}
               </CardContent>
             </Card>

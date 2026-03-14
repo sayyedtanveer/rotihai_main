@@ -978,7 +978,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (deliveryDays.includes(dayName)) {
           schedule.push({
             date: new Date(currentDate),
-            time: subscription.nextDeliveryTime,
+            time: subscription.nextDeliveryTime || "09:00",
             items: plan.items,
             status: currentDate < new Date() ? "delivered" : "pending"
           });
@@ -998,6 +998,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error("Error fetching subscription schedule:", error);
       res.status(500).json({ message: error.message || "Failed to fetch schedule" });
+    }
+  });
+
+  // PHASE 4: Skip delivery endpoint - user can skip a scheduled delivery
+  app.post("/api/subscriptions/:id/skip-delivery", requireUser(), async (req: AuthenticatedUserRequest, res) => {
+    try {
+      const userId = req.authenticatedUser!.userId;
+      const subscriptionId = req.params.id;
+      const { deliveryDate } = req.body;
+
+      const subscription = await storage.getSubscription(subscriptionId);
+      if (!subscription) {
+        res.status(404).json({ message: "Subscription not found" });
+        return;
+      }
+
+      if (subscription.userId !== userId) {
+        res.status(403).json({ message: "Unauthorized" });
+        return;
+      }
+
+      if (!deliveryDate) {
+        res.status(400).json({ message: "Delivery date is required" });
+        return;
+      }
+
+      const date = new Date(deliveryDate);
+      date.setHours(0, 0, 0, 0);
+
+      // Find or create delivery log for this date
+      const todaysLogs = await storage.getSubscriptionDeliveryLogsByDate(date);
+      let log = todaysLogs.find(l => l.subscriptionId === subscriptionId);
+
+      if (!log) {
+        // Create new delivery log with "skipped" status
+        log = await storage.createSubscriptionDeliveryLog({
+          subscriptionId,
+          date,
+          time: subscription.nextDeliveryTime || "09:00",
+          status: "skipped",
+          notes: "Skipped by user",
+          deliveryPersonId: null,
+        });
+      } else {
+        // Update existing log to "skipped"
+        log = await storage.updateSubscriptionDeliveryLog(log.id, {
+          status: "skipped",
+          notes: "Skipped by user",
+          updatedAt: new Date(),
+        });
+      }
+
+      console.log(`✅ User ${userId} skipped delivery for subscription ${subscriptionId} on ${date.toDateString()}`);
+      
+      res.json({ 
+        message: "Delivery skipped successfully",
+        skippedDelivery: log
+      });
+    } catch (error: any) {
+      console.error("Error skipping delivery:", error);
+      res.status(500).json({ message: error.message || "Failed to skip delivery" });
     }
   });
 

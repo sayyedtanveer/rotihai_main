@@ -740,6 +740,13 @@ export function registerPartnerRoutes(app: Express): void {
         }
 
         await storage.updateSubscription(subscriptionId, subscriptionUpdateData);
+        // PHASE 2: Sync deliveryHistory for delivered orders
+        await storage.syncDeliveryHistory(subscriptionId, "delivered", today, "Delivered by chef");
+      }
+
+      // PHASE 2: Sync deliveryHistory when marked as missed
+      if (status === "missed") {
+        await storage.syncDeliveryHistory(subscriptionId, "missed", today, "Marked as missed by chef");
       }
 
       res.json(deliveryLog);

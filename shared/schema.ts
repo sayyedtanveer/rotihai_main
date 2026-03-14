@@ -296,7 +296,7 @@ export const referralRewards = pgTable("referral_rewards", {
 
 export const subscriptionStatusEnum = pgEnum("subscription_status", ["pending", "active", "paused", "cancelled", "expired"]);
 export const subscriptionFrequencyEnum = pgEnum("subscription_frequency", ["daily", "weekly", "monthly"]);
-export const deliveryLogStatusEnum = pgEnum("delivery_log_status", ["scheduled", "preparing", "out_for_delivery", "delivered", "missed"]);
+export const deliveryLogStatusEnum = pgEnum("delivery_log_status", ["scheduled", "preparing", "out_for_delivery", "delivered", "missed", "skipped"]);
 
 export const subscriptionPlans = pgTable("subscription_plans", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -592,7 +592,7 @@ export const insertSubscriptionDeliveryLogSchema = createInsertSchema(subscripti
   subscriptionId: z.string().min(1, { message: "Subscription ID is required" }),
   date: z.preprocess((arg) => new Date(arg as string), z.date()),
   time: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, { message: "Invalid time format. Use HH:mm." }).default("09:00"),
-  status: z.enum(["scheduled", "preparing", "out_for_delivery", "delivered", "missed"]).default("scheduled"),
+  status: z.enum(["scheduled", "preparing", "out_for_delivery", "delivered", "missed", "skipped"]).default("scheduled"),
   deliveryPersonId: z.string().optional(),
   notes: z.string().optional(),
 }).omit({

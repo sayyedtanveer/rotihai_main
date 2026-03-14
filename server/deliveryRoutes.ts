@@ -3,7 +3,8 @@ import { storage } from "./storage";
 import { hashPassword, verifyPassword, generateDeliveryToken, generateRefreshToken, verifyToken, requireDeliveryAuth, type AuthenticatedDeliveryRequest } from "./deliveryAuth";
 import { deliveryPersonnelLoginSchema, insertDeliveryPersonnelSchema } from "@shared/schema";
 import { broadcastOrderUpdate, notifyDeliveryAssignment, cancelPreparedOrderTimeout } from "./websocket";
-import { sendDeliveryCompletedNotification } from "./whatsappService";
+import { sendDeliveryCompletedNotification, sendMissedDeliveryNotification } from "./whatsappService";
+import { sendMissedDeliveryEmail } from "./emailService";
 import { db, orders } from "@shared/db";
 import { eq } from "drizzle-orm";
 
@@ -677,6 +678,47 @@ export function registerDeliveryRoutes(app: Express) {
           }
 
           await storage.updateSubscription(log.subscriptionId, subscriptionUpdateData);
+          // PHASE 2: Sync deliveryHistory for delivered orders
+          await storage.syncDeliveryHistory(log.subscriptionId, "delivered", log.date, "Delivered by delivery personnel");
+        }
+      }
+
+      // PHASE 2: Sync deliveryHistory when marked as missed
+      if (status === "missed") {
+        const subscription = await storage.getSubscription(log.subscriptionId);
+        if (subscription) {
+          await storage.syncDeliveryHistory(log.subscriptionId, "missed", log.date, "Marked as missed by delivery personnel");
+          
+          // PHASE 4: Send notifications to user
+          try {
+            const user = await storage.getUser(subscription.userId);
+            if (user) {
+              const deliveryDate = log.date.toLocaleDateString("en-IN");
+              const deliveryTime = log.date.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+
+              // Send WhatsApp notification
+              await sendMissedDeliveryNotification(
+                user.id,
+                user.phone,
+                deliveryDate,
+                deliveryTime,
+                log.subscriptionId
+              );
+
+              // Send email notification if available
+              if (user.email) {
+                await sendMissedDeliveryEmail(
+                  user.email,
+                  user.name || "Valued Customer",
+                  deliveryDate,
+                  deliveryTime,
+                  log.subscriptionId
+                );
+              }
+            }
+          } catch (notifyError) {
+            console.warn("⚠️ Failed to send missed delivery notifications:", notifyError);
+          }
         }
       }
 

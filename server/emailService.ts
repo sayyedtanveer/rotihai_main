@@ -194,3 +194,75 @@ export async function sendWelcomeEmail(
     html: createWelcomeEmail(name, phone, password),
   });
 }
+
+/* ============================================
+   MISSED DELIVERY EMAIL TEMPLATE
+============================================ */
+export function createMissedDeliveryEmail(
+  name: string,
+  deliveryDate: string,
+  deliveryTime: string,
+  subscriptionId: string
+) {
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        body { font-family: Arial; line-height:1.6; color:#333; }
+        .container { max-width:600px; margin:0 auto; padding:20px; border: 1px solid #ddd; }
+        .alert { background-color:#fff3cd; border:1px solid #ffc107; padding:15px; border-radius:5px; margin:20px 0; }
+        .details { background-color:#f5f5f5; padding:15px; border-radius:5px; margin:15px 0; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <h2>Delivery Issue - We Apologize ⚠️</h2>
+        <p>Hello <b>${name}</b>,</p>
+        
+        <div class="alert">
+          <p><b>Your scheduled delivery on ${deliveryDate} at ${deliveryTime} could not be completed.</b></p>
+        </div>
+
+        <div class="details">
+          <h3>Delivery Details:</h3>
+          <ul>
+            <li><b>Date:</b> ${deliveryDate}</li>
+            <li><b>Time:</b> ${deliveryTime}</li>
+            <li><b>Subscription ID:</b> ${subscriptionId}</li>
+          </ul>
+        </div>
+
+        <h3>What can you do?</h3>
+        <ul>
+          <li>📞 Contact our support team to reschedule</li>
+          <li>⏭️ Skip this delivery to adjust your schedule</li>
+          <li>💬 Chat with us in the app for immediate assistance</li>
+        </ul>
+
+        <p style="color:#666; font-size:12px; margin-top:30px;">
+          We regret the inconvenience. Thank you for your patience!<br>
+          <b>RotiHai - घर की रोटी</b>
+        </p>
+      </div>
+    </body>
+    </html>
+  `;
+}
+
+/* ============================================
+   SEND MISSED DELIVERY EMAIL
+============================================ */
+export async function sendMissedDeliveryEmail(
+  email: string,
+  name: string,
+  deliveryDate: string,
+  deliveryTime: string,
+  subscriptionId: string
+) {
+  return sendEmail({
+    to: email,
+    subject: "Your Delivery Could Not Be Completed ⚠️",
+    html: createMissedDeliveryEmail(name, deliveryDate, deliveryTime, subscriptionId),
+  });
+}

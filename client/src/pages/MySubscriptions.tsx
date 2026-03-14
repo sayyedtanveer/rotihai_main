@@ -513,9 +513,41 @@ function SubscriptionCard({
   isExpanded,
   onToggle,
 }: SubscriptionCardProps) {
+  const [isSkipping, setIsSkipping] = useState(false);
   const progress = getDeliveryProgress(subscription);
   const nextDelivery = getNextDeliveryInfo(subscription);
   const deliveryHistory = (subscription.deliveryHistory as DeliveryRecord[] | null) || [];
+  const userToken = localStorage.getItem("userToken");
+
+  const handleSkipDelivery = async () => {
+    if (!nextDelivery) return;
+    
+    try {
+      setIsSkipping(true);
+      const response = await fetch(`/api/subscriptions/${subscription.id}/skip-delivery`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${userToken}`,
+        },
+        body: JSON.stringify({
+          deliveryDate: nextDelivery.date.toISOString(),
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to skip delivery");
+      }
+
+      // Refresh subscriptions data
+      queryClient.invalidateQueries({ queryKey: ["/api/subscriptions"] });
+    } catch (error) {
+      console.error("Error skipping delivery:", error);
+      alert("Failed to skip delivery. Please try again.");
+    } finally {
+      setIsSkipping(false);
+    }
+  };
 
   return (
     <Card className="overflow-visible" data-testid={`card-subscription-${subscription.id}`}>
@@ -569,25 +601,44 @@ function SubscriptionCard({
         </div>
 
         {subscription.status === "active" && nextDelivery && (
-          <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-md">
-            <div className="flex-shrink-0">
-              <Calendar className="w-8 h-8 text-primary" />
+          <div className="space-y-3">
+            <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-md">
+              <div className="flex-shrink-0">
+                <Calendar className="w-8 h-8 text-primary" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-medium" data-testid={`text-next-delivery-${subscription.id}`}>
+                  {nextDelivery.isToday
+                    ? "Today"
+                    : nextDelivery.daysUntil === 1
+                    ? "Tomorrow"
+                    : format(nextDelivery.date, "EEEE, MMM d")}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  {nextDelivery.slotName} ({nextDelivery.slotTime})
+                </p>
+              </div>
+              {nextDelivery.isToday && (
+                <Badge variant="secondary">Arriving Soon</Badge>
+              )}
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-medium" data-testid={`text-next-delivery-${subscription.id}`}>
-                {nextDelivery.isToday
-                  ? "Today"
-                  : nextDelivery.daysUntil === 1
-                  ? "Tomorrow"
-                  : format(nextDelivery.date, "EEEE, MMM d")}
-              </p>
-              <p className="text-sm text-muted-foreground">
-                {nextDelivery.slotName} ({nextDelivery.slotTime})
-              </p>
-            </div>
-            {nextDelivery.isToday && (
-              <Badge variant="secondary">Arriving Soon</Badge>
-            )}
+            {/* PHASE 4: Skip Delivery Button */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSkipDelivery}
+              disabled={isSkipping}
+              className="w-full"
+            >
+              {isSkipping ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Skipping...
+                </>
+              ) : (
+                "Skip This Delivery"
+              )}
+            </Button>
           </div>
         )}
 
@@ -695,31 +746,50 @@ function SubscriptionCard({
 
             {deliveryHistory.length > 0 && (
               <div>
-                <div className="flex items-center gap-2 mb-2">
+                <div className="flex items-center gap-2 mb-3">
                   <History className="w-4 h-4 text-muted-foreground" />
                   <span className="font-medium text-sm">Recent Deliveries</span>
+                  <span className="text-xs text-muted-foreground ml-auto">Last 5</span>
                 </div>
                 <div className="space-y-2">
                   {deliveryHistory.slice(-5).reverse().map((delivery, index) => (
                     <div
                       key={index}
-                      className="flex items-center justify-between text-sm p-2 bg-muted/30 rounded"
+                      className={`text-sm p-3 rounded border ${
+                        delivery.status === "missed"
+                          ? "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-900"
+                          : delivery.status === "delivered"
+                          ? "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-900"
+                          : "bg-muted/30 border-muted"
+                      }`}
                     >
-                      <span>{format(new Date(delivery.date), "MMM d, yyyy")}</span>
-                      <Badge
-                        variant={
-                          delivery.status === "delivered"
-                            ? "default"
-                            : delivery.status === "missed"
-                            ? "destructive"
-                            : "secondary"
-                        }
-                      >
-                        {delivery.status}
-                      </Badge>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium">{format(new Date(delivery.date), "MMM d, yyyy")}</span>
+                        <Badge
+                          variant={
+                            delivery.status === "delivered"
+                              ? "default"
+                              : delivery.status === "missed"
+                              ? "destructive"
+                              : "secondary"
+                          }
+                        >
+                          {delivery.status.charAt(0).toUpperCase() + delivery.status.slice(1)}
+                        </Badge>
+                      </div>
+                      {delivery.notes && (
+                        <p className="text-xs text-muted-foreground mt-1 italic">
+                          {delivery.notes}
+                        </p>
+                      )}
                     </div>
                   ))}
                 </div>
+                {deliveryHistory.length > 5 && (
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Showing last 5 of {deliveryHistory.length} deliveries
+                  </p>
+                )}
               </div>
             )}
           </div>
