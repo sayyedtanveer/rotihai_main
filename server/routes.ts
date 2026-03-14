@@ -16,6 +16,29 @@ import { eq } from "drizzle-orm";
 import { ZodError } from "zod";
 import axios from "axios";
 
+// ✅ Constants - Avoid hardcoding enum values
+const DEFAULT_DELIVERY_TIME = "09:00";
+const WEEKDAY_NAMES = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+
+// Subscription status constants
+const SUBSCRIPTION_STATUS = {
+  PENDING: "pending",
+  ACTIVE: "active",
+  PAUSED: "paused",
+  CANCELLED: "cancelled",
+  EXPIRED: "expired",
+} as const;
+
+// Delivery log status constants
+const DELIVERY_LOG_STATUS = {
+  SCHEDULED: "scheduled",
+  PREPARING: "preparing",
+  OUT_FOR_DELIVERY: "out_for_delivery",
+  DELIVERED: "delivered",
+  MISSED: "missed",
+  SKIPPED: "skipped",
+} as const;
+
 // ✅ Helper: Check if date is a scheduled delivery day based on plan frequency
 function isDeliveryDay(date: Date, frequency: string, deliveryDays: string[]): boolean {
   if (!deliveryDays || deliveryDays.length === 0) return false;
@@ -31,6 +54,130 @@ function isDeliveryDay(date: Date, frequency: string, deliveryDays: string[]): b
   }
 
   return false;
+}
+
+// ✅ Helper: Determine actual delivery days format
+function isWeekdayNameFormat(deliveryDays: string[]): boolean {
+  return deliveryDays.some(day => WEEKDAY_NAMES.includes(day.toLowerCase()));
+}
+
+// ✅ Helper: Calculate actual total deliveries for a subscription
+function calculateTotalDeliveries(frequency: string, deliveryDays: string[], durationDays: number, startDate?: Date): number {
+  if (!deliveryDays || deliveryDays.length === 0) {
+    return durationDays; // Fallback: one per day
+  }
+
+  if (frequency === "daily") {
+    return deliveryDays.length > 0 ? Math.floor(durationDays / 7) * deliveryDays.length : durationDays;
+  } 
+  
+  if (frequency === "weekly") {
+    return Math.floor(durationDays / 7) * deliveryDays.length;
+  } 
+  
+  if (frequency === "monthly") {
+    // Check if deliveryDays contains weekday names (misconfigured monthly plan)
+    const hasWeekdayNames = isWeekdayNameFormat(deliveryDays);
+    
+    if (hasWeekdayNames && startDate) {
+      // Count actual weekday occurrences within the duration
+      let count = 0;
+      const currentDate = new Date(startDate);
+      currentDate.setHours(0, 0, 0, 0);
+      
+      const endDate = new Date(startDate);
+      endDate.setDate(endDate.getDate() + durationDays);
+      endDate.setHours(23, 59, 59, 999);
+      
+      while (currentDate <= endDate) {
+        const dayName = currentDate.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+        if (deliveryDays.some(d => d.toLowerCase() === dayName)) {
+          count++;
+        }
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+      return count;
+    } else {
+      // Standard monthly plan with day numbers (["1", "15"])
+      const monthsInDuration = Math.ceil(durationDays / 30);
+      return deliveryDays.length * monthsInDuration;
+    }
+  }
+  
+  return Math.ceil(durationDays / 30);
+}
+
+// ✅ Helper: Generate delivery logs for monthly subscriptions upfront
+async function generateSubscriptionDeliveryLogs(
+  subscription: any,
+  plan: any,
+  startDate: Date,
+  endDate: Date,
+  deliveryTime: string
+): Promise<void> {
+  try {
+    // Only generate logs for monthly plans
+    if (plan.frequency !== "monthly") {
+      return;
+    }
+
+    const deliveryDays = plan.deliveryDays as string[];
+    if (!deliveryDays || deliveryDays.length === 0) {
+      return;
+    }
+
+    // Generate all delivery dates between startDate and endDate
+    const currentDate = new Date(startDate);
+    currentDate.setHours(0, 0, 0, 0);
+
+    const normalizedEndDate = new Date(endDate);
+    normalizedEndDate.setHours(23, 59, 59, 999);
+
+    let logsCreated = 0;
+
+    // Check if deliveryDays contains weekday names (misconfigured monthly plan)
+    // In this case, treat it as a monthly plan with weekly frequency instead
+    const hasWeekdayNames = isWeekdayNameFormat(deliveryDays);
+
+    while (currentDate <= normalizedEndDate) {
+      let shouldCreateLog = false;
+
+      if (hasWeekdayNames) {
+        // If plan uses weekday names, check day of week
+        const dayName = currentDate.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+        shouldCreateLog = deliveryDays.some(d => d.toLowerCase() === dayName);
+      } else {
+        // Otherwise use day-of-month numbers (["1", "15"])
+        shouldCreateLog = isDeliveryDay(currentDate, "monthly", deliveryDays);
+      }
+
+      if (shouldCreateLog) {
+        // Check if log already exists for this date
+        const existingLog = await storage.getDeliveryLogBySubscriptionAndDate(subscription.id, currentDate);
+        
+        if (!existingLog) {
+          await storage.createSubscriptionDeliveryLog({
+            subscriptionId: subscription.id,
+            date: new Date(currentDate), // Create new Date to avoid reference issues
+            time: deliveryTime || DEFAULT_DELIVERY_TIME,
+            status: DELIVERY_LOG_STATUS.SCHEDULED,
+            deliveryPersonId: null,
+            notes: null,
+          });
+          logsCreated++;
+        }
+      }
+
+      // Move to next day
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+
+    if (logsCreated > 0) {
+      console.log(`📋 Generated ${logsCreated} delivery log(s) for monthly subscription ${subscription.id}`);
+    }
+  } catch (error) {
+    console.error("Error generating subscription delivery logs:", error);
+  }
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -994,9 +1141,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (isDeliveryDay(currentDate, plan.frequency, deliveryDays)) {
           schedule.push({
             date: new Date(currentDate),
-            time: subscription.nextDeliveryTime || "09:00",
+            time: subscription.nextDeliveryTime || DEFAULT_DELIVERY_TIME,
             items: plan.items,
-            status: currentDate < new Date() ? "delivered" : "pending"
+            status: currentDate < new Date() ? DELIVERY_LOG_STATUS.DELIVERED : DELIVERY_LOG_STATUS.SCHEDULED
           });
         }
 
@@ -1054,8 +1201,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         log = await storage.createSubscriptionDeliveryLog({
           subscriptionId,
           date,
-          time: subscription.nextDeliveryTime || "09:00",
-          status: "skipped",
+          time: subscription.nextDeliveryTime || DEFAULT_DELIVERY_TIME,
+          status: DELIVERY_LOG_STATUS.SKIPPED,
           notes: skipNote,
           deliveryPersonId: null,
         });
@@ -2516,7 +2663,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         latitude,
         longitude,
         planId,
-        deliveryTime = "09:00",
+        deliveryTime = DEFAULT_DELIVERY_TIME,
         deliverySlotId,
         durationDays = 30
       } = req.body;
@@ -2672,21 +2819,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // ✅ Calculate total deliveries based on frequency and duration
       const deliveryDays = plan.deliveryDays as string[];
-      let totalDeliveries = 0;
-
-      if (plan.frequency === "daily") {
-        totalDeliveries = deliveryDays.length > 0 ? Math.floor(calculatedDurationDays / 7) * deliveryDays.length : calculatedDurationDays;
-      } else if (plan.frequency === "weekly") {
-        totalDeliveries = Math.floor(calculatedDurationDays / 7) * deliveryDays.length;
-      } else if (plan.frequency === "monthly") {
-        // For monthly plans: deliveryDays contains day numbers like ["1", "15"]
-        // Calculate how many months in duration and multiply by days per month
-        const monthsInDuration = Math.ceil(calculatedDurationDays / 30);
-        totalDeliveries = deliveryDays.length * monthsInDuration;
-      } else {
-        // Fallback for any other frequency type
-        totalDeliveries = Math.ceil(calculatedDurationDays / 30);
-      }
+      const totalDeliveries = calculateTotalDeliveries(plan.frequency, deliveryDays, calculatedDurationDays, now);
 
       const subscriptionData: any = {
         userId: user.id,
@@ -2698,7 +2831,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         phone: user.phone || sanitizedPhone,
         email: user.email || (email ? email.trim().toLowerCase() : null),
         address: user.address || (address ? address.trim() : null),
-        status: "pending",
+        status: SUBSCRIPTION_STATUS.PENDING,
         startDate: now,
         endDate,
         nextDeliveryDate: nextDelivery,
@@ -2724,6 +2857,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const subscription = await storage.createSubscription(subscriptionData);
 
       console.log(`✅ Public subscription created: ${subscription.id} for user ${user.id}`);
+
+      // ✅ Generate delivery logs upfront for monthly plans
+      await generateSubscriptionDeliveryLogs(subscription, plan, now, endDate, finalDeliveryTime);
 
       // Broadcast new subscription notification to admin
       broadcastNewSubscriptionToAdmin(subscription, plan.name);
@@ -2910,7 +3046,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.authenticatedUser!.userId;
       const { 
         planId, 
-        deliveryTime = "09:00", 
+        deliveryTime = DEFAULT_DELIVERY_TIME, 
         deliverySlotId, 
         durationDays = 30,
         address,
@@ -3003,21 +3139,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Calculate total deliveries based on frequency and duration
       const deliveryDays = plan.deliveryDays as string[];
-      let totalDeliveries = 0;
-
-      if (plan.frequency === "daily") {
-        totalDeliveries = deliveryDays.length > 0 ? Math.floor(calculatedDurationDays / 7) * deliveryDays.length : calculatedDurationDays;
-      } else if (plan.frequency === "weekly") {
-        totalDeliveries = Math.floor(calculatedDurationDays / 7) * deliveryDays.length;
-      } else if (plan.frequency === "monthly") {
-        // ✅ For monthly plans: deliveryDays contains day numbers like ["1", "15"]
-        // Calculate how many months in duration and multiply by days per month
-        const monthsInDuration = Math.ceil(calculatedDurationDays / 30);
-        totalDeliveries = deliveryDays.length * monthsInDuration;
-      } else {
-        // Fallback for any other frequency type
-        totalDeliveries = Math.ceil(calculatedDurationDays / 30);
-      }
+      const totalDeliveries = calculateTotalDeliveries(plan.frequency, deliveryDays, calculatedDurationDays, now);
 
       // VALIDATION: Ensure nextDelivery is valid before saving
       if (!nextDelivery || isNaN(nextDelivery.getTime())) {
@@ -3043,7 +3165,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         phone: user.phone || "",
         email: user.email || "",
         address: address ? address.trim() : (user.address || ""),
-        status: "pending", // Start as pending until payment is confirmed
+        status: SUBSCRIPTION_STATUS.PENDING, // Start as pending until payment is confirmed
         startDate: now,
         endDate,
         nextDeliveryDate: nextDelivery,
@@ -3104,6 +3226,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log(`✅ Subscription created: ${subscription.id}`);
 
+      // ✅ Generate delivery logs upfront for monthly plans
+      await generateSubscriptionDeliveryLogs(subscription, plan, now, endDate, finalDeliveryTime);
+
       // Broadcast new subscription notification to admin
       broadcastNewSubscriptionToAdmin(subscription, plan.name);
 
@@ -3133,7 +3258,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { pauseStartDate, pauseResumeDate } = req.body;
 
       // Prepare update data
-      const updateData: any = { status: "paused" };
+      const updateData: any = { status: SUBSCRIPTION_STATUS.PAUSED };
 
       if (pauseStartDate) {
         updateData.pauseStartDate = new Date(pauseStartDate);
@@ -3375,7 +3500,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const now = new Date();
       let nextDelivery = new Date(now);
-      let finalDeliveryTime = oldSubscription.nextDeliveryTime || "09:00"; // Use old time as default
+      let finalDeliveryTime = oldSubscription.nextDeliveryTime || DEFAULT_DELIVERY_TIME; // Use old time as default
 
       // If this is a slot-based subscription, calculate the correct next delivery date AND time
       if (oldSubscription.deliverySlotId) {
@@ -3406,21 +3531,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const deliveryDays = plan.deliveryDays as string[];
-      let totalDeliveries = 0;
-      
-      if (plan.frequency === "daily") {
-        totalDeliveries = deliveryDays.length > 0 ? Math.floor(renewalDurationDays / 7) * deliveryDays.length : renewalDurationDays;
-      } else if (plan.frequency === "weekly") {
-        totalDeliveries = Math.floor(renewalDurationDays / 7) * deliveryDays.length;
-      } else if (plan.frequency === "monthly") {
-        // ✅ For monthly plans: deliveryDays contains day numbers like ["1", "15"]
-        // Calculate how many months in duration and multiply by days per month
-        const monthsInDuration = Math.ceil(renewalDurationDays / 30);
-        totalDeliveries = deliveryDays.length * monthsInDuration;
-      } else {
-        // Fallback for any other frequency type
-        totalDeliveries = Math.ceil(renewalDurationDays / 30);
-      }
+      const totalDeliveries = calculateTotalDeliveries(plan.frequency, deliveryDays, 30, now);
 
       const newSubscription = await storage.createSubscription({
         userId,
@@ -3432,7 +3543,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         phone: user.phone || "",
         email: user.email || "",
         address: user.address || "",
-        status: "pending",
+        status: SUBSCRIPTION_STATUS.PENDING,
         startDate: now,
         endDate,
         nextDeliveryDate: nextDelivery,
@@ -3456,6 +3567,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       console.log(`🔄 Subscription renewed for user ${userId} - New subscription ID: ${newSubscription.id}`);
+
+      // ✅ Generate delivery logs upfront for monthly plans
+      await generateSubscriptionDeliveryLogs(newSubscription, plan, now, endDate, finalDeliveryTime);
 
       res.status(201).json(newSubscription);
     } catch (error: any) {
@@ -3533,7 +3647,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         date: log.date,
         time: log.time,
         items: plan.items,
-        status: log.status === "delivered" ? "delivered" : "pending"
+        status: log.status === DELIVERY_LOG_STATUS.DELIVERED ? DELIVERY_LOG_STATUS.DELIVERED : DELIVERY_LOG_STATUS.SCHEDULED
       }));
 
       res.json({
@@ -3763,7 +3877,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!sub.chefId || !sub.chefAssignedAt) return false;
 
         // Must be active and paid
-        if (sub.status !== "active" || !sub.isPaid) return false;
+        if (sub.status !== SUBSCRIPTION_STATUS.ACTIVE || !sub.isPaid) return false;
 
         // Check if assigned more than threshold days ago AND no recent delivery
         const daysSinceAssignment = Math.floor((now.getTime() - new Date(sub.chefAssignedAt).getTime()) / (1000 * 60 * 60 * 24));
@@ -3968,7 +4082,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       for (const subscription of allSubscriptions) {
         // Only process active subscriptions with assigned chef
-        if (subscription.status !== "active" || !subscription.chefId) continue;
+        if (subscription.status !== SUBSCRIPTION_STATUS.ACTIVE || !subscription.chefId) continue;
 
         // Find all non-completed orders for this subscription
         // Since orders don't have subscriptionId, check by deliveryDate/slot matching
