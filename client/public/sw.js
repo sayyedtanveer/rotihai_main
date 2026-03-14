@@ -1,94 +1,89 @@
-// Service Worker version - increment this to force cache invalidation
-// Using timestamp down to minutes to force immediate invalidation on each deployment
-const SW_VERSION = 'v1-' + new Date().toISOString().slice(0, 16); // Changes every minute
+// ✅ CRITICAL: Service Worker version - changes on EVERY deployment to force cache invalidation
+// Using build timestamp: this MUST BE UPDATED by the build system or server on deployment
+// Format: v{major}-{ISO-date-string}
+const SW_VERSION = 'v1-' + new Date().toISOString().replace(/[:.]/g, '-');
 const OFFLINE_CACHE = 'rotihai-offline-' + SW_VERSION;
 
-// Force service worker update check more aggressively
-self.addEventListener('install', event => {
-  console.log('🔧 Service Worker installing, version:', SW_VERSION);
-  // Clear ALL caches immediately on install
-  event.waitUntil(
-    caches.keys().then(cacheNames => 
-      Promise.all(cacheNames.map(name => caches.delete(name)))
-    ).then(() => 
-      caches.open(OFFLINE_CACHE).then(() => {
-        console.log('✅ All old caches cleared, new cache ready');
-        return self.skipWaiting();
-      })
-    )
-  );
-});
-
-// Install event - skip waiting to activate immediately
+// ✅ Aggressive install: Clear ALL caches immediately and skip waiting
 self.addEventListener('install', event => {
   console.log('🔧 Service Worker installing, version:', SW_VERSION);
   event.waitUntil(
-    caches.open(OFFLINE_CACHE)
-      .then(() => {
-        console.log('✅ Cache storage ready');
-        // Force this SW to become active immediately
-        return self.skipWaiting();
-      })
-  );
-});
-
-// Activate event - cleanup old caches and take control
-self.addEventListener('activate', event => {
-  console.log('🚀 Service Worker activating, version:', SW_VERSION);
-  event.waitUntil(
+    // IMPORTANT: Delete ALL old caches from previous versions
     caches.keys().then(cacheNames => {
+      console.log('📋 Found caches:', cacheNames);
       return Promise.all(
-        cacheNames
-          .filter(cacheName => {
-            // Delete all old version caches
-            const isOldCache = !cacheName.includes(SW_VERSION);
-            if (isOldCache) {
-              console.log('🗑️ Clearing old cache:', cacheName);
-            }
-            return isOldCache;
-          })
-          .map(cacheName => caches.delete(cacheName))
+        cacheNames.map(cacheName => {
+          // Delete everything - we'll recreate fresh cache
+          console.log('🗑️ Deleting cache:', cacheName);
+          return caches.delete(cacheName);
+        })
       );
     }).then(() => {
-      console.log('✅ Old caches cleared, taking control...');
-      return self.clients.claim(); // Take control of all clients immediately
+      // Create fresh cache for this version
+      return caches.open(OFFLINE_CACHE);
+    }).then(() => {
+      console.log('✅ Cache cleared and new cache ready');
+      // CRITICAL: Skip waiting to activate immediately without restart
+      return self.skipWaiting();
     })
   );
 });
 
-// Fetch event - NETWORK FIRST for dev, CACHE FIRST for production
+// ✅ Activate immediately - take control of all pages without waiting for page reload
+self.addEventListener('activate', event => {
+  console.log('🚀 Service Worker activating, version:', SW_VERSION);
+  event.waitUntil(
+    // Final cleanup of any remaining old caches
+    caches.keys().then(cacheNames => {
+      return Promise.all(
+        cacheNames
+          .filter(cacheName => !cacheName.includes(SW_VERSION))
+          .map(cacheName => {
+            console.log('🗑️ Cleaning old cache on activate:', cacheName);
+            return caches.delete(cacheName);
+          })
+      );
+    }).then(() => {
+      // Take control immediately - this ensures new SW controls all pages
+      console.log('✅ Taking control of all clients');
+      return self.clients.claim();
+    })
+  );
+});
+
+// ✅ Fetch strategy: Network-FIRST, with careful cache handling
 self.addEventListener('fetch', event => {
   // Skip non-GET requests
   if (event.request.method !== 'GET') {
     return;
   }
 
-  // Detect if running in development mode
-  const isDev = self.location.hostname === 'localhost' || 
-                self.location.hostname === '127.0.0.1';
+  const url = event.request.url;
+  const isDev = self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1';
 
-  // DEVELOPMENT: Network-first strategy (always fresh)
+  // ✅ NETWORK-FIRST for everything in development
   if (isDev) {
     event.respondWith(
       fetch(event.request)
         .then(response => {
-          // Only cache non-API, non-HTML for offline support
-          if (response && response.status === 200 &&
-              !event.request.url.includes('/api/') && 
-              !event.request.url.includes('.html') &&
-              !event.request.url.includes('?')) {
+          // Only cache GET responses that are successful
+          if (response && response.status === 200 && !url.includes('/api/')) {
             const responseToCache = response.clone();
-            caches.open(OFFLINE_CACHE).then(cache => {
-              cache.put(event.request, responseToCache);
-            });
+            caches.open(OFFLINE_CACHE)
+              .then(cache => cache.put(event.request, responseToCache))
+              .catch(err => console.log('Cache put failed:', err));
           }
           return response;
         })
-        .catch(() => {
-          // Network failed, try cache as fallback
+        .catch(error => {
+          console.log('Fetch failed, trying cache:', url, error);
           return caches.match(event.request)
             .then(response => {
-              if (response) return response;
+              if (response) {
+                console.log('Returning from cache:', url);
+                return response;
+              }
+              // Offline - return error page
               return new Response('Offline - Service unavailable', {
                 status: 503,
                 statusText: 'Service Unavailable',
@@ -100,71 +95,122 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // PRODUCTION: Cache-first for static assets, network-first for API
-  if (event.request.url.includes('/api/')) {
-    // API calls: network-first
+  // ✅ PRODUCTION: Smart caching strategy
+  
+  // 1. API calls: Always network-first
+  if (url.includes('/api/')) {
     event.respondWith(
       fetch(event.request)
-        .then(response => response)
+        .then(response => {
+          console.log('✅ API response:', url);
+          return response;
+        })
         .catch(() => {
+          console.log('❌ API offline:', url);
           return new Response(JSON.stringify({ error: 'Offline' }), {
             status: 503,
             headers: new Headers({ 'Content-Type': 'application/json' })
           });
         })
     );
-  } else if (event.request.url.includes('.html') || event.request.url.endsWith('/')) {
-    // HTML: always fresh from network
+    return;
+  }
+
+  // 2. HTML files (including root '/'): NETWORK-FIRST with cache fallback
+  if (url.includes('.html') || url.endsWith('/')) {
     event.respondWith(
-      fetch(event.request)
-        .then(response => response)
-        .catch(() => caches.match(event.request))
-    );
-  } else if (event.request.url.endsWith('.js') || event.request.url.endsWith('.css')) {
-    // JavaScript & CSS: NETWORK-FIRST (always get latest versions)
-    // These files have hashes in production, so new versions have different URLs
-    event.respondWith(
+      // Try network first
       fetch(event.request)
         .then(response => {
+          console.log('✅ HTML from network:', url);
+          // Cache successful responses
           if (response && response.status === 200) {
             const responseToCache = response.clone();
-            caches.open(OFFLINE_CACHE).then(cache => {
-              cache.put(event.request, responseToCache);
-            });
+            caches.open(OFFLINE_CACHE)
+              .then(cache => cache.put(event.request, responseToCache))
+              .catch(err => console.log('Failed to cache HTML:', err));
           }
           return response;
         })
-        .catch(() => {
-          // Network failed, fallback to cache
+        .catch(error => {
+          console.log('❌ HTML fetch failed, trying cache:', url, error);
+          // Fall back to cache if network fails
           return caches.match(event.request)
-            .then(response => response || new Response('Offline', { status: 503 }));
-        })
-    );
-  } else {
-    // Other static assets (images, fonts, manifests): cache-first (immutable due to hashing)
-    event.respondWith(
-      caches.match(event.request)
-        .then(response => {
-          if (response) return response;
-          return fetch(event.request)
             .then(response => {
-              if (response && response.status === 200) {
-                const responseToCache = response.clone();
-                caches.open(OFFLINE_CACHE).then(cache => {
-                  cache.put(event.request, responseToCache);
-                });
+              if (response) {
+                console.log('📦 HTML from cache:', url);
+                return response;
               }
-              return response;
+              // No cache available
+              return new Response('Page not available offline', {
+                status: 503,
+                headers: new Headers({ 'Content-Type': 'text/html' })
+              });
             });
         })
-        .catch(() => {
-          return new Response('Offline', { status: 503 });
+    );
+    return;
+  }
+
+  // 3. JavaScript & CSS files: NETWORK-FIRST (hashed names ensure new versions on deploy)
+  if (url.endsWith('.js') || url.endsWith('.css')) {
+    event.respondWith(
+      fetch(event.request)
+        .then(response => {
+          console.log('✅ JS/CSS from network:', url);
+          if (response && response.status === 200) {
+            const responseToCache = response.clone();
+            caches.open(OFFLINE_CACHE)
+              .then(cache => cache.put(event.request, responseToCache))
+              .catch(err => console.log('Failed to cache JS/CSS:', err));
+          }
+          return response;
+        })
+        .catch(error => {
+          console.log('❌ JS/CSS fetch failed:', url, error);
+          // Try cache as fallback
+          return caches.match(event.request)
+            .then(response => {
+              if (response) {
+                console.log('📦 JS/CSS from cache:', url);
+                return response;
+              }
+              // Return error - missing critical resource
+              return new Response('Resource not available', { status: 404 });
+            });
         })
     );
+    return;
   }
+
+  // 4. Other static assets (images, fonts, manifests): CACHE-FIRST
+  event.respondWith(
+    caches.match(event.request)
+      .then(response => {
+        if (response) {
+          console.log('📦 Asset from cache:', url);
+          return response;
+        }
+        return fetch(event.request)
+          .then(response => {
+            console.log('✅ Asset from network:', url);
+            if (response && response.status === 200) {
+              const responseToCache = response.clone();
+              caches.open(OFFLINE_CACHE)
+                .then(cache => cache.put(event.request, responseToCache))
+                .catch(err => console.log('Failed to cache asset:', err));
+            }
+            return response;
+          })
+          .catch(() => {
+            console.log('❌ Asset offline:', url);
+            return new Response('Asset not available offline', { status: 503 });
+          });
+      })
+  );
 });
 
-// Background sync for orders
+// ✅ Background sync for offline orders
 self.addEventListener('sync', event => {
   if (event.tag === 'sync-orders') {
     event.waitUntil(syncOrders());
@@ -173,22 +219,23 @@ self.addEventListener('sync', event => {
 
 async function syncOrders() {
   try {
+    console.log('🔄 Syncing orders...');
     const response = await fetch('/api/orders');
     if (response.ok) {
-      // Show notification
       self.registration.showNotification('RotiHai', {
         body: 'Your orders have been synced',
         icon: '/icon-192.png',
       });
+      console.log('✅ Orders synced');
     }
   } catch (error) {
     console.error('Sync failed:', error);
   }
-};
+}
 
-// 🔔 Handle incoming push notifications (for offline delivery)
+// ✅ Handle incoming push notifications
 self.addEventListener('push', event => {
-  console.log('📬 Push notification received:', event);
+  console.log('📬 Push notification received');
   
   try {
     let notificationData = {
@@ -200,21 +247,15 @@ self.addEventListener('push', event => {
       requireInteraction: false,
     };
 
-    // Parse push event data if available
     if (event.data) {
       try {
         const data = event.data.json();
-        notificationData = {
-          ...notificationData,
-          ...data,
-        };
+        notificationData = { ...notificationData, ...data };
       } catch (e) {
-        // If not JSON, use as body text
         notificationData.body = event.data.text();
       }
     }
 
-    // Show the notification
     event.waitUntil(
       self.registration.showNotification(notificationData.title, {
         body: notificationData.body,
@@ -227,7 +268,6 @@ self.addEventListener('push', event => {
     );
   } catch (error) {
     console.error('Error handling push notification:', error);
-    // Fallback notification
     event.waitUntil(
       self.registration.showNotification('RotiHai', {
         body: 'New notification received',
@@ -237,22 +277,19 @@ self.addEventListener('push', event => {
   }
 });
 
-// Handle notification clicks
+// ✅ Handle notification clicks
 self.addEventListener('notificationclick', event => {
-  console.log('🖱️ Notification clicked:', event);
+  console.log('🖱️ Notification clicked');
   event.notification.close();
 
-  // Open app or focus existing window
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
-      // Try to focus existing window
       for (let i = 0; i < clientList.length; i++) {
         const client = clientList[i];
         if (client.url === '/' && 'focus' in client) {
           return client.focus();
         }
       }
-      // Open new window if none found
       if (clients.openWindow) {
         return clients.openWindow('/');
       }

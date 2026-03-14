@@ -47,16 +47,47 @@ app.use((req, res, next) => {
       'Expires': '0',
     });
   } else {
-    // Production: Cache static assets, not HTML/API
-    if (req.path.match(/\.(js|css|png|jpg|jpeg|gif|svg|woff|woff2|ttf|eot)$/i)) {
-      // Static assets: cache for 1 year (hashed in build)
-      res.set('Cache-Control', 'public, max-age=31536000, immutable');
-    } else {
-      // HTML and API: no cache
+    // Production: Intelligent caching based on file type
+    
+    // ✅ Service Worker: MUST NOT CACHE - always fresh to enable instant updates
+    if (req.path === '/sw.js') {
+      res.set({
+        'Cache-Control': 'no-cache, must-revalidate, max-age=0',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+      });
+    }
+    // ✅ HTML Files: No cache for proper SPA routing
+    else if (req.path.endsWith('.html') || req.path === '/') {
       res.set({
         'Cache-Control': 'no-cache, no-store, must-revalidate',
         'Pragma': 'no-cache',
         'Expires': '0',
+      });
+    }
+    // ✅ Hashed Static Assets: Cache aggressively (hash changes on every build)
+    else if (req.path.match(/\.(js|css|png|jpg|jpeg|gif|svg|woff|woff2|ttf|eot)$/i)) {
+      // These files have content hashes in production - safe to cache long-term
+      res.set('Cache-Control', 'public, max-age=31536000, immutable');
+    }
+    // ✅ JSON/Manifest: Cache briefly (may change)
+    else if (req.path.match(/\.(json|xml|webmanifest)$/i)) {
+      res.set({
+        'Cache-Control': 'public, max-age=3600', // 1 hour
+      });
+    }
+    // ✅ API Endpoints: Never cache
+    else if (req.path.startsWith('/api/')) {
+      res.set({
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+      });
+    }
+    // ✅ Default for other files: Safe short cache
+    else {
+      res.set({
+        'Cache-Control': 'public, max-age=3600',
       });
     }
   }
