@@ -61,6 +61,44 @@ function isWeekdayNameFormat(deliveryDays: string[]): boolean {
   return deliveryDays.some(day => WEEKDAY_NAMES.includes(day.toLowerCase()));
 }
 
+// ✅ Helper: Calculate NEXT ACTUAL DELIVERY DATE based on plan's frequency and delivery days
+function getNextActualDeliveryDate(fromDate: Date, frequency: string, deliveryDays: string[]): Date {
+  if (!deliveryDays || deliveryDays.length === 0) {
+    return new Date(fromDate); // Fallback: return the from date
+  }
+
+  const checkDate = new Date(fromDate);
+  checkDate.setHours(0, 0, 0, 0);
+
+  const hasWeekdayNames = isWeekdayNameFormat(deliveryDays);
+  const maxIterations = frequency === "monthly" ? 32 : 7; // Check up to 32 days for monthly, 7 for weekly
+  let iterations = 0;
+
+  while (iterations < maxIterations) {
+    let isValidDay = false;
+
+    if (hasWeekdayNames) {
+      // For weekday-named plans (daily/weekly with weekday names)
+      const dayName = checkDate.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+      isValidDay = deliveryDays.some(d => d.toLowerCase() === dayName);
+    } else {
+      // For day-of-month plans (monthly with numbers like ["1", "15"])
+      isValidDay = isDeliveryDay(checkDate, frequency, deliveryDays);
+    }
+
+    if (isValidDay) {
+      return new Date(checkDate);
+    }
+
+    // Move to next day
+    checkDate.setDate(checkDate.getDate() + 1);
+    iterations++;
+  }
+
+  // Fallback: return the from date if no valid day found
+  return new Date(fromDate);
+}
+
 // ✅ Helper: Calculate actual total deliveries for a subscription
 function calculateTotalDeliveries(frequency: string, deliveryDays: string[], durationDays: number, startDate?: Date): number {
   if (!deliveryDays || deliveryDays.length === 0) {
@@ -3167,10 +3205,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.log(`[SUB-CREATE] [5B] After fallback - nextDelivery: ${nextDelivery.toISOString()}`);
         }
       } else {
-        // Non-slot subscriptions default to tomorrow
-        console.log(`[SUB-CREATE] [2B] No slot ID, using default - adding 1 day`);
-        nextDelivery.setDate(nextDelivery.getDate() + 1);
-        console.log(`[SUB-CREATE] [3B] After default - nextDelivery: ${nextDelivery.toISOString()}`);
+        // Non-slot subscriptions: calculate next actual delivery date based on plan's frequency and deliveryDays
+        console.log(`[SUB-CREATE] [2B] No slot ID, calculating next delivery based on plan frequency/days`);
+        const deliveryDays = plan.deliveryDays as string[];
+        nextDelivery = getNextActualDeliveryDate(now, plan.frequency, deliveryDays);
+        console.log(`[SUB-CREATE] [3B] After plan-based calculation - nextDelivery: ${nextDelivery.toISOString()}`);
       }
 
       console.log(`[SUB-CREATE] [7] Final nextDelivery before validation: ${nextDelivery.toISOString()}, year: ${nextDelivery.getFullYear()}, time: ${nextDelivery.getTime()}`);
