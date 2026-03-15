@@ -744,9 +744,28 @@ export default function CheckoutDialog({
       setCustomerName(user.name || "");
       setPhone(user.phone || "");
       setEmail(user.email || "");
-      // Parse structured address if available
+      
+      // ✅ FIX: Parse structured address properly from user profile
       if (user.address) {
-        setAddressBuilding(user.address);
+        try {
+          // Try to parse address as JSON if it's stored as object
+          const parsedAddress = typeof user.address === 'string' 
+            ? JSON.parse(user.address)
+            : user.address;
+          
+          // Extract structured fields from parsed address
+          setAddressBuilding(parsedAddress.building || "");
+          setAddressStreet(parsedAddress.street || "");
+          setAddressArea(parsedAddress.area || "");
+          setAddressCity(parsedAddress.city || "Mumbai");
+          setAddressPincode(parsedAddress.pincode || "");
+          
+          console.log("[CHECKOUT] ✅ Parsed and set address from user profile:", parsedAddress);
+        } catch (error) {
+          // If parsing fails or it's just a plain text address, set as building
+          console.log("[CHECKOUT] Address is plain text or unparseable, setting as building field");
+          setAddressBuilding(user.address);
+        }
       }
 
       // ✅ Restore coordinates from DB if localStorage is empty and we don't have them yet
