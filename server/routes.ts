@@ -1215,232 +1215,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const subscriptionId = req.params.id;
       const { deliveryDate, reason } = req.body;
 
-      console.log(`[SKIP-DELIVERY] Starting skip delivery:`, { subscriptionId, deliveryDate, reason });
+      // 1. Validate request
+      if (!subscriptionId) return res.status(400).json({ message: "Subscription ID required" });
+      if (!deliveryDate) return res.status(400).json({ message: "Delivery date required" });
 
+      // 2. Get subscription
       const subscription = await storage.getSubscription(subscriptionId);
-      console.log(`[SKIP-DELIVERY] Got subscription:`, { subscriptionId, found: !!subscription });
-      
-      if (!subscription) {
-        console.log(`[SKIP-DELIVERY] Subscription not found`);
-        res.status(404).json({ message: "Subscription not found" });
-        return;
-      }
+      if (!subscription) return res.status(404).json({ message: "Subscription not found" });
+      if (subscription.userId !== userId) return res.status(403).json({ message: "Unauthorized" });
 
-      if (subscription.userId !== userId) {
-        console.log(`[SKIP-DELIVERY] Unauthorized: subscription belongs to ${subscription.userId}, request from ${userId}`);
-        res.status(403).json({ message: "Unauthorized" });
-        return;
-      }
-
-      if (!deliveryDate) {
-        console.log(`[SKIP-DELIVERY] Missing deliveryDate`);
-        res.status(400).json({ message: "Delivery date is required" });
-        return;
-      }
-
+      // 3. Parse and validate date
       const date = new Date(deliveryDate);
-      if (isNaN(date.getTime())) {
-        console.error(`[SKIP-DELIVERY] Invalid deliveryDate format: ${deliveryDate}`);
-        res.status(400).json({ message: `Invalid date format: ${deliveryDate}` });
-        return;
-      }
+      if (isNaN(date.getTime())) return res.status(400).json({ message: "Invalid date format" });
       date.setHours(0, 0, 0, 0);
 
-      console.log(`[SKIP-DELIVERY] Parsed delivery date: ${date.toDateString()} from ${deliveryDate}`);
-      
-      // Find or create delivery log for this date
-      const todaysLogs = await storage.getSubscriptionDeliveryLogsByDate(date);
-      console.log(`[SKIP-DELIVERY] Found ${todaysLogs.length} logs for this date`);
-      
-      let log = todaysLogs.find(l => l.subscriptionId === subscriptionId);
-      console.log(`[SKIP-DELIVERY] Found matching log:`, { found: !!log, logId: log?.id });
+      console.log(`[SKIP] User ${userId} skipping delivery for ${subscriptionId} on ${date.toDateString()}`);
 
-      const skipNote = reason ? `Skipped by user: ${reason}` : "Skipped by user";
+      // 4. Create or update delivery log
+      const skipNote = reason ? `Skipped: ${reason}` : "Skipped";
+      const existingLogs = await storage.getSubscriptionDeliveryLogsByDate(date);
+      let log = existingLogs.find(l => l.subscriptionId === subscriptionId);
 
-      if (!log) {
-        // Create new delivery log with "skipped" status
-        console.log(`[SKIP-DELIVERY] Creating new delivery log with skipped status`);
-        log = await storage.createSubscriptionDeliveryLog({
-          subscriptionId,
-          date,
-          time: subscription.nextDeliveryTime || DEFAULT_DELIVERY_TIME,
-          status: DELIVERY_LOG_STATUS.SKIPPED,
-          notes: skipNote,
-          deliveryPersonId: null,
-        });
-        console.log(`[SKIP-DELIVERY] Created new log:`, { logId: log.id });
-      } else {
-        // Update existing log to "skipped"
-        console.log(`[SKIP-DELIVERY] Updating existing log to skipped status:`, { logId: log.id });
+      if (log) {
         log = await storage.updateSubscriptionDeliveryLog(log.id, {
           status: "skipped",
           notes: skipNote,
           updatedAt: new Date(),
         });
-        console.log(`[SKIP-DELIVERY] Updated log:`, { logId: log?.id });
-      }
-
-      // Get user info for notification
-      const user = await storage.getUser(userId);
-
-      // Calculate next delivery date (skip to next scheduled delivery day)
-      const plan = await storage.getSubscriptionPlan(subscription.planId);
-      console.log(`[SKIP-DELIVERY] Got plan:`, { planId: subscription.planId, found: !!plan, planName: plan?.name });
-      
-      if (!plan) {
-        console.error(`[SKIP-DELIVERY] ERROR: Plan not found for planId: ${subscription.planId}`);
-        throw new Error(`Subscription plan not found (planId: ${subscription.planId})`);
-      }
-      
-      if (plan) {
-        const deliveryDays = plan.deliveryDays as string[];
-        let nextDelivery = new Date(subscription.nextDeliveryDate);
-        
-        console.log(`[SKIP-DELIVERY] Plan: ${plan.name} (frequency: ${plan.frequency})`);
-        console.log(`[SKIP-DELIVERY] Delivery days: ${JSON.stringify(deliveryDays)}`);
-        console.log(`[SKIP-DELIVERY] Current nextDeliveryDate: ${nextDelivery.toDateString()}`);
-        
-        // ✅ Universal logic: Check if deliveryDays contains day-of-week names (not date numbers)
-        // This works for ANY plan type (weekly, monthly, or future plans)
-        const weekdayNames = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-        const allWeekdays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-        const isDayBasedPlan = deliveryDays.some(day => weekdayNames.includes(day.toLowerCase()));
-        const isDailyPlan = isDayBasedPlan && allWeekdays.every(day => deliveryDays.includes(day));
-        
-        console.log(`[SKIP-DELIVERY] Is day-based plan: ${isDayBasedPlan}, Is daily plan (all weekdays): ${isDailyPlan}`);
-        
-        if (isDailyPlan) {
-          // ✅ Plan delivers EVERY day → Just shift by 1 day
-          // Works for: 7-day weekly, 30-day monthly, or any daily plan
-          nextDelivery.setDate(nextDelivery.getDate() + 1);
-          console.log(`[SKIP-DELIVERY] Daily plan (delivers every day) - shifted to: ${nextDelivery.toDateString()}`);
-        } else if (isDayBasedPlan) {
-          // ✅ Plan delivers on specific weekdays → Find next matching day
-          // Works for: M-W-F, weekday-only, or any day-of-week based plan
-          nextDelivery.setDate(nextDelivery.getDate() + 1);
-          console.log(`[SKIP-DELIVERY] Specific weekday plan - looking for next matching day from: ${nextDelivery.toDateString()}`);
-
-          let attempts = 0;
-          const maxAttempts = 31; // Search up to 31 days to handle monthly plans
-          while (attempts < maxAttempts) {
-            const dayName = nextDelivery.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
-            const isDeliveryDay = deliveryDays.includes(dayName);
-            
-            console.log(`[SKIP-DELIVERY] Attempt ${attempts}: ${nextDelivery.toDateString()} (${dayName}) → match: ${isDeliveryDay}`);
-            
-            if (isDeliveryDay) {
-              console.log(`[SKIP-DELIVERY] Found next delivery day: ${nextDelivery.toDateString()}`);
-              break;
-            }
-            nextDelivery.setDate(nextDelivery.getDate() + 1);
-            attempts++;
-          }
-        } else {
-          // ✅ Future plan type: deliveryDays might use date numbers (1-31) or other formats
-          // For now, just shift by 1 day as fallback
-          console.log(`[SKIP-DELIVERY] Unknown plan type - using fallback (shift by 1 day)`);
-          nextDelivery.setDate(nextDelivery.getDate() + 1);
-        }
-
-        // Calculate how many days we shifted forward
-        const daysDifference = Math.floor((nextDelivery.getTime() - new Date(subscription.nextDeliveryDate).getTime()) / (1000 * 60 * 60 * 24));
-        console.log(`[SKIP-DELIVERY] Days shifted forward: ${daysDifference}`);
-
-        // ✅ Calculate old end date (before the skip)
-        const oldMaxDate = subscription.endDate || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
-
-        // Extend endDate by the same number of days to keep subscription period consistent
-        let newEndDate = new Date(oldMaxDate);
-        newEndDate.setDate(newEndDate.getDate() + daysDifference);
-        
-        console.log(`[SKIP-DELIVERY] Old endDate: ${oldMaxDate.toDateString()}`);
-        console.log(`[SKIP-DELIVERY] New endDate: ${newEndDate.toDateString()}`);
-
-        // Update subscription with new nextDeliveryDate and extended endDate
-        console.log(`[SKIP-DELIVERY] About to update subscription with:`, {
-          nextDeliveryDate: nextDelivery.toISOString(),
-          endDate: newEndDate.toISOString(),
+      } else {
+        log = await storage.createSubscriptionDeliveryLog({
+          subscriptionId,
+          date,
+          time: subscription.nextDeliveryTime || DEFAULT_DELIVERY_TIME,
+          status: "skipped",
+          notes: skipNote,
+          deliveryPersonId: null,
         });
-        
-        const updateResult = await storage.updateSubscription(subscriptionId, {
-          nextDeliveryDate: nextDelivery,
-          endDate: newEndDate,
-        });
-
-        if (!updateResult) {
-          throw new Error(`Failed to update subscription (subscription returned null/undefined)`);
-        }
-
-        console.log(`[SKIP-DELIVERY] Updated subscription: nextDeliveryDate=${nextDelivery.toDateString()}, endDate=${newEndDate.toDateString()}`);
-
-        // ✅ Create new delivery log(s) for the extended period to maintain total delivery count
-        if (daysDifference > 0) {
-          try {
-            const deliveryDaysArray = plan.deliveryDays as string[];
-            let logDate = new Date(oldMaxDate);
-            logDate.setDate(logDate.getDate() + 1);
-            
-            console.log(`[SKIP-DELIVERY] Creating logs for extended period from ${logDate.toDateString()} to ${newEndDate.toDateString()}`);
-            
-            // Generate logs for each extended day that matches the plan's delivery days
-            while (logDate <= newEndDate) {
-              const dayName = logDate.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
-              // Check if this day is a delivery day (works for all plan types)
-              const isValidDeliveryDay = deliveryDaysArray.includes(dayName);
-              
-              if (isValidDeliveryDay) {
-                // Check if log already exists for this date
-                const existingLog = await storage.getDeliveryLogBySubscriptionAndDate(subscriptionId, logDate);
-                if (!existingLog) {
-                  console.log(`[SKIP-DELIVERY] Creating log for ${logDate.toDateString()}`);
-                  await storage.createSubscriptionDeliveryLog({
-                    subscriptionId,
-                    date: new Date(logDate),
-                    time: subscription.nextDeliveryTime || DEFAULT_DELIVERY_TIME,
-                    status: DELIVERY_LOG_STATUS.SCHEDULED,
-                    deliveryPersonId: null,
-                    notes: "Created to extend subscription after skipping delivery",
-                  });
-                }
-              }
-              
-              logDate.setDate(logDate.getDate() + 1);
-            }
-            console.log(`[SKIP-DELIVERY] Extended logs creation completed`);
-          } catch (logError: any) {
-            console.error(`[SKIP-DELIVERY] Error creating extended logs:`, logError);
-            // Don't fail the entire operation if log creation fails
-            // The subscription has already been updated
-          }
-        }
       }
 
-      // Get the updated subscription to return to client
+      // 5. Calculate next delivery date (simple: just +1 day)
+      let nextDate = new Date(subscription.nextDeliveryDate);
+      nextDate.setDate(nextDate.getDate() + 1);
+
+      // 6. Update subscription
+      await storage.updateSubscription(subscriptionId, {
+        nextDeliveryDate: nextDate,
+      });
+
+      // 7. Get and return updated subscription
       const updatedSubscription = await storage.getSubscription(subscriptionId);
-
-      console.log(`✅ User ${user?.name || userId} skipped delivery for subscription ${subscriptionId} on ${date.toDateString()}`);
-      console.log(`   Reason: ${skipNote}`);
-      console.log(`   Updated nextDeliveryDate: ${updatedSubscription?.nextDeliveryDate}`);
       
-      res.json({ 
+      console.log(`[SKIP] Success: ${subscriptionId} next delivery now ${nextDate.toDateString()}`);
+
+      res.json({
         message: "Delivery skipped successfully",
         skippedDelivery: log,
-        updatedSubscription: updatedSubscription
+        updatedSubscription,
       });
+
     } catch (error: any) {
-      console.error("❌ Error skipping delivery:", error);
-      console.error("Stack trace:", error.stack);
-      console.error("Error message:", error.message);
-      console.error("Full error:", JSON.stringify(error, null, 2));
-      
-      // Return more detailed error in development
-      const isDevelopment = process.env.NODE_ENV === 'development';
-      const errorMessage = isDevelopment ? error.message : "Failed to skip delivery";
-      const errorDetails = isDevelopment ? { originalError: error.message, stack: error.stack } : {};
-      
+      console.error("[SKIP] Error:", error.message);
       res.status(500).json({ 
-        message: errorMessage,
-        ...errorDetails
+        message: `Failed to skip delivery: ${error.message}`
       });
     }
   });

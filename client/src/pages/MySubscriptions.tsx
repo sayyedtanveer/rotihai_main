@@ -587,18 +587,28 @@ function SubscriptionCard({
       console.log("🔄 Skip delivery response:", responseData);
       console.log("📅 Updated subscription nextDeliveryDate:", responseData.updatedSubscription?.nextDeliveryDate);
 
-      // Immediately refetch both queries to ensure fresh data
-      console.log("🔄 Starting refetch of subscriptions...");
-      await queryClient.refetchQueries({ 
-        queryKey: ["/api/subscriptions"]
-      });
-      console.log("✅ Subscriptions refetch complete");
+      // Refetch with error handling
+      try {
+        console.log("🔄 Starting refetch of subscriptions...");
+        await queryClient.refetchQueries({ 
+          queryKey: ["/api/subscriptions"],
+          type: "active"
+        });
+        console.log("✅ Subscriptions refetch complete");
+      } catch (refetchError) {
+        console.warn("⚠️ Error refetching subscriptions:", refetchError);
+      }
       
-      console.log("🔄 Starting refetch of schedule...");
-      await queryClient.refetchQueries({ 
-        queryKey: ["/api/subscriptions", subscription.id, "schedule"]
-      });
-      console.log("✅ Schedule refetch complete");
+      try {
+        console.log("🔄 Starting refetch of schedule...");
+        await queryClient.refetchQueries({ 
+          queryKey: ["/api/subscriptions", subscription.id, "schedule"],
+          type: "active"
+        });
+        console.log("✅ Schedule refetch complete");
+      } catch (refetchError) {
+        console.warn("⚠️ Error refetching schedule:", refetchError);
+      }
       
       setShowSkipConfirm(false);
       setSkipConfirmDelivery(null);
@@ -606,7 +616,8 @@ function SubscriptionCard({
       setCustomReason("");
     } catch (error) {
       console.error("Error skipping delivery:", error);
-      alert("Failed to skip delivery. Please try again.");
+      const errorMsg = error instanceof Error ? error.message : "Failed to skip delivery";
+      alert(`Error: ${errorMsg}. Please try again.`);
     } finally {
       setIsSkipping(false);
     }
