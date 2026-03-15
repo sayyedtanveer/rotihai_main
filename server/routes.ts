@@ -64,10 +64,14 @@ function isWeekdayNameFormat(deliveryDays: string[]): boolean {
 // ✅ Helper: Calculate NEXT ACTUAL DELIVERY DATE based on plan's frequency and delivery days
 function getNextActualDeliveryDate(fromDate: Date, frequency: string, deliveryDays: string[]): Date {
   if (!deliveryDays || deliveryDays.length === 0) {
-    return new Date(fromDate); // Fallback: return the from date
+    // Always return tomorrow, not today
+    const tomorrow = new Date(fromDate);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    return tomorrow;
   }
 
   const checkDate = new Date(fromDate);
+  checkDate.setDate(checkDate.getDate() + 1);  // ✅ START FROM TOMORROW, NOT TODAY
   checkDate.setHours(0, 0, 0, 0);
 
   const hasWeekdayNames = isWeekdayNameFormat(deliveryDays);
@@ -95,8 +99,10 @@ function getNextActualDeliveryDate(fromDate: Date, frequency: string, deliveryDa
     iterations++;
   }
 
-  // Fallback: return the from date if no valid day found
-  return new Date(fromDate);
+  // Fallback: return tomorrow if no valid day found
+  const tomorrow = new Date(fromDate);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  return tomorrow;
 }
 
 // ✅ Helper: Calculate actual total deliveries for a subscription
