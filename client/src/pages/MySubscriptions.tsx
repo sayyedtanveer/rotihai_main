@@ -583,8 +583,9 @@ function SubscriptionCard({
         throw new Error("Failed to skip delivery");
       }
 
-      // Refresh subscriptions data
+      // Refresh subscriptions data and schedule
       queryClient.invalidateQueries({ queryKey: ["/api/subscriptions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/subscriptions", subscription.id, "schedule"] });
       setShowSkipConfirm(false);
       setSkipConfirmDelivery(null);
       setSkipReason("");
