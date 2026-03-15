@@ -324,9 +324,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   };
 
-  const computeSlotCutoffInfo = (slot: any) => {
+  const computeSlotCutoffInfo = (slot: any, forceNextDay: boolean = true) => {
     const now = new Date();
-    console.log(`[CUTOFF] Starting computation - now: ${now.toISOString()}, slot.startTime: ${slot?.startTime}`);
+    console.log(`[CUTOFF] Starting computation - now: ${now.toISOString()}, slot.startTime: ${slot?.startTime}, forceNextDay: ${forceNextDay}`);
 
     const currentHour = now.getHours();
     const [hStr, mStr] = (slot?.startTime || "00:00").split(":");
@@ -362,9 +362,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     let isPastCutoff: boolean;
     let cutoffDate: Date;
 
-    // Logic: If slot time has passed OR we're past the cutoff time, deliver tomorrow
-    if (slotHasPassed || now > todayCutoffTime) {
-      console.log(`[CUTOFF] Past cutoff - scheduling for tomorrow`);
+    // ✅ FIX: For new subscriptions (forceNextDay=true), ALWAYS schedule from tomorrow onwards
+    // For existing order updates, can allow today if before cutoff
+    if (forceNextDay || slotHasPassed || now > todayCutoffTime) {
+      console.log(`[CUTOFF] ${forceNextDay ? 'New subscription - forcing next day' : 'Past cutoff'} - scheduling for tomorrow`);
       // Schedule for tomorrow
       deliveryDate = new Date(todaySlot);
       deliveryDate.setDate(deliveryDate.getDate() + 1);
@@ -2921,7 +2922,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         customerName: user.name || customerName.trim(),
         phone: user.phone || sanitizedPhone,
         email: user.email || (email ? email.trim().toLowerCase() : null),
-        address: user.address || (address ? address.trim() : null),
+        // ✅ FIX: Handle both address objects and strings
+        address: user.address || (address
+          ? typeof address === 'object'
+            ? JSON.stringify(address)
+            : address.trim()
+          : null),
         status: SUBSCRIPTION_STATUS.PENDING,
         startDate: now,
         endDate,
@@ -3220,7 +3226,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(`[SUB-CREATE] [3] Slot lookup result: ${slot ? 'FOUND' : 'NOT FOUND'}`);
         if (slot) {
           console.log(`[SUB-CREATE] [4] Slot details - id: ${slot.id}, startTime: ${slot.startTime}`);
-          const cutoffInfo = computeSlotCutoffInfo(slot);
+          // ✅ FIX: Force next day for subscription creation (never same-day delivery)
+          const cutoffInfo = computeSlotCutoffInfo(slot, true);
           console.log(`[SUB-CREATE] [5] Cutoff info computed - nextAvailableDate: ${cutoffInfo.nextAvailableDate.toISOString()}`);
           nextDelivery = new Date(cutoffInfo.nextAvailableDate);
           finalDeliveryTime = slot.startTime; // Extract time from slot (e.g., "20:00" for 8PM)
@@ -3276,7 +3283,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         customerName: user.name || "",
         phone: user.phone || "",
         email: user.email || "",
-        address: address ? address.trim() : (user.address || ""),
+        // ✅ FIX: Handle both address objects and strings
+        // If address is an object (from SubscriptionAddress), serialize to JSON
+        // If it's already a string, use as-is
+        address: address
+          ? typeof address === 'object'
+            ? JSON.stringify(address)
+            : address.trim()
+          : (user.address || ""),
         status: SUBSCRIPTION_STATUS.PENDING, // Start as pending until payment is confirmed
         startDate: now,
         endDate,
