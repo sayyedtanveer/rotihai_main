@@ -198,9 +198,9 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
     }) => {
       const body: any = { planId, deliverySlotId };
 
-      // Include address data if provided
+      // Include address data if provided - send as object for proper JSON serialization
       if (address) {
-        body.address = `${address.building}, ${address.street}, ${address.area}, ${address.city} - ${address.pincode}`;
+        body.address = address;  // ✅ Send as object, not formatted string
         body.latitude = address.latitude;
         body.longitude = address.longitude;
       }
@@ -280,8 +280,6 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
       email: string;
       address: SubscriptionAddress;
     }) => {
-      const addressString = `${address.building}, ${address.street}, ${address.area}, ${address.city} - ${address.pincode}`;
-
       const response = await fetch("/api/subscriptions/public", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -291,7 +289,7 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
           customerName,
           phone,
           email,
-          address: addressString,
+          address: address,  // ✅ Send as object, not formatted string
           latitude: address.latitude,
           longitude: address.longitude,
         }),

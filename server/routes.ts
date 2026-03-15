@@ -1271,15 +1271,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const oldMaxDate = subscription.endDate || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
         let attempts = 0;
         const maxAttempts = plan.frequency === "monthly" ? 31 : 7;
-        while (attempts < maxAttempts && nextDelivery <= oldMaxDate) {
+        // ✅ FIX: Don't limit search to oldMaxDate - allow finding next delivery day even after current end date
+        while (attempts < maxAttempts) {
           const isDeliveryDayCheck = plan.frequency === "monthly"
             ? deliveryDays.includes(nextDelivery.getDate().toString())
             : deliveryDays.includes(nextDelivery.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase());
           if (isDeliveryDayCheck) {
             break; // Found next scheduled delivery day
-          }
-          if (nextDelivery > oldMaxDate) {
-            break; // Stop if past end date
           }
           nextDelivery.setDate(nextDelivery.getDate() + 1);
           attempts++;
@@ -2977,7 +2975,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       broadcastNewSubscriptionToAdmin(subscription, plan.name);
 
       res.status(201).json({
-        subscription,
+        subscription: {
+          ...subscription,
+          frequency: plan.frequency,  // ✅ Include frequency for frontend use
+        },
         user: {
           id: user.id,
           name: user.name,
@@ -3388,7 +3389,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Broadcast new subscription notification to admin
       broadcastNewSubscriptionToAdmin(subscription, plan.name);
 
-      res.status(201).json(subscription);
+      // ✅ Include frequency in response for frontend use
+      res.status(201).json({
+        ...subscription,
+        frequency: plan.frequency,
+      });
     } catch (error: any) {
       console.error("Error creating subscription:", error);
       res.status(500).json({ message: error.message || "Failed to create subscription" });
@@ -3500,10 +3505,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      // ✅ FIX: Convert endDate to Date before calling toDateString()
+      const originalEndDateStr = subscription.endDate instanceof Date 
+        ? subscription.endDate.toDateString() 
+        : subscription.endDate ? new Date(subscription.endDate).toDateString() : 'N/A';
+      
       console.log(`⏸️ Subscription ${req.params.id} paused`);
       console.log(`   Pause period: ${pauseStartDate.toDateString()} to ${pauseResumeDate?.toDateString() || 'indefinite'}`);
       console.log(`   Pause duration: ${pauseDurationDays} days`);
-      console.log(`   End date extended from ${subscription.endDate?.toDateString()} to ${newEndDate.toDateString()}`);
+      console.log(`   End date extended from ${originalEndDateStr} to ${newEndDate.toDateString()}`);
       console.log(`   Skipped deliveries between pause dates`);
 
       res.json(updated);
