@@ -585,7 +585,11 @@ function SubscriptionCard({
 
       // Refresh subscriptions data and schedule
       queryClient.invalidateQueries({ queryKey: ["/api/subscriptions"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/subscriptions", subscription.id, "schedule"] });
+      // Immediately refetch the schedule query to show updated dates
+      await queryClient.refetchQueries({ 
+        queryKey: ["/api/subscriptions", subscription.id, "schedule"],
+        type: "active"  // Only refetch if currently being used
+      });
       setShowSkipConfirm(false);
       setSkipConfirmDelivery(null);
       setSkipReason("");

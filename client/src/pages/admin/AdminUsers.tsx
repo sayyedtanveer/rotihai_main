@@ -18,7 +18,7 @@ export default function AdminUsers() {
   const { toast } = useToast();
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [deletingUser, setDeletingUser] = useState<User | null>(null);
-  const [formData, setFormData] = useState({ name: "", email: "" });
+  const [formData, setFormData] = useState({ name: "", email: "", phone: "" });
 
   const { data: users, isLoading } = useQuery<User[]>({
     queryKey: ["/api/admin", "users"],
@@ -74,6 +74,7 @@ export default function AdminUsers() {
     setFormData({
       name: existingName,
       email: user.email || "",
+      phone: (user as any).phone || "",
     });
   };
 
@@ -115,6 +116,7 @@ export default function AdminUsers() {
                     <TableRow>
                       <TableHead>Name</TableHead>
                       <TableHead>Email</TableHead>
+                      <TableHead>Mobile</TableHead>
                       <TableHead>Joined</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
@@ -135,6 +137,7 @@ export default function AdminUsers() {
                           </div>
                         </TableCell>
                         <TableCell>{user.email}</TableCell>
+                        <TableCell>{(user as any).phone || "N/A"}</TableCell>
                         <TableCell>{user.createdAt ? format(new Date(user.createdAt), "PP") : "N/A"}</TableCell>
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-2">
@@ -194,6 +197,17 @@ export default function AdminUsers() {
                 value={formData.email}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                 data-testid="input-edit-email"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="phone">Mobile Number</Label>
+              <Input
+                id="phone"
+                type="tel"
+                value={formData.phone}
+                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                placeholder="+91 XXXXXXXXXX"
+                data-testid="input-edit-phone"
               />
             </div>
           </div>
