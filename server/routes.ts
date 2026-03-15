@@ -1300,6 +1300,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
           nextDeliveryDate: nextDelivery,
           endDate: newEndDate,
         });
+
+        // ✅ Create new delivery log(s) for the extended period to maintain total delivery count
+        if (daysDifference > 0) {
+          const deliveryDaysArray = plan.deliveryDays as string[];
+          let logDate = new Date(oldMaxDate);
+          logDate.setDate(logDate.getDate() + 1);
+          
+          // Generate logs for each extended day that matches the plan's delivery days
+          while (logDate <= newEndDate) {
+            const dayName = logDate.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+            const isValidDeliveryDay = plan.frequency === "monthly"
+              ? deliveryDaysArray.includes(logDate.getDate().toString())
+              : deliveryDaysArray.includes(dayName);
+            
+            if (isValidDeliveryDay) {
+              // Check if log already exists for this date
+              const existingLog = await storage.getDeliveryLogBySubscriptionAndDate(subscriptionId, logDate);
+              if (!existingLog) {
+                await storage.createSubscriptionDeliveryLog({
+                  subscriptionId,
+                  date: new Date(logDate),
+                  time: subscription.nextDeliveryTime || DEFAULT_DELIVERY_TIME,
+                  status: DELIVERY_LOG_STATUS.SCHEDULED,
+                  deliveryPersonId: null,
+                  notes: "Created to extend subscription after skipping delivery",
+                });
+              }
+            }
+            
+            logDate.setDate(logDate.getDate() + 1);
+          }
+        }
       }
 
       console.log(`✅ User ${user?.name || userId} skipped delivery for subscription ${subscriptionId} on ${date.toDateString()}`);
@@ -3214,12 +3246,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log(`[SUB-CREATE] [7] Final nextDelivery before validation: ${nextDelivery.toISOString()}, year: ${nextDelivery.getFullYear()}, time: ${nextDelivery.getTime()}`);
 
-      const endDate = new Date(now);
-      endDate.setDate(endDate.getDate() + calculatedDurationDays - 1);  // -1 to get exact duration (e.g., 30 days not 31)
+      // ✅ CRITICAL FIX: Calculate endDate from nextDelivery, not from now
+      // If user subscribes today (now), nextDelivery is tomorrow
+      // For 30-day plan: endDate should be nextDelivery + 29 days (not now + 29 days)
+      // This ensures logs go from nextDelivery to endDate (exactly 30 days, not 29)
+      const endDate = new Date(nextDelivery);
+      endDate.setDate(endDate.getDate() + calculatedDurationDays - 1);  // -1 to get exact duration (e.g., 30 days)
 
       // Calculate total deliveries based on frequency and duration
       const deliveryDays = plan.deliveryDays as string[];
-      const totalDeliveries = calculateTotalDeliveries(plan.frequency, deliveryDays, calculatedDurationDays, now);
+      const totalDeliveries = calculateTotalDeliveries(plan.frequency, deliveryDays, calculatedDurationDays, nextDelivery);
 
       // VALIDATION: Ensure nextDelivery is valid before saving
       if (!nextDelivery || isNaN(nextDelivery.getTime())) {
@@ -3389,6 +3425,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
 
       const updated = await storage.updateSubscription(req.params.id, updateData);
+
+      // ✅ Generate new logs for the extended period to maintain total delivery count
+      if (pauseDurationDays > 0 && pauseResumeDate) {
+        const plan = await storage.getSubscriptionPlan(subscription.planId);
+        if (plan) {
+          const deliveryDaysArray = plan.deliveryDays as string[];
+          let logDate = new Date(currentEndDate);
+          logDate.setDate(logDate.getDate() + 1);
+          
+          // Generate logs for each extended day that matches the plan's delivery days
+          while (logDate <= newEndDate) {
+            const dayName = logDate.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+            const isValidDeliveryDay = plan.frequency === "monthly"
+              ? deliveryDaysArray.includes(logDate.getDate().toString())
+              : deliveryDaysArray.includes(dayName);
+            
+            if (isValidDeliveryDay) {
+              // Check if log already exists for this date
+              const existingLog = await storage.getDeliveryLogBySubscriptionAndDate(subscription.id, logDate);
+              if (!existingLog) {
+                await storage.createSubscriptionDeliveryLog({
+                  subscriptionId: subscription.id,
+                  date: new Date(logDate),
+                  time: subscription.nextDeliveryTime || DEFAULT_DELIVERY_TIME,
+                  status: DELIVERY_LOG_STATUS.SCHEDULED,
+                  deliveryPersonId: null,
+                  notes: "Created to extend subscription after pause period",
+                });
+              }
+            }
+            
+            logDate.setDate(logDate.getDate() + 1);
+          }
+        }
+      }
 
       console.log(`⏸️ Subscription ${req.params.id} paused`);
       console.log(`   Pause period: ${pauseStartDate.toDateString()} to ${pauseResumeDate?.toDateString() || 'indefinite'}`);
