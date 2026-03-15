@@ -8,6 +8,7 @@ import { TooltipProvider } from "@radix-ui/react-tooltip";
 import { DeliveryLocationProvider } from "@/contexts/DeliveryLocationContext";
 import { useAuth } from "@/hooks/useAuth";
 import { useOrderNotifications } from "@/hooks/useOrderNotifications";
+import { useVersionCheck } from "@/hooks/useVersionCheck";
 import Home from "@/pages/Home";
 import MyOrders from "@/pages/MyOrders";
 import MySubscriptions from "@/pages/MySubscriptions";
@@ -164,6 +165,9 @@ function NotificationsWrapper() {
 
 // 🔔 Wrapper component for notifications (must be inside QueryClientProvider)
 function AppContent() {
+  // ✅ Check for new app versions and prompt refresh
+  useVersionCheck();
+
   useEffect(() => {
     // Track visitor on app load - exclude admin, partner, and delivery routes
     const trackVisitor = async () => {

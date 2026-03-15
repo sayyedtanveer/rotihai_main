@@ -1,5 +1,11 @@
 var __defProp = Object.defineProperty;
 var __getOwnPropNames = Object.getOwnPropertyNames;
+var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(x, {
+  get: (a, b) => (typeof require !== "undefined" ? require : a)[b]
+}) : x)(function(x) {
+  if (typeof require !== "undefined") return require.apply(this, arguments);
+  throw Error('Dynamic require of "' + x + '" is not supported');
+});
 var __esm = (fn, res) => function __init() {
   return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
 };
@@ -13,6 +19,7 @@ var schema_exports = {};
 __export(schema_exports, {
   adminLoginSchema: () => adminLoginSchema,
   adminRoleEnum: () => adminRoleEnum,
+  adminSettings: () => adminSettings,
   adminUsers: () => adminUsers,
   cartSettings: () => cartSettings,
   categories: () => categories,
@@ -27,6 +34,7 @@ __export(schema_exports, {
   deliverySettings: () => deliverySettings,
   deliveryTimeSlots: () => deliveryTimeSlots,
   discountTypeEnum: () => discountTypeEnum,
+  insertAdminSettingsSchema: () => insertAdminSettingsSchema,
   insertAdminUserSchema: () => insertAdminUserSchema,
   insertCartSettingSchema: () => insertCartSettingSchema,
   insertCategorySchema: () => insertCategorySchema,
@@ -38,8 +46,10 @@ __export(schema_exports, {
   insertDeliveryTimeSlotsSchema: () => insertDeliveryTimeSlotsSchema,
   insertOrderSchema: () => insertOrderSchema,
   insertPartnerUserSchema: () => insertPartnerUserSchema,
+  insertPendingBroadcastSchema: () => insertPendingBroadcastSchema,
   insertProductSchema: () => insertProductSchema,
   insertPromotionalBannerSchema: () => insertPromotionalBannerSchema,
+  insertPushSubscriptionSchema: () => insertPushSubscriptionSchema,
   insertReferralRewardSchema: () => insertReferralRewardSchema,
   insertReferralSchema: () => insertReferralSchema,
   insertRotiSettingsSchema: () => insertRotiSettingsSchema,
@@ -49,12 +59,15 @@ __export(schema_exports, {
   insertUserSchema: () => insertUserSchema,
   insertVisitorSchema: () => insertVisitorSchema,
   insertWalletTransactionSchema: () => insertWalletTransactionSchema,
+  newsletterSubscribers: () => newsletterSubscribers,
   orders: () => orders,
   partnerLoginSchema: () => partnerLoginSchema,
   partnerUsers: () => partnerUsers,
   paymentStatusEnum: () => paymentStatusEnum,
+  pendingBroadcasts: () => pendingBroadcasts,
   products: () => products,
   promotionalBanners: () => promotionalBanners,
+  pushSubscriptions: () => pushSubscriptions,
   referralRewards: () => referralRewards,
   referrals: () => referrals,
   rotiSettings: () => rotiSettings,
@@ -76,7 +89,7 @@ import { pgTable, text, varchar, integer, decimal, boolean, timestamp, jsonb, in
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import * as crypto from "crypto";
-var adminRoleEnum, sessions, users, adminUsers, partnerUsers, categories, chefs, products, paymentStatusEnum, deliveryPersonnelStatusEnum, deliveryPersonnel, orders, deliverySettings, cartSettings, discountTypeEnum, coupons, couponUsages, referrals, transactionTypeEnum, walletTransactions, walletSettings, referralRewards, subscriptionStatusEnum, subscriptionFrequencyEnum, deliveryLogStatusEnum, subscriptionPlans, subscriptions, subscriptionDeliveryLogs, insertCategorySchema, insertProductSchema, insertChefSchema, orderItemSchema, insertOrderSchema, insertUserSchema, userLoginSchema, insertAdminUserSchema, adminLoginSchema, insertPartnerUserSchema, partnerLoginSchema, insertSubscriptionPlanSchema, promotionalBanners, insertPromotionalBannerSchema, insertSubscriptionSchema, insertDeliverySettingSchema, insertSubscriptionDeliveryLogSchema, insertCartSettingSchema, insertDeliveryPersonnelSchema, deliveryPersonnelLoginSchema, insertCouponSchema, insertReferralSchema, insertWalletTransactionSchema, insertReferralRewardSchema, deliveryTimeSlots, insertDeliveryTimeSlotsSchema, rotiSettings, insertRotiSettingsSchema, visitors, insertVisitorSchema, deliveryAreas, insertDeliveryAreasSchema;
+var adminRoleEnum, sessions, users, adminUsers, partnerUsers, categories, chefs, products, paymentStatusEnum, deliveryPersonnelStatusEnum, deliveryPersonnel, orders, deliverySettings, cartSettings, discountTypeEnum, coupons, couponUsages, referrals, transactionTypeEnum, walletTransactions, walletSettings, referralRewards, subscriptionStatusEnum, subscriptionFrequencyEnum, deliveryLogStatusEnum, subscriptionPlans, subscriptions, subscriptionDeliveryLogs, insertCategorySchema, insertProductSchema, insertChefSchema, orderItemSchema, insertOrderSchema, insertUserSchema, userLoginSchema, insertAdminUserSchema, adminLoginSchema, insertPartnerUserSchema, partnerLoginSchema, insertSubscriptionPlanSchema, promotionalBanners, insertPromotionalBannerSchema, insertSubscriptionSchema, insertDeliverySettingSchema, insertSubscriptionDeliveryLogSchema, insertCartSettingSchema, insertDeliveryPersonnelSchema, deliveryPersonnelLoginSchema, insertCouponSchema, insertReferralSchema, insertWalletTransactionSchema, insertReferralRewardSchema, deliveryTimeSlots, insertDeliveryTimeSlotsSchema, rotiSettings, insertRotiSettingsSchema, visitors, insertVisitorSchema, deliveryAreas, insertDeliveryAreasSchema, adminSettings, insertAdminSettingsSchema, pushSubscriptions, insertPushSubscriptionSchema, newsletterSubscribers, pendingBroadcasts, insertPendingBroadcastSchema;
 var init_schema = __esm({
   "shared/schema.ts"() {
     "use strict";
@@ -102,7 +115,9 @@ var init_schema = __esm({
       walletBalance: integer("wallet_balance").notNull().default(0),
       lastLoginAt: timestamp("last_login_at"),
       createdAt: timestamp("created_at").notNull().defaultNow(),
-      updatedAt: timestamp("updated_at").notNull().defaultNow()
+      updatedAt: timestamp("updated_at").notNull().defaultNow(),
+      latitude: real("latitude"),
+      longitude: real("longitude")
     });
     adminUsers = pgTable("admin_users", {
       id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -130,7 +145,9 @@ var init_schema = __esm({
       description: text("description").notNull(),
       image: text("image").notNull(),
       iconName: text("icon_name").notNull(),
-      itemCount: text("item_count").notNull()
+      itemCount: text("item_count").notNull(),
+      requiresDeliverySlot: boolean("requires_delivery_slot").notNull().default(false),
+      displayOrder: integer("display_order").notNull().default(999)
     });
     chefs = pgTable("chefs", {
       id: text("id").primaryKey(),
@@ -157,8 +174,15 @@ var init_schema = __esm({
       // Fallback fee when no location
       deliveryFeePerKm: integer("delivery_fee_per_km").notNull().default(5),
       // ₹ per km
-      freeDeliveryThreshold: integer("free_delivery_threshold").notNull().default(200)
+      freeDeliveryThreshold: integer("free_delivery_threshold").notNull().default(200),
       // Free delivery above this amount
+      maxDeliveryDistanceKm: integer("max_delivery_distance_km").notNull().default(5),
+      // Max delivery distance in km
+      // Service pincodes - which pincodes this chef serves (pincode-based filtering)
+      servicePincodes: text("service_pincodes").array(),
+      // Array of valid pincodes like ["400070", "400086", "400025"]
+      isVerified: boolean("is_verified").notNull().default(false)
+      // Verified chef badge (verified by platform)
     });
     products = pgTable("products", {
       id: text("id").primaryKey(),
@@ -254,6 +278,9 @@ var init_schema = __esm({
       price: integer("price").notNull(),
       minOrderAmount: integer("min_order_amount").default(0),
       // Minimum order for this range
+      // Pincode field - which pincode this delivery setting applies to
+      pincode: varchar("pincode", { length: 6 }),
+      // Optional: specific pincode (e.g., "400070", "400086")
       isActive: boolean("is_active").notNull().default(true),
       createdAt: timestamp("created_at").notNull().defaultNow(),
       updatedAt: timestamp("updated_at").notNull().defaultNow()
@@ -303,12 +330,16 @@ var init_schema = __esm({
       // User who was referred
       referralCode: varchar("referral_code", { length: 20 }).notNull(),
       status: varchar("status", { length: 20 }).notNull().default("pending"),
-      // pending, completed, expired
+      // pending, completed, expired, approved, cancelled
       referrerBonus: integer("referrer_bonus").notNull().default(0),
       // Bonus amount for referrer
       referredBonus: integer("referred_bonus").notNull().default(0),
       // Bonus amount for referred user
       referredOrderCompleted: boolean("referred_order_completed").notNull().default(false),
+      adminNote: text("admin_note"),
+      // Admin reason for approve/cancel
+      fraudFlag: boolean("fraud_flag").notNull().default(false),
+      // Soft fraud flag set by admin
       createdAt: timestamp("created_at").notNull().defaultNow(),
       completedAt: timestamp("completed_at")
     }, (table) => [
@@ -361,7 +392,7 @@ var init_schema = __esm({
     });
     subscriptionStatusEnum = pgEnum("subscription_status", ["pending", "active", "paused", "cancelled", "expired"]);
     subscriptionFrequencyEnum = pgEnum("subscription_frequency", ["daily", "weekly", "monthly"]);
-    deliveryLogStatusEnum = pgEnum("delivery_log_status", ["scheduled", "preparing", "out_for_delivery", "delivered", "missed"]);
+    deliveryLogStatusEnum = pgEnum("delivery_log_status", ["scheduled", "preparing", "out_for_delivery", "delivered", "missed", "skipped"]);
     subscriptionPlans = pgTable("subscription_plans", {
       id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
       name: text("name").notNull(),
@@ -458,7 +489,9 @@ var init_schema = __esm({
       createdAt: z.date().or(z.string()).optional(),
       updatedAt: z.date().or(z.string()).optional()
     });
-    insertChefSchema = createInsertSchema(chefs).omit({
+    insertChefSchema = createInsertSchema(chefs, {
+      servicePincodes: z.array(z.string().regex(/^\d{5,6}$/, "Pincode must be 5-6 digits")).optional().nullable()
+    }).omit({
       id: true
     });
     orderItemSchema = z.object({
@@ -476,7 +509,9 @@ var init_schema = __esm({
         price: z.number(),
         hotelPrice: z.number().optional(),
         // ← Partner's cost price
-        quantity: z.number()
+        quantity: z.number(),
+        specialInstructions: z.string().optional()
+        // ← Optional cooking instructions
       })),
       status: z.enum([
         "pending",
@@ -628,6 +663,7 @@ var init_schema = __esm({
       minDistance: z.number({ message: "Minimum distance is required" }),
       maxDistance: z.number({ message: "Maximum distance is required" }),
       price: z.number({ message: "Price is required" }),
+      pincode: z.string().regex(/^\d{5,6}$/, { message: "Pincode must be 5-6 digits" }).optional().nullable(),
       isActive: z.boolean().default(true)
     }).omit({
       id: true,
@@ -638,7 +674,7 @@ var init_schema = __esm({
       subscriptionId: z.string().min(1, { message: "Subscription ID is required" }),
       date: z.preprocess((arg) => new Date(arg), z.date()),
       time: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, { message: "Invalid time format. Use HH:mm." }).default("09:00"),
-      status: z.enum(["scheduled", "preparing", "out_for_delivery", "delivered", "missed"]).default("scheduled"),
+      status: z.enum(["scheduled", "preparing", "out_for_delivery", "delivered", "missed", "skipped"]).default("scheduled"),
       deliveryPersonId: z.string().optional(),
       notes: z.string().optional()
     }).omit({
@@ -800,6 +836,9 @@ var init_schema = __esm({
     deliveryAreas = pgTable("delivery_areas", {
       id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
       name: text("name").notNull().unique(),
+      pincodes: text("pincodes").array().default(sql`ARRAY[]::text[]`),
+      latitude: real("latitude"),
+      longitude: real("longitude"),
       isActive: boolean("is_active").notNull().default(true),
       createdAt: timestamp("created_at").notNull().defaultNow(),
       updatedAt: timestamp("updated_at").notNull().defaultNow()
@@ -809,12 +848,78 @@ var init_schema = __esm({
       createdAt: true,
       updatedAt: true
     });
+    adminSettings = pgTable("admin_settings", {
+      id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+      key: varchar("key", { length: 255 }).notNull().unique(),
+      value: text("value").notNull(),
+      description: text("description"),
+      createdAt: timestamp("created_at").notNull().defaultNow(),
+      updatedAt: timestamp("updated_at").notNull().defaultNow()
+    });
+    insertAdminSettingsSchema = createInsertSchema(adminSettings).omit({
+      id: true,
+      createdAt: true,
+      updatedAt: true
+    });
+    pushSubscriptions = pgTable(
+      "push_subscriptions",
+      {
+        id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+        userId: varchar("user_id").notNull(),
+        // Can be admin_id, chef_id, delivery_id, or user_id
+        userType: varchar("user_type", { length: 50 }).notNull(),
+        // 'admin' | 'chef' | 'delivery' | 'customer'
+        deviceType: varchar("device_type", { length: 50 }).default("web"),
+        // Always 'web' for now
+        subscription: jsonb("subscription").notNull(),
+        // Contains: { endpoint, keys: { p256dh, auth } }
+        isActive: boolean("is_active").notNull().default(true),
+        createdAt: timestamp("created_at").notNull().defaultNow(),
+        lastActivatedAt: timestamp("last_activated_at").notNull().defaultNow()
+      },
+      (table) => [
+        index("idx_push_subscriptions_user").on(table.userId, table.userType),
+        index("idx_push_subscriptions_active").on(table.isActive)
+      ]
+    );
+    insertPushSubscriptionSchema = createInsertSchema(pushSubscriptions).omit({
+      id: true,
+      createdAt: true,
+      lastActivatedAt: true
+    });
+    newsletterSubscribers = pgTable("newsletter_subscribers", {
+      id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+      email: varchar("email", { length: 255 }).notNull().unique(),
+      isActive: boolean("is_active").notNull().default(true),
+      subscribedAt: timestamp("subscribed_at").notNull().defaultNow(),
+      unsubscribedAt: timestamp("unsubscribed_at")
+    });
+    pendingBroadcasts = pgTable("pending_broadcasts", {
+      id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+      recipientId: varchar("recipient_id").notNull(),
+      // chefId or deliveryPersonId
+      recipientType: varchar("recipient_type", { length: 20 }).notNull(),
+      // "chef" or "delivery"
+      eventType: varchar("event_type", { length: 50 }).notNull(),
+      // "new_order", "order_update", "new_prepared_order", etc.
+      payload: jsonb("payload").notNull(),
+      // The broadcast message JSON string or object
+      isDelivered: boolean("is_delivered").notNull().default(false),
+      createdAt: timestamp("created_at").notNull().defaultNow()
+    }, (table) => [
+      index("IDX_pending_broadcasts_recipient").on(table.recipientId, table.recipientType, table.isDelivered)
+    ]);
+    insertPendingBroadcastSchema = createInsertSchema(pendingBroadcasts).omit({
+      id: true,
+      createdAt: true
+    });
   }
 });
 
 // shared/db.ts
 var db_exports = {};
 __export(db_exports, {
+  adminSettings: () => adminSettings2,
   adminUsers: () => adminUsers2,
   cartSettings: () => cartSettings2,
   categories: () => categories2,
@@ -826,8 +931,10 @@ __export(db_exports, {
   deliveryPersonnel: () => deliveryPersonnel2,
   deliverySettings: () => deliverySettings2,
   deliveryTimeSlots: () => deliveryTimeSlots2,
+  newsletterSubscribers: () => newsletterSubscribers2,
   orders: () => orders2,
   partnerUsers: () => partnerUsers2,
+  pendingBroadcasts: () => pendingBroadcasts2,
   products: () => products2,
   promotionalBanners: () => promotionalBanners2,
   referralRewards: () => referralRewards2,
@@ -846,7 +953,7 @@ __export(db_exports, {
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { sql as sql2 } from "drizzle-orm";
-var connectionString, pool, db, users2, sessions2, categories2, products2, orders2, chefs2, adminUsers2, partnerUsers2, subscriptions2, subscriptionPlans2, subscriptionDeliveryLogs2, deliverySettings2, cartSettings2, deliveryPersonnel2, coupons2, couponUsages2, referrals2, walletTransactions2, walletSettings2, referralRewards2, promotionalBanners2, deliveryTimeSlots2, rotiSettings2, visitors2, deliveryAreas2;
+var connectionString, pool, db, users2, sessions2, categories2, products2, orders2, chefs2, adminUsers2, partnerUsers2, subscriptions2, subscriptionPlans2, subscriptionDeliveryLogs2, deliverySettings2, cartSettings2, deliveryPersonnel2, coupons2, couponUsages2, referrals2, walletTransactions2, walletSettings2, referralRewards2, promotionalBanners2, deliveryTimeSlots2, rotiSettings2, visitors2, deliveryAreas2, adminSettings2, newsletterSubscribers2, pendingBroadcasts2;
 var init_db = __esm({
   "shared/db.ts"() {
     "use strict";
@@ -884,7 +991,10 @@ var init_db = __esm({
       deliveryTimeSlots: deliveryTimeSlots2,
       rotiSettings: rotiSettings2,
       visitors: visitors2,
-      deliveryAreas: deliveryAreas2
+      deliveryAreas: deliveryAreas2,
+      adminSettings: adminSettings2,
+      newsletterSubscribers: newsletterSubscribers2,
+      pendingBroadcasts: pendingBroadcasts2
     } = schema_exports);
   }
 });
@@ -1002,10 +1112,10 @@ var init_storage = __esm({
         this.subscriptions = /* @__PURE__ */ new Map();
       }
       async getUser(id) {
-        return db.query.users.findFirst({ where: (u, { eq: eq6 }) => eq6(u.id, id) });
+        return db.query.users.findFirst({ where: (u, { eq: eq7 }) => eq7(u.id, id) });
       }
       async getUserByPhone(phone) {
-        return db.query.users.findFirst({ where: (user, { eq: eq6 }) => eq6(user.phone, phone) });
+        return db.query.users.findFirst({ where: (user, { eq: eq7 }) => eq7(user.phone, phone) });
       }
       async createUser(userData) {
         const id = randomUUID2();
@@ -1031,7 +1141,7 @@ var init_storage = __esm({
       }
       async getOrdersByUserId(userId) {
         return db.query.orders.findMany({
-          where: (order, { eq: eq6 }) => eq6(order.userId, userId),
+          where: (order, { eq: eq7 }) => eq7(order.userId, userId),
           orderBy: (order, { desc: desc2 }) => [desc2(order.createdAt)]
         });
       }
@@ -1040,14 +1150,16 @@ var init_storage = __esm({
         return true;
       }
       async getAllCategories() {
-        return db.query.categories.findMany();
+        return db.query.categories.findMany({
+          orderBy: (c, { asc: asc2 }) => [asc2(c.displayOrder)]
+        });
       }
       async getCategoryById(id) {
-        return db.query.categories.findFirst({ where: (c, { eq: eq6 }) => eq6(c.id, id) });
+        return db.query.categories.findFirst({ where: (c, { eq: eq7 }) => eq7(c.id, id) });
       }
       async createCategory(insertCategory) {
         const id = randomUUID2();
-        const category = { ...insertCategory, id };
+        const category = { requiresDeliverySlot: false, displayOrder: 999, ...insertCategory, id };
         await db.insert(categories2).values(category);
         return category;
       }
@@ -1059,14 +1171,21 @@ var init_storage = __esm({
         await db.delete(categories2).where(eq(categories2.id, id));
         return true;
       }
+      async reorderCategories(items) {
+        await db.transaction(async (tx) => {
+          for (const item of items) {
+            await tx.update(categories2).set({ displayOrder: item.displayOrder }).where(eq(categories2.id, item.id));
+          }
+        });
+      }
       async getAllProducts() {
         return db.query.products.findMany();
       }
       async getProductById(id) {
-        return db.query.products.findFirst({ where: (p, { eq: eq6 }) => eq6(p.id, id) });
+        return db.query.products.findFirst({ where: (p, { eq: eq7 }) => eq7(p.id, id) });
       }
       async getProductsByCategoryId(categoryId) {
-        return db.query.products.findMany({ where: (p, { eq: eq6 }) => eq6(p.categoryId, categoryId) });
+        return db.query.products.findMany({ where: (p, { eq: eq7 }) => eq7(p.categoryId, categoryId) });
       }
       async createProduct(insertProduct) {
         const id = randomUUID2();
@@ -1149,7 +1268,7 @@ var init_storage = __esm({
         }
       }
       async getOrderById(id) {
-        return db.query.orders.findFirst({ where: (o, { eq: eq6 }) => eq6(o.id, id) });
+        return db.query.orders.findFirst({ where: (o, { eq: eq7 }) => eq7(o.id, id) });
       }
       async getAllOrders() {
         return db.query.orders.findMany();
@@ -1174,11 +1293,11 @@ var init_storage = __esm({
         }));
       }
       async getChefById(id) {
-        const chef = await db.query.chefs.findFirst({ where: (c, { eq: eq6 }) => eq6(c.id, id) });
+        const chef = await db.query.chefs.findFirst({ where: (c, { eq: eq7 }) => eq7(c.id, id) });
         return chef || null;
       }
       async getChefsByCategory(categoryId) {
-        return db.query.chefs.findMany({ where: (c, { eq: eq6 }) => eq6(c.categoryId, categoryId) });
+        return db.query.chefs.findMany({ where: (c, { eq: eq7 }) => eq7(c.categoryId, categoryId) });
       }
       async createChef(data) {
         const id = nanoid();
@@ -1202,7 +1321,10 @@ var init_storage = __esm({
           isActive: data.isActive !== false,
           defaultDeliveryFee: data.defaultDeliveryFee ?? 20,
           deliveryFeePerKm: data.deliveryFeePerKm ?? 5,
-          freeDeliveryThreshold: data.freeDeliveryThreshold ?? 200
+          freeDeliveryThreshold: data.freeDeliveryThreshold ?? 200,
+          servicePincodes: data.servicePincodes || null,
+          maxDeliveryDistanceKm: data.maxDeliveryDistanceKm ?? 5,
+          isVerified: data.isVerified === true
         };
         await db.insert(chefs2).values(chefData);
         const created = await this.getChefById(id);
@@ -1228,6 +1350,10 @@ var init_storage = __esm({
         if (data.defaultDeliveryFee !== void 0) updateData.defaultDeliveryFee = data.defaultDeliveryFee;
         if (data.deliveryFeePerKm !== void 0) updateData.deliveryFeePerKm = data.deliveryFeePerKm;
         if (data.freeDeliveryThreshold !== void 0) updateData.freeDeliveryThreshold = data.freeDeliveryThreshold;
+        if (data.maxDeliveryDistanceKm !== void 0) updateData.maxDeliveryDistanceKm = data.maxDeliveryDistanceKm;
+        if (data.servicePincodes !== void 0) updateData.servicePincodes = data.servicePincodes;
+        if (data.isVerified !== void 0) updateData.isVerified = data.isVerified;
+        console.log("\u{1F525} updateChef() - Received data:", { id, incomingMaxDeliveryDistanceKm: data.maxDeliveryDistanceKm, servicePincodes: data.servicePincodes, updateData });
         await db.update(chefs2).set(updateData).where(eq(chefs2.id, id));
         const chef = await this.getChefById(id);
         return chef || void 0;
@@ -1237,10 +1363,10 @@ var init_storage = __esm({
         return true;
       }
       async getAdminByUsername(username) {
-        return db.query.adminUsers.findFirst({ where: (admin, { eq: eq6 }) => eq6(admin.username, username) });
+        return db.query.adminUsers.findFirst({ where: (admin, { eq: eq7 }) => eq7(admin.username, username) });
       }
       async getAdminById(id) {
-        return db.query.adminUsers.findFirst({ where: (admin, { eq: eq6 }) => eq6(admin.id, id) });
+        return db.query.adminUsers.findFirst({ where: (admin, { eq: eq7 }) => eq7(admin.id, id) });
       }
       async createAdmin(adminData) {
         const id = randomUUID2();
@@ -1288,7 +1414,7 @@ var init_storage = __esm({
         }
       }
       async getPartnerById(id) {
-        const partner = await db.query.partnerUsers.findFirst({ where: (p, { eq: eq6 }) => eq6(p.id, id) });
+        const partner = await db.query.partnerUsers.findFirst({ where: (p, { eq: eq7 }) => eq7(p.id, id) });
         return partner || null;
       }
       async createPartner(data) {
@@ -1364,7 +1490,7 @@ var init_storage = __esm({
       // Coupons
       async verifyCoupon(code, orderAmount, userId) {
         const coupon = await db.query.coupons.findFirst({
-          where: (coupons3, { eq: eq6, and: and2 }) => and2(eq6(coupons3.code, code.toUpperCase()), eq6(coupons3.isActive, true))
+          where: (coupons3, { eq: eq7, and: and3 }) => and3(eq7(coupons3.code, code.toUpperCase()), eq7(coupons3.isActive, true))
         });
         if (!coupon) throw new Error("Invalid coupon code");
         console.log("\u{1F9FE} Coupon validity check:", {
@@ -1388,7 +1514,7 @@ var init_storage = __esm({
         }
         if (userId && coupon.perUserLimit) {
           const userUsageCount = await db.query.couponUsages.findMany({
-            where: (usages, { eq: eq6, and: and2 }) => and2(eq6(usages.couponId, coupon.id), eq6(usages.userId, userId))
+            where: (usages, { eq: eq7, and: and3 }) => and3(eq7(usages.couponId, coupon.id), eq7(usages.userId, userId))
           });
           if (userUsageCount.length >= coupon.perUserLimit) {
             throw new Error(`You have already used this coupon ${coupon.perUserLimit} time(s)`);
@@ -1411,7 +1537,7 @@ var init_storage = __esm({
       }
       async recordCouponUsage(code, userId, orderId) {
         const coupon = await db.query.coupons.findFirst({
-          where: (coupons3, { eq: eq6 }) => eq6(coupons3.code, code.toUpperCase())
+          where: (coupons3, { eq: eq7 }) => eq7(coupons3.code, code.toUpperCase())
         });
         if (coupon) {
           await db.insert(couponUsages2).values({
@@ -1426,7 +1552,7 @@ var init_storage = __esm({
       }
       async incrementCouponUsage(code) {
         const coupon = await db.query.coupons.findFirst({
-          where: (coupons3, { eq: eq6 }) => eq6(coupons3.code, code.toUpperCase())
+          where: (coupons3, { eq: eq7 }) => eq7(coupons3.code, code.toUpperCase())
         });
         if (coupon) {
           await db.update(coupons2).set({ usedCount: coupon.usedCount + 1 }).where(eq(coupons2.code, code.toUpperCase()));
@@ -1434,13 +1560,13 @@ var init_storage = __esm({
       }
       async getCouponUserUsage(couponId, userId) {
         const usages = await db.query.couponUsages.findMany({
-          where: (usages2, { eq: eq6, and: and2 }) => and2(eq6(usages2.couponId, couponId), eq6(usages2.userId, userId))
+          where: (usages2, { eq: eq7, and: and3 }) => and3(eq7(usages2.couponId, couponId), eq7(usages2.userId, userId))
         });
         return usages.length;
       }
       async getCouponByCode(code) {
         const coupon = await db.query.coupons.findFirst({
-          where: (coupons3, { eq: eq6 }) => eq6(coupons3.code, code.toUpperCase())
+          where: (coupons3, { eq: eq7 }) => eq7(coupons3.code, code.toUpperCase())
         });
         if (!coupon) return null;
         return {
@@ -1463,7 +1589,7 @@ var init_storage = __esm({
         return db.query.subscriptionPlans.findMany();
       }
       async getSubscriptionPlan(id) {
-        return db.query.subscriptionPlans.findFirst({ where: (sp, { eq: eq6 }) => eq6(sp.id, id) });
+        return db.query.subscriptionPlans.findFirst({ where: (sp, { eq: eq7 }) => eq7(sp.id, id) });
       }
       async createSubscriptionPlan(data) {
         const id = randomUUID2();
@@ -1489,7 +1615,7 @@ var init_storage = __esm({
         return subs.map(serializeSubscription);
       }
       async getSubscription(id) {
-        const sub = await db.query.subscriptions.findFirst({ where: (s, { eq: eq6 }) => eq6(s.id, id) });
+        const sub = await db.query.subscriptions.findFirst({ where: (s, { eq: eq7 }) => eq7(s.id, id) });
         if (sub) {
           console.log(`
 [DB-DEBUG] getSubscription(${id}) - Raw DB response:`);
@@ -1550,6 +1676,52 @@ var init_storage = __esm({
         const created = await this.getSubscription(id);
         return created;
       }
+      /**
+       * PHASE 2: Helper function to sync deliveryHistory when delivery status changes
+       * Ensures both subscriptionDeliveryLogs and subscriptions.deliveryHistory stay in sync
+       * 
+       * @param subscriptionId - ID of the subscription
+       * @param status - New delivery status ("delivered" | "missed" | "skipped")
+       * @param deliveryDate - Date of the delivery (defaults to today)
+       * @param notes - Optional notes about the delivery
+       */
+      async syncDeliveryHistory(subscriptionId, status, deliveryDate, notes) {
+        try {
+          const subscription = await this.getSubscription(subscriptionId);
+          if (!subscription) {
+            console.warn(`[SYNC-HISTORY] Subscription ${subscriptionId} not found`);
+            return;
+          }
+          const deliveryHistory = subscription.deliveryHistory || [];
+          const today = deliveryDate || /* @__PURE__ */ new Date();
+          const newRecord = {
+            date: today.toISOString(),
+            status,
+            notes: notes || void 0
+          };
+          const existingIndex = deliveryHistory.findIndex(
+            (record) => {
+              const recordDate = new Date(record.date);
+              recordDate.setHours(0, 0, 0, 0);
+              const compareDate = new Date(today);
+              compareDate.setHours(0, 0, 0, 0);
+              return recordDate.getTime() === compareDate.getTime();
+            }
+          );
+          if (existingIndex >= 0) {
+            deliveryHistory[existingIndex] = { ...deliveryHistory[existingIndex], ...newRecord };
+          } else {
+            deliveryHistory.push(newRecord);
+          }
+          await db.update(subscriptions2).set({
+            deliveryHistory,
+            updatedAt: /* @__PURE__ */ new Date()
+          }).where(eq(subscriptions2.id, subscriptionId));
+          console.log(`\u2705 [SYNC-HISTORY] Synced delivery history for ${subscriptionId}: status=${status}`);
+        } catch (error) {
+          console.error(`\u274C [SYNC-HISTORY] Error syncing delivery history:`, error);
+        }
+      }
       async updateSubscription(id, data) {
         const updateData = { ...data };
         console.log(`[UPDATE-SUB] Starting update for subscription ${id}`);
@@ -1583,15 +1755,15 @@ var init_storage = __esm({
         return true;
       }
       async getSubscriptionsByUserId(userId) {
-        const subs = await db.query.subscriptions.findMany({ where: (s, { eq: eq6 }) => eq6(s.userId, userId) });
+        const subs = await db.query.subscriptions.findMany({ where: (s, { eq: eq7 }) => eq7(s.userId, userId) });
         return subs.map(serializeSubscription);
       }
       // Get active subscriptions count for a chef
       async getActiveSubscriptionCountByChef(chefId) {
         const result = await db.query.subscriptions.findMany({
-          where: (s, { and: and2, eq: eq6 }) => and2(
-            eq6(s.chefId, chefId),
-            eq6(s.status, "active")
+          where: (s, { and: and3, eq: eq7 }) => and3(
+            eq7(s.chefId, chefId),
+            eq7(s.status, "active")
           )
         });
         return result.length;
@@ -1599,9 +1771,9 @@ var init_storage = __esm({
       // Find the best available chef for a category (load balancing)
       async findBestChefForCategory(categoryId) {
         const activeChefs = await db.query.chefs.findMany({
-          where: (c, { and: and2, eq: eq6 }) => and2(
-            eq6(c.categoryId, categoryId),
-            eq6(c.isActive, true)
+          where: (c, { and: and3, eq: eq7 }) => and3(
+            eq7(c.categoryId, categoryId),
+            eq7(c.isActive, true)
           )
         });
         if (activeChefs.length === 0) {
@@ -1629,9 +1801,9 @@ var init_storage = __esm({
       // Get active subscriptions by chef
       async getActiveSubscriptionsByChef(chefId) {
         const subs = await db.query.subscriptions.findMany({
-          where: (s, { and: and2, eq: eq6 }) => and2(
-            eq6(s.chefId, chefId),
-            eq6(s.status, "active")
+          where: (s, { and: and3, eq: eq7 }) => and3(
+            eq7(s.chefId, chefId),
+            eq7(s.status, "active")
           )
         });
         return subs.map(serializeSubscription);
@@ -1639,7 +1811,7 @@ var init_storage = __esm({
       // Subscription Delivery Logs
       async getSubscriptionDeliveryLogs(subscriptionId) {
         return db.query.subscriptionDeliveryLogs.findMany({
-          where: (log3, { eq: eq6 }) => eq6(log3.subscriptionId, subscriptionId),
+          where: (log3, { eq: eq7 }) => eq7(log3.subscriptionId, subscriptionId),
           orderBy: (log3, { desc: desc2 }) => [desc2(log3.date)]
         });
       }
@@ -1649,14 +1821,14 @@ var init_storage = __esm({
         const endOfDay = new Date(date);
         endOfDay.setHours(23, 59, 59, 999);
         return db.query.subscriptionDeliveryLogs.findMany({
-          where: (log3, { and: and2, gte: gte2, lte: lte2 }) => and2(
+          where: (log3, { and: and3, gte: gte2, lte: lte2 }) => and3(
             gte2(log3.date, startOfDay),
             lte2(log3.date, endOfDay)
           )
         });
       }
       async getSubscriptionDeliveryLog(id) {
-        return db.query.subscriptionDeliveryLogs.findFirst({ where: (log3, { eq: eq6 }) => eq6(log3.id, id) });
+        return db.query.subscriptionDeliveryLogs.findFirst({ where: (log3, { eq: eq7 }) => eq7(log3.id, id) });
       }
       async createSubscriptionDeliveryLog(data) {
         const id = randomUUID2();
@@ -1692,8 +1864,8 @@ var init_storage = __esm({
         const endOfDay = new Date(date);
         endOfDay.setHours(23, 59, 59, 999);
         return db.query.subscriptionDeliveryLogs.findFirst({
-          where: (log3, { and: and2, eq: eq6, gte: gte2, lte: lte2 }) => and2(
-            eq6(log3.subscriptionId, subscriptionId),
+          where: (log3, { and: and3, eq: eq7, gte: gte2, lte: lte2 }) => and3(
+            eq7(log3.subscriptionId, subscriptionId),
             gte2(log3.date, startOfDay),
             lte2(log3.date, endOfDay)
           )
@@ -1781,10 +1953,39 @@ var init_storage = __esm({
         };
       }
       async getDeliverySettings() {
-        return db.query.deliverySettings.findMany({ where: (ds, { eq: eq6 }) => eq6(ds.isActive, true) });
+        return db.query.deliverySettings.findMany({ where: (ds, { eq: eq7 }) => eq7(ds.isActive, true) });
       }
       async getDeliverySetting(id) {
-        return db.query.deliverySettings.findFirst({ where: (ds, { eq: eq6 }) => eq6(ds.id, id) });
+        return db.query.deliverySettings.findFirst({ where: (ds, { eq: eq7 }) => eq7(ds.id, id) });
+      }
+      // NEW: Get delivery settings filtered by pincode
+      async getDeliverySettingsByPincode(pincode) {
+        return db.query.deliverySettings.findMany({
+          where: (ds, { eq: eq7, and: and3, or: or2, isNull: isNull2 }) => and3(
+            eq7(ds.isActive, true),
+            or2(
+              eq7(ds.pincode, pincode),
+              // Exact pincode match
+              isNull2(ds.pincode)
+              // Settings with no pincode (apply to all)
+            )
+          )
+        });
+      }
+      // NEW: Get best matching delivery setting for pincode and distance
+      async getDeliverySettingByPincodeAndDistance(pincode, distance) {
+        const settings = await this.getDeliverySettingsByPincode(pincode);
+        for (const setting of settings) {
+          const minDist = parseFloat(String(setting.minDistance));
+          const maxDist = parseFloat(String(setting.maxDistance));
+          if (distance >= minDist && distance <= maxDist) {
+            return setting;
+          }
+        }
+        if (settings.length > 0) {
+          return settings[0];
+        }
+        return void 0;
       }
       async createDeliverySetting(data) {
         const id = randomUUID2();
@@ -1805,10 +2006,10 @@ var init_storage = __esm({
         await db.delete(deliverySettings2).where(eq(deliverySettings2.id, id));
       }
       async getCartSettings() {
-        return db.query.cartSettings.findMany({ where: (cs, { eq: eq6 }) => eq6(cs.isActive, true) });
+        return db.query.cartSettings.findMany({ where: (cs, { eq: eq7 }) => eq7(cs.isActive, true) });
       }
       async getCartSettingByCategoryId(categoryId) {
-        return db.query.cartSettings.findFirst({ where: (cs, { eq: eq6 }) => eq6(cs.categoryId, categoryId) });
+        return db.query.cartSettings.findFirst({ where: (cs, { eq: eq7 }) => eq7(cs.categoryId, categoryId) });
       }
       async createCartSetting(data) {
         const id = randomUUID2();
@@ -1839,16 +2040,16 @@ var init_storage = __esm({
           }
         }
         await db.update(cartSettings2).set({ ...updateData, updatedAt: /* @__PURE__ */ new Date() }).where(eq(cartSettings2.id, id));
-        return db.query.cartSettings.findFirst({ where: (cs, { eq: eq6 }) => eq6(cs.id, id) });
+        return db.query.cartSettings.findFirst({ where: (cs, { eq: eq7 }) => eq7(cs.id, id) });
       }
       async deleteCartSetting(id) {
         await db.delete(cartSettings2).where(eq(cartSettings2.id, id));
       }
       async getDeliveryPersonnelByPhone(phone) {
-        return db.query.deliveryPersonnel.findFirst({ where: (dp, { eq: eq6 }) => eq6(dp.phone, phone) });
+        return db.query.deliveryPersonnel.findFirst({ where: (dp, { eq: eq7 }) => eq7(dp.phone, phone) });
       }
       async getDeliveryPersonnelById(id) {
-        return db.query.deliveryPersonnel.findFirst({ where: (dp, { eq: eq6 }) => eq6(dp.id, id) });
+        return db.query.deliveryPersonnel.findFirst({ where: (dp, { eq: eq7 }) => eq7(dp.id, id) });
       }
       async getDeliveryPersonnel(id) {
         return this.getDeliveryPersonnelById(id);
@@ -1858,7 +2059,7 @@ var init_storage = __esm({
       }
       async getAvailableDeliveryPersonnel() {
         return db.query.deliveryPersonnel.findMany({
-          where: (dp, { eq: eq6 }) => eq6(dp.isActive, true),
+          where: (dp, { eq: eq7 }) => eq7(dp.isActive, true),
           orderBy: (dp, { asc: asc2 }) => [asc2(dp.status)]
           // Show "available" first
         });
@@ -2023,7 +2224,7 @@ var init_storage = __esm({
             throw new Error("Referral system is currently disabled");
           }
           const referrer = await tx.query.users.findFirst({
-            where: (u, { eq: eq6 }) => eq6(u.referralCode, referralCode)
+            where: (u, { eq: eq7 }) => eq7(u.referralCode, referralCode)
           });
           if (!referrer) {
             throw new Error("Invalid referral code");
@@ -2032,13 +2233,13 @@ var init_storage = __esm({
             throw new Error("You cannot use your own referral code");
           }
           const newUser = await tx.query.users.findFirst({
-            where: (u, { eq: eq6 }) => eq6(u.id, newUserId)
+            where: (u, { eq: eq7 }) => eq7(u.id, newUserId)
           });
           if (!newUser) {
             throw new Error("User not found");
           }
           const existingReferral = await tx.query.referrals.findFirst({
-            where: (r, { eq: eq6 }) => eq6(r.referredId, newUserId)
+            where: (r, { eq: eq7 }) => eq7(r.referredId, newUserId)
           });
           if (existingReferral) {
             throw new Error("User already used a referral code");
@@ -2051,7 +2252,7 @@ var init_storage = __esm({
           startOfMonth.setDate(1);
           startOfMonth.setHours(0, 0, 0, 0);
           const monthlyReferrals = await tx.query.referrals.findMany({
-            where: (r, { and: and2, eq: eqOp, gte: gteOp }) => and2(
+            where: (r, { and: and3, eq: eqOp, gte: gteOp }) => and3(
               eqOp(r.referrerId, referrer.id),
               gteOp(r.createdAt, startOfMonth)
             )
@@ -2088,7 +2289,7 @@ var init_storage = __esm({
       async completeReferralOnFirstOrder(userId, orderId) {
         await db.transaction(async (tx) => {
           const referral = await tx.query.referrals.findFirst({
-            where: (r, { and: and2, eq: eqOp }) => and2(
+            where: (r, { and: and3, eq: eqOp }) => and3(
               eqOp(r.referredId, userId),
               eqOp(r.status, "pending")
             )
@@ -2110,7 +2311,7 @@ var init_storage = __esm({
           startOfMonth.setDate(1);
           startOfMonth.setHours(0, 0, 0, 0);
           const completedThisMonth = await tx.query.referrals.findMany({
-            where: (r, { and: and2, eq: eqOp, gte: gteOp }) => and2(
+            where: (r, { and: and3, eq: eqOp, gte: gteOp }) => and3(
               eqOp(r.referrerId, referral.referrerId),
               eqOp(r.status, "completed"),
               gteOp(r.createdAt, startOfMonth)
@@ -2138,12 +2339,12 @@ var init_storage = __esm({
       }
       async getReferralsByUser(userId) {
         return db.query.referrals.findMany({
-          where: (r, { eq: eq6 }) => eq6(r.referrerId, userId)
+          where: (r, { eq: eq7 }) => eq7(r.referrerId, userId)
         });
       }
       async getReferralByReferredId(referredId) {
         const referral = await db.query.referrals.findFirst({
-          where: (r, { eq: eq6 }) => eq6(r.referredId, referredId)
+          where: (r, { eq: eq7 }) => eq7(r.referredId, referredId)
         });
         return referral || null;
       }
@@ -2153,7 +2354,7 @@ var init_storage = __esm({
       }
       async validateBonusEligibility(userId, orderTotal) {
         const referral = await db.query.referrals.findFirst({
-          where: (r, { eq: eq6 }) => eq6(r.referredId, userId)
+          where: (r, { eq: eq7 }) => eq7(r.referredId, userId)
         });
         if (!referral) {
           return { eligible: false, bonus: 0, minOrderAmount: 0, reason: "No referral found for this user" };
@@ -2289,7 +2490,7 @@ var init_storage = __esm({
       }
       async getWalletTransactions(userId, limit = 50) {
         return db.query.walletTransactions.findMany({
-          where: (t, { eq: eq6 }) => eq6(t.userId, userId),
+          where: (t, { eq: eq7 }) => eq7(t.userId, userId),
           orderBy: (t, { desc: desc2 }) => [desc2(t.createdAt)],
           limit
         });
@@ -2300,7 +2501,7 @@ var init_storage = __esm({
         const settings = await this.getActiveReferralReward();
         const expiryDays = settings?.expiryDays || 30;
         let allReferrals = await db.query.referrals.findMany({
-          where: (r, { eq: eq6 }) => eq6(r.referrerId, userId)
+          where: (r, { eq: eq7 }) => eq7(r.referrerId, userId)
         });
         const now = /* @__PURE__ */ new Date();
         for (const referral of allReferrals) {
@@ -2343,7 +2544,7 @@ var init_storage = __esm({
           return { eligible: false, reason: "User has already completed an order" };
         }
         const referral = await db.query.referrals.findFirst({
-          where: (r, { eq: eq6 }) => eq6(r.referredId, userId)
+          where: (r, { eq: eq7 }) => eq7(r.referredId, userId)
         });
         if (!referral) {
           return { eligible: false, reason: "User was not referred" };
@@ -2403,15 +2604,15 @@ var init_storage = __esm({
       }
       async getActiveDeliveryTimeSlots() {
         return db.query.deliveryTimeSlots.findMany({
-          where: (slot, { eq: eq6 }) => eq6(slot.isActive, true),
+          where: (slot, { eq: eq7 }) => eq7(slot.isActive, true),
           orderBy: (slot, { asc: asc2 }) => [asc2(slot.startTime)]
         });
       }
       async getDeliveryTimeSlot(id) {
-        return db.query.deliveryTimeSlots.findFirst({ where: (slot, { eq: eq6 }) => eq6(slot.id, id) });
+        return db.query.deliveryTimeSlots.findFirst({ where: (slot, { eq: eq7 }) => eq7(slot.id, id) });
       }
       async getDeliveryTimeSlotById(id) {
-        return db.query.deliveryTimeSlots.findFirst({ where: (slot, { eq: eq6 }) => eq6(slot.id, id) });
+        return db.query.deliveryTimeSlots.findFirst({ where: (slot, { eq: eq7 }) => eq7(slot.id, id) });
       }
       async createDeliveryTimeSlot(data) {
         const id = randomUUID2();
@@ -2449,7 +2650,7 @@ var init_storage = __esm({
       // Roti Settings Management
       async getRotiSettings() {
         const settings = await db.query.rotiSettings.findFirst({
-          where: (rs, { eq: eq6 }) => eq6(rs.isActive, true),
+          where: (rs, { eq: eq7 }) => eq7(rs.isActive, true),
           orderBy: (rs, { desc: desc2 }) => [desc2(rs.createdAt)]
         });
         return settings || void 0;
@@ -2498,7 +2699,7 @@ var init_storage = __esm({
       }
       async getActiveReferralReward() {
         let settings = await db.query.referralRewards.findFirst({
-          where: (rr, { eq: eq6 }) => eq6(rr.isActive, true),
+          where: (rr, { eq: eq7 }) => eq7(rr.isActive, true),
           orderBy: (rr, { desc: desc2 }) => [desc2(rr.createdAt)]
         });
         if (!settings) {
@@ -2588,6 +2789,135 @@ var init_storage = __esm({
           completedAt: status === "completed" ? /* @__PURE__ */ new Date() : null
         }).where(eq(referrals2.id, id));
       }
+      // ================= ADMIN REFERRAL REVIEW METHODS =================
+      // Get all referrals enriched with referrer/referred user data and first order info
+      async getAdminReferrals() {
+        const allReferrals = await db.query.referrals.findMany({
+          orderBy: (r, { desc: desc2 }) => [desc2(r.createdAt)]
+        });
+        const enriched = await Promise.all(
+          allReferrals.map(async (referral) => {
+            const [referrer, referred] = await Promise.all([
+              this.getUser(referral.referrerId),
+              this.getUser(referral.referredId)
+            ]);
+            let firstOrder = null;
+            if (referral.referredId) {
+              const referredOrders = await db.query.orders.findMany({
+                where: (o, { eq: eqOp }) => eqOp(o.userId, referral.referredId),
+                orderBy: (o, { asc: asc2 }) => [asc2(o.createdAt)]
+              });
+              firstOrder = referredOrders.find(
+                (o) => o.status === "delivered" || o.status === "completed"
+              ) || referredOrders[0] || null;
+            }
+            return {
+              id: referral.id,
+              referrerId: referral.referrerId,
+              referredId: referral.referredId,
+              referralCode: referral.referralCode,
+              status: referral.status,
+              referrerBonus: referral.referrerBonus,
+              referredBonus: referral.referredBonus,
+              referredOrderCompleted: referral.referredOrderCompleted,
+              adminNote: referral.adminNote,
+              fraudFlag: referral.fraudFlag,
+              createdAt: referral.createdAt,
+              completedAt: referral.completedAt,
+              // Referrer info
+              referrerName: referrer?.name || null,
+              referrerPhone: referrer?.phone || null,
+              // Referred user info
+              referredName: referred?.name || null,
+              referredPhone: referred?.phone || null,
+              referredAddress: referred?.address || firstOrder?.address || null,
+              referredLatitude: referred?.latitude || null,
+              referredLongitude: referred?.longitude || null,
+              // First order info
+              firstOrderId: firstOrder?.id || null,
+              firstOrderPaymentStatus: firstOrder?.paymentStatus || null
+            };
+          })
+        );
+        return enriched;
+      }
+      // Get aggregate admin referral stats
+      async getAdminReferralStats() {
+        const allReferrals = await db.query.referrals.findMany();
+        const totalReferrals = allReferrals.length;
+        const pendingReferrals = allReferrals.filter((r) => r.status === "pending").length;
+        const approvedReferrals = allReferrals.filter((r) => r.status === "approved").length;
+        const cancelledReferrals = allReferrals.filter((r) => r.status === "cancelled").length;
+        const completedReferrals = allReferrals.filter((r) => r.status === "completed").length;
+        const totalBonusPaid = allReferrals.filter((r) => r.status === "completed" || r.status === "approved").reduce((sum, r) => sum + r.referrerBonus + r.referredBonus, 0);
+        return {
+          totalReferrals,
+          pendingReferrals,
+          approvedReferrals,
+          cancelledReferrals,
+          completedReferrals,
+          totalBonusPaid
+        };
+      }
+      // Admin approve referral — credits referrer bonus to their wallet
+      async adminApproveReferral(id, adminNote) {
+        const referral = await this.getReferralById(id);
+        if (!referral) throw new Error("Referral not found");
+        if (referral.status !== "pending") {
+          throw new Error(`Cannot approve referral with status: ${referral.status}`);
+        }
+        await db.transaction(async (tx) => {
+          if (referral.referrerBonus > 0) {
+            await this.createWalletTransaction({
+              userId: referral.referrerId,
+              amount: referral.referrerBonus,
+              type: "referral_bonus",
+              description: `Admin approved referral bonus (Referral ID: ${id})`,
+              referenceId: id,
+              referenceType: "referral"
+            }, tx);
+          }
+          await tx.update(referrals2).set({
+            status: "approved",
+            adminNote: adminNote || null,
+            completedAt: /* @__PURE__ */ new Date()
+          }).where(eq(referrals2.id, id));
+        });
+      }
+      // Admin cancel referral — reverses referrer bonus if already credited, marks as cancelled
+      async adminCancelReferral(id, adminNote) {
+        const referral = await this.getReferralById(id);
+        if (!referral) throw new Error("Referral not found");
+        if (referral.status === "cancelled") {
+          throw new Error("Referral is already cancelled");
+        }
+        await db.transaction(async (tx) => {
+          if ((referral.status === "approved" || referral.status === "completed") && referral.referrerBonus > 0) {
+            try {
+              await this.createWalletTransaction({
+                userId: referral.referrerId,
+                amount: referral.referrerBonus,
+                type: "debit",
+                description: `Referral bonus reversed by admin (Referral ID: ${id}). Reason: ${adminNote}`,
+                referenceId: id,
+                referenceType: "referral_reversal"
+              }, tx);
+            } catch (err) {
+              console.warn(
+                `\u26A0\uFE0F adminCancelReferral: Could not reverse referrer bonus for referral ${id} \u2014 ${err.message}. Cancelling without reversal.`
+              );
+            }
+          }
+          await tx.update(referrals2).set({
+            status: "cancelled",
+            adminNote
+          }).where(eq(referrals2.id, id));
+        });
+      }
+      // Toggle fraud flag on a referral
+      async setReferralFraudFlag(id, fraudFlag) {
+        await db.update(referrals2).set({ fraudFlag }).where(eq(referrals2.id, id));
+      }
       // ================= NEW WALLET TRANSACTION METHODS =================
       // Get all wallet transactions (for admin)
       async getAllWalletTransactions(dateFilter) {
@@ -2596,7 +2926,7 @@ var init_storage = __esm({
           const startOfDay = new Date(filterDate.setHours(0, 0, 0, 0));
           const endOfDay = new Date(filterDate.setHours(23, 59, 59, 999));
           return db.query.walletTransactions.findMany({
-            where: (wt, { and: and2, gte: gteOp, lte: lteOp }) => and2(
+            where: (wt, { and: and3, gte: gteOp, lte: lteOp }) => and3(
               gteOp(wt.createdAt, startOfDay),
               lteOp(wt.createdAt, endOfDay)
             ),
@@ -2698,15 +3028,34 @@ var init_storage = __esm({
           return [];
         }
       }
-      async addDeliveryArea(name) {
+      async addDeliveryArea(name, pincodes) {
         try {
           const trimmedName = name.trim();
           if (!trimmedName) return void 0;
-          const result = await db.insert(deliveryAreas2).values({ name: trimmedName, isActive: true }).returning();
-          console.log("[STORAGE] Delivery area added:", trimmedName);
+          const result = await db.insert(deliveryAreas2).values({
+            name: trimmedName,
+            isActive: true,
+            pincodes: pincodes && pincodes.length > 0 ? pincodes : []
+          }).returning();
+          console.log("[STORAGE] Delivery area added:", trimmedName, "with pincodes:", pincodes);
           return result[0];
         } catch (error) {
           console.error("[STORAGE] Error adding delivery area:", error);
+          return void 0;
+        }
+      }
+      async updateDeliveryArea(id, name, pincodes, latitude, longitude) {
+        try {
+          const updateData = {};
+          if (name !== void 0) updateData.name = name.trim();
+          if (pincodes !== void 0) updateData.pincodes = pincodes;
+          if (latitude !== void 0) updateData.latitude = latitude;
+          if (longitude !== void 0) updateData.longitude = longitude;
+          const result = await db.update(deliveryAreas2).set(updateData).where(eq(deliveryAreas2.id, id)).returning();
+          console.log("[STORAGE] Delivery area updated:", id, updateData);
+          return result[0];
+        } catch (error) {
+          console.error("[STORAGE] Error updating delivery area:", error);
           return void 0;
         }
       }
@@ -2742,6 +3091,54 @@ var init_storage = __esm({
         } catch (error) {
           console.error("[STORAGE] Error toggling delivery area status:", error);
           return void 0;
+        }
+      }
+      // Admin Settings methods
+      async getAdminSetting(key) {
+        try {
+          const result = await db.select().from(adminSettings2).where(eq(adminSettings2.key, key)).limit(1);
+          return result[0]?.value;
+        } catch (error) {
+          console.error("[STORAGE] Error getting admin setting:", key, error);
+          return void 0;
+        }
+      }
+      async setAdminSetting(key, value, description) {
+        try {
+          const updated = await db.update(adminSettings2).set({ value, description: description || null, updatedAt: /* @__PURE__ */ new Date() }).where(eq(adminSettings2.key, key)).returning();
+          if (updated.length === 0) {
+            await db.insert(adminSettings2).values({
+              id: randomUUID2(),
+              key,
+              value,
+              description: description || null
+            });
+          }
+          console.log("[STORAGE] Admin setting saved:", key, "=", value);
+        } catch (error) {
+          console.error("[STORAGE] Error setting admin setting:", key, error);
+        }
+      }
+      async getDefaultCoordinates() {
+        try {
+          const lat = await this.getAdminSetting("default_latitude");
+          const lon = await this.getAdminSetting("default_longitude");
+          return {
+            latitude: parseFloat(lat || "19.0728"),
+            longitude: parseFloat(lon || "72.8826")
+          };
+        } catch (error) {
+          console.error("[STORAGE] Error getting default coordinates:", error);
+          return { latitude: 19.0728, longitude: 72.8826 };
+        }
+      }
+      async setDefaultCoordinates(latitude, longitude) {
+        try {
+          await this.setAdminSetting("default_latitude", String(latitude), "Default latitude for new areas and chefs");
+          await this.setAdminSetting("default_longitude", String(longitude), "Default longitude for new areas and chefs");
+          console.log("[STORAGE] Default coordinates updated:", { latitude, longitude });
+        } catch (error) {
+          console.error("[STORAGE] Error setting default coordinates:", error);
         }
       }
     };
@@ -2847,8 +3244,8 @@ var init_adminAuth = __esm({
   "server/adminAuth.ts"() {
     "use strict";
     JWT_SECRET = process.env.JWT_SECRET || "admin-jwt-secret-change-in-production";
-    JWT_EXPIRES_IN = "7d";
-    REFRESH_TOKEN_EXPIRES_IN = "30d";
+    JWT_EXPIRES_IN = "90d";
+    REFRESH_TOKEN_EXPIRES_IN = "90d";
   }
 });
 
@@ -2907,8 +3304,76 @@ var init_deliveryAuth = __esm({
   "server/deliveryAuth.ts"() {
     "use strict";
     JWT_SECRET2 = process.env.JWT_SECRET || "delivery-jwt-secret-change-in-production";
-    JWT_EXPIRES_IN2 = "7d";
-    REFRESH_TOKEN_EXPIRES_IN2 = "30d";
+    JWT_EXPIRES_IN2 = "90d";
+    REFRESH_TOKEN_EXPIRES_IN2 = "90d";
+  }
+});
+
+// server/partnerAuth.ts
+var partnerAuth_exports = {};
+__export(partnerAuth_exports, {
+  generateAccessToken: () => generateAccessToken2,
+  generateRefreshToken: () => generateRefreshToken3,
+  hashPassword: () => hashPassword3,
+  requirePartner: () => requirePartner,
+  verifyPassword: () => verifyPassword3,
+  verifyToken: () => verifyToken3
+});
+import jwt3 from "jsonwebtoken";
+import bcrypt3 from "bcryptjs";
+async function hashPassword3(password) {
+  return bcrypt3.hash(password, 10);
+}
+async function verifyPassword3(password, hash) {
+  return bcrypt3.compare(password, hash);
+}
+function generateAccessToken2(partner) {
+  const payload = {
+    partnerId: partner.id,
+    chefId: partner.chefId,
+    username: partner.username
+  };
+  return jwt3.sign(payload, JWT_SECRET3, { expiresIn: ACCESS_TOKEN_EXPIRY });
+}
+function generateRefreshToken3(partner) {
+  const payload = {
+    partnerId: partner.id,
+    chefId: partner.chefId,
+    username: partner.username
+  };
+  return jwt3.sign(payload, JWT_SECRET3, { expiresIn: REFRESH_TOKEN_EXPIRY });
+}
+function verifyToken3(token) {
+  try {
+    return jwt3.verify(token, JWT_SECRET3);
+  } catch {
+    return null;
+  }
+}
+function requirePartner() {
+  return (req, res, next) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      res.status(401).json({ message: "Unauthorized" });
+      return;
+    }
+    const token = authHeader.substring(7);
+    const payload = verifyToken3(token);
+    if (!payload) {
+      res.status(401).json({ message: "Invalid or expired token" });
+      return;
+    }
+    req.partner = payload;
+    next();
+  };
+}
+var JWT_SECRET3, ACCESS_TOKEN_EXPIRY, REFRESH_TOKEN_EXPIRY;
+var init_partnerAuth = __esm({
+  "server/partnerAuth.ts"() {
+    "use strict";
+    JWT_SECRET3 = process.env.JWT_SECRET || "your-secret-key-change-in-production";
+    ACCESS_TOKEN_EXPIRY = "90d";
+    REFRESH_TOKEN_EXPIRY = "90d";
   }
 });
 
@@ -2933,7 +3398,18 @@ __export(websocket_exports, {
   setupWebSocket: () => setupWebSocket
 });
 import { WebSocketServer, WebSocket } from "ws";
-import jwt3 from "jsonwebtoken";
+async function savePendingBroadcast(recipientId, recipientType, type, data) {
+  try {
+    await db.insert(pendingBroadcasts2).values({
+      recipientId: String(recipientId),
+      recipientType,
+      eventType: type,
+      payload: data
+    });
+  } catch (err) {
+    console.error(`[PendingBroadcast Error] Failed to save for ${recipientType} ${recipientId}:`, err);
+  }
+}
 function setupWebSocket(server) {
   const wss = new WebSocketServer({
     server,
@@ -2980,14 +3456,14 @@ function setupWebSocket(server) {
           ws.close(1008, "Token required");
           return;
         }
-        const JWT_SECRET5 = process.env.JWT_SECRET || "partner-jwt-secret-change-in-production";
-        const payload = jwt3.verify(token, JWT_SECRET5);
+        const payload = verifyToken3(token);
         if (!payload || !payload.chefId) {
           ws.close(1008, "Invalid chef token");
           return;
         }
         clientId = payload.partnerId;
         chefId = payload.chefId;
+        console.log(`[WS-AUTH] Chef authenticated: partnerId=${payload.partnerId}, chefId=${payload.chefId}`);
       } else if (type === "delivery") {
         if (!token) {
           ws.close(1008, "Token required");
@@ -3028,13 +3504,32 @@ function broadcastNewOrder(order) {
     type: "new_order",
     data: order
   });
-  clients.forEach((client) => {
-    if (client.type === "admin") {
-      client.ws.send(message);
-    } else if (client.type === "chef" && client.chefId === order.chefId) {
-      client.ws.send(message);
+  console.log(`
+\u{1F4E1} BROADCASTING NEW ORDER: ${order.id} to ${clients.size} clients`);
+  let adminCount = 0;
+  let chefNotified = false;
+  clients.forEach((client, clientId) => {
+    try {
+      if (client.ws.readyState !== WebSocket.OPEN) return;
+      if (client.type === "admin") {
+        client.ws.send(message);
+        adminCount++;
+      } else if (client.type === "chef" && String(client.chefId) === String(order.chefId)) {
+        client.ws.send(message);
+        chefNotified = true;
+        console.log(`  \u2705 New order sent to chef ${clientId} (chefId: ${client.chefId})`);
+      }
+    } catch (err) {
+      console.error(`  \u274C broadcastNewOrder send error to ${client.type} ${clientId}:`, err);
     }
   });
+  console.log(`  Admins: ${adminCount} | Chef notified: ${chefNotified}`);
+  if (!chefNotified && order.chefId) {
+    console.warn(`  \u26A0\uFE0F No chef WS connected for chefId=${order.chefId}`);
+  }
+  if (order.chefId) {
+    savePendingBroadcast(order.chefId, "chef", "new_order", { data: order });
+  }
 }
 function broadcastSubscriptionDelivery(subscription) {
   const message = JSON.stringify({
@@ -3044,11 +3539,14 @@ function broadcastSubscriptionDelivery(subscription) {
   clients.forEach((client) => {
     if (client.type === "admin") {
       client.ws.send(message);
-    } else if (client.type === "chef" && subscription.chefId && client.chefId === subscription.chefId) {
+    } else if (client.type === "chef" && subscription.chefId && String(client.chefId) === String(subscription.chefId)) {
       client.ws.send(message);
       console.log(`  \u2705 Sent subscription delivery to chef ${client.id} (chefId: ${client.chefId})`);
     }
   });
+  if (subscription.chefId) {
+    savePendingBroadcast(subscription.chefId, "chef", "subscription_delivery", { data: subscription });
+  }
 }
 function broadcastSubscriptionUpdate(subscription) {
   const safeSubscription = { ...subscription };
@@ -3080,7 +3578,7 @@ function broadcastSubscriptionUpdate(subscription) {
       client.ws.send(message);
       adminNotified++;
       console.log(`  \u2705 Sent to admin ${clientId}`);
-    } else if (client.type === "chef" && safeSubscription.chefId && client.chefId === safeSubscription.chefId && client.ws.readyState === WebSocket.OPEN) {
+    } else if (client.type === "chef" && safeSubscription.chefId && String(client.chefId) === String(safeSubscription.chefId) && client.ws.readyState === WebSocket.OPEN) {
       client.ws.send(message);
       chefNotified = true;
       console.log(`  \u2705 Sent to partner ${clientId} (chefId: ${client.chefId})`);
@@ -3100,6 +3598,9 @@ function broadcastSubscriptionUpdate(subscription) {
   console.log(`  - Customer notified: ${customerNotified ? "YES" : "NO"}`);
   console.log(`================================================
 `);
+  if (safeSubscription.chefId) {
+    savePendingBroadcast(safeSubscription.chefId, "chef", "subscription_update", { data: safeSubscription });
+  }
 }
 async function broadcastSubscriptionDeliveryToAvailableDelivery(deliveryLog) {
   console.log(`\u{1F4E3} Broadcasting subscription delivery ${deliveryLog.id} to all active delivery personnel`);
@@ -3229,24 +3730,28 @@ function broadcastOrderUpdate(order) {
   let deliveryNotified = false;
   let customerNotified = false;
   clients.forEach((client, clientId) => {
-    if (client.type === "admin") {
-      client.ws.send(message);
-      adminNotified++;
-      console.log(`  \u2705 Sent to admin ${clientId}`);
-    } else if (client.type === "chef" && client.chefId === order.chefId) {
-      client.ws.send(message);
-      chefNotified = true;
-      console.log(`  \u2705 Sent to chef ${clientId} (chefId: ${client.chefId})`);
-    } else if (client.type === "delivery" && client.id === order.assignedTo) {
-      client.ws.send(message);
-      deliveryNotified = true;
-      console.log(`  \u2705 Sent to delivery ${clientId}`);
-    } else if (client.type === "customer" && client.orderId === order.id) {
-      client.ws.send(message);
-      customerNotified = true;
-      console.log(`  \u2705 Sent to customer ${clientId}`);
-    } else if (client.type === "chef" && client.chefId !== order.chefId) {
-      console.log(`  \u274C Chef ${clientId} skipped - chefId mismatch (client: ${client.chefId}, order: ${order.chefId})`);
+    try {
+      if (client.type === "admin") {
+        client.ws.send(message);
+        adminNotified++;
+        console.log(`  \u2705 Sent to admin ${clientId}`);
+      } else if (client.type === "chef" && String(client.chefId) === String(order.chefId)) {
+        client.ws.send(message);
+        chefNotified = true;
+        console.log(`  \u2705 Sent to chef ${clientId} (chefId: ${client.chefId})`);
+      } else if (client.type === "delivery" && client.id === order.assignedTo) {
+        client.ws.send(message);
+        deliveryNotified = true;
+        console.log(`  \u2705 Sent to delivery ${clientId}`);
+      } else if (client.type === "customer" && client.orderId === order.id) {
+        client.ws.send(message);
+        customerNotified = true;
+        console.log(`  \u2705 Sent to customer ${clientId}`);
+      } else if (client.type === "chef" && String(client.chefId) !== String(order.chefId)) {
+        console.log(`  \u274C Chef ${clientId} skipped - chefId mismatch (client: ${client.chefId}, order: ${order.chefId})`);
+      }
+    } catch (error) {
+      console.error(`  \u274C Failed to send to ${client.type} ${clientId}:`, error);
     }
   });
   console.log(`
@@ -3264,19 +3769,34 @@ function broadcastOrderUpdate(order) {
       chefId: c.chefId
     })));
   }
+  if (order.chefId) {
+    savePendingBroadcast(order.chefId, "chef", "order_update", { data: order });
+  }
+  if (order.assignedTo) {
+    savePendingBroadcast(order.assignedTo, "delivery", "order_update", { data: order });
+  }
   console.log(`================================================
 `);
 }
 function notifyDeliveryAssignment(order, deliveryPersonId) {
   const client = clients.get(deliveryPersonId);
   if (client && client.type === "delivery") {
-    const notificationType = order.status === "confirmed" ? "order_confirmed" : "order_assigned";
-    client.ws.send(JSON.stringify({
-      type: notificationType,
-      data: order,
-      message: order.status === "confirmed" ? `Order #${order.id.slice(0, 8)} has been confirmed and is ready for pickup` : `New order #${order.id.slice(0, 8)} has been assigned to you`
-    }));
+    try {
+      const notificationType2 = order.status === "confirmed" ? "order_confirmed" : "order_assigned";
+      client.ws.send(JSON.stringify({
+        type: notificationType2,
+        data: order,
+        message: order.status === "confirmed" ? `Order #${order.id.slice(0, 8)} has been confirmed and is ready for pickup` : `New order #${order.id.slice(0, 8)} has been assigned to you`
+      }));
+    } catch (error) {
+      console.error(`  \u274C Failed to notify delivery assignment to ${deliveryPersonId}:`, error);
+    }
   }
+  const notificationType = order.status === "confirmed" ? "order_confirmed" : "order_assigned";
+  savePendingBroadcast(deliveryPersonId, "delivery", notificationType, {
+    data: order,
+    message: order.status === "confirmed" ? `Order #${order.id.slice(0, 8)} has been confirmed and is ready for pickup` : `New order #${order.id.slice(0, 8)} has been assigned to you`
+  });
 }
 async function broadcastPreparedOrderToAvailableDelivery(order) {
   const notificationStage = order.status === "accepted_by_chef" ? "CHEF_ACCEPTED" : order.status === "prepared" ? "FOOD_READY" : "ORDER_UPDATE";
@@ -3297,6 +3817,13 @@ async function broadcastPreparedOrderToAvailableDelivery(order) {
         console.log(`\u2705 [${notificationStage}] Sent to delivery person: ${deliveryPersonId} (${deliveryPerson.name})`);
         deliveryPersonnelNotified++;
       }
+    }
+    if (client.type === "delivery") {
+      savePendingBroadcast(deliveryPersonId, "delivery", "new_prepared_order", {
+        order,
+        notificationStage,
+        message: notificationStage === "CHEF_ACCEPTED" ? `\u{1F514} New order alert! Chef accepted order #${order.id.slice(0, 8)} - start preparing to head out` : `\u{1F37D}\uFE0F Order #${order.id.slice(0, 8)} is ready for pickup!`
+      });
     }
   }
   const existingTimeout = preparedOrderTimeouts.get(order.id);
@@ -3385,7 +3912,7 @@ function broadcastChefStatusUpdate(chef) {
       client.ws.send(message);
       browserNotified++;
       console.log(`  \u2705 Sent to browser ${clientId}`);
-    } else if (client.type === "chef" && client.chefId === chef.id && client.ws.readyState === WebSocket.OPEN) {
+    } else if (client.type === "chef" && String(client.chefId) === String(chef.id) && client.ws.readyState === WebSocket.OPEN) {
       client.ws.send(message);
       partnerNotified = true;
       console.log(`  \u2705 Sent to partner ${clientId}`);
@@ -3511,7 +4038,7 @@ function broadcastSubscriptionAssignmentToPartner(subscription, chefName, planNa
   console.log(`Plan: ${planName || subscription.planId}`);
   let partnerNotified = false;
   clients.forEach((client, clientId) => {
-    if (client.type === "chef" && client.chefId === subscription.chefId && client.ws.readyState === WebSocket.OPEN) {
+    if (client.type === "chef" && String(client.chefId) === String(subscription.chefId) && client.ws.readyState === WebSocket.OPEN) {
       client.ws.send(message);
       partnerNotified = true;
       console.log(`  \u2705 Sent to partner ${clientId} (chefId: ${client.chefId})`);
@@ -3566,77 +4093,11 @@ var init_websocket = __esm({
     "use strict";
     init_adminAuth();
     init_deliveryAuth();
+    init_partnerAuth();
+    init_db();
     clients = /* @__PURE__ */ new Map();
     preparedOrderTimeouts = /* @__PURE__ */ new Map();
     PREPARED_ORDER_TIMEOUT_MS = 5 * 60 * 1e3;
-  }
-});
-
-// server/partnerAuth.ts
-var partnerAuth_exports = {};
-__export(partnerAuth_exports, {
-  generateAccessToken: () => generateAccessToken2,
-  generateRefreshToken: () => generateRefreshToken3,
-  hashPassword: () => hashPassword3,
-  requirePartner: () => requirePartner,
-  verifyPassword: () => verifyPassword3,
-  verifyToken: () => verifyToken3
-});
-import jwt5 from "jsonwebtoken";
-import bcrypt3 from "bcryptjs";
-async function hashPassword3(password) {
-  return bcrypt3.hash(password, 10);
-}
-async function verifyPassword3(password, hash) {
-  return bcrypt3.compare(password, hash);
-}
-function generateAccessToken2(partner) {
-  const payload = {
-    partnerId: partner.id,
-    chefId: partner.chefId,
-    username: partner.username
-  };
-  return jwt5.sign(payload, JWT_SECRET3, { expiresIn: ACCESS_TOKEN_EXPIRY });
-}
-function generateRefreshToken3(partner) {
-  const payload = {
-    partnerId: partner.id,
-    chefId: partner.chefId,
-    username: partner.username
-  };
-  return jwt5.sign(payload, JWT_SECRET3, { expiresIn: REFRESH_TOKEN_EXPIRY });
-}
-function verifyToken3(token) {
-  try {
-    return jwt5.verify(token, JWT_SECRET3);
-  } catch {
-    return null;
-  }
-}
-function requirePartner() {
-  return (req, res, next) => {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      res.status(401).json({ message: "Unauthorized" });
-      return;
-    }
-    const token = authHeader.substring(7);
-    const payload = verifyToken3(token);
-    if (!payload) {
-      res.status(401).json({ message: "Invalid or expired token" });
-      return;
-    }
-    req.partner = payload;
-    next();
-  };
-}
-var JWT_SECRET3, ACCESS_TOKEN_EXPIRY, REFRESH_TOKEN_EXPIRY;
-var init_partnerAuth = __esm({
-  "server/partnerAuth.ts"() {
-    "use strict";
-    JWT_SECRET3 = process.env.JWT_SECRET || "your-secret-key-change-in-production";
-    ACCESS_TOKEN_EXPIRY = "7d";
-    REFRESH_TOKEN_EXPIRY = "30d";
   }
 });
 
@@ -3650,7 +4111,7 @@ __export(userAuth_exports, {
   verifyPassword: () => verifyPassword4,
   verifyToken: () => verifyToken5
 });
-import jwt6 from "jsonwebtoken";
+import jwt5 from "jsonwebtoken";
 import bcrypt4 from "bcryptjs";
 async function hashPassword5(password) {
   const salt = await bcrypt4.genSalt(10);
@@ -3665,7 +4126,7 @@ function generateAccessToken3(user) {
     phone: user.phone,
     name: user.name
   };
-  return jwt6.sign(payload, JWT_SECRET4, { expiresIn: JWT_EXPIRES_IN3 });
+  return jwt5.sign(payload, JWT_SECRET4, { expiresIn: JWT_EXPIRES_IN3 });
 }
 function generateRefreshToken4(user) {
   const payload = {
@@ -3673,11 +4134,11 @@ function generateRefreshToken4(user) {
     phone: user.phone,
     name: user.name
   };
-  return jwt6.sign(payload, JWT_SECRET4, { expiresIn: REFRESH_TOKEN_EXPIRES_IN3 });
+  return jwt5.sign(payload, JWT_SECRET4, { expiresIn: REFRESH_TOKEN_EXPIRES_IN3 });
 }
 function verifyToken5(token) {
   try {
-    return jwt6.verify(token, JWT_SECRET4);
+    return jwt5.verify(token, JWT_SECRET4);
   } catch (error) {
     return null;
   }
@@ -3769,9 +4230,13 @@ function calculateDelivery(distance, subtotal, deliverySettings3) {
     deliveryFee = matchingSetting.price;
     deliveryRangeName = matchingSetting.name;
     const minOrderForRange = matchingSetting.minOrderAmount || 0;
-    if (deliveryFee === 0) {
+    if (deliveryFee === 0 || minOrderForRange > 0 && subtotal >= minOrderForRange) {
       freeDeliveryEligible = true;
+      deliveryFee = 0;
     } else {
+      if (minOrderForRange > 0) {
+        amountForFreeDelivery = minOrderForRange - subtotal;
+      }
       freeDeliveryEligible = false;
     }
     const result = {
@@ -3819,6 +4284,146 @@ var init_deliveryUtils = __esm({
   }
 });
 
+// server/pushService.ts
+var pushService_exports = {};
+__export(pushService_exports, {
+  getVapidPublicKey: () => getVapidPublicKey,
+  isPushConfigured: () => isPushConfigured,
+  sendPushToAllAdmins: () => sendPushToAllAdmins,
+  sendPushToUser: () => sendPushToUser
+});
+import { eq as eq5, and as and2 } from "drizzle-orm";
+async function sendPushToUser(userId, userType, notification) {
+  try {
+    if (!webpush || !vapidPublicKey || !vapidPrivateKey) {
+      console.log("\u26A0\uFE0F Push notifications not configured, skipping send");
+      return { success: false, reason: "VAPID keys not configured" };
+    }
+    const subscriptions4 = await db.select().from(pushSubscriptions).where(
+      and2(
+        eq5(pushSubscriptions.userId, userId),
+        eq5(pushSubscriptions.userType, userType),
+        eq5(pushSubscriptions.isActive, true)
+      )
+    );
+    if (subscriptions4.length === 0) {
+      console.log(`\u2139\uFE0F No push subscriptions found for ${userType} ${userId}`);
+      return { success: true, sentCount: 0, reason: "No subscriptions" };
+    }
+    let sentCount = 0;
+    let failedCount = 0;
+    for (const sub of subscriptions4) {
+      try {
+        const subscription = sub.subscription;
+        const payloadJson = JSON.stringify({
+          title: notification.title,
+          body: notification.body,
+          icon: notification.icon || "/icon-192.png",
+          badge: notification.badge || "/icon-96x96.png",
+          tag: notification.tag || "notification",
+          data: notification.data || {},
+          timestamp: (/* @__PURE__ */ new Date()).toISOString()
+        });
+        await webpush.sendNotification(subscription, payloadJson);
+        sentCount++;
+        console.log(`\u2705 Push sent to ${userType} ${userId}`);
+      } catch (error) {
+        failedCount++;
+        if (error.statusCode === 410) {
+          await db.update(pushSubscriptions).set({ isActive: false }).where(eq5(pushSubscriptions.id, sub.id));
+          console.log(`\u{1F5D1}\uFE0F Removed invalid subscription for ${userType} ${userId}`);
+        } else {
+          console.error(
+            `\u26A0\uFE0F Failed to send push to ${userType} ${userId}:`,
+            error.message
+          );
+        }
+      }
+    }
+    return {
+      success: sentCount > 0,
+      sentCount,
+      failedCount,
+      totalSubscriptions: subscriptions4.length
+    };
+  } catch (error) {
+    console.error("Error sending push notification:", error);
+    return { success: false, reason: error.message };
+  }
+}
+async function sendPushToAllAdmins(notification) {
+  try {
+    if (!webpush || !vapidPublicKey || !vapidPrivateKey) {
+      return { success: false, reason: "VAPID keys not configured" };
+    }
+    const subscriptions4 = await db.select().from(pushSubscriptions).where(
+      and2(
+        eq5(pushSubscriptions.userType, "admin"),
+        eq5(pushSubscriptions.isActive, true)
+      )
+    );
+    if (subscriptions4.length === 0) {
+      return { success: true, sentCount: 0, reason: "No admin subscriptions" };
+    }
+    let sentCount = 0;
+    for (const sub of subscriptions4) {
+      try {
+        const subscription = sub.subscription;
+        const payloadJson = JSON.stringify({
+          title: notification.title,
+          body: notification.body,
+          icon: notification.icon || "/icon-192.png",
+          badge: notification.badge || "/icon-96x96.png",
+          tag: notification.tag || "notification",
+          data: notification.data || {},
+          timestamp: (/* @__PURE__ */ new Date()).toISOString()
+        });
+        await webpush.sendNotification(subscription, payloadJson);
+        sentCount++;
+      } catch (error) {
+        if (error.statusCode === 410) {
+          await db.update(pushSubscriptions).set({ isActive: false }).where(eq5(pushSubscriptions.id, sub.id));
+        }
+      }
+    }
+    return { success: sentCount > 0, sentCount, totalSubscriptions: subscriptions4.length };
+  } catch (error) {
+    console.error("Error sending push to admins:", error);
+    return { success: false, reason: error.message };
+  }
+}
+function getVapidPublicKey() {
+  return vapidPublicKey;
+}
+function isPushConfigured() {
+  return !!(webpush && vapidPublicKey && vapidPrivateKey);
+}
+var webpush, vapidPublicKey, vapidPrivateKey, vapidEmail;
+var init_pushService = __esm({
+  "server/pushService.ts"() {
+    "use strict";
+    init_db();
+    init_schema();
+    webpush = null;
+    try {
+      webpush = __require("web-push");
+    } catch (error) {
+      console.warn("\u26A0\uFE0F web-push module not installed. Push notifications disabled.");
+    }
+    vapidPublicKey = process.env.VAPID_PUBLIC_KEY || "";
+    vapidPrivateKey = process.env.VAPID_PRIVATE_KEY || "";
+    vapidEmail = process.env.VAPID_EMAIL || "admin@rotihai.com";
+    if (webpush && vapidPublicKey && vapidPrivateKey) {
+      webpush.setVapidDetails(vapidEmail, vapidPublicKey, vapidPrivateKey);
+      console.log("\u2705 Web Push configured with VAPID keys");
+    } else if (!webpush) {
+      console.warn("\u26A0\uFE0F web-push package not installed. Install with: npm install web-push");
+    } else {
+      console.warn("\u26A0\uFE0F VAPID keys not configured in environment variables.");
+    }
+  }
+});
+
 // server/vite.ts
 var vite_exports = {};
 __export(vite_exports, {
@@ -3827,8 +4432,8 @@ __export(vite_exports, {
   setupVite: () => setupVite
 });
 import express from "express";
-import fs2 from "fs";
-import path2 from "path";
+import fs from "fs";
+import path from "path";
 import { nanoid as nanoid2 } from "nanoid";
 function log(message, source = "express") {
   const formattedTime = (/* @__PURE__ */ new Date()).toLocaleTimeString("en-US", {
@@ -3864,13 +4469,13 @@ async function setupVite(app2, server) {
   app2.use("*", async (req, res, next) => {
     const url = req.originalUrl;
     try {
-      const clientTemplate = path2.resolve(
+      const clientTemplate = path.resolve(
         import.meta.dirname,
         "..",
         "client",
         "index.html"
       );
-      let template = await fs2.promises.readFile(clientTemplate, "utf-8");
+      let template = await fs.promises.readFile(clientTemplate, "utf-8");
       template = template.replace(
         `src="/src/main.tsx"`,
         `src="/src/main.tsx?v=${nanoid2()}"`
@@ -3884,15 +4489,29 @@ async function setupVite(app2, server) {
   });
 }
 function serveStatic(app2) {
-  const distPath = path2.resolve(import.meta.dirname, "..", "dist", "public");
-  if (!fs2.existsSync(distPath)) {
+  const distPath = path.resolve(import.meta.dirname, "..", "dist", "public");
+  if (!fs.existsSync(distPath)) {
     throw new Error(
       `Could not find the build directory: ${distPath}, make sure to build the client first`
     );
   }
-  app2.use(express.static(distPath));
+  app2.use(express.static(distPath, {
+    maxAge: "1d",
+    // Browser can cache for 1 day
+    etag: true,
+    // Enable ETag for cache validation
+    lastModified: true,
+    // Enable Last-Modified header
+    immutable: false,
+    // Files might change, allow revalidation
+    setHeaders: (res, path2) => {
+      if (path2.match(/\.[a-f0-9]{8}\./i)) {
+        res.set("Cache-Control", "public, max-age=31536000, immutable");
+      }
+    }
+  }));
   app2.use("*", (_req, res) => {
-    res.sendFile(path2.resolve(distPath, "index.html"));
+    res.sendFile(path.resolve(distPath, "index.html"));
   });
 }
 var createViteServer, createLogger, viteConfig, loadVite, getViteLogger;
@@ -4077,6 +4696,59 @@ function createPasswordChangeConfirmationEmail(name, phone) {
     </html>
   `;
 }
+function createMissedDeliveryEmail(name, deliveryDate, deliveryTime, subscriptionId) {
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        body { font-family: Arial; line-height:1.6; color:#333; }
+        .container { max-width:600px; margin:0 auto; padding:20px; border: 1px solid #ddd; }
+        .alert { background-color:#fff3cd; border:1px solid #ffc107; padding:15px; border-radius:5px; margin:20px 0; }
+        .details { background-color:#f5f5f5; padding:15px; border-radius:5px; margin:15px 0; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <h2>Delivery Issue - We Apologize \u26A0\uFE0F</h2>
+        <p>Hello <b>${name}</b>,</p>
+        
+        <div class="alert">
+          <p><b>Your scheduled delivery on ${deliveryDate} at ${deliveryTime} could not be completed.</b></p>
+        </div>
+
+        <div class="details">
+          <h3>Delivery Details:</h3>
+          <ul>
+            <li><b>Date:</b> ${deliveryDate}</li>
+            <li><b>Time:</b> ${deliveryTime}</li>
+            <li><b>Subscription ID:</b> ${subscriptionId}</li>
+          </ul>
+        </div>
+
+        <h3>What can you do?</h3>
+        <ul>
+          <li>\u{1F4DE} Contact our support team to reschedule</li>
+          <li>\u23ED\uFE0F Skip this delivery to adjust your schedule</li>
+          <li>\u{1F4AC} Chat with us in the app for immediate assistance</li>
+        </ul>
+
+        <p style="color:#666; font-size:12px; margin-top:30px;">
+          We regret the inconvenience. Thank you for your patience!<br>
+          <b>RotiHai - \u0918\u0930 \u0915\u0940 \u0930\u094B\u091F\u0940</b>
+        </p>
+      </div>
+    </body>
+    </html>
+  `;
+}
+async function sendMissedDeliveryEmail(email, name, deliveryDate, deliveryTime, subscriptionId) {
+  return sendEmail({
+    to: email,
+    subject: "Your Delivery Could Not Be Completed \u26A0\uFE0F",
+    html: createMissedDeliveryEmail(name, deliveryDate, deliveryTime, subscriptionId)
+  });
+}
 
 // server/whatsappService.ts
 import axios from "axios";
@@ -4209,9 +4881,60 @@ Thank you for ordering with RotiHai!
   });
   return true;
 }
+async function sendMissedDeliveryNotification(userId, userPhone, deliveryDate, deliveryTime, subscriptionId) {
+  if (!userPhone || typeof userPhone !== "string" || userPhone.trim().length === 0) {
+    console.warn(`\u26A0\uFE0F User phone not configured. Skipping missed delivery notification for user ${userId}`);
+    return false;
+  }
+  const message = `
+\u26A0\uFE0F *DELIVERY COULD NOT BE COMPLETED* \u26A0\uFE0F
+
+We apologize! Your scheduled delivery on ${deliveryDate} at ${deliveryTime} could not be completed.
+
+\u{1F4DE} Please contact our support team to reschedule or get assistance.
+
+Subscription ID: ${subscriptionId}
+
+We regret the inconvenience!
+-RotiHai Team
+  `.trim();
+  sendWhatsAppMessage(userPhone, message).catch((error) => {
+    console.error(`\u26A0\uFE0F Failed to send missed delivery notification for subscription ${subscriptionId}:`, error);
+  });
+  return true;
+}
 
 // server/adminRoutes.ts
 function registerAdminRoutes(app2) {
+  function isDeliveryDay2(date, frequency, deliveryDays) {
+    if (!deliveryDays || deliveryDays.length === 0) return false;
+    if (frequency === "monthly") {
+      const dayOfMonth = date.getDate().toString();
+      return deliveryDays.includes(dayOfMonth);
+    } else if (frequency === "weekly" || frequency === "daily") {
+      const dayName = date.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
+      return deliveryDays.includes(dayName);
+    }
+    return false;
+  }
+  function getNextDeliveryDate(fromDate, frequency, deliveryDays, maxDate) {
+    const nextDate = new Date(fromDate);
+    nextDate.setDate(nextDate.getDate() + 1);
+    let attempts = 0;
+    const maxAttempts = frequency === "monthly" ? 31 : 7;
+    const limit = maxDate || new Date(Date.now() + 365 * 24 * 60 * 60 * 1e3);
+    while (attempts < maxAttempts) {
+      if (nextDate > limit) {
+        return nextDate;
+      }
+      if (isDeliveryDay2(nextDate, frequency, deliveryDays)) {
+        return nextDate;
+      }
+      nextDate.setDate(nextDate.getDate() + 1);
+      attempts++;
+    }
+    return nextDate;
+  }
   app2.get("/api/admin/delivery-slots", requireAdmin(), async (req, res) => {
     try {
       const slots = await storage.getAllDeliveryTimeSlots();
@@ -4534,6 +5257,11 @@ function registerAdminRoutes(app2) {
         res.status(404).json({ message: "Order not found" });
         return;
       }
+      if (order.paymentStatus === paymentStatus) {
+        console.log(`\u23ED\uFE0F Admin payment confirmation is idempotent. Order ${orderId} is already ${paymentStatus}. Skipping...`);
+        res.json(order);
+        return;
+      }
       console.log(`
 \u{1F4B3} ADMIN CONFIRMING PAYMENT FOR ORDER ${orderId}`);
       console.log(`Current order status: ${order.status}, Payment status: ${order.paymentStatus}`);
@@ -4728,6 +5456,20 @@ function registerAdminRoutes(app2) {
     } catch (error) {
       console.error("Create category error:", error);
       res.status(500).json({ message: "Failed to create category" });
+    }
+  });
+  app2.patch("/api/admin/categories/reorder", requireAdminOrManager(), async (req, res) => {
+    try {
+      const items = req.body;
+      if (!Array.isArray(items) || items.some((i) => !i.id || typeof i.displayOrder !== "number")) {
+        res.status(400).json({ message: "Body must be an array of { id, displayOrder } objects" });
+        return;
+      }
+      await storage.reorderCategories(items);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Reorder categories error:", error);
+      res.status(500).json({ message: "Failed to reorder categories" });
     }
   });
   app2.patch("/api/admin/categories/:id", requireAdminOrManager(), async (req, res) => {
@@ -5691,6 +6433,236 @@ function registerAdminRoutes(app2) {
       res.status(500).json({ message: "Failed to fetch today's deliveries" });
     }
   });
+  app2.get("/api/admin/subscriptions/missed-deliveries", requireAdmin(), async (req, res) => {
+    try {
+      const { dateFrom, dateTo, chefId, limit = 50, offset = 0 } = req.query;
+      const allSubscriptions = await storage.getSubscriptions();
+      const missedDeliveries = [];
+      for (const sub of allSubscriptions) {
+        const logs = await storage.getSubscriptionDeliveryLogs(sub.id);
+        const missedLogs = logs.filter((log3) => log3.status === "missed");
+        for (const log3 of missedLogs) {
+          if (dateFrom) {
+            const logDate = new Date(log3.date);
+            const fromDate = new Date(dateFrom);
+            if (logDate < fromDate) continue;
+          }
+          if (dateTo) {
+            const logDate = new Date(log3.date);
+            const toDate = new Date(dateTo);
+            if (logDate > toDate) continue;
+          }
+          if (chefId && sub.chefId !== chefId) continue;
+          missedDeliveries.push({
+            logId: log3.id,
+            subscriptionId: sub.id,
+            userId: sub.userId,
+            chefId: sub.chefId,
+            customerName: sub.customerName,
+            phone: sub.phone,
+            address: sub.address,
+            deliveryDate: log3.date,
+            deliveryTime: log3.time,
+            status: log3.status,
+            notes: log3.notes,
+            createdAt: log3.createdAt
+          });
+        }
+      }
+      missedDeliveries.sort((a, b) => {
+        const dateA = new Date(a.deliveryDate).getTime();
+        const dateB = new Date(b.deliveryDate).getTime();
+        return dateB - dateA;
+      });
+      const paginatedResults = missedDeliveries.slice(Number(offset) || 0, (Number(offset) || 0) + Number(limit));
+      console.log(`\u{1F4CA} [ADMIN-MISSED] Retrieved ${paginatedResults.length} missed deliveries`);
+      res.json({
+        total: missedDeliveries.length,
+        limit: Number(limit),
+        offset: Number(offset) || 0,
+        data: paginatedResults
+      });
+    } catch (error) {
+      console.error("Error fetching missed deliveries:", error);
+      res.status(500).json({ message: "Failed to fetch missed deliveries" });
+    }
+  });
+  app2.get("/api/admin/subscriptions/skipped-deliveries", requireAdmin(), async (req, res) => {
+    try {
+      const { dateFrom, dateTo, userId, limit = 50, offset = 0 } = req.query;
+      const allSubscriptions = await storage.getSubscriptions();
+      const skippedDeliveries = [];
+      for (const sub of allSubscriptions) {
+        const logs = await storage.getSubscriptionDeliveryLogs(sub.id);
+        const skippedLogs = logs.filter((log3) => log3.status === "skipped");
+        for (const log3 of skippedLogs) {
+          if (dateFrom) {
+            const logDate = new Date(log3.date);
+            const fromDate = new Date(dateFrom);
+            if (logDate < fromDate) continue;
+          }
+          if (dateTo) {
+            const logDate = new Date(log3.date);
+            const toDate = new Date(dateTo);
+            if (logDate > toDate) continue;
+          }
+          if (userId && sub.userId !== userId) continue;
+          skippedDeliveries.push({
+            logId: log3.id,
+            subscriptionId: sub.id,
+            userId: sub.userId,
+            customerName: sub.customerName,
+            phone: sub.phone,
+            address: sub.address,
+            deliveryDate: log3.date,
+            deliveryTime: log3.time,
+            status: log3.status,
+            reason: log3.notes,
+            // This contains the skip reason
+            createdAt: log3.createdAt
+          });
+        }
+      }
+      skippedDeliveries.sort((a, b) => {
+        const dateA = new Date(a.deliveryDate).getTime();
+        const dateB = new Date(b.deliveryDate).getTime();
+        return dateB - dateA;
+      });
+      const paginatedResults = skippedDeliveries.slice(Number(offset) || 0, (Number(offset) || 0) + Number(limit));
+      console.log(`\u{1F4CA} [ADMIN-SKIPPED] Retrieved ${paginatedResults.length} skipped deliveries`);
+      res.json({
+        total: skippedDeliveries.length,
+        limit: Number(limit),
+        offset: Number(offset) || 0,
+        data: paginatedResults
+      });
+    } catch (error) {
+      console.error("Error fetching skipped deliveries:", error);
+      res.status(500).json({ message: "Failed to fetch skipped deliveries" });
+    }
+  });
+  app2.get("/api/admin/subscriptions/today", requireAdmin(), async (req, res) => {
+    try {
+      const today = /* @__PURE__ */ new Date();
+      today.setHours(0, 0, 0, 0);
+      const todaysLogs = await storage.getSubscriptionDeliveryLogsByDate(today);
+      const enrichedDeliveries = [];
+      for (const log3 of todaysLogs) {
+        const sub = await storage.getSubscription(log3.subscriptionId);
+        if (!sub) continue;
+        enrichedDeliveries.push({
+          logId: log3.id,
+          subscriptionId: sub.id,
+          userId: sub.userId,
+          chefId: sub.chefId,
+          chefName: sub.chefId ? (await storage.getChefById(sub.chefId))?.name : null,
+          planName: (await storage.getSubscriptionPlan(sub.planId))?.name,
+          customerName: sub.customerName,
+          phone: sub.phone,
+          address: sub.address,
+          deliveryTime: log3.time,
+          status: log3.status,
+          notes: log3.notes,
+          remainingDeliveries: sub.remainingDeliveries
+        });
+      }
+      const summary = {
+        scheduled: enrichedDeliveries.filter((d) => d.status === "scheduled").length,
+        preparing: enrichedDeliveries.filter((d) => d.status === "preparing").length,
+        out_for_delivery: enrichedDeliveries.filter((d) => d.status === "out_for_delivery").length,
+        delivered: enrichedDeliveries.filter((d) => d.status === "delivered").length,
+        missed: enrichedDeliveries.filter((d) => d.status === "missed").length,
+        total: enrichedDeliveries.length
+      };
+      console.log(`\u{1F4CB} [ADMIN-TODAY] Today's subscriptions summary:`, summary);
+      res.json({
+        date: today.toISOString().split("T")[0],
+        summary,
+        deliveries: enrichedDeliveries
+      });
+    } catch (error) {
+      console.error("Error fetching today's subscriptions:", error);
+      res.status(500).json({ message: "Failed to fetch today's subscriptions" });
+    }
+  });
+  app2.get("/api/admin/subscriptions/overdue-preparations", requireAdmin(), async (req, res) => {
+    try {
+      const allSubscriptions = await storage.getSubscriptions();
+      const overduePreparations = [];
+      for (const sub of allSubscriptions) {
+        const today = /* @__PURE__ */ new Date();
+        today.setHours(0, 0, 0, 0);
+        const logs = await storage.getSubscriptionDeliveryLogsByDate(today);
+        const todaysLogs = logs.filter((log3) => log3.subscriptionId === sub.id && log3.status === "preparing");
+        for (const log3 of todaysLogs) {
+          const [hours, minutes] = log3.time.split(":").map(Number);
+          const scheduledTime = new Date(today);
+          scheduledTime.setHours(hours, minutes, 0, 0);
+          const now = /* @__PURE__ */ new Date();
+          if (now > scheduledTime) {
+            overduePreparations.push({
+              logId: log3.id,
+              subscriptionId: sub.id,
+              userId: sub.userId,
+              chefId: sub.chefId,
+              chefName: sub.chefId ? (await storage.getChefById(sub.chefId))?.name : null,
+              customerName: sub.customerName,
+              phone: sub.phone,
+              address: sub.address,
+              scheduledTime: log3.time,
+              status: log3.status,
+              minutesOverdue: Math.floor((now.getTime() - scheduledTime.getTime()) / 6e4)
+            });
+          }
+        }
+      }
+      console.log(`\u23F0 [ADMIN-OVERDUE] Found ${overduePreparations.length} overdue preparations`);
+      res.json(overduePreparations);
+    } catch (error) {
+      console.error("Error fetching overdue preparations:", error);
+      res.status(500).json({ message: "Failed to fetch overdue preparations" });
+    }
+  });
+  app2.get("/api/admin/chef-performance", requireAdmin(), async (req, res) => {
+    try {
+      const thirtyDaysAgo = /* @__PURE__ */ new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      const allChefs = await storage.getChefs();
+      const allSubscriptions = await storage.getSubscriptions();
+      const performanceData = await Promise.all(
+        allChefs.map(async (chef) => {
+          const chefSubscriptions = allSubscriptions.filter((sub) => sub.chefId === chef.id);
+          let totalDeliveries = 0;
+          let delivered = 0;
+          let missed = 0;
+          for (const sub of chefSubscriptions) {
+            const logs = await storage.getSubscriptionDeliveryLogs(sub.id);
+            const recentLogs = logs.filter((log3) => new Date(log3.date) >= thirtyDaysAgo);
+            totalDeliveries += recentLogs.length;
+            delivered += recentLogs.filter((log3) => log3.status === "delivered").length;
+            missed += recentLogs.filter((log3) => log3.status === "missed").length;
+          }
+          return {
+            chefId: chef.id,
+            chefName: chef.name,
+            deliveryRate: totalDeliveries === 0 ? 0 : Math.round(delivered / totalDeliveries * 100),
+            totalDeliveries,
+            delivered,
+            missed
+          };
+        })
+      );
+      const sorted = performanceData.sort((a, b) => b.deliveryRate - a.deliveryRate);
+      res.json({
+        leaderboard: sorted,
+        period: "Last 30 days",
+        lastUpdated: /* @__PURE__ */ new Date()
+      });
+    } catch (error) {
+      console.error("Error fetching chef performance leaderboard:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch leaderboard" });
+    }
+  });
   app2.get("/api/admin/subscriptions/:id", requireAdmin(), async (req, res) => {
     try {
       const subscription = await storage.getSubscription(req.params.id);
@@ -5843,13 +6815,51 @@ function registerAdminRoutes(app2) {
         });
       }
       if (status === "delivered" && subscription.remainingDeliveries > 0) {
-        const nextDate = new Date(subscription.nextDeliveryDate);
-        nextDate.setDate(nextDate.getDate() + 1);
-        await storage.updateSubscription(subscriptionId, {
+        const plan = await storage.getSubscriptionPlan(subscription.planId);
+        const subscriptionUpdateData = {
           remainingDeliveries: subscription.remainingDeliveries - 1,
-          nextDeliveryDate: nextDate,
           lastDeliveryDate: today
-        });
+        };
+        if (plan) {
+          const deliveryDays = plan.deliveryDays;
+          const maxDate = subscription.endDate || new Date(Date.now() + 365 * 24 * 60 * 60 * 1e3);
+          const nextDelivery = getNextDeliveryDate(subscription.nextDeliveryDate, plan.frequency, deliveryDays, maxDate);
+          subscriptionUpdateData.nextDeliveryDate = nextDelivery;
+        } else {
+          const nextDate = new Date(subscription.nextDeliveryDate);
+          nextDate.setDate(nextDate.getDate() + 1);
+          subscriptionUpdateData.nextDeliveryDate = nextDate;
+        }
+        await storage.updateSubscription(subscriptionId, subscriptionUpdateData);
+        await storage.syncDeliveryHistory(subscriptionId, "delivered", today, "Marked delivered by admin");
+      }
+      if (status === "missed") {
+        await storage.syncDeliveryHistory(subscriptionId, "missed", today, "Marked as missed by admin");
+        try {
+          const user = await storage.getUser(subscription.userId);
+          if (user) {
+            const deliveryDate = today.toLocaleDateString("en-IN");
+            const deliveryTime = time || "Unknown time";
+            await sendMissedDeliveryNotification(
+              user.id,
+              user.phone,
+              deliveryDate,
+              deliveryTime,
+              subscriptionId
+            );
+            if (user.email) {
+              await sendMissedDeliveryEmail(
+                user.email,
+                user.name || "Valued Customer",
+                deliveryDate,
+                deliveryTime,
+                subscriptionId
+              );
+            }
+          }
+        } catch (notifyError) {
+          console.warn("\u26A0\uFE0F Failed to send missed delivery notifications:", notifyError);
+        }
       }
       console.log(`\u2705 Admin updated subscription ${subscriptionId} delivery status to: ${status}`);
       res.json(deliveryLog);
@@ -5884,6 +6894,145 @@ function registerAdminRoutes(app2) {
     } catch (error) {
       console.error("Error changing subscription status:", error);
       res.status(500).json({ message: "Failed to change subscription status" });
+    }
+  });
+  app2.get("/api/admin/subscriptions/missed-deliveries", requireAdmin(), async (req, res) => {
+    try {
+      const { dateFrom, dateTo, chefId, limit = 50, offset = 0 } = req.query;
+      const allSubscriptions = await storage.getSubscriptions();
+      const missedDeliveries = [];
+      for (const sub of allSubscriptions) {
+        const logs = await storage.getSubscriptionDeliveryLogs(sub.id);
+        const missedLogs = logs.filter((log3) => log3.status === "missed");
+        for (const log3 of missedLogs) {
+          if (dateFrom) {
+            const logDate = new Date(log3.date);
+            const fromDate = new Date(dateFrom);
+            if (logDate < fromDate) continue;
+          }
+          if (dateTo) {
+            const logDate = new Date(log3.date);
+            const toDate = new Date(dateTo);
+            if (logDate > toDate) continue;
+          }
+          if (chefId && sub.chefId !== chefId) continue;
+          missedDeliveries.push({
+            logId: log3.id,
+            subscriptionId: sub.id,
+            userId: sub.userId,
+            chefId: sub.chefId,
+            customerName: sub.customerName,
+            phone: sub.phone,
+            address: sub.address,
+            deliveryDate: log3.date,
+            deliveryTime: log3.time,
+            status: log3.status,
+            notes: log3.notes,
+            createdAt: log3.createdAt
+          });
+        }
+      }
+      missedDeliveries.sort((a, b) => {
+        const dateA = new Date(a.deliveryDate).getTime();
+        const dateB = new Date(b.deliveryDate).getTime();
+        return dateB - dateA;
+      });
+      const paginatedResults = missedDeliveries.slice(
+        Number(offset) || 0,
+        (Number(offset) || 0) + Number(limit)
+      );
+      console.log(`\u{1F4CA} [ADMIN-MISSED] Retrieved ${paginatedResults.length} missed deliveries (total: ${missedDeliveries.length})`);
+      res.json({
+        total: missedDeliveries.length,
+        limit: Number(limit),
+        offset: Number(offset) || 0,
+        data: paginatedResults
+      });
+    } catch (error) {
+      console.error("Error fetching missed deliveries:", error);
+      res.status(500).json({ message: "Failed to fetch missed deliveries" });
+    }
+  });
+  app2.get("/api/admin/subscriptions/today", requireAdmin(), async (req, res) => {
+    try {
+      const today = /* @__PURE__ */ new Date();
+      today.setHours(0, 0, 0, 0);
+      const todaysLogs = await storage.getSubscriptionDeliveryLogsByDate(today);
+      const enrichedDeliveries = [];
+      for (const log3 of todaysLogs) {
+        const sub = await storage.getSubscription(log3.subscriptionId);
+        if (!sub) continue;
+        enrichedDeliveries.push({
+          logId: log3.id,
+          subscriptionId: sub.id,
+          userId: sub.userId,
+          chefId: sub.chefId,
+          chefName: sub.chefId ? (await storage.getChefById(sub.chefId))?.name : null,
+          planName: (await storage.getSubscriptionPlan(sub.planId))?.name,
+          customerName: sub.customerName,
+          phone: sub.phone,
+          address: sub.address,
+          deliveryTime: log3.time,
+          status: log3.status,
+          notes: log3.notes,
+          remainingDeliveries: sub.remainingDeliveries
+        });
+      }
+      const summary = {
+        scheduled: enrichedDeliveries.filter((d) => d.status === "scheduled").length,
+        preparing: enrichedDeliveries.filter((d) => d.status === "preparing").length,
+        out_for_delivery: enrichedDeliveries.filter((d) => d.status === "out_for_delivery").length,
+        delivered: enrichedDeliveries.filter((d) => d.status === "delivered").length,
+        missed: enrichedDeliveries.filter((d) => d.status === "missed").length,
+        total: enrichedDeliveries.length
+      };
+      console.log(`\u{1F4CB} [ADMIN-TODAY] Today's subscriptions summary:`, summary);
+      res.json({
+        date: today.toISOString().split("T")[0],
+        summary,
+        deliveries: enrichedDeliveries
+      });
+    } catch (error) {
+      console.error("Error fetching today's subscriptions:", error);
+      res.status(500).json({ message: "Failed to fetch today's subscriptions" });
+    }
+  });
+  app2.get("/api/admin/subscriptions/overdue-preparations", requireAdmin(), async (req, res) => {
+    try {
+      const allSubscriptions = await storage.getSubscriptions();
+      const overduePreparations = [];
+      for (const sub of allSubscriptions) {
+        const today = /* @__PURE__ */ new Date();
+        today.setHours(0, 0, 0, 0);
+        const logs = await storage.getSubscriptionDeliveryLogsByDate(today);
+        const todaysLogs = logs.filter((log3) => log3.subscriptionId === sub.id && log3.status === "preparing");
+        for (const log3 of todaysLogs) {
+          const [hours, minutes] = log3.time.split(":").map(Number);
+          const scheduledTime = new Date(today);
+          scheduledTime.setHours(hours, minutes, 0, 0);
+          const now = /* @__PURE__ */ new Date();
+          if (now > scheduledTime) {
+            overduePreparations.push({
+              logId: log3.id,
+              subscriptionId: sub.id,
+              userId: sub.userId,
+              chefId: sub.chefId,
+              chefName: sub.chefId ? (await storage.getChefById(sub.chefId))?.name : null,
+              customerName: sub.customerName,
+              phone: sub.phone,
+              address: sub.address,
+              scheduledTime: log3.time,
+              status: log3.status,
+              minutesOverdue: Math.floor((now.getTime() - scheduledTime.getTime()) / 6e4)
+            });
+          }
+        }
+      }
+      console.log(`\u23F0 [ADMIN-OVERDUE] Found ${overduePreparations.length} overdue preparations`);
+      res.json(overduePreparations);
+    } catch (error) {
+      console.error("Error fetching overdue preparations:", error);
+      res.status(500).json({ message: "Failed to fetch overdue preparations" });
     }
   });
   app2.post("/api/admin/subscriptions/:id/adjust", requireAdmin(), async (req, res) => {
@@ -6206,15 +7355,15 @@ function registerAdminRoutes(app2) {
       }
       const newStartDate = startDate ? new Date(startDate) : /* @__PURE__ */ new Date();
       const deliveryDays = plan.deliveryDays || [];
-      const deliveriesPerWeek = deliveryDays.length || 1;
+      const deliveriesPerPeriod = deliveryDays.length || 1;
       const totalDeliveries = subscription.totalDeliveries ?? 30;
       let durationDays = 30;
       if (plan.frequency === "daily") {
         durationDays = totalDeliveries;
       } else if (plan.frequency === "weekly") {
-        durationDays = Math.ceil(totalDeliveries / deliveriesPerWeek) * 7;
+        durationDays = Math.ceil(totalDeliveries / deliveriesPerPeriod) * 7;
       } else if (plan.frequency === "monthly") {
-        durationDays = totalDeliveries * 30;
+        durationDays = Math.ceil(totalDeliveries / deliveriesPerPeriod) * 30;
       }
       const newEndDate = new Date(newStartDate);
       newEndDate.setDate(newEndDate.getDate() + durationDays);
@@ -6452,10 +7601,10 @@ function registerAdminRoutes(app2) {
   app2.get("/api/admin/wallet-settings", requireAdmin(), async (req, res) => {
     try {
       const walletSetting = await db.query.walletSettings.findFirst({
-        where: (ws, { eq: eq6 }) => eq6(ws.isActive, true)
+        where: (ws, { eq: eq7 }) => eq7(ws.isActive, true)
       });
       const referralSetting = await db.query.referralRewards.findFirst({
-        where: (rr, { eq: eq6 }) => eq6(rr.isActive, true)
+        where: (rr, { eq: eq7 }) => eq7(rr.isActive, true)
       });
       const defaultWallet = {
         maxUsagePerOrder: 10,
@@ -6521,7 +7670,7 @@ function registerAdminRoutes(app2) {
       }).returning();
       console.log("[ADMIN WALLET SETTINGS] Successfully saved to walletSettings:", newWalletSettings);
       const existingRewards = await db.query.referralRewards.findFirst({
-        where: (rr, { eq: eq6 }) => eq6(rr.isActive, true)
+        where: (rr, { eq: eq7 }) => eq7(rr.isActive, true)
       });
       if (existingRewards) {
         console.log("[ADMIN WALLET SETTINGS] Updating existing referralRewards...");
@@ -7015,7 +8164,7 @@ function registerAdminRoutes(app2) {
   });
   app2.get("/api/admin/delivery-areas", async (req, res) => {
     try {
-      const areas = await storage.getDeliveryAreas();
+      const areas = await storage.getAllDeliveryAreas();
       res.json({ areas });
     } catch (error) {
       console.error("Error fetching delivery areas:", error);
@@ -7064,20 +8213,48 @@ function registerAdminRoutes(app2) {
         res.status(400).json({ message: "Areas must be a non-empty array" });
         return;
       }
-      if (!areas.every((area) => typeof area === "string" && area.trim().length > 0)) {
-        res.status(400).json({ message: "Each area must be a non-empty string" });
-        return;
+      const failures = [];
+      for (const area of areas) {
+        if (!area.name || typeof area.name !== "string" || area.name.trim().length === 0) {
+          res.status(400).json({ message: "Each area must have a non-empty name" });
+          return;
+        }
+        const pincodes = Array.isArray(area.pincodes) ? area.pincodes.filter((p) => /^\d{5,6}$/.test(String(p).trim())) : [];
+        try {
+          const isRealDbId = area.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(area.id);
+          if (isRealDbId) {
+            const updated = await storage.updateDeliveryArea(
+              area.id,
+              area.name.trim(),
+              pincodes,
+              area.latitude !== void 0 ? parseFloat(String(area.latitude)) : void 0,
+              area.longitude !== void 0 ? parseFloat(String(area.longitude)) : void 0
+            );
+            if (!updated) {
+              console.warn(`[ADMIN] \u26A0\uFE0F updateDeliveryArea returned undefined for area id=${area.id}, name=${area.name}`);
+              failures.push(`Update failed for: ${area.name} (id: ${area.id})`);
+            }
+          } else {
+            const added = await storage.addDeliveryArea(area.name.trim(), pincodes);
+            if (!added) {
+              console.warn(`[ADMIN] \u26A0\uFE0F addDeliveryArea returned undefined for: ${area.name}`);
+              failures.push(`Add failed for: ${area.name}`);
+            }
+          }
+        } catch (err) {
+          console.error(`[ADMIN] \u274C Error saving area ${area.name}:`, err);
+          failures.push(`Exception for: ${area.name} - ${err instanceof Error ? err.message : "Unknown error"}`);
+        }
       }
-      const success = await storage.updateDeliveryAreas(areas);
-      if (!success) {
-        res.status(500).json({ message: "Failed to update delivery areas" });
-        return;
+      const updatedAreas = await storage.getAllDeliveryAreas();
+      if (failures.length > 0) {
+        console.warn(`[ADMIN] \u26A0\uFE0F ${failures.length} area(s) failed to save:`, failures);
       }
-      const updatedAreas = await storage.getDeliveryAreas();
-      console.log(`[ADMIN] Updated delivery areas:`, updatedAreas);
+      console.log(`[ADMIN] Updated delivery areas with pincodes and coordinates:`, updatedAreas.length, "area(s)");
       res.json({
-        message: "Delivery areas updated successfully",
-        areas: updatedAreas
+        message: failures.length > 0 ? `Delivery areas updated with ${failures.length} warning(s): ${failures.join("; ")}` : "Delivery areas updated successfully",
+        areas: updatedAreas,
+        warnings: failures.length > 0 ? failures : void 0
       });
     } catch (error) {
       console.error("Error updating delivery areas:", error);
@@ -7122,6 +8299,187 @@ function registerAdminRoutes(app2) {
       res.status(500).json({ message: "Failed to toggle delivery area status" });
     }
   });
+  app2.get("/api/admin/default-coordinates", async (req, res) => {
+    try {
+      const coords = await storage.getDefaultCoordinates();
+      res.json(coords);
+    } catch (error) {
+      console.error("Error fetching default coordinates:", error);
+      res.status(500).json({ message: "Failed to fetch default coordinates" });
+    }
+  });
+  app2.post("/api/admin/default-coordinates", requireAdmin(), async (req, res) => {
+    try {
+      const { latitude, longitude } = req.body;
+      if (typeof latitude !== "number" || typeof longitude !== "number") {
+        res.status(400).json({ message: "Latitude and longitude must be numbers" });
+        return;
+      }
+      if (!isFinite(latitude) || !isFinite(longitude)) {
+        res.status(400).json({ message: "Invalid coordinates" });
+        return;
+      }
+      if (latitude < -90 || latitude > 90) {
+        res.status(400).json({ message: "Latitude must be between -90 and 90" });
+        return;
+      }
+      if (longitude < -180 || longitude > 180) {
+        res.status(400).json({ message: "Longitude must be between -180 and 180" });
+        return;
+      }
+      await storage.setDefaultCoordinates(latitude, longitude);
+      console.log(`[ADMIN] Updated default coordinates: ${latitude}, ${longitude}`);
+      res.json({
+        message: "Default coordinates updated successfully",
+        latitude,
+        longitude
+      });
+    } catch (error) {
+      console.error("Error updating default coordinates:", error);
+      res.status(500).json({ message: "Failed to update default coordinates" });
+    }
+  });
+  app2.get("/api/admin/referrals", requireAdmin(), async (req, res) => {
+    try {
+      const referrals3 = await storage.getAdminReferrals();
+      res.json(referrals3);
+    } catch (error) {
+      console.error("Error fetching admin referrals:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch referrals" });
+    }
+  });
+  app2.get("/api/admin/referral-stats", requireAdmin(), async (req, res) => {
+    try {
+      const stats = await storage.getAdminReferralStats();
+      res.json(stats);
+    } catch (error) {
+      console.error("Error fetching referral stats:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch referral stats" });
+    }
+  });
+  app2.patch("/api/admin/referrals/:id/status", requireAdminOrManager(), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { status, adminNote } = req.body;
+      if (!status || !["approved", "cancelled"].includes(status)) {
+        res.status(400).json({ message: "Status must be 'approved' or 'cancelled'" });
+        return;
+      }
+      if (status === "cancelled" && !adminNote) {
+        res.status(400).json({ message: "Admin note (reason) is required when cancelling a referral" });
+        return;
+      }
+      if (status === "approved") {
+        await storage.adminApproveReferral(id, adminNote);
+        res.json({ message: "Referral approved and bonus credited to referrer's wallet" });
+      } else {
+        await storage.adminCancelReferral(id, adminNote);
+        res.json({ message: "Referral cancelled. Bonus reversed if previously credited." });
+      }
+    } catch (error) {
+      console.error("Error updating referral status:", error);
+      res.status(400).json({ message: error.message || "Failed to update referral status" });
+    }
+  });
+  app2.patch("/api/admin/referrals/:id/fraud-flag", requireAdminOrManager(), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { fraudFlag } = req.body;
+      if (typeof fraudFlag !== "boolean") {
+        res.status(400).json({ message: "fraudFlag must be a boolean (true or false)" });
+        return;
+      }
+      await storage.setReferralFraudFlag(id, fraudFlag);
+      res.json({ message: `Referral fraud flag set to: ${fraudFlag}` });
+    } catch (error) {
+      console.error("Error updating referral fraud flag:", error);
+      res.status(500).json({ message: error.message || "Failed to update fraud flag" });
+    }
+  });
+  app2.get("/api/admin/chef-performance/:chefId", requireAdmin(), async (req, res) => {
+    try {
+      const { chefId } = req.params;
+      const chef = await storage.getChefById(chefId);
+      if (!chef) {
+        res.status(404).json({ message: "Chef not found" });
+        return;
+      }
+      const thirtyDaysAgo = /* @__PURE__ */ new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      const allLogs = await db.query.subscriptionDeliveryLogs.findMany({
+        where: (logs, { and: and3, eq: eq7, gte: gte2 }) => and3(
+          eq7(logs.deliveryPersonId, chefId),
+          gte2(logs.date, thirtyDaysAgo)
+        )
+      });
+      const delivered = allLogs.filter((log3) => log3.status === "delivered").length;
+      const missed = allLogs.filter((log3) => log3.status === "missed").length;
+      const scheduled = allLogs.filter((log3) => log3.status === "scheduled").length;
+      const preparing = allLogs.filter((log3) => log3.status === "preparing").length;
+      const outForDelivery = allLogs.filter((log3) => log3.status === "out_for_delivery").length;
+      const skipped = allLogs.filter((log3) => log3.status === "skipped").length;
+      const total = allLogs.length;
+      const deliveryRate = total > 0 ? Math.round(delivered / (delivered + missed) * 100) : 0;
+      res.json({
+        chefId,
+        chefName: chef.name,
+        metrics: {
+          totalDeliveries: total,
+          delivered,
+          missed,
+          deliveryRate,
+          scheduled,
+          preparing,
+          outForDelivery,
+          skipped,
+          averageDeliveriesPerDay: total > 0 ? Math.round(total / 30 * 10) / 10 : 0
+        },
+        period: "Last 30 days",
+        lastUpdated: /* @__PURE__ */ new Date()
+      });
+    } catch (error) {
+      console.error("Error fetching chef performance:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch chef performance" });
+    }
+  });
+  app2.get("/api/admin/chef-performance", requireAdmin(), async (req, res) => {
+    try {
+      const thirtyDaysAgo = /* @__PURE__ */ new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      const allChefs = await storage.getChefs();
+      const performanceData = await Promise.all(
+        allChefs.map(async (chef) => {
+          const logs = await db.query.subscriptionDeliveryLogs.findMany({
+            where: (l, { and: and3, eq: eq7, gte: gte2 }) => and3(
+              eq7(l.deliveryPersonId, chef.id),
+              gte2(l.date, thirtyDaysAgo)
+            )
+          });
+          const delivered = logs.filter((log3) => log3.status === "delivered").length;
+          const missed = logs.filter((log3) => log3.status === "missed").length;
+          const total = logs.length;
+          const deliveryRate = total > 0 ? Math.round(delivered / (delivered + missed) * 100) : 0;
+          return {
+            chefId: chef.id,
+            chefName: chef.name,
+            deliveryRate,
+            totalDeliveries: total,
+            delivered,
+            missed
+          };
+        })
+      );
+      const sorted = performanceData.sort((a, b) => b.deliveryRate - a.deliveryRate);
+      res.json({
+        leaderboard: sorted,
+        period: "Last 30 days",
+        lastUpdated: /* @__PURE__ */ new Date()
+      });
+    } catch (error) {
+      console.error("Error fetching chef performance leaderboard:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch leaderboard" });
+    }
+  });
 }
 
 // server/partnerRoutes.ts
@@ -7131,6 +8489,35 @@ init_websocket();
 init_db();
 import { eq as eq3 } from "drizzle-orm";
 function registerPartnerRoutes(app2) {
+  function isDeliveryDay2(date, frequency, deliveryDays) {
+    if (!deliveryDays || deliveryDays.length === 0) return false;
+    if (frequency === "monthly") {
+      const dayOfMonth = date.getDate().toString();
+      return deliveryDays.includes(dayOfMonth);
+    } else if (frequency === "weekly" || frequency === "daily") {
+      const dayName = date.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
+      return deliveryDays.includes(dayName);
+    }
+    return false;
+  }
+  function getNextDeliveryDate(fromDate, frequency, deliveryDays, maxDate) {
+    const nextDate = new Date(fromDate);
+    nextDate.setDate(nextDate.getDate() + 1);
+    let attempts = 0;
+    const maxAttempts = frequency === "monthly" ? 31 : 7;
+    const limit = maxDate || new Date(Date.now() + 365 * 24 * 60 * 60 * 1e3);
+    while (attempts < maxAttempts) {
+      if (nextDate > limit) {
+        return nextDate;
+      }
+      if (isDeliveryDay2(nextDate, frequency, deliveryDays)) {
+        return nextDate;
+      }
+      nextDate.setDate(nextDate.getDate() + 1);
+      attempts++;
+    }
+    return nextDate;
+  }
   app2.get("/api/partner/orders", requirePartner(), async (req, res) => {
     try {
       const chefId = req.partner?.chefId;
@@ -7654,17 +9041,71 @@ function registerPartnerRoutes(app2) {
         });
       }
       if (status === "delivered" && subscription.remainingDeliveries > 0) {
-        const nextDate = new Date(subscription.nextDeliveryDate);
-        nextDate.setDate(nextDate.getDate() + 1);
-        await storage.updateSubscription(subscriptionId, {
-          remainingDeliveries: subscription.remainingDeliveries - 1,
-          nextDeliveryDate: nextDate
-        });
+        const plan = await storage.getSubscriptionPlan(subscription.planId);
+        const subscriptionUpdateData = {
+          remainingDeliveries: subscription.remainingDeliveries - 1
+        };
+        if (plan) {
+          const deliveryDays = plan.deliveryDays;
+          const maxDate = subscription.endDate || new Date(Date.now() + 365 * 24 * 60 * 60 * 1e3);
+          const nextDelivery = getNextDeliveryDate(subscription.nextDeliveryDate, plan.frequency, deliveryDays, maxDate);
+          subscriptionUpdateData.nextDeliveryDate = nextDelivery;
+        } else {
+          const nextDate = new Date(subscription.nextDeliveryDate);
+          nextDate.setDate(nextDate.getDate() + 1);
+          subscriptionUpdateData.nextDeliveryDate = nextDate;
+        }
+        await storage.updateSubscription(subscriptionId, subscriptionUpdateData);
+        await storage.syncDeliveryHistory(subscriptionId, "delivered", today, "Delivered by chef");
+      }
+      if (status === "missed") {
+        await storage.syncDeliveryHistory(subscriptionId, "missed", today, "Marked as missed by chef");
       }
       res.json(deliveryLog);
     } catch (error) {
       console.error("Error updating subscription delivery status:", error);
       res.status(500).json({ message: "Failed to update delivery status" });
+    }
+  });
+  app2.get("/api/notifications/pending", requirePartner(), async (req, res) => {
+    try {
+      const chefId = req.partner?.chefId;
+      if (!chefId) return res.status(401).json({ message: "Unauthorized" });
+      const pending = await db.query.pendingBroadcasts.findMany({
+        where: (pb, { eq: eq7, and: and3 }) => and3(
+          eq7(pb.recipientId, String(chefId)),
+          eq7(pb.recipientType, "chef"),
+          eq7(pb.isDelivered, false)
+        ),
+        orderBy: (pb, { asc: asc2 }) => [asc2(pb.createdAt)]
+      });
+      res.json(pending);
+    } catch (error) {
+      console.error("Error fetching pending broadcasts:", error);
+      res.status(500).json({ message: "Failed to fetch pending broadcasts" });
+    }
+  });
+  app2.post("/api/notifications/mark-delivered", requirePartner(), async (req, res) => {
+    try {
+      const { ids } = req.body;
+      const chefId = req.partner?.chefId;
+      if (!chefId) return res.status(401).json({ message: "Unauthorized" });
+      if (!Array.isArray(ids) || ids.length === 0) {
+        return res.json({ success: true });
+      }
+      const { eq: eq7, inArray, and: and3 } = await import("drizzle-orm");
+      const { pendingBroadcasts: pendingBroadcasts3 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      await db.update(pendingBroadcasts3).set({ isDelivered: true }).where(
+        and3(
+          eq7(pendingBroadcasts3.recipientId, String(chefId)),
+          eq7(pendingBroadcasts3.recipientType, "chef"),
+          inArray(pendingBroadcasts3.id, ids)
+        )
+      );
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error marking broadcasts delivered:", error);
+      res.status(500).json({ message: "Failed to mark delivered" });
     }
   });
 }
@@ -7677,6 +9118,35 @@ init_websocket();
 init_db();
 import { eq as eq4 } from "drizzle-orm";
 function registerDeliveryRoutes(app2) {
+  function isDeliveryDay2(date, frequency, deliveryDays) {
+    if (!deliveryDays || deliveryDays.length === 0) return false;
+    if (frequency === "monthly") {
+      const dayOfMonth = date.getDate().toString();
+      return deliveryDays.includes(dayOfMonth);
+    } else if (frequency === "weekly" || frequency === "daily") {
+      const dayName = date.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
+      return deliveryDays.includes(dayName);
+    }
+    return false;
+  }
+  function getNextDeliveryDate(fromDate, frequency, deliveryDays, maxDate) {
+    const nextDate = new Date(fromDate);
+    nextDate.setDate(nextDate.getDate() + 1);
+    let attempts = 0;
+    const maxAttempts = frequency === "monthly" ? 31 : 7;
+    const limit = maxDate || new Date(Date.now() + 365 * 24 * 60 * 60 * 1e3);
+    while (attempts < maxAttempts) {
+      if (nextDate > limit) {
+        return nextDate;
+      }
+      if (isDeliveryDay2(nextDate, frequency, deliveryDays)) {
+        return nextDate;
+      }
+      nextDate.setDate(nextDate.getDate() + 1);
+      attempts++;
+    }
+    return nextDate;
+  }
   app2.get("/api/delivery/debug/status", requireDeliveryAuth(), async (req, res) => {
     try {
       const deliveryPersonId = req.delivery.deliveryId;
@@ -8175,11 +9645,51 @@ function registerDeliveryRoutes(app2) {
       const updated = await storage.updateSubscriptionDeliveryLog(logId, updateData);
       if (status === "delivered") {
         const subscription = await storage.getSubscription(log3.subscriptionId);
-        if (subscription) {
-          await storage.updateSubscription(log3.subscriptionId, {
+        if (subscription && subscription.remainingDeliveries > 0) {
+          const plan = await storage.getSubscriptionPlan(subscription.planId);
+          const subscriptionUpdateData = {
             lastDeliveryDate: log3.date,
             remainingDeliveries: Math.max(0, subscription.remainingDeliveries - 1)
-          });
+          };
+          if (plan) {
+            const deliveryDays = plan.deliveryDays;
+            const maxDate = subscription.endDate || new Date(Date.now() + 365 * 24 * 60 * 60 * 1e3);
+            const nextDelivery = getNextDeliveryDate(subscription.nextDeliveryDate, plan.frequency, deliveryDays, maxDate);
+            subscriptionUpdateData.nextDeliveryDate = nextDelivery;
+          }
+          await storage.updateSubscription(log3.subscriptionId, subscriptionUpdateData);
+          await storage.syncDeliveryHistory(log3.subscriptionId, "delivered", log3.date, "Delivered by delivery personnel");
+        }
+      }
+      if (status === "missed") {
+        const subscription = await storage.getSubscription(log3.subscriptionId);
+        if (subscription) {
+          await storage.syncDeliveryHistory(log3.subscriptionId, "missed", log3.date, "Marked as missed by delivery personnel");
+          try {
+            const user = await storage.getUser(subscription.userId);
+            if (user) {
+              const deliveryDate = log3.date.toLocaleDateString("en-IN");
+              const deliveryTime = log3.date.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+              await sendMissedDeliveryNotification(
+                user.id,
+                user.phone,
+                deliveryDate,
+                deliveryTime,
+                log3.subscriptionId
+              );
+              if (user.email) {
+                await sendMissedDeliveryEmail(
+                  user.email,
+                  user.name || "Valued Customer",
+                  deliveryDate,
+                  deliveryTime,
+                  log3.subscriptionId
+                );
+              }
+            }
+          } catch (notifyError) {
+            console.warn("\u26A0\uFE0F Failed to send missed delivery notifications:", notifyError);
+          }
         }
       }
       console.log(`\u{1F69A} Delivery person ${deliveryPersonId} updated subscription delivery ${logId} to ${status}`);
@@ -8211,6 +9721,47 @@ function registerDeliveryRoutes(app2) {
       res.status(500).json({ message: "Failed to fetch subscription statistics" });
     }
   });
+  app2.get("/api/notifications/pending", requireDeliveryAuth(), async (req, res) => {
+    try {
+      const deliveryPersonId = req.delivery.deliveryId;
+      if (!deliveryPersonId) return res.status(401).json({ message: "Unauthorized" });
+      const pending = await db.query.pendingBroadcasts.findMany({
+        where: (pb, { eq: eq7, and: and3 }) => and3(
+          eq7(pb.recipientId, String(deliveryPersonId)),
+          eq7(pb.recipientType, "delivery"),
+          eq7(pb.isDelivered, false)
+        ),
+        orderBy: (pb, { asc: asc2 }) => [asc2(pb.createdAt)]
+      });
+      res.json(pending);
+    } catch (error) {
+      console.error("Error fetching pending broadcasts:", error);
+      res.status(500).json({ message: "Failed to fetch pending broadcasts" });
+    }
+  });
+  app2.post("/api/notifications/mark-delivered", requireDeliveryAuth(), async (req, res) => {
+    try {
+      const { ids } = req.body;
+      const deliveryPersonId = req.delivery.deliveryId;
+      if (!deliveryPersonId) return res.status(401).json({ message: "Unauthorized" });
+      if (!Array.isArray(ids) || ids.length === 0) {
+        return res.json({ success: true });
+      }
+      const { eq: eq7, inArray, and: and3 } = await import("drizzle-orm");
+      const { pendingBroadcasts: pendingBroadcasts3 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      await db.update(pendingBroadcasts3).set({ isDelivered: true }).where(
+        and3(
+          eq7(pendingBroadcasts3.recipientId, String(deliveryPersonId)),
+          eq7(pendingBroadcasts3.recipientType, "delivery"),
+          inArray(pendingBroadcasts3.id, ids)
+        )
+      );
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error marking broadcasts delivered:", error);
+      res.status(500).json({ message: "Failed to mark delivered" });
+    }
+  });
 }
 
 // server/routes.ts
@@ -8219,8 +9770,191 @@ init_userAuth();
 init_userAuth();
 init_adminAuth();
 init_db();
-import { eq as eq5 } from "drizzle-orm";
+import { eq as eq6 } from "drizzle-orm";
 import axios2 from "axios";
+var DEFAULT_DELIVERY_TIME = "09:00";
+var WEEKDAY_NAMES = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+var SEND_SUBSCRIPTION_EMAILS = false;
+var SUBSCRIPTION_STATUS = {
+  PENDING: "pending",
+  ACTIVE: "active",
+  PAUSED: "paused",
+  CANCELLED: "cancelled",
+  EXPIRED: "expired"
+};
+var DELIVERY_LOG_STATUS = {
+  SCHEDULED: "scheduled",
+  PREPARING: "preparing",
+  OUT_FOR_DELIVERY: "out_for_delivery",
+  DELIVERED: "delivered",
+  MISSED: "missed",
+  SKIPPED: "skipped"
+};
+function isDeliveryDay(date, frequency, deliveryDays) {
+  if (!deliveryDays || deliveryDays.length === 0) return false;
+  const hasWeekdayNames = isWeekdayNameFormat(deliveryDays);
+  if (hasWeekdayNames) {
+    const dayName = date.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
+    return deliveryDays.includes(dayName);
+  } else {
+    const dayOfMonth = date.getDate().toString();
+    return deliveryDays.includes(dayOfMonth);
+  }
+}
+function isWeekdayNameFormat(deliveryDays) {
+  return deliveryDays.some((day) => WEEKDAY_NAMES.includes(day.toLowerCase()));
+}
+function getNextActualDeliveryDate(fromDate, frequency, deliveryDays) {
+  if (!deliveryDays || deliveryDays.length === 0) {
+    const tomorrow2 = new Date(fromDate);
+    tomorrow2.setDate(tomorrow2.getDate() + 1);
+    return tomorrow2;
+  }
+  const checkDate = new Date(fromDate);
+  checkDate.setDate(checkDate.getDate() + 1);
+  checkDate.setHours(0, 0, 0, 0);
+  const maxIterations = frequency === "monthly" ? 32 : 7;
+  let iterations = 0;
+  while (iterations < maxIterations) {
+    if (isDeliveryDay(checkDate, frequency, deliveryDays)) {
+      return new Date(checkDate);
+    }
+    checkDate.setDate(checkDate.getDate() + 1);
+    iterations++;
+  }
+  const tomorrow = new Date(fromDate);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  return tomorrow;
+}
+function calculateTotalDeliveries(frequency, deliveryDays, durationDays, startDate) {
+  if (!deliveryDays || deliveryDays.length === 0) {
+    return durationDays;
+  }
+  if (frequency === "daily") {
+    if (!startDate) {
+      const allWeekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+      const hasWeekdayNames2 = isWeekdayNameFormat(deliveryDays);
+      if (hasWeekdayNames2 && deliveryDays.length === 7) {
+        return durationDays;
+      } else if (hasWeekdayNames2) {
+        return Math.floor(durationDays / 7) * deliveryDays.length;
+      } else {
+        return durationDays;
+      }
+    }
+    let count2 = 0;
+    const currentDate = new Date(startDate);
+    currentDate.setHours(0, 0, 0, 0);
+    const endDate = new Date(startDate);
+    endDate.setDate(endDate.getDate() + durationDays - 1);
+    endDate.setHours(23, 59, 59, 999);
+    const hasWeekdayNames = isWeekdayNameFormat(deliveryDays);
+    while (currentDate <= endDate) {
+      let shouldCount = false;
+      if (hasWeekdayNames) {
+        const dayName = currentDate.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
+        shouldCount = deliveryDays.some((d) => d.toLowerCase() === dayName);
+      } else {
+        shouldCount = isDeliveryDay(currentDate, "daily", deliveryDays);
+      }
+      if (shouldCount) count2++;
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+    return count2;
+  }
+  if (frequency === "weekly") {
+    if (!startDate) {
+      return Math.floor(durationDays / 7) * deliveryDays.length;
+    }
+    let count2 = 0;
+    const currentDate = new Date(startDate);
+    currentDate.setHours(0, 0, 0, 0);
+    const endDate = new Date(startDate);
+    endDate.setDate(endDate.getDate() + durationDays - 1);
+    endDate.setHours(23, 59, 59, 999);
+    const hasWeekdayNames = isWeekdayNameFormat(deliveryDays);
+    while (currentDate <= endDate) {
+      let shouldCount = false;
+      if (hasWeekdayNames) {
+        const dayName = currentDate.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
+        shouldCount = deliveryDays.some((d) => d.toLowerCase() === dayName);
+      } else {
+        shouldCount = isDeliveryDay(currentDate, "weekly", deliveryDays);
+      }
+      if (shouldCount) count2++;
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+    return count2;
+  }
+  if (frequency === "monthly") {
+    const hasWeekdayNames = isWeekdayNameFormat(deliveryDays);
+    if (hasWeekdayNames && startDate) {
+      let count2 = 0;
+      const currentDate = new Date(startDate);
+      currentDate.setHours(0, 0, 0, 0);
+      const endDate = new Date(startDate);
+      endDate.setDate(endDate.getDate() + durationDays - 1);
+      endDate.setHours(23, 59, 59, 999);
+      while (currentDate <= endDate) {
+        const dayName = currentDate.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
+        if (deliveryDays.some((d) => d.toLowerCase() === dayName)) {
+          count2++;
+        }
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+      return count2;
+    } else {
+      const monthsInDuration = Math.ceil(durationDays / 30);
+      return deliveryDays.length * monthsInDuration;
+    }
+  }
+  return Math.ceil(durationDays / 30);
+}
+async function generateSubscriptionDeliveryLogs(subscription, plan, startDate, endDate, deliveryTime) {
+  try {
+    const deliveryDays = plan.deliveryDays;
+    if (!deliveryDays || deliveryDays.length === 0) {
+      console.log(`\u26A0\uFE0F  No delivery days configured for plan ${plan.id}, skipping log generation`);
+      return;
+    }
+    const currentDate = new Date(startDate);
+    currentDate.setHours(0, 0, 0, 0);
+    const normalizedEndDate = new Date(endDate);
+    normalizedEndDate.setHours(23, 59, 59, 999);
+    let logsCreated = 0;
+    const hasWeekdayNames = isWeekdayNameFormat(deliveryDays);
+    while (currentDate <= normalizedEndDate) {
+      let shouldCreateLog = false;
+      if (hasWeekdayNames) {
+        const dayName = currentDate.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
+        shouldCreateLog = deliveryDays.some((d) => d.toLowerCase() === dayName);
+      } else {
+        shouldCreateLog = isDeliveryDay(currentDate, plan.frequency, deliveryDays);
+      }
+      if (shouldCreateLog) {
+        const existingLog = await storage.getDeliveryLogBySubscriptionAndDate(subscription.id, currentDate);
+        if (!existingLog) {
+          await storage.createSubscriptionDeliveryLog({
+            subscriptionId: subscription.id,
+            date: new Date(currentDate),
+            // Create new Date to avoid reference issues
+            time: deliveryTime || DEFAULT_DELIVERY_TIME,
+            status: DELIVERY_LOG_STATUS.SCHEDULED,
+            deliveryPersonId: null,
+            notes: null
+          });
+          logsCreated++;
+        }
+      }
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+    if (logsCreated > 0) {
+      console.log(`\u{1F4CB} Generated ${logsCreated} delivery log(s) for ${plan.frequency} subscription ${subscription.id}`);
+    }
+  } catch (error) {
+    console.error("Error generating subscription delivery logs:", error);
+  }
+}
 async function registerRoutes(app2) {
   registerAdminRoutes(app2);
   registerPartnerRoutes(app2);
@@ -8249,9 +9983,9 @@ async function registerRoutes(app2) {
       return 4;
     }
   };
-  const computeSlotCutoffInfo = (slot) => {
+  const computeSlotCutoffInfo = (slot, forceNextDay = true) => {
     const now = /* @__PURE__ */ new Date();
-    console.log(`[CUTOFF] Starting computation - now: ${now.toISOString()}, slot.startTime: ${slot?.startTime}`);
+    console.log(`[CUTOFF] Starting computation - now: ${now.toISOString()}, slot.startTime: ${slot?.startTime}, forceNextDay: ${forceNextDay}`);
     const currentHour = now.getHours();
     const [hStr, mStr] = (slot?.startTime || "00:00").split(":");
     const h = parseInt(hStr || "0", 10) || 0;
@@ -8272,8 +10006,8 @@ async function registerRoutes(app2) {
     let deliveryDate;
     let isPastCutoff;
     let cutoffDate;
-    if (slotHasPassed || now > todayCutoffTime) {
-      console.log(`[CUTOFF] Past cutoff - scheduling for tomorrow`);
+    if (forceNextDay || slotHasPassed || now > todayCutoffTime) {
+      console.log(`[CUTOFF] ${forceNextDay ? "New subscription - forcing next day" : "Past cutoff"} - scheduling for tomorrow`);
       deliveryDate = new Date(todaySlot);
       deliveryDate.setDate(deliveryDate.getDate() + 1);
       isPastCutoff = true;
@@ -8300,6 +10034,34 @@ async function registerRoutes(app2) {
     };
     console.log(`[CUTOFF] Final result - nextAvailableDate: ${deliveryDate.toISOString()}, year: ${deliveryDate.getFullYear()}`);
     return result;
+  };
+  const getAreaCoordinatesMap = async () => {
+    try {
+      const areas = await storage.getAllDeliveryAreas();
+      const coordinatesMap = {};
+      areas.forEach((area) => {
+        const areaLower = area.name.toLowerCase();
+        const lat = typeof area.latitude === "number" ? area.latitude : parseFloat(String(area.latitude || 19.0728));
+        const lon = typeof area.longitude === "number" ? area.longitude : parseFloat(String(area.longitude || 72.8826));
+        coordinatesMap[areaLower] = {
+          lat,
+          lon,
+          name: area.name
+        };
+      });
+      return coordinatesMap;
+    } catch (err) {
+      console.error("[COORDINATES] Error fetching area coordinates from database:", err);
+      return {
+        "kurla": { lat: 19.0686, lon: 72.8817, name: "Kurla" },
+        "kurla west": { lat: 19.0728, lon: 72.8826, name: "Kurla West" },
+        "kurla east": { lat: 19.0644, lon: 72.8877, name: "Kurla East" },
+        "worli": { lat: 19.0176, lon: 72.8194, name: "Worli" },
+        "bandra": { lat: 19.0596, lon: 72.8295, name: "Bandra" },
+        "andheri": { lat: 19.1136, lon: 72.8697, name: "Andheri" },
+        "dadar": { lat: 19.0176, lon: 72.8388, name: "Dadar" }
+      };
+    }
   };
   app2.post("/api/coupons/verify", async (req, res) => {
     try {
@@ -8482,7 +10244,9 @@ async function registerRoutes(app2) {
         address: result.data.address ? result.data.address.trim() : null,
         passwordHash,
         referralCode: null,
-        walletBalance: 0
+        walletBalance: 0,
+        latitude: null,
+        longitude: null
       });
       const accessToken = generateAccessToken3(user);
       const refreshToken = generateRefreshToken4(user);
@@ -8611,7 +10375,9 @@ async function registerRoutes(app2) {
           address: address || null,
           passwordHash,
           referralCode: null,
-          walletBalance: 0
+          walletBalance: 0,
+          latitude: null,
+          longitude: null
         });
         console.log("New user created:", user.id, "- Default password:", generatedPassword);
         if (email) {
@@ -8658,7 +10424,7 @@ async function registerRoutes(app2) {
       }
       let pendingBonus = null;
       const referral = await (await Promise.resolve().then(() => (init_db(), db_exports))).db.query.referrals.findFirst({
-        where: (r, { eq: eq6 }) => eq6(r.referredId, user.id)
+        where: (r, { eq: eq7 }) => eq7(r.referredId, user.id)
       });
       if (referral && referral.status === "pending") {
         const settings = await storage.getActiveReferralReward();
@@ -8677,7 +10443,9 @@ async function registerRoutes(app2) {
         address: user.address,
         referralCode: user.referralCode,
         walletBalance: user.walletBalance || 0,
-        pendingBonus
+        pendingBonus,
+        latitude: user.latitude,
+        longitude: user.longitude
       });
     } catch (error) {
       console.error("Error fetching profile:", error);
@@ -8687,7 +10455,7 @@ async function registerRoutes(app2) {
   app2.put("/api/user/profile", requireUser(), async (req, res) => {
     try {
       const userId = req.authenticatedUser.userId;
-      const { name, email, address } = req.body;
+      const { name, email, address, latitude, longitude } = req.body;
       if (email && (typeof email !== "string" || !email.includes("@"))) {
         res.status(400).json({ message: "Valid email is required" });
         return;
@@ -8701,6 +10469,8 @@ async function registerRoutes(app2) {
       if (name && typeof name === "string") updateData.name = name.trim();
       if (email && typeof email === "string") updateData.email = email.trim();
       if (address && typeof address === "string") updateData.address = address.trim();
+      if (latitude !== void 0) updateData.latitude = latitude;
+      if (longitude !== void 0) updateData.longitude = longitude;
       if (Object.keys(updateData).length === 0) {
         res.status(400).json({ message: "No valid fields to update" });
         return;
@@ -8714,7 +10484,9 @@ async function registerRoutes(app2) {
         email: updatedUser.email,
         address: updatedUser.address,
         referralCode: updatedUser.referralCode,
-        walletBalance: updatedUser.walletBalance || 0
+        walletBalance: updatedUser.walletBalance || 0,
+        latitude: updatedUser.latitude,
+        longitude: updatedUser.longitude
       });
     } catch (error) {
       console.error("Error updating profile:", error);
@@ -8895,50 +10667,169 @@ async function registerRoutes(app2) {
       res.status(500).json({ message: error.message || "Failed to claim bonus" });
     }
   });
-  app2.get("/api/subscriptions/:id/schedule", requireUser(), async (req, res) => {
+  app2.post("/api/subscriptions/:id/skip-delivery", requireUser(), async (req, res) => {
     try {
       const userId = req.authenticatedUser.userId;
-      const subscription = await storage.getSubscription(req.params.id);
+      const subscriptionId = req.params.id;
+      const { deliveryDate, reason } = req.body;
+      console.log(`[SKIP-DELIVERY] Starting skip delivery:`, { subscriptionId, deliveryDate, reason });
+      const subscription = await storage.getSubscription(subscriptionId);
+      console.log(`[SKIP-DELIVERY] Got subscription:`, { subscriptionId, found: !!subscription });
       if (!subscription) {
+        console.log(`[SKIP-DELIVERY] Subscription not found`);
         res.status(404).json({ message: "Subscription not found" });
         return;
       }
       if (subscription.userId !== userId) {
+        console.log(`[SKIP-DELIVERY] Unauthorized: subscription belongs to ${subscription.userId}, request from ${userId}`);
         res.status(403).json({ message: "Unauthorized" });
         return;
       }
-      const plan = await storage.getSubscriptionPlan(subscription.planId);
-      if (!plan) {
-        res.status(404).json({ message: "Plan not found" });
+      if (!deliveryDate) {
+        console.log(`[SKIP-DELIVERY] Missing deliveryDate`);
+        res.status(400).json({ message: "Delivery date is required" });
         return;
       }
-      const deliveryDays = plan.deliveryDays;
-      const schedule = [];
-      const currentDate = new Date(subscription.nextDeliveryDate);
-      const endDate = subscription.endDate ? new Date(subscription.endDate) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1e3);
-      while (currentDate <= endDate && schedule.length < subscription.remainingDeliveries) {
-        const dayName = currentDate.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
-        if (deliveryDays.includes(dayName)) {
-          schedule.push({
-            date: new Date(currentDate),
-            time: subscription.nextDeliveryTime,
-            items: plan.items,
-            status: currentDate < /* @__PURE__ */ new Date() ? "delivered" : "pending"
-          });
-        }
-        currentDate.setDate(currentDate.getDate() + 1);
+      const date = new Date(deliveryDate);
+      date.setHours(0, 0, 0, 0);
+      console.log(`[SKIP-DELIVERY] Searching for delivery log on ${date.toDateString()}`);
+      const todaysLogs = await storage.getSubscriptionDeliveryLogsByDate(date);
+      console.log(`[SKIP-DELIVERY] Found ${todaysLogs.length} logs for this date`);
+      let log3 = todaysLogs.find((l) => l.subscriptionId === subscriptionId);
+      console.log(`[SKIP-DELIVERY] Found matching log:`, { found: !!log3, logId: log3?.id });
+      const skipNote = reason ? `Skipped by user: ${reason}` : "Skipped by user";
+      if (!log3) {
+        console.log(`[SKIP-DELIVERY] Creating new delivery log with skipped status`);
+        log3 = await storage.createSubscriptionDeliveryLog({
+          subscriptionId,
+          date,
+          time: subscription.nextDeliveryTime || DEFAULT_DELIVERY_TIME,
+          status: DELIVERY_LOG_STATUS.SKIPPED,
+          notes: skipNote,
+          deliveryPersonId: null
+        });
+        console.log(`[SKIP-DELIVERY] Created new log:`, { logId: log3.id });
+      } else {
+        console.log(`[SKIP-DELIVERY] Updating existing log to skipped status:`, { logId: log3.id });
+        log3 = await storage.updateSubscriptionDeliveryLog(log3.id, {
+          status: "skipped",
+          notes: skipNote,
+          updatedAt: /* @__PURE__ */ new Date()
+        });
+        console.log(`[SKIP-DELIVERY] Updated log:`, { logId: log3?.id });
       }
+      const user = await storage.getUser(userId);
+      const plan = await storage.getSubscriptionPlan(subscription.planId);
+      console.log(`[SKIP-DELIVERY] Got plan:`, { planId: subscription.planId, found: !!plan, planName: plan?.name });
+      if (!plan) {
+        console.error(`[SKIP-DELIVERY] ERROR: Plan not found for planId: ${subscription.planId}`);
+        throw new Error(`Subscription plan not found (planId: ${subscription.planId})`);
+      }
+      if (plan) {
+        const deliveryDays = plan.deliveryDays;
+        let nextDelivery = new Date(subscription.nextDeliveryDate);
+        console.log(`[SKIP-DELIVERY] Plan: ${plan.name} (frequency: ${plan.frequency})`);
+        console.log(`[SKIP-DELIVERY] Delivery days: ${JSON.stringify(deliveryDays)}`);
+        console.log(`[SKIP-DELIVERY] Current nextDeliveryDate: ${nextDelivery.toDateString()}`);
+        const weekdayNames = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+        const allWeekdays = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+        const isDayBasedPlan = deliveryDays.some((day) => weekdayNames.includes(day.toLowerCase()));
+        const isDailyPlan = isDayBasedPlan && allWeekdays.every((day) => deliveryDays.includes(day));
+        console.log(`[SKIP-DELIVERY] Is day-based plan: ${isDayBasedPlan}, Is daily plan (all weekdays): ${isDailyPlan}`);
+        if (isDailyPlan) {
+          nextDelivery.setDate(nextDelivery.getDate() + 1);
+          console.log(`[SKIP-DELIVERY] Daily plan (delivers every day) - shifted to: ${nextDelivery.toDateString()}`);
+        } else if (isDayBasedPlan) {
+          nextDelivery.setDate(nextDelivery.getDate() + 1);
+          console.log(`[SKIP-DELIVERY] Specific weekday plan - looking for next matching day from: ${nextDelivery.toDateString()}`);
+          let attempts = 0;
+          const maxAttempts = 31;
+          while (attempts < maxAttempts) {
+            const dayName = nextDelivery.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
+            const isDeliveryDay2 = deliveryDays.includes(dayName);
+            console.log(`[SKIP-DELIVERY] Attempt ${attempts}: ${nextDelivery.toDateString()} (${dayName}) \u2192 match: ${isDeliveryDay2}`);
+            if (isDeliveryDay2) {
+              console.log(`[SKIP-DELIVERY] Found next delivery day: ${nextDelivery.toDateString()}`);
+              break;
+            }
+            nextDelivery.setDate(nextDelivery.getDate() + 1);
+            attempts++;
+          }
+        } else {
+          console.log(`[SKIP-DELIVERY] Unknown plan type - using fallback (shift by 1 day)`);
+          nextDelivery.setDate(nextDelivery.getDate() + 1);
+        }
+        const daysDifference = Math.floor((nextDelivery.getTime() - new Date(subscription.nextDeliveryDate).getTime()) / (1e3 * 60 * 60 * 24));
+        console.log(`[SKIP-DELIVERY] Days shifted forward: ${daysDifference}`);
+        const oldMaxDate = subscription.endDate || new Date(Date.now() + 365 * 24 * 60 * 60 * 1e3);
+        let newEndDate = new Date(oldMaxDate);
+        newEndDate.setDate(newEndDate.getDate() + daysDifference);
+        console.log(`[SKIP-DELIVERY] Old endDate: ${oldMaxDate.toDateString()}`);
+        console.log(`[SKIP-DELIVERY] New endDate: ${newEndDate.toDateString()}`);
+        console.log(`[SKIP-DELIVERY] About to update subscription with:`, {
+          nextDeliveryDate: nextDelivery.toISOString(),
+          endDate: newEndDate.toISOString()
+        });
+        const updateResult = await storage.updateSubscription(subscriptionId, {
+          nextDeliveryDate: nextDelivery,
+          endDate: newEndDate
+        });
+        if (!updateResult) {
+          throw new Error(`Failed to update subscription (subscription returned null/undefined)`);
+        }
+        console.log(`[SKIP-DELIVERY] Updated subscription: nextDeliveryDate=${nextDelivery.toDateString()}, endDate=${newEndDate.toDateString()}`);
+        if (daysDifference > 0) {
+          try {
+            const deliveryDaysArray = plan.deliveryDays;
+            let logDate = new Date(oldMaxDate);
+            logDate.setDate(logDate.getDate() + 1);
+            console.log(`[SKIP-DELIVERY] Creating logs for extended period from ${logDate.toDateString()} to ${newEndDate.toDateString()}`);
+            while (logDate <= newEndDate) {
+              const dayName = logDate.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
+              const isValidDeliveryDay = deliveryDaysArray.includes(dayName);
+              if (isValidDeliveryDay) {
+                const existingLog = await storage.getDeliveryLogBySubscriptionAndDate(subscriptionId, logDate);
+                if (!existingLog) {
+                  console.log(`[SKIP-DELIVERY] Creating log for ${logDate.toDateString()}`);
+                  await storage.createSubscriptionDeliveryLog({
+                    subscriptionId,
+                    date: new Date(logDate),
+                    time: subscription.nextDeliveryTime || DEFAULT_DELIVERY_TIME,
+                    status: DELIVERY_LOG_STATUS.SCHEDULED,
+                    deliveryPersonId: null,
+                    notes: "Created to extend subscription after skipping delivery"
+                  });
+                }
+              }
+              logDate.setDate(logDate.getDate() + 1);
+            }
+            console.log(`[SKIP-DELIVERY] Extended logs creation completed`);
+          } catch (logError) {
+            console.error(`[SKIP-DELIVERY] Error creating extended logs:`, logError);
+          }
+        }
+      }
+      const updatedSubscription = await storage.getSubscription(subscriptionId);
+      console.log(`\u2705 User ${user?.name || userId} skipped delivery for subscription ${subscriptionId} on ${date.toDateString()}`);
+      console.log(`   Reason: ${skipNote}`);
+      console.log(`   Updated nextDeliveryDate: ${updatedSubscription?.nextDeliveryDate}`);
       res.json({
-        subscription,
-        plan,
-        schedule,
-        remainingDeliveries: subscription.remainingDeliveries,
-        totalDeliveries: subscription.totalDeliveries,
-        deliveryHistory: subscription.deliveryHistory || []
+        message: "Delivery skipped successfully",
+        skippedDelivery: log3,
+        updatedSubscription
       });
     } catch (error) {
-      console.error("Error fetching subscription schedule:", error);
-      res.status(500).json({ message: error.message || "Failed to fetch schedule" });
+      console.error("\u274C Error skipping delivery:", error);
+      console.error("Stack trace:", error.stack);
+      console.error("Error message:", error.message);
+      console.error("Full error:", JSON.stringify(error, null, 2));
+      const isDevelopment = process.env.NODE_ENV === "development";
+      const errorMessage = isDevelopment ? error.message : "Failed to skip delivery";
+      const errorDetails = isDevelopment ? { originalError: error.message, stack: error.stack } : {};
+      res.status(500).json({
+        message: errorMessage,
+        ...errorDetails
+      });
     }
   });
   app2.post("/api/subscriptions/:id/complete-delivery", requireUser(), async (req, res) => {
@@ -8969,12 +10860,16 @@ async function registerRoutes(app2) {
       const deliveryDays = plan.deliveryDays;
       let nextDelivery = new Date(subscription.nextDeliveryDate);
       nextDelivery.setDate(nextDelivery.getDate() + 1);
-      while (nextDelivery <= (subscription.endDate || new Date(Date.now() + 365 * 24 * 60 * 60 * 1e3))) {
-        const dayName = nextDelivery.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
-        if (deliveryDays.includes(dayName)) {
+      const maxDateLimit = subscription.endDate || new Date(Date.now() + 365 * 24 * 60 * 60 * 1e3);
+      let attempts = 0;
+      const maxAttempts = plan.frequency === "monthly" ? 31 : 7;
+      while (nextDelivery <= maxDateLimit && attempts < maxAttempts) {
+        const isDeliveryDayCheck = plan.frequency === "monthly" ? deliveryDays.includes(nextDelivery.getDate().toString()) : deliveryDays.includes(nextDelivery.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase());
+        if (isDeliveryDayCheck) {
           break;
         }
         nextDelivery.setDate(nextDelivery.getDate() + 1);
+        attempts++;
       }
       const updateData = {
         remainingDeliveries,
@@ -9071,11 +10966,21 @@ async function registerRoutes(app2) {
         phone: body.phone?.trim(),
         email: body.email || "",
         address: body.address?.trim(),
+        // Structured address fields (NEW: for pincode validation)
+        addressBuilding: body.addressBuilding?.trim() || "",
+        addressStreet: body.addressStreet?.trim() || "",
+        addressArea: body.addressArea?.trim() || "",
+        addressCity: body.addressCity?.trim() || "Mumbai",
+        addressPincode: body.addressPincode?.trim() || "",
         items: Array.isArray(body.items) ? body.items.map((i) => ({
           id: i.id,
           name: i.name,
           price: sanitizeNumber(i.price),
-          quantity: sanitizeNumber(i.quantity)
+          quantity: sanitizeNumber(i.quantity),
+          categoryId: i.categoryId || void 0,
+          chefId: i.chefId || void 0,
+          // Preserve special cooking instructions — this is saved in JSONB items column
+          ...i.specialInstructions ? { specialInstructions: String(i.specialInstructions).trim() } : {}
         })) : [],
         subtotal: sanitizeNumber(body.subtotal),
         deliveryFee: sanitizeNumber(body.deliveryFee),
@@ -9105,17 +11010,19 @@ async function registerRoutes(app2) {
       let chefLat = 19.0728;
       let chefLon = 72.8826;
       let chefName = "Kurla West Kitchen";
+      let maxDeliveryDistance = 5;
+      let chef = null;
       if (sanitized.chefId) {
-        const chef2 = await db.query.chefs.findFirst({
-          where: (c, { eq: eq6 }) => eq6(c.id, sanitized.chefId)
+        chef = await db.query.chefs.findFirst({
+          where: (c, { eq: eq7 }) => eq7(c.id, sanitized.chefId)
         });
-        if (chef2) {
-          chefLat = chef2.latitude ?? 19.0728;
-          chefLon = chef2.longitude ?? 72.8826;
-          chefName = chef2.name;
+        if (chef) {
+          chefLat = chef.latitude ?? 19.0728;
+          chefLon = chef.longitude ?? 72.8826;
+          chefName = chef.name;
+          maxDeliveryDistance = chef.maxDeliveryDistanceKm ?? 5;
         }
       }
-      const MAX_DELIVERY_DISTANCE_KM = 2.5;
       const addressDistance = calculateDistance2(chefLat, chefLon, customerLatitude, customerLongitude);
       console.log(`[DELIVERY-ZONE] Validating delivery address:`, {
         address: sanitized.address,
@@ -9124,36 +11031,94 @@ async function registerRoutes(app2) {
         chefName,
         chefLocation: `${chefLat.toFixed(4)}, ${chefLon.toFixed(4)}`,
         distanceFromChef: addressDistance.toFixed(2),
-        maxDistance: MAX_DELIVERY_DISTANCE_KM
+        maxDeliveryDistance
       });
-      if (addressDistance > MAX_DELIVERY_DISTANCE_KM) {
+      if (addressDistance > maxDeliveryDistance) {
         console.log(`\u{1F6AB} Order blocked - delivery address outside service zone:`, {
           address: sanitized.address,
           chef: chefName,
           distanceFromChef: addressDistance.toFixed(2),
-          maxDistance: MAX_DELIVERY_DISTANCE_KM
+          maxDistance: maxDeliveryDistance
         });
         return res.status(400).json({
-          message: `Delivery not available to this address. ${chefName} delivers within ${MAX_DELIVERY_DISTANCE_KM}km. This address is ${addressDistance.toFixed(1)}km away.`,
+          message: `Delivery not available to this address. ${chefName} delivers within ${maxDeliveryDistance}km. This address is ${addressDistance.toFixed(1)}km away.`,
           outsideDeliveryZone: true,
           addressDistance: addressDistance.toFixed(1),
-          maxDistance: MAX_DELIVERY_DISTANCE_KM,
+          maxDistance: maxDeliveryDistance,
           address: sanitized.address
         });
-      } else {
-        console.log(`\u2705 Delivery address validated successfully:`, {
-          address: sanitized.address,
+      }
+      const customerPincode = sanitized.addressPincode;
+      if (customerPincode && chef && chef.servicePincodes && chef.servicePincodes.length > 0) {
+        const pincodeValid = chef.servicePincodes.includes(customerPincode);
+        console.log(`[PINCODE-VALIDATION] Chef service pincodes:`, {
           chef: chefName,
-          distanceFromChef: addressDistance.toFixed(2),
-          withinZone: true
+          servicePincodes: chef.servicePincodes,
+          customerPincode,
+          isValid: pincodeValid
+        });
+        if (!pincodeValid) {
+          console.log(`\u{1F6AB} Order blocked - customer pincode not in chef's service pincodes:`, {
+            chef: chefName,
+            customerPincode,
+            servicePincodes: chef.servicePincodes
+          });
+          return res.status(400).json({
+            message: `${chefName} does not deliver to pincode ${customerPincode}. Served pincodes: ${chef.servicePincodes.join(", ")}`,
+            pincodeNotInServiceArea: true,
+            customerPincode,
+            servicePincodes: chef.servicePincodes
+          });
+        }
+        console.log(`\u2705 Pincode validated:`, {
+          chef: chefName,
+          pincode: customerPincode
+        });
+      } else if (customerPincode && (!chef || !chef.servicePincodes || chef.servicePincodes.length === 0)) {
+        console.log(`[PINCODE-VALIDATION] Chef has no pincode restrictions (backward compatible):`, {
+          chef: chefName,
+          customerPincode
         });
       }
+      console.log(`\u2705 Delivery address validated successfully:`, {
+        address: sanitized.address,
+        chef: chefName,
+        distanceFromChef: addressDistance.toFixed(2),
+        withinZone: true
+      });
       try {
-        const feeResult = await storage.calculateDeliveryFee(true, addressDistance, sanitized.subtotal || 0, chef);
-        const expectedDeliveryFee = feeResult.isFreeDelivery ? 0 : feeResult.deliveryFee;
-        console.log("[SERVER] Recomputed delivery fee:", { expectedDeliveryFee, isFreeDelivery: feeResult.isFreeDelivery, addressDistance });
+        const rawSettings = await storage.getDeliverySettings();
+        const deliverySettings3 = rawSettings.map((s) => ({
+          ...s,
+          minOrderAmount: s.minOrderAmount === null ? void 0 : s.minOrderAmount
+        }));
+        const { calculateDelivery: calculateDelivery2 } = await Promise.resolve().then(() => (init_deliveryUtils(), deliveryUtils_exports));
+        const feeResult = calculateDelivery2(addressDistance, sanitized.subtotal || 0, deliverySettings3);
+        const minOrderAmount = feeResult.minOrderAmount || 0;
+        const meetsMinimum = minOrderAmount > 0 && (sanitized.subtotal || 0) >= minOrderAmount;
+        const expectedDeliveryFee = feeResult.freeDeliveryEligible || meetsMinimum ? 0 : feeResult.deliveryFee;
+        console.log("[SERVER] Recomputed delivery fee using Admin settings:", {
+          baseFee: feeResult.deliveryFee,
+          expectedDeliveryFee,
+          isFreeDelivery: feeResult.freeDeliveryEligible || meetsMinimum,
+          meetsMinimumThreshold: meetsMinimum,
+          minOrderAmount,
+          subtotal: sanitized.subtotal,
+          addressDistance
+        });
         sanitized.deliveryFee = expectedDeliveryFee;
-        sanitized.total = (sanitized.subtotal || 0) + (sanitized.deliveryFee || 0) - (sanitized.discount || 0);
+        const baseTotal = (sanitized.subtotal || 0) + (sanitized.deliveryFee || 0) - (sanitized.discount || 0);
+        const bonusDeduction = sanitized.bonusUsedAtCheckout || 0;
+        const walletDeduction = sanitized.walletAmountUsed || 0;
+        sanitized.total = Math.max(0, baseTotal - bonusDeduction - walletDeduction);
+        console.log("[SERVER] Final recalculated total:", {
+          subtotal: sanitized.subtotal,
+          deliveryFee: sanitized.deliveryFee,
+          discount: sanitized.discount,
+          bonusUsed: bonusDeduction,
+          walletUsed: walletDeduction,
+          finalTotal: sanitized.total
+        });
       } catch (feeErr) {
         console.error("Error computing delivery fee on server:", feeErr);
         return res.status(500).json({ message: "Failed to compute delivery fee" });
@@ -9229,7 +11194,8 @@ async function registerRoutes(app2) {
         const token = req.headers.authorization.substring(7);
         const payload = verifyToken5(token);
         if (payload?.userId) userId = payload.userId;
-      } else if (sanitized.phone) {
+      }
+      if (!userId && sanitized.phone) {
         let user = await storage.getUserByPhone(sanitized.phone);
         if (!user) {
           accountCreated = true;
@@ -9244,7 +11210,10 @@ async function registerRoutes(app2) {
               address: sanitized.address || null,
               passwordHash,
               referralCode: null,
-              walletBalance: 0
+              walletBalance: 0,
+              // Save geocoded coordinates for reuse in future orders
+              latitude: customerLatitude,
+              longitude: customerLongitude
             });
             console.log(`\u2705 New account created with phone: ${sanitized.phone}, Email: ${sanitized.email || "Not provided"}`);
             if (referralCodeInput && user.id) {
@@ -9260,16 +11229,20 @@ async function registerRoutes(app2) {
                 console.warn(`\u26A0\uFE0F Failed to apply referral code: ${referralError.message}`);
               }
             }
-            if (sanitized.email && generatedPassword) {
+            if (SEND_SUBSCRIPTION_EMAILS && sanitized.email && generatedPassword) {
               const emailHtml = createWelcomeEmail(sanitized.customerName, sanitized.phone, generatedPassword);
-              emailSent = await sendEmail({
+              sendEmail({
                 to: sanitized.email,
                 subject: "\u{1F37D}\uFE0F Welcome to RotiHai - Your Account Details",
                 html: emailHtml
-              });
-              if (emailSent) {
+              }).then(() => {
                 console.log(`\u2705 Welcome email sent to ${sanitized.email}`);
-              }
+                emailSent = true;
+              }).catch((err) => {
+                console.error(`\u26A0\uFE0F Failed to send welcome email to ${sanitized.email}:`, err);
+              });
+            } else if (sanitized.email && generatedPassword) {
+              console.log(`\u{1F4E7} Subscription email disabled for performance. Email sending skipped for ${sanitized.email}`);
             }
           } catch (createUserError) {
             console.error("Error creating user:", createUserError);
@@ -9278,6 +11251,17 @@ async function registerRoutes(app2) {
         } else {
           console.log(`\u2705 Existing account found with phone: ${sanitized.phone}`);
           await storage.updateUserLastLogin(user.id);
+          if (user.latitude !== customerLatitude || user.longitude !== customerLongitude) {
+            try {
+              await storage.updateUser(user.id, {
+                latitude: customerLatitude,
+                longitude: customerLongitude
+              });
+              console.log(`\u{1F4CD} Updated user coordinates: ${customerLatitude}, ${customerLongitude}`);
+            } catch (updateErr) {
+              console.warn(`\u26A0\uFE0F Failed to update user coordinates:`, updateErr);
+            }
+          }
         }
         if (user) {
           userId = user.id;
@@ -9298,9 +11282,9 @@ async function registerRoutes(app2) {
       if (!orderPayload.chefId) {
         return res.status(400).json({ message: "Unable to determine chefId for the order" });
       }
-      const chef = await storage.getChefById(orderPayload.chefId);
-      if (chef) {
-        orderPayload.chefName = chef.name;
+      const chefFromDb = await storage.getChefById(orderPayload.chefId);
+      if (chefFromDb) {
+        orderPayload.chefName = chefFromDb.name;
       }
       orderPayload.items = await Promise.all(
         orderPayload.items.map(async (item) => {
@@ -9332,55 +11316,6 @@ async function registerRoutes(app2) {
       const order = await storage.createOrder(orderPayload);
       console.log("\u2705 Order created successfully:", order.id);
       console.log(`\u{1F4CB} Order Details: userId=${userId}, walletAmountUsed=${order.walletAmountUsed}`);
-      if (orderPayload.couponCode && userId) {
-        await storage.recordCouponUsage(orderPayload.couponCode, userId, order.id);
-      } else if (orderPayload.couponCode) {
-        await storage.incrementCouponUsage(orderPayload.couponCode);
-      }
-      if (userId) {
-        const { db: database } = await Promise.resolve().then(() => (init_db(), db_exports));
-        const { referrals: referralsTable } = await Promise.resolve().then(() => (init_db(), db_exports));
-        const { eq: eq6, and: and2 } = await import("drizzle-orm");
-        const pendingReferral = await database.query.referrals.findFirst({
-          where: (r, { eq: eq7, and: and3 }) => and3(
-            eq7(r.referredId, userId),
-            eq7(r.status, "pending")
-          )
-        });
-        if (pendingReferral) {
-          await database.transaction(async (tx) => {
-            const referredUser = await tx.query.users.findFirst({
-              where: (u, { eq: eq7 }) => eq7(u.id, userId)
-            });
-            await tx.update(referralsTable).set({
-              status: "completed",
-              referredOrderCompleted: true,
-              completedAt: /* @__PURE__ */ new Date()
-            }).where(eq6(referralsTable.id, pendingReferral.id));
-            await storage.createWalletTransaction({
-              userId: pendingReferral.referrerId,
-              amount: pendingReferral.referrerBonus,
-              type: "referral_bonus",
-              description: `Referral bonus: ${referredUser?.name || "User"} completed their first order using your code`,
-              referenceId: pendingReferral.id,
-              referenceType: "referral"
-            }, tx);
-          });
-        }
-      }
-      try {
-        const adminPhone = process.env.ADMIN_PHONE_NUMBER;
-        await sendOrderPlacedAdminNotification(
-          order.id,
-          order.customerName,
-          order.total,
-          adminPhone
-        );
-      } catch (notificationError) {
-        console.error("\u26A0\uFE0F Error sending admin WhatsApp notification (non-critical):", notificationError);
-      }
-      broadcastNewOrder(order);
-      console.log("\u2705 Order created successfully:", order.id);
       let accessToken;
       if (accountCreated && userId) {
         const user = await storage.getUser(userId);
@@ -9396,6 +11331,68 @@ async function registerRoutes(app2) {
         accessToken: accountCreated ? accessToken : void 0,
         appliedReferralBonus: appliedReferralBonus > 0 ? appliedReferralBonus : void 0
       });
+      (async () => {
+        try {
+          if (orderPayload.couponCode && userId) {
+            await storage.recordCouponUsage(orderPayload.couponCode, userId, order.id);
+          } else if (orderPayload.couponCode) {
+            await storage.incrementCouponUsage(orderPayload.couponCode);
+          }
+        } catch (err) {
+          console.error("\u26A0\uFE0F Error recording coupon usage:", err);
+        }
+      })();
+      (async () => {
+        try {
+          if (userId) {
+            const { db: database } = await Promise.resolve().then(() => (init_db(), db_exports));
+            const { referrals: referralsTable } = await Promise.resolve().then(() => (init_db(), db_exports));
+            const { eq: eq7, and: and3 } = await import("drizzle-orm");
+            const pendingReferral = await database.query.referrals.findFirst({
+              where: (r, { eq: eq8, and: and4 }) => and4(
+                eq8(r.referredId, userId),
+                eq8(r.status, "pending")
+              )
+            });
+            if (pendingReferral) {
+              await database.transaction(async (tx) => {
+                const referredUser = await tx.query.users.findFirst({
+                  where: (u, { eq: eq8 }) => eq8(u.id, userId)
+                });
+                await tx.update(referralsTable).set({
+                  status: "completed",
+                  referredOrderCompleted: true,
+                  completedAt: /* @__PURE__ */ new Date()
+                }).where(eq7(referralsTable.id, pendingReferral.id));
+                await storage.createWalletTransaction({
+                  userId: pendingReferral.referrerId,
+                  amount: pendingReferral.referrerBonus,
+                  type: "referral_bonus",
+                  description: `Referral bonus: ${referredUser?.name || "User"} completed their first order using your code`,
+                  referenceId: pendingReferral.id,
+                  referenceType: "referral"
+                }, tx);
+              });
+            }
+          }
+        } catch (err) {
+          console.error("\u26A0\uFE0F Error processing referral bonus:", err);
+        }
+      })();
+      (async () => {
+        try {
+          broadcastNewOrder(order);
+          const adminPhone = process.env.ADMIN_PHONE_NUMBER;
+          await sendOrderPlacedAdminNotification(
+            order.id,
+            order.customerName,
+            order.total,
+            adminPhone
+          );
+        } catch (err) {
+          console.error("\u26A0\uFE0F Error in background notification tasks:", err);
+        }
+      })();
     } catch (error) {
       console.error("\u274C Create order error:", error);
       res.status(500).json({ message: error.message || "Failed to create order" });
@@ -9480,11 +11477,13 @@ async function registerRoutes(app2) {
             address: order.address || null,
             passwordHash,
             referralCode: null,
-            walletBalance: 0
+            walletBalance: 0,
+            latitude: null,
+            longitude: null
           });
           console.log(`\u2705 New user created on payment confirmation: ${user.id} - Phone: ${order.phone}`);
           userCreated = true;
-          if (order.email) {
+          if (SEND_SUBSCRIPTION_EMAILS && order.email) {
             const emailHtml = createWelcomeEmail(order.customerName, order.phone, generatedPassword);
             const emailSent = await sendEmail({
               to: order.email,
@@ -9494,14 +11493,16 @@ async function registerRoutes(app2) {
             if (emailSent) {
               console.log(`\u2705 Welcome email sent to ${order.email}`);
             }
+          } else if (order.email) {
+            console.log(`\u{1F4E7} Subscription email disabled for performance. Email sending skipped for ${order.email}`);
           }
-          await db.update(orders2).set({ userId: user.id }).where(eq5(orders2.id, id));
+          await db.update(orders2).set({ userId: user.id }).where(eq6(orders2.id, id));
           order.userId = user.id;
           accessToken = generateAccessToken3(user);
           refreshToken = generateRefreshToken4(user);
         } else {
           console.log(`\u{1F464} User already exists with phone ${order.phone}, linking to order`);
-          await db.update(orders2).set({ userId: user.id }).where(eq5(orders2.id, id));
+          await db.update(orders2).set({ userId: user.id }).where(eq6(orders2.id, id));
           order.userId = user.id;
           accessToken = generateAccessToken3(user);
           refreshToken = generateRefreshToken4(user);
@@ -9577,6 +11578,11 @@ async function registerRoutes(app2) {
         response.accessToken = accessToken;
         response.refreshToken = refreshToken;
       }
+      if (updatedOrder) {
+        console.log(`
+\u{1F4E3} Broadcasting payment confirmation for order ${updatedOrder.id}`);
+        broadcastOrderUpdate(updatedOrder);
+      }
       res.json(response);
     } catch (error) {
       console.error("Error confirming payment:", error);
@@ -9620,6 +11626,79 @@ async function registerRoutes(app2) {
     } catch (error) {
       console.error("\u274C Error fetching chefs by area:", error);
       res.status(500).json({ message: "Failed to fetch chefs for delivery area" });
+    }
+  });
+  app2.get("/api/chefs/by-location", async (req, res) => {
+    try {
+      const { latitude, longitude, maxDistance } = req.query;
+      if (!latitude || !longitude) {
+        return res.status(400).json({ error: "Missing latitude or longitude" });
+      }
+      const userLat = parseFloat(latitude);
+      const userLon = parseFloat(longitude);
+      const maxDistanceKm = maxDistance ? parseFloat(maxDistance) : 15;
+      if (isNaN(userLat) || isNaN(userLon) || isNaN(maxDistanceKm)) {
+        return res.status(400).json({ error: "Invalid coordinates or distance" });
+      }
+      const allChefs = await storage.getChefs();
+      console.log(`
+\u{1F5FA}\uFE0F [DEBUG] /api/chefs/by-location called:`);
+      console.log(`   User location: (${userLat}, ${userLon})`);
+      console.log(`   Max search radius: ${maxDistanceKm}km`);
+      const chefsWithDistance = allChefs.map((chef) => {
+        const R = 6371;
+        const lat1 = userLat * (Math.PI / 180);
+        const lat2 = (chef.latitude || 19.0728) * (Math.PI / 180);
+        const deltaLat = ((chef.latitude || 19.0728) - userLat) * (Math.PI / 180);
+        const deltaLon = ((chef.longitude || 72.8826) - userLon) * (Math.PI / 180);
+        const a = Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) + Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLon / 2) * Math.sin(deltaLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        const distance = R * c;
+        return {
+          ...chef,
+          distanceFromUser: parseFloat(distance.toFixed(2))
+        };
+      });
+      const maxDeliveryDistance = (chef) => {
+        const chefMaxDistance = chef.maxDeliveryDistanceKm || 5;
+        return (chef.distanceFromUser || 0) <= chefMaxDistance;
+      };
+      const nearbyChefs = chefsWithDistance.filter((chef) => chef.isActive !== false && maxDeliveryDistance(chef)).sort((a, b) => (a.distanceFromUser || 0) - (b.distanceFromUser || 0));
+      console.log(`   Found ${nearbyChefs.length} nearby chef(s):`);
+      nearbyChefs.forEach((c) => {
+        console.log(`     \u2705 ${c.name} - ${c.distanceFromUser}km away (max: ${c.maxDeliveryDistanceKm || 5}km)`);
+      });
+      console.log("");
+      res.json(nearbyChefs);
+    } catch (error) {
+      console.error("\u274C Error fetching chefs by location:", error);
+      res.status(500).json({ message: "Failed to fetch nearby chefs" });
+    }
+  });
+  app2.get("/api/chefs/by-pincode/:pincode", async (req, res) => {
+    try {
+      const { pincode } = req.params;
+      if (!pincode || !/^\d{5,6}$/.test(pincode)) {
+        return res.status(400).json({ error: "Invalid pincode format. Must be 5-6 digits." });
+      }
+      const allChefs = await storage.getChefs();
+      console.log(`
+\u{1F4CD} [DEBUG] /api/chefs/by-pincode called with pincode: ${pincode}`);
+      const chefsServingPincode = allChefs.filter((chef) => {
+        if (!chef.isActive) return false;
+        const servicePincodes = chef.servicePincodes || [];
+        const servesThisPincode = servicePincodes.includes(pincode);
+        if (servesThisPincode) {
+          console.log(`   \u2705 ${chef.name} serves pincode ${pincode}`);
+        }
+        return servesThisPincode;
+      });
+      console.log(`   Found ${chefsServingPincode.length} chef(s) serving pincode ${pincode}`);
+      console.log("");
+      res.json(chefsServingPincode);
+    } catch (error) {
+      console.error("\u274C Error fetching chefs by pincode:", error);
+      res.status(500).json({ message: "Failed to fetch chefs for pincode" });
     }
   });
   app2.get("/api/areas/by-coordinates", async (req, res) => {
@@ -9783,8 +11862,10 @@ async function registerRoutes(app2) {
         phone,
         email,
         address,
+        latitude,
+        longitude,
         planId,
-        deliveryTime = "09:00",
+        deliveryTime = DEFAULT_DELIVERY_TIME,
         deliverySlotId,
         durationDays = 30
       } = req.body;
@@ -9805,6 +11886,32 @@ async function registerRoutes(app2) {
       if (!plan) {
         res.status(404).json({ message: "Subscription plan not found" });
         return;
+      }
+      const existingGuestUser = await storage.getUserByPhone(sanitizedPhone);
+      if (existingGuestUser) {
+        const allGuestSubs = await storage.getSubscriptions();
+        const guestSubscriptions = allGuestSubs.filter((s) => s.userId === existingGuestUser.id);
+        const hasDuplicateSubscription = guestSubscriptions?.some(
+          (sub) => sub.planId === planId && sub.status !== SUBSCRIPTION_STATUS.EXPIRED && sub.status !== SUBSCRIPTION_STATUS.CANCELLED
+        );
+        if (hasDuplicateSubscription) {
+          res.status(409).json({
+            message: "You already have an active subscription to this plan",
+            code: "DUPLICATE_SUBSCRIPTION",
+            existingSubscriptionId: guestSubscriptions?.find((s) => s.planId === planId)?.id
+          });
+          return;
+        }
+      }
+      let calculatedDurationDays = durationDays;
+      if (durationDays === 30) {
+        if (plan.frequency === "weekly") {
+          calculatedDurationDays = 7;
+        } else if (plan.frequency === "monthly") {
+          calculatedDurationDays = 30;
+        } else if (plan.frequency === "daily") {
+          calculatedDurationDays = 1;
+        }
       }
       const category = await storage.getCategoryById(plan.categoryId);
       const isRotiCategory = category?.name?.toLowerCase() === "roti" || category?.name?.toLowerCase().includes("roti");
@@ -9850,10 +11957,12 @@ async function registerRoutes(app2) {
             address: address ? address.trim() : null,
             passwordHash,
             referralCode: null,
-            walletBalance: 0
+            walletBalance: 0,
+            latitude: latitude || null,
+            longitude: longitude || null
           });
           console.log(`\u2705 New account created during subscription with phone: ${sanitizedPhone}, Email: ${email || "Not provided"}`);
-          if (email) {
+          if (SEND_SUBSCRIPTION_EMAILS && email) {
             const emailHtml = createWelcomeEmail(customerName, sanitizedPhone, newPassword);
             emailSent = await sendEmail({
               to: email,
@@ -9863,6 +11972,8 @@ async function registerRoutes(app2) {
             if (emailSent) {
               console.log(`\u2705 Welcome email sent to ${email}`);
             }
+          } else if (email) {
+            console.log(`\u{1F4E7} Subscription email disabled for performance. Email sending skipped for ${email}`);
           }
         } catch (createUserError) {
           console.error("Error creating user during subscription:", createUserError);
@@ -9880,7 +11991,7 @@ async function registerRoutes(app2) {
       if (deliverySlotId) {
         const slot = await storage.getDeliveryTimeSlot(deliverySlotId);
         if (slot) {
-          const cutoffInfo = computeSlotCutoffInfo(slot);
+          const cutoffInfo = computeSlotCutoffInfo(slot, true);
           nextDelivery = new Date(cutoffInfo.nextAvailableDate);
           finalDeliveryTime = slot.startTime;
           console.log(`\u{1F4C5} Subscription next delivery date set from slot: ${nextDelivery.toISOString()}, time: ${finalDeliveryTime}`);
@@ -9891,16 +12002,9 @@ async function registerRoutes(app2) {
         nextDelivery.setDate(nextDelivery.getDate() + 1);
       }
       const endDate = new Date(now);
-      endDate.setDate(endDate.getDate() + durationDays);
+      endDate.setDate(endDate.getDate() + calculatedDurationDays);
       const deliveryDays = plan.deliveryDays;
-      let totalDeliveries = 0;
-      if (plan.frequency === "daily") {
-        totalDeliveries = deliveryDays.length > 0 ? Math.floor(durationDays / 7) * deliveryDays.length : durationDays;
-      } else if (plan.frequency === "weekly") {
-        totalDeliveries = Math.floor(durationDays / 7);
-      } else {
-        totalDeliveries = Math.floor(durationDays / 30);
-      }
+      const totalDeliveries = calculateTotalDeliveries(plan.frequency, deliveryDays, calculatedDurationDays, now);
       const subscriptionData = {
         userId: user.id,
         planId,
@@ -9910,8 +12014,9 @@ async function registerRoutes(app2) {
         customerName: user.name || customerName.trim(),
         phone: user.phone || sanitizedPhone,
         email: user.email || (email ? email.trim().toLowerCase() : null),
-        address: user.address || (address ? address.trim() : null),
-        status: "pending",
+        // ✅ FIX: Handle both address objects and strings
+        address: user.address || (address ? typeof address === "object" ? JSON.stringify(address) : address.trim() : null),
+        status: SUBSCRIPTION_STATUS.PENDING,
         startDate: now,
         endDate,
         nextDeliveryDate: nextDelivery,
@@ -9935,9 +12040,38 @@ async function registerRoutes(app2) {
       };
       const subscription = await storage.createSubscription(subscriptionData);
       console.log(`\u2705 Public subscription created: ${subscription.id} for user ${user.id}`);
+      await generateSubscriptionDeliveryLogs(subscription, plan, nextDelivery, endDate, finalDeliveryTime);
+      const publicSubLogs = await storage.getSubscriptionDeliveryLogs(subscription.id);
+      if (publicSubLogs && publicSubLogs.length > 0) {
+        const firstLog = publicSubLogs.sort(
+          (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+        )[0];
+        const firstLogDate = new Date(firstLog.date);
+        firstLogDate.setHours(0, 0, 0, 0);
+        const currentNextDeliveryDate = new Date(subscription.nextDeliveryDate);
+        currentNextDeliveryDate.setHours(0, 0, 0, 0);
+        if (firstLogDate.getTime() !== currentNextDeliveryDate.getTime()) {
+          await storage.updateSubscription(subscription.id, { nextDeliveryDate: firstLog.date });
+          console.log(`\u2705 Corrected public subscription nextDeliveryDate to match first log`);
+        }
+      }
+      if (subscriptionData.address) {
+        try {
+          await storage.updateUser(user.id, {
+            address: subscriptionData.address
+          });
+          console.log(`[PUBLIC-SUB] \u2705 Updated user profile with subscription address`);
+        } catch (updateError) {
+          console.warn(`[PUBLIC-SUB] \u26A0\uFE0F Failed to update user address in profile:`, updateError.message);
+        }
+      }
       broadcastNewSubscriptionToAdmin(subscription, plan.name);
       res.status(201).json({
-        subscription,
+        subscription: {
+          ...subscription,
+          frequency: plan.frequency
+          // ✅ Include frequency for frontend use
+        },
         user: {
           id: user.id,
           name: user.name,
@@ -10087,7 +12221,15 @@ async function registerRoutes(app2) {
   app2.post("/api/subscriptions", requireUser(), async (req, res) => {
     try {
       const userId = req.authenticatedUser.userId;
-      const { planId, deliveryTime = "09:00", deliverySlotId, durationDays = 30 } = req.body;
+      const {
+        planId,
+        deliveryTime = DEFAULT_DELIVERY_TIME,
+        deliverySlotId,
+        durationDays = 30,
+        address,
+        latitude,
+        longitude
+      } = req.body;
       if (!planId) {
         res.status(400).json({ message: "Plan ID is required" });
         return;
@@ -10096,6 +12238,29 @@ async function registerRoutes(app2) {
       if (!plan) {
         res.status(404).json({ message: "Subscription plan not found" });
         return;
+      }
+      const allSubscriptions = await storage.getSubscriptions();
+      const userSubs = allSubscriptions.filter((s) => s.userId === userId);
+      const hasDuplicateSubscription = userSubs?.some(
+        (sub) => sub.planId === planId && sub.status !== SUBSCRIPTION_STATUS.EXPIRED && sub.status !== SUBSCRIPTION_STATUS.CANCELLED
+      );
+      if (hasDuplicateSubscription) {
+        res.status(409).json({
+          message: "You already have an active subscription to this plan",
+          code: "DUPLICATE_SUBSCRIPTION",
+          existingSubscriptionId: userSubs?.find((s) => s.planId === planId)?.id
+        });
+        return;
+      }
+      let calculatedDurationDays = durationDays;
+      if (durationDays === 30) {
+        if (plan.frequency === "weekly") {
+          calculatedDurationDays = 7;
+        } else if (plan.frequency === "monthly") {
+          calculatedDurationDays = 30;
+        } else if (plan.frequency === "daily") {
+          calculatedDurationDays = 1;
+        }
       }
       const category = await storage.getCategoryById(plan.categoryId);
       const isRotiCategory = category?.name?.toLowerCase() === "roti" || category?.name?.toLowerCase().includes("roti");
@@ -10125,7 +12290,7 @@ async function registerRoutes(app2) {
         console.log(`[SUB-CREATE] [3] Slot lookup result: ${slot ? "FOUND" : "NOT FOUND"}`);
         if (slot) {
           console.log(`[SUB-CREATE] [4] Slot details - id: ${slot.id}, startTime: ${slot.startTime}`);
-          const cutoffInfo = computeSlotCutoffInfo(slot);
+          const cutoffInfo = computeSlotCutoffInfo(slot, true);
           console.log(`[SUB-CREATE] [5] Cutoff info computed - nextAvailableDate: ${cutoffInfo.nextAvailableDate.toISOString()}`);
           nextDelivery = new Date(cutoffInfo.nextAvailableDate);
           finalDeliveryTime = slot.startTime;
@@ -10137,22 +12302,16 @@ async function registerRoutes(app2) {
           console.log(`[SUB-CREATE] [5B] After fallback - nextDelivery: ${nextDelivery.toISOString()}`);
         }
       } else {
-        console.log(`[SUB-CREATE] [2B] No slot ID, using default - adding 1 day`);
-        nextDelivery.setDate(nextDelivery.getDate() + 1);
-        console.log(`[SUB-CREATE] [3B] After default - nextDelivery: ${nextDelivery.toISOString()}`);
+        console.log(`[SUB-CREATE] [2B] No slot ID, calculating next delivery based on plan frequency/days`);
+        const deliveryDays2 = plan.deliveryDays;
+        nextDelivery = getNextActualDeliveryDate(now, plan.frequency, deliveryDays2);
+        console.log(`[SUB-CREATE] [3B] After plan-based calculation - nextDelivery: ${nextDelivery.toISOString()}`);
       }
       console.log(`[SUB-CREATE] [7] Final nextDelivery before validation: ${nextDelivery.toISOString()}, year: ${nextDelivery.getFullYear()}, time: ${nextDelivery.getTime()}`);
-      const endDate = new Date(now);
-      endDate.setDate(endDate.getDate() + durationDays);
+      const endDate = new Date(nextDelivery);
+      endDate.setDate(endDate.getDate() + calculatedDurationDays - 1);
       const deliveryDays = plan.deliveryDays;
-      let totalDeliveries = 0;
-      if (plan.frequency === "daily") {
-        totalDeliveries = deliveryDays.length > 0 ? Math.floor(durationDays / 7) * deliveryDays.length : durationDays;
-      } else if (plan.frequency === "weekly") {
-        totalDeliveries = Math.floor(durationDays / 7);
-      } else {
-        totalDeliveries = Math.floor(durationDays / 30);
-      }
+      const totalDeliveries = calculateTotalDeliveries(plan.frequency, deliveryDays, calculatedDurationDays, nextDelivery);
       if (!nextDelivery || isNaN(nextDelivery.getTime())) {
         console.error(`[SUB-CREATE] ERROR: Invalid nextDelivery date!`, { nextDelivery, isoString: nextDelivery?.toISOString?.() });
         res.status(400).json({ message: "Invalid delivery date calculation. Please contact support." });
@@ -10174,8 +12333,11 @@ async function registerRoutes(app2) {
         customerName: user.name || "",
         phone: user.phone || "",
         email: user.email || "",
-        address: user.address || "",
-        status: "pending",
+        // ✅ FIX: Handle both address objects and strings
+        // If address is an object (from SubscriptionAddress), serialize to JSON
+        // If it's already a string, use as-is
+        address: address ? typeof address === "object" ? JSON.stringify(address) : address.trim() : user.address || "",
+        status: SUBSCRIPTION_STATUS.PENDING,
         // Start as pending until payment is confirmed
         startDate: now,
         endDate,
@@ -10231,8 +12393,36 @@ async function registerRoutes(app2) {
         console.log(`[SUB-CREATE] Unknown type: ${typeof subscription.nextDeliveryDate}`);
       }
       console.log(`\u2705 Subscription created: ${subscription.id}`);
+      await generateSubscriptionDeliveryLogs(subscription, plan, nextDelivery, endDate, finalDeliveryTime);
+      const allLogs = await storage.getSubscriptionDeliveryLogs(subscription.id);
+      if (allLogs && allLogs.length > 0) {
+        const firstLog = allLogs.sort(
+          (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+        )[0];
+        const firstLogDate = new Date(firstLog.date);
+        firstLogDate.setHours(0, 0, 0, 0);
+        const currentNextDeliveryDate = new Date(subscription.nextDeliveryDate);
+        currentNextDeliveryDate.setHours(0, 0, 0, 0);
+        if (firstLogDate.getTime() !== currentNextDeliveryDate.getTime()) {
+          await storage.updateSubscription(subscription.id, { nextDeliveryDate: firstLog.date });
+          console.log(`\u2705 Corrected nextDeliveryDate to match first log`);
+        }
+      }
+      if (subscriptionData.address) {
+        try {
+          await storage.updateUser(userId, {
+            address: subscriptionData.address
+          });
+          console.log(`[SUB-CREATE] \u2705 Updated user profile with subscription address`);
+        } catch (updateError) {
+          console.warn(`[SUB-CREATE] \u26A0\uFE0F Failed to update user address in profile:`, updateError.message);
+        }
+      }
       broadcastNewSubscriptionToAdmin(subscription, plan.name);
-      res.status(201).json(subscription);
+      res.status(201).json({
+        ...subscription,
+        frequency: plan.frequency
+      });
     } catch (error) {
       console.error("Error creating subscription:", error);
       res.status(500).json({ message: error.message || "Failed to create subscription" });
@@ -10250,18 +12440,76 @@ async function registerRoutes(app2) {
         res.status(403).json({ message: "Unauthorized" });
         return;
       }
-      const { pauseStartDate, pauseResumeDate } = req.body;
-      const updateData = { status: "paused" };
+      let { pauseStartDate, pauseResumeDate } = req.body;
       if (pauseStartDate) {
-        updateData.pauseStartDate = new Date(pauseStartDate);
+        pauseStartDate = new Date(pauseStartDate);
+        pauseStartDate.setHours(0, 0, 0, 0);
       } else {
-        updateData.pauseStartDate = /* @__PURE__ */ new Date();
+        pauseStartDate = /* @__PURE__ */ new Date();
+        pauseStartDate.setHours(0, 0, 0, 0);
       }
       if (pauseResumeDate) {
-        updateData.pauseResumeDate = new Date(pauseResumeDate);
+        pauseResumeDate = new Date(pauseResumeDate);
+        pauseResumeDate.setHours(0, 0, 0, 0);
       }
+      const pauseDurationDays = pauseResumeDate ? Math.floor((pauseResumeDate.getTime() - pauseStartDate.getTime()) / (1e3 * 60 * 60 * 24)) : 0;
+      if (pauseResumeDate) {
+        const allLogs = await storage.getSubscriptionDeliveryLogs(req.params.id);
+        for (const log3 of allLogs) {
+          const logDate = new Date(log3.date);
+          logDate.setHours(0, 0, 0, 0);
+          if (logDate >= pauseStartDate && logDate < pauseResumeDate) {
+            await storage.updateSubscriptionDeliveryLog(log3.id, {
+              status: DELIVERY_LOG_STATUS.SKIPPED,
+              notes: "Delivery skipped due to subscription pause period",
+              updatedAt: /* @__PURE__ */ new Date()
+            });
+          }
+        }
+      }
+      const currentEndDate = subscription.endDate ? new Date(subscription.endDate) : /* @__PURE__ */ new Date();
+      const newEndDate = new Date(currentEndDate);
+      newEndDate.setDate(newEndDate.getDate() + pauseDurationDays);
+      const updateData = {
+        status: SUBSCRIPTION_STATUS.PAUSED,
+        pauseStartDate,
+        pauseResumeDate: pauseResumeDate || null,
+        endDate: newEndDate
+        // ✅ Extend endDate by pause duration
+      };
       const updated = await storage.updateSubscription(req.params.id, updateData);
-      console.log(`\u23F8\uFE0F Subscription ${req.params.id} paused from ${updateData.pauseStartDate} to ${updateData.pauseResumeDate || "indefinite"}`);
+      if (pauseDurationDays > 0 && pauseResumeDate) {
+        const plan = await storage.getSubscriptionPlan(subscription.planId);
+        if (plan) {
+          const deliveryDaysArray = plan.deliveryDays;
+          let logDate = new Date(currentEndDate);
+          logDate.setDate(logDate.getDate() + 1);
+          while (logDate <= newEndDate) {
+            const dayName = logDate.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
+            const isValidDeliveryDay = plan.frequency === "monthly" ? deliveryDaysArray.includes(logDate.getDate().toString()) : deliveryDaysArray.includes(dayName);
+            if (isValidDeliveryDay) {
+              const existingLog = await storage.getDeliveryLogBySubscriptionAndDate(subscription.id, logDate);
+              if (!existingLog) {
+                await storage.createSubscriptionDeliveryLog({
+                  subscriptionId: subscription.id,
+                  date: new Date(logDate),
+                  time: subscription.nextDeliveryTime || DEFAULT_DELIVERY_TIME,
+                  status: DELIVERY_LOG_STATUS.SCHEDULED,
+                  deliveryPersonId: null,
+                  notes: "Created to extend subscription after pause period"
+                });
+              }
+            }
+            logDate.setDate(logDate.getDate() + 1);
+          }
+        }
+      }
+      const originalEndDateStr = subscription.endDate instanceof Date ? subscription.endDate.toDateString() : subscription.endDate ? new Date(subscription.endDate).toDateString() : "N/A";
+      console.log(`\u23F8\uFE0F Subscription ${req.params.id} paused`);
+      console.log(`   Pause period: ${pauseStartDate.toDateString()} to ${pauseResumeDate?.toDateString() || "indefinite"}`);
+      console.log(`   Pause duration: ${pauseDurationDays} days`);
+      console.log(`   End date extended from ${originalEndDateStr} to ${newEndDate.toDateString()}`);
+      console.log(`   Skipped deliveries between pause dates`);
       res.json(updated);
     } catch (error) {
       console.error("Error pausing subscription:", error);
@@ -10373,30 +12621,34 @@ async function registerRoutes(app2) {
       const { broadcastSubscriptionUpdate: broadcastSubscriptionUpdate3 } = await Promise.resolve().then(() => (init_websocket(), websocket_exports));
       if (updated) {
         broadcastSubscriptionUpdate3(updated);
-        try {
-          const customerEmail = updated.email || null;
-          if (customerEmail) {
-            const emailHtml = `
-              <html>
-                <body style="font-family: Arial; max-width:600px; margin:auto;">
-                  <h2>Payment received \u2014 awaiting verification</h2>
-                  <p>Hi ${updated.customerName || ""},</p>
-                  <p>We received your payment submission for subscription <b>${updated.id}</b>.</p>
-                  <p>Transaction ID: <b>${paymentTransactionId.trim()}</b></p>
-                  <p>Our admin team will verify the payment shortly and activate your subscription.</p>
-                  <p>Thank you for subscribing with RotiHai.</p>
-                </body>
-              </html>
-            `;
-            const emailSent = await sendEmail({
-              to: customerEmail,
-              subject: `Payment received for your subscription ${updated.id}`,
-              html: emailHtml
-            });
-            console.log(`\u{1F4E7} Payment submission email ${emailSent ? "sent" : "skipped"} to customer: ${customerEmail}`);
+        if (SEND_SUBSCRIPTION_EMAILS) {
+          try {
+            const customerEmail = updated.email || null;
+            if (customerEmail) {
+              const emailHtml = `
+                <html>
+                  <body style="font-family: Arial; max-width:600px; margin:auto;">
+                    <h2>Payment received \u2014 awaiting verification</h2>
+                    <p>Hi ${updated.customerName || ""},</p>
+                    <p>We received your payment submission for subscription <b>${updated.id}</b>.</p>
+                    <p>Transaction ID: <b>${paymentTransactionId.trim()}</b></p>
+                    <p>Our admin team will verify the payment shortly and activate your subscription.</p>
+                    <p>Thank you for subscribing with RotiHai.</p>
+                  </body>
+                </html>
+              `;
+              const emailSent = await sendEmail({
+                to: customerEmail,
+                subject: `Payment received for your subscription ${updated.id}`,
+                html: emailHtml
+              });
+              console.log(`\u{1F4E7} Payment submission email ${emailSent ? "sent" : "skipped"} to customer: ${customerEmail}`);
+            }
+          } catch (e) {
+            console.error("Error sending payment email to customer:", e);
           }
-        } catch (e) {
-          console.error("Error sending payment email to customer:", e);
+        } else {
+          console.log(`\u{1F4E7} Subscription email disabled for performance. Payment email skipped`);
         }
         console.log(`\u{1F4E3} Payment verification notification queued for admin for subscription ${req.params.id}`);
       }
@@ -10435,7 +12687,7 @@ async function registerRoutes(app2) {
       }
       const now = /* @__PURE__ */ new Date();
       let nextDelivery = new Date(now);
-      let finalDeliveryTime = oldSubscription.nextDeliveryTime || "09:00";
+      let finalDeliveryTime = oldSubscription.nextDeliveryTime || DEFAULT_DELIVERY_TIME;
       if (oldSubscription.deliverySlotId) {
         const slot = await storage.getDeliveryTimeSlot(oldSubscription.deliverySlotId);
         if (slot) {
@@ -10451,8 +12703,14 @@ async function registerRoutes(app2) {
       }
       const endDate = new Date(now);
       endDate.setDate(endDate.getDate() + 30);
+      let renewalDurationDays = 30;
+      if (plan.frequency === "weekly") {
+        renewalDurationDays = 7;
+      } else if (plan.frequency === "daily") {
+        renewalDurationDays = 1;
+      }
       const deliveryDays = plan.deliveryDays;
-      let totalDeliveries = Math.floor(30 / 7) * deliveryDays.length;
+      const totalDeliveries = calculateTotalDeliveries(plan.frequency, deliveryDays, 30, now);
       const newSubscription = await storage.createSubscription({
         userId,
         planId: oldSubscription.planId,
@@ -10463,7 +12721,7 @@ async function registerRoutes(app2) {
         phone: user.phone || "",
         email: user.email || "",
         address: user.address || "",
-        status: "pending",
+        status: SUBSCRIPTION_STATUS.PENDING,
         startDate: now,
         endDate,
         nextDeliveryDate: nextDelivery,
@@ -10486,6 +12744,21 @@ async function registerRoutes(app2) {
         pauseResumeDate: null
       });
       console.log(`\u{1F504} Subscription renewed for user ${userId} - New subscription ID: ${newSubscription.id}`);
+      await generateSubscriptionDeliveryLogs(newSubscription, plan, nextDelivery, endDate, finalDeliveryTime);
+      const renewalLogs = await storage.getSubscriptionDeliveryLogs(newSubscription.id);
+      if (renewalLogs && renewalLogs.length > 0) {
+        const firstLog = renewalLogs.sort(
+          (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+        )[0];
+        const firstLogDate = new Date(firstLog.date);
+        firstLogDate.setHours(0, 0, 0, 0);
+        const currentNextDeliveryDate = new Date(newSubscription.nextDeliveryDate);
+        currentNextDeliveryDate.setHours(0, 0, 0, 0);
+        if (firstLogDate.getTime() !== currentNextDeliveryDate.getTime()) {
+          await storage.updateSubscription(newSubscription.id, { nextDeliveryDate: firstLog.date });
+          console.log(`\u2705 Corrected renewed subscription nextDeliveryDate to match first log`);
+        }
+      }
       res.status(201).json(newSubscription);
     } catch (error) {
       console.error("Error renewing subscription:", error);
@@ -10542,19 +12815,37 @@ async function registerRoutes(app2) {
         return;
       }
       const logs = await storage.getSubscriptionDeliveryLogs(req.params.id);
-      const scheduleItems = logs.map((log3) => ({
-        date: log3.date,
-        time: log3.time,
-        items: plan.items,
-        status: log3.status === "delivered" ? "delivered" : "pending"
-      }));
+      const sortedLogs = logs.sort((a, b) => {
+        const dateA = a.date instanceof Date ? a.date.getTime() : new Date(a.date).getTime();
+        const dateB = b.date instanceof Date ? b.date.getTime() : new Date(b.date).getTime();
+        return dateA - dateB;
+      });
+      const scheduleItems = sortedLogs.map((log3) => {
+        const logDate = log3.date instanceof Date ? log3.date : new Date(log3.date);
+        return {
+          date: logDate.toISOString(),
+          time: log3.time,
+          items: plan.items,
+          status: log3.status
+          // Preserve actual status (scheduled, delivered, skipped, etc.)
+        };
+      });
+      const subscriptionFormatted = {
+        ...subscription,
+        startDate: subscription.startDate instanceof Date ? subscription.startDate.toISOString() : subscription.startDate,
+        endDate: subscription.endDate instanceof Date ? subscription.endDate.toISOString() : subscription.endDate,
+        nextDeliveryDate: subscription.nextDeliveryDate instanceof Date ? subscription.nextDeliveryDate.toISOString() : subscription.nextDeliveryDate
+      };
       res.json({
-        subscription,
+        subscription: subscriptionFormatted,
         plan,
         schedule: scheduleItems,
         remainingDeliveries: subscription.remainingDeliveries,
         totalDeliveries: subscription.totalDeliveries,
-        deliveryHistory: logs
+        deliveryHistory: sortedLogs.map((log3) => ({
+          ...log3,
+          date: log3.date instanceof Date ? log3.date.toISOString() : log3.date
+        }))
       });
     } catch (error) {
       console.error("Error fetching subscription schedule:", error);
@@ -10634,7 +12925,7 @@ async function registerRoutes(app2) {
   app2.get("/api/wallet-settings", async (req, res) => {
     try {
       const walletSetting = await db.query.walletSettings.findFirst({
-        where: (ws, { eq: eq6 }) => eq6(ws.isActive, true)
+        where: (ws, { eq: eq7 }) => eq7(ws.isActive, true)
       });
       const defaultWallet = {
         maxUsagePerOrder: 10,
@@ -10725,7 +13016,7 @@ async function registerRoutes(app2) {
       const reassignmentThresholdDays = 2;
       const pendingReassignments = allSubscriptions.filter((sub) => {
         if (!sub.chefId || !sub.chefAssignedAt) return false;
-        if (sub.status !== "active" || !sub.isPaid) return false;
+        if (sub.status !== SUBSCRIPTION_STATUS.ACTIVE || !sub.isPaid) return false;
         const daysSinceAssignment = Math.floor((now.getTime() - new Date(sub.chefAssignedAt).getTime()) / (1e3 * 60 * 60 * 24));
         const daysSinceLastDelivery = sub.lastDeliveryDate ? Math.floor((now.getTime() - new Date(sub.lastDeliveryDate).getTime()) / (1e3 * 60 * 60 * 24)) : daysSinceAssignment;
         return daysSinceAssignment >= reassignmentThresholdDays && daysSinceLastDelivery >= reassignmentThresholdDays;
@@ -10881,7 +13172,7 @@ async function registerRoutes(app2) {
       let rescheduledCount = 0;
       const results = [];
       for (const subscription of allSubscriptions) {
-        if (subscription.status !== "active" || !subscription.chefId) continue;
+        if (subscription.status !== SUBSCRIPTION_STATUS.ACTIVE || !subscription.chefId) continue;
         const subscriptionOrders = allOrders.filter(
           (o) => o.deliverySlotId === subscription.deliverySlotId && o.status !== "completed" && o.status !== "cancelled" && o.status !== "rescheduled"
         );
@@ -10958,6 +13249,7 @@ async function registerRoutes(app2) {
   app2.post("/api/geocode", async (req, res) => {
     try {
       const { address, pincode } = req.body;
+      console.log(`[GEOCODE-DEBUG] Body:`, JSON.stringify(req.body));
       if (!address && !pincode) {
         return res.status(400).json({
           success: false,
@@ -11047,11 +13339,142 @@ async function registerRoutes(app2) {
         const longitude = parseFloat(result.lon);
         const formattedAddress = result.display_name || query;
         console.log(`\u2705 [GEOCODE] Successfully geocoded: ${query} -> (${latitude}, ${longitude})`);
+        if (pincode) {
+          const pincodeRegex = /^\d{5,6}$/;
+          if (!pincodeRegex.test(pincode)) {
+            console.warn(`\u{1F6AB} [PINCODE-VALIDATION] Invalid pincode format:`, pincode);
+            return res.status(400).json({
+              success: false,
+              message: "Pincode must be 5-6 digits",
+              invalidPincode: true
+            });
+          }
+          console.log(`[PINCODE-VALIDATION] Validating pincode: ${pincode}`);
+          const geocodedPostcode = result.address?.postcode;
+          console.log(`[PINCODE-VALIDATION] Geocoded postcode: ${geocodedPostcode}, User pincode: ${pincode}`);
+          console.log(`\u2705 [PINCODE-VALIDATION] Pincode format validated: ${pincode}`);
+        }
+        if (address) {
+          const areaKeywords = [
+            "kurla",
+            "bandra",
+            "andheri",
+            "dadar",
+            "colaba",
+            "mahim",
+            "worli",
+            "powai",
+            "thane",
+            "airoli",
+            "mulund",
+            "borivali",
+            "malad",
+            "kandivali",
+            "goregaon",
+            "dombivli",
+            "navi",
+            "vile parle",
+            "santacruz",
+            "chembur",
+            "vikhroli",
+            "ghatkopar",
+            "kanjurmarg"
+          ];
+          const addressLower = address.toLowerCase();
+          const mentionedAreas = [];
+          for (const keyword of areaKeywords) {
+            if (addressLower.includes(keyword)) {
+              mentionedAreas.push(keyword);
+            }
+          }
+          const areaCoordinates = await getAreaCoordinatesMap();
+          if (mentionedAreas.length > 0) {
+            const calculateDist = (lat1, lon1, lat2, lon2) => {
+              const R = 6371;
+              const dLat = (lat2 - lat1) * Math.PI / 180;
+              const dLon = (lon2 - lon1) * Math.PI / 180;
+              const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+              const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+              return R * c;
+            };
+            const areaDistances = Object.entries(areaCoordinates).map(([key, val]) => ({
+              area: key,
+              name: val.name,
+              distance: calculateDist(latitude, longitude, val.lat, val.lon)
+            })).sort((a, b) => a.distance - b.distance);
+            let effectiveArea = areaDistances[0];
+            const nearbyAreas = areaDistances.filter((a) => a.distance <= 2);
+            const matchedNearbyArea = nearbyAreas.find((candidate) => {
+              return mentionedAreas.some((mentioned) => {
+                if (mentioned === candidate.area) return true;
+                if (mentioned === "kurla" && candidate.area.startsWith("kurla")) return true;
+                return false;
+              });
+            });
+            if (matchedNearbyArea) {
+              console.log(`\u2705 [GEOCODE-VERIFY] Found nearby matching area: ${matchedNearbyArea.name} (${matchedNearbyArea.distance.toFixed(2)}km)`);
+              effectiveArea = matchedNearbyArea;
+            }
+            const exactAreaMatch = mentionedAreas.some((mentioned) => {
+              if (mentioned === effectiveArea.area) return true;
+              if (mentioned === "kurla" && effectiveArea.area.startsWith("kurla")) return true;
+              return false;
+            });
+            if (!exactAreaMatch) {
+              console.warn(`\u{1F6AB} [GEOCODE-VERIFY] Area mismatch - rejecting address!`, {
+                requestedArea: mentionedAreas[0],
+                detectedArea: effectiveArea.name,
+                distance: effectiveArea.distance.toFixed(2),
+                note: "User specified different area than geocoded result"
+              });
+              return res.status(400).json({
+                success: false,
+                message: `The address you entered is in ${effectiveArea.name}, not ${mentionedAreas[0]}. Please use an address in ${mentionedAreas[0]} or select a different area.`,
+                detectedArea: effectiveArea.name,
+                requestedArea: mentionedAreas[0],
+                areaMismatch: true
+              });
+            }
+            console.log(`\u2705 [GEOCODE-VERIFY] Area verified - matches requested area:`, {
+              requested: mentionedAreas[0],
+              detected: effectiveArea.name,
+              distance: effectiveArea.distance.toFixed(2)
+            });
+            try {
+              const adminAreas = await storage.getDeliveryAreas();
+              const adminAreaNames = adminAreas.map((a) => a.toLowerCase());
+              const areaInDeliveryList = adminAreaNames.some((adminArea) => {
+                return adminArea === effectiveArea.name.toLowerCase() || adminArea.includes(effectiveArea.name.toLowerCase());
+              });
+              if (!areaInDeliveryList) {
+                console.warn(`\u{1F6AB} [GEOCODE-VERIFY] Area not in admin delivery-areas list!`, {
+                  detectedArea: effectiveArea.name,
+                  adminAreas: adminAreaNames
+                });
+                return res.status(400).json({
+                  success: false,
+                  message: `Sorry, we don't deliver to ${effectiveArea.name} yet. We deliver to: ${adminAreaNames.join(", ")}. Please select a different area.`,
+                  detectedArea: effectiveArea.name,
+                  availableAreas: adminAreaNames,
+                  notInDeliveryList: true
+                });
+              }
+              console.log(`\u2705 [GEOCODE-VERIFY] Area is in admin delivery-areas list:`, {
+                area: effectiveArea.name,
+                adminAreas: adminAreaNames
+              });
+            } catch (err) {
+              console.error("[GEOCODE-VERIFY] Error checking admin areas:", err);
+            }
+          }
+        }
         res.json({
           success: true,
           latitude,
           longitude,
-          formattedAddress
+          formattedAddress,
+          pincode: pincode || void 0
+          // Return pincode if provided
         });
       } else {
         console.warn(`\u274C [GEOCODE] Could not geocode: ${query}`);
@@ -11068,6 +13491,356 @@ async function registerRoutes(app2) {
           message: "Geocoding service timeout. Please try again."
         });
       }
+      res.status(500).json({
+        success: false,
+        message: "Failed to geocode address. Please try again."
+      });
+    }
+  });
+  app2.post("/api/validate-pincode", async (req, res) => {
+    try {
+      const { pincode } = req.body;
+      if (!pincode || !/^\d{5,6}$/.test(String(pincode).trim())) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid pincode format. Please enter 5-6 digits."
+        });
+      }
+      const pincodeStr = String(pincode).trim();
+      console.log(`[PINCODE-VALIDATION] Validating pincode: ${pincodeStr}`);
+      const adminAreas = await storage.getAllDeliveryAreas();
+      const activeAreas = adminAreas.filter((area) => area.isActive);
+      console.log(`[PINCODE-VALIDATION] Checking against ${activeAreas.length} active delivery areas with configured pincodes`);
+      const matchingArea = activeAreas.find((area) => {
+        if (!area.pincodes || !Array.isArray(area.pincodes)) return false;
+        return area.pincodes.some(
+          (p) => String(p).trim() === pincodeStr
+        );
+      });
+      if (matchingArea) {
+        console.log(`\u2705 [PINCODE-VALIDATION] Pincode ${pincodeStr} found in delivery area: ${matchingArea.name}`);
+        const areaCoords = {
+          lat: typeof matchingArea.latitude === "number" ? matchingArea.latitude : parseFloat(String(matchingArea.latitude || 19.0728)),
+          lon: typeof matchingArea.longitude === "number" ? matchingArea.longitude : parseFloat(String(matchingArea.longitude || 72.8826))
+        };
+        console.log(`[PINCODE-VALIDATION] Using dynamic coordinates for area "${matchingArea.name}":`, areaCoords);
+        return res.json({
+          success: true,
+          pincode: pincodeStr,
+          area: matchingArea.name,
+          areaId: matchingArea.id,
+          message: `Delivery available in ${matchingArea.name}`,
+          // Return actual area center coordinates for accurate distance calculation
+          latitude: areaCoords.lat,
+          longitude: areaCoords.lon
+        });
+      }
+      console.log(`[PINCODE-VALIDATION] Pincode ${pincodeStr} not found in admin-configured pincodes, falling back to geocoding...`);
+      const query = `${pincodeStr}, Mumbai, India`;
+      try {
+        const response = await axios2.get("https://nominatim.openstreetmap.org/search", {
+          params: {
+            q: query,
+            format: "json",
+            limit: 1,
+            timeout: 10
+          },
+          timeout: 1e4
+        });
+        if (!response.data || response.data.length === 0) {
+          console.warn(`[PINCODE-VALIDATION] Pincode not found in admin config or geocoding: ${pincodeStr}`);
+          return res.status(404).json({
+            success: false,
+            message: "Pincode not configured. Please enter a pincode in our delivery areas."
+          });
+        }
+        const result = response.data[0];
+        const latitude = parseFloat(result.lat);
+        const longitude = parseFloat(result.lon);
+        const formattedAddress = result.display_name || "";
+        console.log(`[PINCODE-VALIDATION] Geocoded pincode ${pincodeStr} to:`, {
+          lat: latitude,
+          lon: longitude,
+          address: formattedAddress
+        });
+        const addressParts = formattedAddress.split(",").map((p) => p.trim().toLowerCase());
+        const mentionedAreas = addressParts.filter(
+          (part) => part.length > 0 && part !== "india" && part !== "mumbai" && !part.match(/^\d+$/)
+        );
+        console.log(`[PINCODE-VALIDATION] Extracted areas from address:`, mentionedAreas);
+        const areaCoordinates = await getAreaCoordinatesMap();
+        const calculateDist = (lat1, lon1, lat2, lon2) => {
+          const R = 6371;
+          const dLat = (lat2 - lat1) * Math.PI / 180;
+          const dLon = (lon2 - lon1) * Math.PI / 180;
+          const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+          const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+          return R * c;
+        };
+        const areaDistances = Object.entries(areaCoordinates).map(([key, val]) => ({
+          area: key,
+          name: val.name,
+          distance: calculateDist(latitude, longitude, val.lat, val.lon)
+        })).sort((a, b) => a.distance - b.distance);
+        const closestArea = areaDistances[0];
+        const adminAreaNames = activeAreas.map((area) => area.name.toLowerCase());
+        const isInDeliveryZone = adminAreaNames.some(
+          (adminArea) => closestArea.area.includes(adminArea) || adminArea.includes(closestArea.area)
+        );
+        if (!isInDeliveryZone) {
+          console.warn(`[PINCODE-VALIDATION] \u274C Pincode ${pincodeStr} is outside delivery zone. Closest area: ${closestArea.name}`);
+          return res.status(403).json({
+            success: false,
+            message: `Sorry, we don't deliver to ${closestArea.name} yet. We currently deliver to: ${adminAreaNames.join(", ") || "Kurla West"}`
+          });
+        }
+        console.log(`[PINCODE-VALIDATION] \u2705 Pincode ${pincodeStr} is in delivery zone (via geocoding): ${closestArea.name}`);
+        return res.json({
+          success: true,
+          pincode: pincodeStr,
+          area: closestArea.name,
+          latitude,
+          longitude,
+          formattedAddress,
+          source: "geocoding"
+        });
+      } catch (geocodeError) {
+        console.error(`[PINCODE-VALIDATION] Geocoding error:`, geocodeError.message);
+        return res.status(500).json({
+          success: false,
+          message: "Could not validate pincode. Please try again."
+        });
+      }
+    } catch (error) {
+      console.error("[PINCODE-VALIDATION] Error:", error.message);
+      res.status(500).json({
+        success: false,
+        message: "Validation failed. Please try again."
+      });
+    }
+  });
+  app2.post("/api/geocode-full-address", async (req, res) => {
+    try {
+      const { building, street, area, pincode } = req.body;
+      if (!area || !pincode) {
+        return res.status(400).json({
+          success: false,
+          message: "Area and pincode are required"
+        });
+      }
+      console.log(`[GEOCODE-FULL] Geocoding address:`, { building, street, area, pincode });
+      const tryGoogleGeocode = async () => {
+        const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+        if (!apiKey) {
+          console.log(`[GEOCODE-FULL] Google API key not configured, skipping Google Geocoding`);
+          return null;
+        }
+        try {
+          const addressParts = [building, street, area, pincode, "Mumbai", "India"].filter(Boolean);
+          const fullAddress = addressParts.join(", ");
+          console.log(`[GEOCODE-FULL] 1. Requesting Google API: "${fullAddress}"`);
+          const response = await axios2.get("https://maps.googleapis.com/maps/api/geocode/json", {
+            params: {
+              address: fullAddress,
+              key: apiKey
+            },
+            timeout: 1e4
+          });
+          if (response.data.status === "OK" && response.data.results && response.data.results.length > 0) {
+            const result = response.data.results[0];
+            const location = result.geometry.location;
+            const locationType = result.geometry.location_type;
+            let accuracy2 = "area";
+            if (locationType === "ROOFTOP") {
+              accuracy2 = "exact";
+            } else if (locationType === "RANGE_INTERPOLATED") {
+              accuracy2 = "street";
+            } else if (locationType === "GEOMETRIC_CENTER" || locationType === "APPROXIMATE") {
+              accuracy2 = "area";
+            }
+            console.log(`\u2705 [GEOCODE-FULL] Google Response:`, {
+              status: "OK",
+              formatted_address: result.formatted_address,
+              lat: location.lat,
+              lng: location.lng,
+              type: locationType,
+              accuracy_mapped: accuracy2
+            });
+            return {
+              lat: location.lat,
+              lon: location.lng,
+              accuracy: accuracy2
+            };
+          } else {
+            console.warn(`\u274C [GEOCODE-FULL] Google Failed. Payload:`, response.data);
+            return null;
+          }
+        } catch (error) {
+          console.warn(`\u26A0\uFE0F [GEOCODE-FULL] Google Geocoding failed:`, error.message);
+          return null;
+        }
+      };
+      const tryGooglePlacesFallback = async () => {
+        const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+        if (!apiKey) return null;
+        try {
+          const addressParts = [building, street, area, pincode, "Mumbai", "India"].filter(Boolean);
+          const textQuery = addressParts.join(", ");
+          console.log(`[GEOCODE-FULL] 2. Trying Google Places New API Fallback: "${textQuery}"`);
+          const response = await axios2.post(
+            "https://places.googleapis.com/v1/places:searchText",
+            { textQuery },
+            {
+              headers: {
+                "Content-Type": "application/json",
+                "X-Goog-Api-Key": apiKey,
+                "X-Goog-FieldMask": "places.formattedAddress,places.location"
+              },
+              timeout: 1e4
+            }
+          );
+          if (response.data.places && response.data.places.length > 0) {
+            const place = response.data.places[0];
+            const location = place.location;
+            console.log(`\u2705 [GEOCODE-FULL] Google Places New API Success:`, {
+              formatted: place.formattedAddress,
+              lat: location.latitude,
+              lng: location.longitude
+            });
+            return {
+              lat: location.latitude,
+              lon: location.longitude,
+              accuracy: "exact"
+            };
+          }
+          console.warn(`[GEOCODE-FULL] Google Places returned no results`);
+          return null;
+        } catch (error) {
+          console.warn(`[GEOCODE-FULL] Google Places Fallback Failed: ${error?.response?.data?.error?.message || error.message}`);
+          return null;
+        }
+      };
+      const tryGeocode = async (query) => {
+        try {
+          const response = await axios2.get("https://nominatim.openstreetmap.org/search", {
+            params: {
+              q: query,
+              format: "json",
+              limit: 1,
+              timeout: 10
+            },
+            headers: {
+              "User-Agent": "ReplitRotihai/1.0 (internal-tool)",
+              "Accept-Language": "en"
+            },
+            timeout: 1e4
+          });
+          if (response.data && response.data.length > 0) {
+            const result = response.data[0];
+            return {
+              lat: parseFloat(result.lat),
+              lon: parseFloat(result.lon)
+            };
+          }
+          return null;
+        } catch (error) {
+          console.warn(`[GEOCODE-FULL] OSM Failed: ${error.message}`);
+          return null;
+        }
+      };
+      let coords = null;
+      let accuracy = "pincode";
+      let source = "admin_data";
+      const googleResult = await tryGoogleGeocode();
+      if (googleResult) {
+        coords = { lat: googleResult.lat, lon: googleResult.lon };
+        accuracy = googleResult.accuracy;
+        source = "google";
+        console.log(`\u2705 [GEOCODE-FULL] Using Google Geocoding (${accuracy})`);
+        if ((accuracy === "area" || accuracy === "street") && building && building.trim().length > 2) {
+          console.log(`[GEOCODE-FULL] Geocoding was generic (${accuracy}), trying Places API for better accuracy...`);
+          const placesResult = await tryGooglePlacesFallback();
+          if (placesResult) {
+            console.log(`\u2705 [GEOCODE-FULL] Places API found better match! Upgrading accuracy.`);
+            coords = { lat: placesResult.lat, lon: placesResult.lon };
+            accuracy = placesResult.accuracy;
+            source = "google";
+          }
+        }
+      }
+      if (!coords) {
+        const placesResult = await tryGooglePlacesFallback();
+        if (placesResult) {
+          coords = { lat: placesResult.lat, lon: placesResult.lon };
+          accuracy = placesResult.accuracy;
+          source = "google";
+          console.log(`\u2705 [GEOCODE-FULL] Using Google Places Fallback (${accuracy})`);
+        }
+      }
+      if (!coords) {
+        console.log(`[GEOCODE-FULL] Google APIs failed, trying OpenStreetMap fallbacks...`);
+        source = "openstreetmap";
+        if (building && street) {
+          const fullQuery = `${building}, ${street}, ${area}, ${pincode}, Mumbai, India`;
+          console.log(`[GEOCODE-FULL] Trying full address: "${fullQuery}"`);
+          coords = await tryGeocode(fullQuery);
+          if (coords) {
+            accuracy = "exact";
+            console.log(`\u2705 [GEOCODE-FULL] Got exact coordinates from full address`);
+          }
+        }
+        if (!coords && street) {
+          const streetQuery = `${street}, ${area}, ${pincode}, Mumbai, India`;
+          console.log(`[GEOCODE-FULL] Trying street-level: "${streetQuery}"`);
+          coords = await tryGeocode(streetQuery);
+          if (coords) {
+            accuracy = "street";
+            console.log(`\u2705 [GEOCODE-FULL] Got street-level coordinates`);
+          }
+        }
+        if (!coords) {
+          const areaQuery = `${area}, ${pincode}, Mumbai, India`;
+          console.log(`[GEOCODE-FULL] Trying area-level: "${areaQuery}"`);
+          coords = await tryGeocode(areaQuery);
+          if (coords) {
+            accuracy = "area";
+            console.log(`\u2705 [GEOCODE-FULL] Got area-level coordinates`);
+          }
+        }
+        if (!coords) {
+          console.log(`[GEOCODE-FULL] All geocoding failed, using pincode area center`);
+          const adminAreas = await storage.getAllDeliveryAreas();
+          const activeAreas = adminAreas.filter((area2) => area2.isActive);
+          const matchingArea = activeAreas.find((a) => {
+            if (!a.pincodes || !Array.isArray(a.pincodes)) return false;
+            return a.pincodes.some((p) => String(p).trim() === String(pincode).trim());
+          });
+          if (matchingArea) {
+            coords = {
+              lat: typeof matchingArea.latitude === "number" ? matchingArea.latitude : parseFloat(String(matchingArea.latitude || 19.0728)),
+              lon: typeof matchingArea.longitude === "number" ? matchingArea.longitude : parseFloat(String(matchingArea.longitude || 72.8826))
+            };
+            accuracy = "pincode";
+            console.log(`\u2705 [GEOCODE-FULL] Using pincode area center from admin data`);
+          } else {
+            return res.status(404).json({
+              success: false,
+              message: "Could not geocode address. Please verify your address details."
+            });
+          }
+        }
+      }
+      res.json({
+        success: true,
+        latitude: coords.lat,
+        longitude: coords.lon,
+        accuracy,
+        source,
+        // 'google', 'openstreetmap', or 'admin_data'
+        message: accuracy === "exact" ? "Exact location found" : accuracy === "street" ? "Street-level location found" : accuracy === "area" ? "Area-level location found" : "Using pincode area center"
+      });
+    } catch (error) {
+      console.error("[GEOCODE-FULL] Error:", error.message);
       res.status(500).json({
         success: false,
         message: "Failed to geocode address. Please try again."
@@ -11096,6 +13869,10 @@ async function registerRoutes(app2) {
           message: "Chef not found"
         });
       }
+      console.log(`
+\u{1F69A} [FEE-CALC] Request for Chef "${chef.name}" (${chefId})`);
+      console.log(`   - User Location: ${customerLatitude}, ${customerLongitude}`);
+      console.log(`   - Chef Location: ${chef.latitude}, ${chef.longitude}`);
       let distance = null;
       if (customerLatitude && customerLongitude && chef.latitude && chef.longitude) {
         const R = 6371;
@@ -11104,14 +13881,185 @@ async function registerRoutes(app2) {
         const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(customerLatitude * Math.PI / 180) * Math.cos(chef.latitude * Math.PI / 180) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         distance = Math.round((R * c + Number.EPSILON) * 100) / 100;
+        console.log(`   - Calculated Distance: ${distance} km`);
+      } else {
+        console.log(`   - Distance not calculated (missing coordinates)`);
       }
-      const feeResult = await storage.calculateDeliveryFee(
-        distance !== null,
+      const rawSettings = await storage.getDeliverySettings();
+      const deliverySettings3 = rawSettings.map((s) => ({
+        ...s,
+        minOrderAmount: s.minOrderAmount === null ? void 0 : s.minOrderAmount
+      }));
+      const { calculateDelivery: calculateDelivery2 } = await Promise.resolve().then(() => (init_deliveryUtils(), deliveryUtils_exports));
+      const feeCalcResult = calculateDelivery2(
         distance || 0,
         orderAmount,
-        chef
+        deliverySettings3
       );
-      console.log(`\u2705 Calculated delivery fee for chef ${chefId}: ${feeResult.deliveryFee}, distance: ${distance}km, isFree: ${feeResult.isFreeDelivery}`);
+      const feeResult = {
+        deliveryFee: feeCalcResult.freeDeliveryEligible ? 0 : feeCalcResult.deliveryFee,
+        isFreeDelivery: feeCalcResult.freeDeliveryEligible
+      };
+      console.log(`\u2705 [FEE-CALC] Fee: \u20B9${feeResult.deliveryFee}, Free? ${feeResult.isFreeDelivery}
+`);
+      res.json({
+        success: true,
+        deliveryFee: feeResult.deliveryFee,
+        isFreeDelivery: feeResult.isFreeDelivery
+      });
+      app2.get("/api/push/vapid-public-key", async (req2, res2) => {
+        try {
+          const { getVapidPublicKey: getVapidPublicKey2, isPushConfigured: isPushConfigured2 } = await Promise.resolve().then(() => (init_pushService(), pushService_exports));
+          if (!isPushConfigured2()) {
+            return res2.status(503).json({
+              message: "Push notifications not configured",
+              vapidPublicKey: null
+            });
+          }
+          const publicKey = getVapidPublicKey2();
+          if (!publicKey) {
+            return res2.status(503).json({
+              message: "VAPID public key not available",
+              vapidPublicKey: null
+            });
+          }
+          res2.json({
+            vapidPublicKey: publicKey,
+            message: "VAPID public key retrieved successfully"
+          });
+        } catch (error) {
+          console.error("Error fetching VAPID key:", error);
+          res2.status(500).json({
+            message: "Failed to fetch VAPID key",
+            error: error.message
+          });
+        }
+      });
+      app2.post("/api/push/subscribe", async (req2, res2) => {
+        try {
+          const { subscription, userType, userId } = req2.body;
+          if (!subscription || !subscription.endpoint) {
+            return res2.status(400).json({
+              message: "Invalid subscription data - missing endpoint"
+            });
+          }
+          if (!userType || !userId) {
+            return res2.status(400).json({
+              message: "Missing userType or userId"
+            });
+          }
+          const validTypes = ["admin", "chef", "delivery", "customer"];
+          if (!validTypes.includes(userType)) {
+            return res2.status(400).json({
+              message: `Invalid userType. Must be one of: ${validTypes.join(", ")}`
+            });
+          }
+          const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+          const { pushSubscriptions: pushSubscriptions2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+          const { eq: eq7, and: and3 } = await import("drizzle-orm");
+          const existing = await db2.select().from(pushSubscriptions2).where(
+            and3(
+              eq7(pushSubscriptions2.userId, userId),
+              eq7(pushSubscriptions2.userType, userType)
+            )
+          ).limit(1);
+          if (existing.length > 0) {
+            await db2.update(pushSubscriptions2).set({
+              subscription,
+              isActive: true,
+              lastActivatedAt: /* @__PURE__ */ new Date()
+            }).where(eq7(pushSubscriptions2.id, existing[0].id));
+            console.log(`\u2705 Push subscription updated for ${userType} ${userId}`);
+          } else {
+            await db2.insert(pushSubscriptions2).values({
+              userId,
+              userType,
+              subscription,
+              isActive: true
+            });
+            console.log(`\u2705 Push subscription registered for ${userType} ${userId}`);
+          }
+          res2.json({
+            success: true,
+            message: "Successfully registered for push notifications"
+          });
+        } catch (error) {
+          console.error("Error registering for push notifications:", error);
+          res2.status(500).json({
+            success: false,
+            message: "Failed to register for push notifications",
+            error: error.message
+          });
+        }
+      });
+      app2.post("/api/push/unsubscribe", async (req2, res2) => {
+        try {
+          const { userId, userType } = req2.body;
+          if (!userId || !userType) {
+            return res2.status(400).json({
+              message: "Missing userId or userType"
+            });
+          }
+          const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+          const { pushSubscriptions: pushSubscriptions2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+          const { eq: eq7, and: and3 } = await import("drizzle-orm");
+          await db2.update(pushSubscriptions2).set({ isActive: false }).where(
+            and3(
+              eq7(pushSubscriptions2.userId, userId),
+              eq7(pushSubscriptions2.userType, userType)
+            )
+          );
+          console.log(`\u{1F5D1}\uFE0F Push subscriptions removed for ${userType} ${userId}`);
+          res2.json({
+            success: true,
+            message: "Successfully unsubscribed from push notifications"
+          });
+        } catch (error) {
+          console.error("Error unsubscribing from push notifications:", error);
+          res2.status(500).json({
+            success: false,
+            message: "Failed to unsubscribe from push notifications"
+          });
+        }
+      });
+      app2.post("/api/push/send", requireAdmin, async (req2, res2) => {
+        try {
+          const { userType, userId, notification } = req2.body;
+          if (!notification || !notification.title || !notification.body) {
+            return res2.status(400).json({
+              message: "Missing notification title or body"
+            });
+          }
+          const { sendPushToUser: sendPushToUser2, sendPushToAllAdmins: sendPushToAllAdmins2, isPushConfigured: isPushConfigured2 } = await Promise.resolve().then(() => (init_pushService(), pushService_exports));
+          if (!isPushConfigured2()) {
+            return res2.status(503).json({
+              success: false,
+              message: "Push notifications not configured"
+            });
+          }
+          let result;
+          if (userType === "admin" && !userId) {
+            result = await sendPushToAllAdmins2(notification);
+          } else if (userType && userId) {
+            result = await sendPushToUser2(userId, userType, notification);
+          } else {
+            return res2.status(400).json({
+              message: "Must provide either userType+userId or just admin userType"
+            });
+          }
+          res2.json({
+            message: "Push notification send attempted",
+            ...result
+          });
+        } catch (error) {
+          console.error("Error sending push notification:", error);
+          res2.status(500).json({
+            success: false,
+            message: "Failed to send push notification",
+            error: error.message
+          });
+        }
+      });
       res.json({
         success: true,
         distance: distance || 0,
@@ -11131,6 +14079,30 @@ async function registerRoutes(app2) {
       });
     }
   });
+  app2.post("/api/newsletter/subscribe", async (req, res) => {
+    try {
+      const { email } = req.body;
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return res.status(400).json({ success: false, message: "Please enter a valid email address." });
+      }
+      const existing = await db.select().from(newsletterSubscribers2).where(eq6(newsletterSubscribers2.email, email.toLowerCase().trim())).limit(1);
+      if (existing.length > 0) {
+        if (existing[0].isActive) {
+          return res.json({ success: true, message: "You're already subscribed!" });
+        }
+        await db.update(newsletterSubscribers2).set({ isActive: true, unsubscribedAt: null }).where(eq6(newsletterSubscribers2.email, email.toLowerCase().trim()));
+        return res.json({ success: true, message: "Welcome back! You've been re-subscribed." });
+      }
+      await db.insert(newsletterSubscribers2).values({
+        email: email.toLowerCase().trim()
+      });
+      console.log(`\u{1F4E7} New newsletter subscriber: ${email}`);
+      res.json({ success: true, message: "Successfully subscribed! You'll receive special offers and updates." });
+    } catch (error) {
+      console.error("Newsletter subscription error:", error);
+      res.status(500).json({ success: false, message: "Something went wrong. Please try again." });
+    }
+  });
   const httpServer = createServer(app2);
   setupWebSocket(httpServer);
   return httpServer;
@@ -11140,17 +14112,15 @@ async function registerRoutes(app2) {
 init_partnerAuth();
 
 // server/imageService.ts
-import * as fs from "fs";
-import * as path from "path";
-import { fileURLToPath } from "url";
-var __filename = fileURLToPath(import.meta.url);
-var __dirname = path.dirname(__filename);
-var UPLOADS_DIR = path.join(__dirname, "..", "attached_assets", "uploads");
-if (!fs.existsSync(UPLOADS_DIR)) {
-  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-}
+import { v2 as cloudinary } from "cloudinary";
+import { Readable } from "stream";
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
+});
+console.log(`\u2601\uFE0F  Cloudinary configured: ${process.env.CLOUDINARY_CLOUD_NAME}`);
 var IMAGE_CONFIG = {
-  UPLOADS_DIR,
   MAX_FILE_SIZE: 5 * 1024 * 1024,
   // 5MB
   ALLOWED_MIMETYPES: ["image/jpeg", "image/png", "image/webp", "image/gif"],
@@ -11172,45 +14142,62 @@ var validateImageFile = (file) => {
       error: `File type ${file.mimetype} not allowed. Allowed: ${IMAGE_CONFIG.ALLOWED_MIMETYPES.join(", ")}`
     };
   }
-  const ext = path.extname(file.originalname).toLowerCase();
-  if (!IMAGE_CONFIG.ALLOWED_EXTENSIONS.includes(ext)) {
-    return {
-      valid: false,
-      error: `File extension ${ext} not allowed. Allowed: ${IMAGE_CONFIG.ALLOWED_EXTENSIONS.join(", ")}`
-    };
-  }
   return { valid: true };
 };
-var saveImageFile = (file) => {
+var saveImageFile = async (file, folder = "rotihai") => {
   try {
     const validation = validateImageFile(file);
     if (!validation.valid) {
       return { success: false, error: validation.error };
     }
-    const ext = path.extname(file.originalname).toLowerCase();
-    const filename = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}${ext}`;
-    const filepath = path.join(IMAGE_CONFIG.UPLOADS_DIR, filename);
-    fs.writeFileSync(filepath, file.buffer);
-    const url = `/uploads/${filename}`;
+    if (!process.env.CLOUDINARY_CLOUD_NAME) {
+      console.error("\u274C Cloudinary not configured. Check .env for CLOUDINARY_CLOUD_NAME");
+      return {
+        success: false,
+        error: "Cloudinary not configured. Set CLOUDINARY_CLOUD_NAME in environment"
+      };
+    }
+    console.log(`\u23F3 Uploading to Cloudinary/${folder}...`);
+    const result = await new Promise((resolve, reject) => {
+      const stream = cloudinary.uploader.upload_stream(
+        {
+          folder,
+          resource_type: "auto",
+          quality: "auto:good"
+          // Auto-optimize
+        },
+        (error, result2) => {
+          if (error) reject(error);
+          else resolve(result2);
+        }
+      );
+      Readable.from(file.buffer).pipe(stream);
+    });
+    const url = result.secure_url;
+    console.log(`\u2705 Uploaded to Cloudinary: ${url}`);
     return {
       success: true,
-      filename,
+      filename: result.public_id,
       url,
+      public_id: result.public_id,
       fileSize: file.size
     };
   } catch (error) {
+    console.error("\u274C Upload error:", error.message);
     return {
       success: false,
-      error: `Failed to save image: ${error.message}`
+      error: error.message || "Failed to upload image"
     };
   }
 };
 var getImagePath = (filename) => {
-  return path.join(IMAGE_CONFIG.UPLOADS_DIR, filename);
+  if (filename && filename.startsWith("http")) {
+    return filename;
+  }
+  return `/uploads/${filename}`;
 };
 var imageExists = (filename) => {
-  const filepath = getImagePath(filename);
-  return fs.existsSync(filepath);
+  return !!filename && (filename.startsWith("http") || filename.length > 0);
 };
 
 // server/index.ts
@@ -11241,13 +14228,34 @@ app.use((req, res, next) => {
       "Expires": "0"
     });
   } else {
-    if (req.path.match(/\.(js|css|png|jpg|jpeg|gif|svg|woff|woff2|ttf|eot)$/i)) {
-      res.set("Cache-Control", "public, max-age=31536000, immutable");
-    } else {
+    if (req.path === "/sw.js") {
+      res.set({
+        "Cache-Control": "no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "Expires": "0"
+      });
+    } else if (req.path.endsWith(".html") || req.path === "/") {
       res.set({
         "Cache-Control": "no-cache, no-store, must-revalidate",
         "Pragma": "no-cache",
         "Expires": "0"
+      });
+    } else if (req.path.match(/\.(js|css|png|jpg|jpeg|gif|svg|woff|woff2|ttf|eot)$/i)) {
+      res.set("Cache-Control", "public, max-age=31536000, immutable");
+    } else if (req.path.match(/\.(json|xml|webmanifest)$/i)) {
+      res.set({
+        "Cache-Control": "public, max-age=3600"
+        // 1 hour
+      });
+    } else if (req.path.startsWith("/api/")) {
+      res.set({
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0"
+      });
+    } else {
+      res.set({
+        "Cache-Control": "public, max-age=3600"
       });
     }
   }
@@ -11281,7 +14289,7 @@ app.use((req, res, next) => {
 });
 app.use((req, res, next) => {
   const start = Date.now();
-  const path3 = req.path;
+  const path2 = req.path;
   let capturedJsonResponse = void 0;
   const originalResJson = res.json;
   res.json = function(bodyJson, ...args) {
@@ -11290,8 +14298,8 @@ app.use((req, res, next) => {
   };
   res.on("finish", () => {
     const duration = Date.now() - start;
-    if (path3.startsWith("/api")) {
-      let logLine = `${req.method} ${path3} ${res.statusCode} in ${duration}ms`;
+    if (path2.startsWith("/api")) {
+      let logLine = `${req.method} ${path2} ${res.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
@@ -11516,7 +14524,7 @@ app.use((req, res, next) => {
         res.status(400).json({ message: "No file uploaded" });
         return;
       }
-      const result = saveImageFile(req.file);
+      const result = await saveImageFile(req.file, "rotihai");
       if (!result.success) {
         res.status(400).json({ message: result.error });
         return;
@@ -11545,7 +14553,6 @@ app.use((req, res, next) => {
       }
       const filepath = getImagePath(filename);
       res.setHeader("Cache-Control", "public, max-age=86400");
-      res.setHeader("Content-Type", "image/*");
       res.sendFile(filepath);
     } catch (error) {
       console.error("Image serving error:", error);

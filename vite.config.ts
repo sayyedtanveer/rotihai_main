@@ -1,12 +1,30 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
+import fs from "fs";
+
+// ✅ Plugin to generate version.json on every build
+const versionPlugin: Plugin = {
+  name: 'version-plugin',
+  apply: 'build',
+  enforce: 'post',
+  generateBundle() {
+    const version = new Date().toISOString();
+    const versionJson = JSON.stringify({ version, timestamp: Date.now() }, null, 2);
+    this.emitFile({
+      type: 'asset',
+      fileName: 'version.json',
+      source: versionJson,
+    });
+  },
+};
 
 export default defineConfig({
   plugins: [
     react(),
     runtimeErrorOverlay(),
+    versionPlugin,
   ],
   resolve: {
     alias: {

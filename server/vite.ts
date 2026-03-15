@@ -99,7 +99,19 @@ export function serveStatic(app: Express) {
     );
   }
 
-  app.use(express.static(distPath));
+  // ✅ Static files with proper cache control
+  app.use(express.static(distPath, {
+    maxAge: '1d',  // Browser can cache for 1 day
+    etag: true,    // Enable ETag for cache validation
+    lastModified: true, // Enable Last-Modified header
+    immutable: false, // Files might change, allow revalidation
+    setHeaders: (res, path) => {
+      // Hashed assets (with .hash.ext pattern) can be cached long-term
+      if (path.match(/\.[a-f0-9]{8}\./i)) {
+        res.set('Cache-Control', 'public, max-age=31536000, immutable');
+      }
+    },
+  }));
 
   // fall through to index.html if the file doesn't exist
   app.use("*", (_req, res) => {
