@@ -2893,7 +2893,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (deliverySlotId) {
         const slot = await storage.getDeliveryTimeSlot(deliverySlotId);
         if (slot) {
-          const cutoffInfo = computeSlotCutoffInfo(slot);
+          // ✅ FIX: Force next day for subscription creation (never same-day delivery)
+          const cutoffInfo = computeSlotCutoffInfo(slot, true);
           nextDelivery = new Date(cutoffInfo.nextAvailableDate);
           finalDeliveryTime = slot.startTime; // Extract time from slot (e.g., "20:00" for 8PM)
           console.log(`📅 Subscription next delivery date set from slot: ${nextDelivery.toISOString()}, time: ${finalDeliveryTime}`);
@@ -2958,6 +2959,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // ✅ Generate delivery logs upfront for all plan frequencies
       // Start from nextDelivery (tomorrow), not from now (today)
       await generateSubscriptionDeliveryLogs(subscription, plan, nextDelivery, endDate, finalDeliveryTime);
+
+      // ✅ UPDATE USER PROFILE WITH ADDRESS - enables pre-fill for next subscription
+      if (subscriptionData.address) {
+        try {
+          await storage.updateUser(user.id, {
+            address: subscriptionData.address,
+          });
+          console.log(`[PUBLIC-SUB] ✅ Updated user profile with subscription address`);
+        } catch (updateError: any) {
+          console.warn(`[PUBLIC-SUB] ⚠️ Failed to update user address in profile:`, updateError.message);
+          // Don't fail the subscription creation if profile update fails
+        }
+      }
 
       // Broadcast new subscription notification to admin
       broadcastNewSubscriptionToAdmin(subscription, plan.name);
@@ -3355,6 +3369,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // ✅ Generate delivery logs upfront for all plan frequencies
       // Start from nextDelivery (tomorrow), not from now (today)
       await generateSubscriptionDeliveryLogs(subscription, plan, nextDelivery, endDate, finalDeliveryTime);
+
+      // ✅ UPDATE USER PROFILE WITH ADDRESS - enables pre-fill for next subscription
+      // Save the subscription address to user profile so it can be reused
+      // for future subscriptions and orders (prevents asking for address repeatedly)
+      if (subscriptionData.address) {
+        try {
+          await storage.updateUser(userId, {
+            address: subscriptionData.address,
+          });
+          console.log(`[SUB-CREATE] ✅ Updated user profile with subscription address`);
+        } catch (updateError: any) {
+          console.warn(`[SUB-CREATE] ⚠️ Failed to update user address in profile:`, updateError.message);
+          // Don't fail the subscription creation if profile update fails
+        }
+      }
 
       // Broadcast new subscription notification to admin
       broadcastNewSubscriptionToAdmin(subscription, plan.name);
