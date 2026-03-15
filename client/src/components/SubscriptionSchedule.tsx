@@ -106,24 +106,37 @@ export function SubscriptionSchedule({ subscriptionId }: SubscriptionSchedulePro
                 {schedule.slice(0, 10).map((item, idx) => {
                   // Parse date string to Date object
                   const itemDate = typeof item.date === 'string' ? new Date(item.date) : item.date;
+                  
+                  // Determine styling based on status
+                  let bgClass = "bg-background";
+                  let statusIcon = null;
+                  let statusText = "";
+                  
+                  if (item.status === "delivered") {
+                    bgClass = "bg-green-50 border-green-200";
+                    statusIcon = <CheckCircle2 className="w-5 h-5 text-green-600" />;
+                  } else if (item.status === "skipped") {
+                    bgClass = "bg-gray-50 border-gray-200 opacity-75";
+                    statusText = "Skipped";
+                  } else if (item.status === "scheduled") {
+                    bgClass = "bg-blue-50 border-blue-200";
+                  }
+                  
                   return (
                     <div 
                       key={idx}
-                      className={`flex items-center justify-between p-3 rounded-lg border ${
-                        item.status === "delivered" ? "bg-green-50 border-green-200" : "bg-background"
-                      }`}
+                      className={`flex items-center justify-between p-3 rounded-lg border ${bgClass}`}
                     >
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-3 flex-1">
                         <Calendar className="w-4 h-4 text-muted-foreground" />
-                        <div>
-                          <p className="font-medium text-sm">
+                        <div className="flex-1">
+                          <p className={`font-medium text-sm ${item.status === "skipped" ? "line-through text-muted-foreground" : ""}`}>
                             {format(itemDate, "EEE MMM dd yyyy")} — {item.time}
                           </p>
+                          {statusText && <p className="text-xs text-muted-foreground mt-1">{statusText}</p>}
                         </div>
                       </div>
-                      {item.status === "delivered" && (
-                        <CheckCircle2 className="w-5 h-5 text-green-600" />
-                      )}
+                      {statusIcon}
                     </div>
                   );
                 })}

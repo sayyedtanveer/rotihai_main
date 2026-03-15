@@ -583,13 +583,23 @@ function SubscriptionCard({
         throw new Error("Failed to skip delivery");
       }
 
-      // Refresh subscriptions data and schedule
-      queryClient.invalidateQueries({ queryKey: ["/api/subscriptions"] });
-      // Immediately refetch the schedule query to show updated dates
+      const responseData = await response.json();
+      console.log("🔄 Skip delivery response:", responseData);
+      console.log("📅 Updated subscription nextDeliveryDate:", responseData.updatedSubscription?.nextDeliveryDate);
+
+      // Immediately refetch both queries to ensure fresh data
+      console.log("🔄 Starting refetch of subscriptions...");
       await queryClient.refetchQueries({ 
-        queryKey: ["/api/subscriptions", subscription.id, "schedule"],
-        type: "active"  // Only refetch if currently being used
+        queryKey: ["/api/subscriptions"]
       });
+      console.log("✅ Subscriptions refetch complete");
+      
+      console.log("🔄 Starting refetch of schedule...");
+      await queryClient.refetchQueries({ 
+        queryKey: ["/api/subscriptions", subscription.id, "schedule"]
+      });
+      console.log("✅ Schedule refetch complete");
+      
       setShowSkipConfirm(false);
       setSkipConfirmDelivery(null);
       setSkipReason("");

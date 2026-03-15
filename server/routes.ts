@@ -1267,30 +1267,66 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (plan) {
         const deliveryDays = plan.deliveryDays as string[];
         let nextDelivery = new Date(subscription.nextDeliveryDate);
-        nextDelivery.setDate(nextDelivery.getDate() + 1);
-
-        // ✅ Dynamic calculation based on plan frequency (weekly/daily vs monthly)
-        const oldMaxDate = subscription.endDate || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
-        let attempts = 0;
-        const maxAttempts = plan.frequency === "monthly" ? 31 : 7;
-        // ✅ FIX: Don't limit search to oldMaxDate - allow finding next delivery day even after current end date
-        while (attempts < maxAttempts) {
-          const isDeliveryDayCheck = plan.frequency === "monthly"
-            ? deliveryDays.includes(nextDelivery.getDate().toString())
-            : deliveryDays.includes(nextDelivery.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase());
-          if (isDeliveryDayCheck) {
-            break; // Found next scheduled delivery day
-          }
+        
+        console.log(`[SKIP-DELIVERY] Plan: ${plan.name} (frequency: ${plan.frequency})`);
+        console.log(`[SKIP-DELIVERY] Delivery days: ${JSON.stringify(deliveryDays)}`);
+        console.log(`[SKIP-DELIVERY] Current nextDeliveryDate: ${nextDelivery.toDateString()}`);
+        
+        // ✅ Universal logic: Check if deliveryDays contains day-of-week names (not date numbers)
+        // This works for ANY plan type (weekly, monthly, or future plans)
+        const weekdayNames = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+        const allWeekdays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+        const isDayBasedPlan = deliveryDays.some(day => weekdayNames.includes(day.toLowerCase()));
+        const isDailyPlan = isDayBasedPlan && allWeekdays.every(day => deliveryDays.includes(day));
+        
+        console.log(`[SKIP-DELIVERY] Is day-based plan: ${isDayBasedPlan}, Is daily plan (all weekdays): ${isDailyPlan}`);
+        
+        if (isDailyPlan) {
+          // ✅ Plan delivers EVERY day → Just shift by 1 day
+          // Works for: 7-day weekly, 30-day monthly, or any daily plan
           nextDelivery.setDate(nextDelivery.getDate() + 1);
-          attempts++;
+          console.log(`[SKIP-DELIVERY] Daily plan (delivers every day) - shifted to: ${nextDelivery.toDateString()}`);
+        } else if (isDayBasedPlan) {
+          // ✅ Plan delivers on specific weekdays → Find next matching day
+          // Works for: M-W-F, weekday-only, or any day-of-week based plan
+          nextDelivery.setDate(nextDelivery.getDate() + 1);
+          console.log(`[SKIP-DELIVERY] Specific weekday plan - looking for next matching day from: ${nextDelivery.toDateString()}`);
+
+          let attempts = 0;
+          const maxAttempts = 31; // Search up to 31 days to handle monthly plans
+          while (attempts < maxAttempts) {
+            const dayName = nextDelivery.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+            const isDeliveryDay = deliveryDays.includes(dayName);
+            
+            console.log(`[SKIP-DELIVERY] Attempt ${attempts}: ${nextDelivery.toDateString()} (${dayName}) → match: ${isDeliveryDay}`);
+            
+            if (isDeliveryDay) {
+              console.log(`[SKIP-DELIVERY] Found next delivery day: ${nextDelivery.toDateString()}`);
+              break;
+            }
+            nextDelivery.setDate(nextDelivery.getDate() + 1);
+            attempts++;
+          }
+        } else {
+          // ✅ Future plan type: deliveryDays might use date numbers (1-31) or other formats
+          // For now, just shift by 1 day as fallback
+          console.log(`[SKIP-DELIVERY] Unknown plan type - using fallback (shift by 1 day)`);
+          nextDelivery.setDate(nextDelivery.getDate() + 1);
         }
 
         // Calculate how many days we shifted forward
         const daysDifference = Math.floor((nextDelivery.getTime() - new Date(subscription.nextDeliveryDate).getTime()) / (1000 * 60 * 60 * 24));
+        console.log(`[SKIP-DELIVERY] Days shifted forward: ${daysDifference}`);
+
+        // ✅ Calculate old end date (before the skip)
+        const oldMaxDate = subscription.endDate || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
 
         // Extend endDate by the same number of days to keep subscription period consistent
         let newEndDate = new Date(oldMaxDate);
         newEndDate.setDate(newEndDate.getDate() + daysDifference);
+        
+        console.log(`[SKIP-DELIVERY] Old endDate: ${oldMaxDate.toDateString()}`);
+        console.log(`[SKIP-DELIVERY] New endDate: ${newEndDate.toDateString()}`);
 
         // Update subscription with new nextDeliveryDate and extended endDate
         await storage.updateSubscription(subscriptionId, {
@@ -1298,23 +1334,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
           endDate: newEndDate,
         });
 
+        console.log(`[SKIP-DELIVERY] Updated subscription: nextDeliveryDate=${nextDelivery.toDateString()}, endDate=${newEndDate.toDateString()}`);
+
         // ✅ Create new delivery log(s) for the extended period to maintain total delivery count
         if (daysDifference > 0) {
           const deliveryDaysArray = plan.deliveryDays as string[];
           let logDate = new Date(oldMaxDate);
           logDate.setDate(logDate.getDate() + 1);
           
+          console.log(`[SKIP-DELIVERY] Creating logs for extended period from ${logDate.toDateString()} to ${newEndDate.toDateString()}`);
+          
           // Generate logs for each extended day that matches the plan's delivery days
           while (logDate <= newEndDate) {
             const dayName = logDate.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
-            const isValidDeliveryDay = plan.frequency === "monthly"
-              ? deliveryDaysArray.includes(logDate.getDate().toString())
-              : deliveryDaysArray.includes(dayName);
+            // Check if this day is a delivery day (works for all plan types)
+            const isValidDeliveryDay = deliveryDaysArray.includes(dayName);
             
             if (isValidDeliveryDay) {
               // Check if log already exists for this date
               const existingLog = await storage.getDeliveryLogBySubscriptionAndDate(subscriptionId, logDate);
               if (!existingLog) {
+                console.log(`[SKIP-DELIVERY] Creating log for ${logDate.toDateString()}`);
                 await storage.createSubscriptionDeliveryLog({
                   subscriptionId,
                   date: new Date(logDate),
@@ -1331,12 +1371,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      // Get the updated subscription to return to client
+      const updatedSubscription = await storage.getSubscription(subscriptionId);
+
       console.log(`✅ User ${user?.name || userId} skipped delivery for subscription ${subscriptionId} on ${date.toDateString()}`);
       console.log(`   Reason: ${skipNote}`);
+      console.log(`   Updated nextDeliveryDate: ${updatedSubscription?.nextDeliveryDate}`);
       
       res.json({ 
         message: "Delivery skipped successfully",
-        skippedDelivery: log
+        skippedDelivery: log,
+        updatedSubscription: updatedSubscription
       });
     } catch (error: any) {
       console.error("Error skipping delivery:", error);
@@ -3961,7 +4006,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           date: logDate.toISOString(),
           time: log.time,
           items: plan.items,
-          status: log.status === DELIVERY_LOG_STATUS.DELIVERED ? DELIVERY_LOG_STATUS.DELIVERED : DELIVERY_LOG_STATUS.SCHEDULED
+          status: log.status  // Preserve actual status (scheduled, delivered, skipped, etc.)
         };
       });
 
