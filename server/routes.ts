@@ -20,6 +20,8 @@ import axios from "axios";
 const DEFAULT_DELIVERY_TIME = "09:00";
 const WEEKDAY_NAMES = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
+// ⚡ Performance optimization: Disable email sending for subscriptions (can be enabled via env)
+const SEND_SUBSCRIPTION_EMAILS = false; // Emails disabled for performance
 // Subscription status constants
 const SUBSCRIPTION_STATUS = {
   PENDING: "pending",
@@ -1867,8 +1869,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
               }
             }
 
-            // Send welcome email if provided (non-blocking)
-            if (sanitized.email && generatedPassword) {
+            // Send welcome email if provided (non-blocking) - disabled for performance
+            if (SEND_SUBSCRIPTION_EMAILS && sanitized.email && generatedPassword) {
               const emailHtml = createWelcomeEmail(sanitized.customerName, sanitized.phone, generatedPassword);
               // Fire and forget - don't block response waiting for email
               sendEmail({
@@ -1881,6 +1883,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
               }).catch((err) => {
                 console.error(`⚠️ Failed to send welcome email to ${sanitized.email}:`, err);
               });
+            } else if (sanitized.email && generatedPassword) {
+              console.log(`📧 Subscription email disabled for performance. Email sending skipped for ${sanitized.email}`);
             }
           } catch (createUserError: any) {
             console.error("Error creating user:", createUserError);
@@ -2198,8 +2202,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.log(`✅ New user created on payment confirmation: ${user.id} - Phone: ${order.phone}`);
           userCreated = true;
 
-          // Send welcome email if email provided
-          if (order.email) {
+          // Send welcome email if email provided - disabled for performance
+          if (SEND_SUBSCRIPTION_EMAILS && order.email) {
             const emailHtml = createWelcomeEmail(order.customerName, order.phone, generatedPassword);
             const emailSent = await sendEmail({
               to: order.email,
@@ -2210,6 +2214,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             if (emailSent) {
               console.log(`✅ Welcome email sent to ${order.email}`);
             }
+          } else if (order.email) {
+            console.log(`📧 Subscription email disabled for performance. Email sending skipped for ${order.email}`);
           }
 
           // Update order with new userId
@@ -2856,8 +2862,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           console.log(`✅ New account created during subscription with phone: ${sanitizedPhone}, Email: ${email || 'Not provided'}`);
 
-          // Send welcome email if provided
-          if (email) {
+          // Send welcome email if provided - disabled for performance
+          if (SEND_SUBSCRIPTION_EMAILS && email) {
             const emailHtml = createWelcomeEmail(customerName, sanitizedPhone, newPassword);
             emailSent = await sendEmail({
               to: email,
@@ -2868,6 +2874,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             if (emailSent) {
               console.log(`✅ Welcome email sent to ${email}`);
             }
+          } else if (email) {
+            console.log(`📧 Subscription email disabled for performance. Email sending skipped for ${email}`);
           }
         } catch (createUserError: any) {
           console.error("Error creating user during subscription:", createUserError);
@@ -3700,33 +3708,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Broadcast subscription update to notify admin/chef/customer/browser
         broadcastSubscriptionUpdate(updated);
 
-        // Also send a lightweight email to the customer confirming we received their payment submission
-        try {
-          const customerEmail = updated.email || null;
-          if (customerEmail) {
-            const emailHtml = `
-              <html>
-                <body style="font-family: Arial; max-width:600px; margin:auto;">
-                  <h2>Payment received — awaiting verification</h2>
-                  <p>Hi ${updated.customerName || ''},</p>
-                  <p>We received your payment submission for subscription <b>${updated.id}</b>.</p>
-                  <p>Transaction ID: <b>${paymentTransactionId.trim()}</b></p>
-                  <p>Our admin team will verify the payment shortly and activate your subscription.</p>
-                  <p>Thank you for subscribing with RotiHai.</p>
-                </body>
-              </html>
-            `;
+        // Also send a lightweight email to the customer confirming we received their payment submission - disabled for performance
+        if (SEND_SUBSCRIPTION_EMAILS) {
+          try {
+            const customerEmail = updated.email || null;
+            if (customerEmail) {
+              const emailHtml = `
+                <html>
+                  <body style="font-family: Arial; max-width:600px; margin:auto;">
+                    <h2>Payment received — awaiting verification</h2>
+                    <p>Hi ${updated.customerName || ''},</p>
+                    <p>We received your payment submission for subscription <b>${updated.id}</b>.</p>
+                    <p>Transaction ID: <b>${paymentTransactionId.trim()}</b></p>
+                    <p>Our admin team will verify the payment shortly and activate your subscription.</p>
+                    <p>Thank you for subscribing with RotiHai.</p>
+                  </body>
+                </html>
+              `;
 
-            const emailSent = await sendEmail({
-              to: customerEmail,
-              subject: `Payment received for your subscription ${updated.id}`,
-              html: emailHtml,
-            });
+              const emailSent = await sendEmail({
+                to: customerEmail,
+                subject: `Payment received for your subscription ${updated.id}`,
+                html: emailHtml,
+              });
 
-            console.log(`📧 Payment submission email ${emailSent ? 'sent' : 'skipped'} to customer: ${customerEmail}`);
+              console.log(`📧 Payment submission email ${emailSent ? 'sent' : 'skipped'} to customer: ${customerEmail}`);
+            }
+          } catch (e) {
+            console.error('Error sending payment email to customer:', e);
           }
-        } catch (e) {
-          console.error('Error sending payment email to customer:', e);
+        } else {
+          console.log(`📧 Subscription email disabled for performance. Payment email skipped`);
         }
 
         // Also log admin notification intent for clarity (broadcastSubscriptionUpdate will notify admins)

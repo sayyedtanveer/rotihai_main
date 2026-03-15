@@ -48,14 +48,14 @@ export default function Profile() {
   // 📡 Enable real-time wallet updates for authenticated users on this page
   useWalletUpdates();
 
-  // 🧍 Fetch authenticated user
+  // 🧍 Fetch authenticated user (always fetch when token exists to ensure data is loaded)
   const { data: phoneUser, isLoading: phoneUserLoading } = useQuery<ProfileUser>({
     queryKey: ["/api/user/profile", userToken],
     queryFn: async () => {
       const response = await api.get("/api/user/profile");
       return response.data;
     },
-    enabled: !!userToken && !replitUser,
+    enabled: !!userToken,  // ✅ Fetch whenever userToken exists, regardless of replitUser state
   });
 
   // 🧩 Categories
