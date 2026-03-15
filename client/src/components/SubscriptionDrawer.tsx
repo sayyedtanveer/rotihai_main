@@ -518,14 +518,16 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
   });
 
   // Fetch delivery history for a subscription
-  const { data: deliveryHistory } = useQuery({
+  const { data: deliveryHistory, isLoading: historyLoading, isError: historyError } = useQuery({
     queryKey: ["/api/subscriptions", historySubscriptionId, "delivery-logs"],
     queryFn: async () => {
       const response = await fetch(`/api/subscriptions/${historySubscriptionId}/delivery-logs`, {
         headers: getAuthHeaders(),
       });
       if (!response.ok) throw new Error("Failed to fetch delivery history");
-      return response.json();
+      const data = await response.json();
+      console.log("Delivery logs fetched:", data);
+      return data;
     },
     enabled: !!historySubscriptionId && showHistoryModal,
   });
@@ -1355,24 +1357,43 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
             </DialogDescription>
           </DialogHeader>
           <div className="max-h-80 overflow-y-auto space-y-2 py-4">
-            {deliveryHistory && deliveryHistory.length > 0 ? (
-              deliveryHistory.map((log: any) => (
-                <div key={log.id} className="flex items-center justify-between p-3 bg-muted rounded-md">
-                  <div>
-                    <p className="text-sm font-medium">{format(new Date(log.date), "PPP")}</p>
-                    <p className="text-xs text-muted-foreground">{log.time}</p>
-                  </div>
-                  <Badge
-                    variant={
-                      log.status === "delivered" ? "default" :
-                        log.status === "missed" ? "destructive" :
-                          "secondary"
+            {historyLoading ? (
+              <p className="text-center text-muted-foreground py-4">Loading delivery history...</p>
+            ) : historyError ? (
+              <p className="text-center text-destructive py-4">Failed to load delivery history</p>
+            ) : deliveryHistory && deliveryHistory.length > 0 ? (
+              deliveryHistory.map((log: any) => {
+                // Handle date parsing with fallback
+                let displayDate = "Date unavailable";
+                if (log.date) {
+                  try {
+                    const dateObj = new Date(log.date);
+                    if (!isNaN(dateObj.getTime())) {
+                      displayDate = format(dateObj, "PPP");
                     }
-                  >
-                    {log.status.replace(/_/g, " ")}
-                  </Badge>
-                </div>
-              ))
+                  } catch (error) {
+                    console.error("Error formatting date:", error, "log:", log);
+                  }
+                }
+                
+                return (
+                  <div key={log.id} className="flex items-center justify-between p-3 bg-muted rounded-md">
+                    <div>
+                      <p className="text-sm font-medium">{displayDate}</p>
+                      <p className="text-xs text-muted-foreground">{log.time || "N/A"}</p>
+                    </div>
+                    <Badge
+                      variant={
+                        log.status === "delivered" ? "default" :
+                          log.status === "missed" ? "destructive" :
+                            "secondary"
+                      }
+                    >
+                      {log.status?.replace(/_/g, " ") || "unknown"}
+                    </Badge>
+                  </div>
+                );
+              })
             ) : (
               <p className="text-center text-muted-foreground py-8">
                 No delivery history yet

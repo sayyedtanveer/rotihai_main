@@ -2958,6 +2958,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Start from nextDelivery (tomorrow), not from now (today)
       await generateSubscriptionDeliveryLogs(subscription, plan, nextDelivery, endDate, finalDeliveryTime);
 
+      // ✅ FIX: Verify nextDeliveryDate matches the first generated log for public subscriptions
+      const publicSubLogs = await storage.getSubscriptionDeliveryLogs(subscription.id);
+      if (publicSubLogs && publicSubLogs.length > 0) {
+        const firstLog = publicSubLogs.sort((a, b) => 
+          new Date(a.date).getTime() - new Date(b.date).getTime()
+        )[0];
+        const firstLogDate = new Date(firstLog.date);
+        firstLogDate.setHours(0, 0, 0, 0);
+        const currentNextDeliveryDate = new Date(subscription.nextDeliveryDate);
+        currentNextDeliveryDate.setHours(0, 0, 0, 0);
+        if (firstLogDate.getTime() !== currentNextDeliveryDate.getTime()) {
+          await storage.updateSubscription(subscription.id, { nextDeliveryDate: firstLog.date });
+          console.log(`✅ Corrected public subscription nextDeliveryDate to match first log`);
+        }
+      }
+
       // ✅ UPDATE USER PROFILE WITH ADDRESS - enables pre-fill for next subscription
       if (subscriptionData.address) {
         try {
@@ -3370,6 +3386,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // ✅ Generate delivery logs upfront for all plan frequencies
       // Start from nextDelivery (tomorrow), not from now (today)
       await generateSubscriptionDeliveryLogs(subscription, plan, nextDelivery, endDate, finalDeliveryTime);
+
+      // ✅ FIX: Verify nextDeliveryDate matches the first generated log
+      // This ensures consistency between subscription.nextDeliveryDate and actual scheduled deliveries
+      const allLogs = await storage.getSubscriptionDeliveryLogs(subscription.id);
+      if (allLogs && allLogs.length > 0) {
+        const firstLog = allLogs.sort((a, b) => 
+          new Date(a.date).getTime() - new Date(b.date).getTime()
+        )[0];
+        const firstLogDate = new Date(firstLog.date);
+        firstLogDate.setHours(0, 0, 0, 0);
+        const currentNextDeliveryDate = new Date(subscription.nextDeliveryDate);
+        currentNextDeliveryDate.setHours(0, 0, 0, 0);
+        if (firstLogDate.getTime() !== currentNextDeliveryDate.getTime()) {
+          await storage.updateSubscription(subscription.id, { nextDeliveryDate: firstLog.date });
+          console.log(`✅ Corrected nextDeliveryDate to match first log`);
+        }
+      }
 
       // ✅ UPDATE USER PROFILE WITH ADDRESS - enables pre-fill for next subscription
       // Save the subscription address to user profile so it can be reused
@@ -3813,6 +3846,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // ✅ Generate delivery logs upfront for all plan frequencies
       // Start from nextDelivery (tomorrow), not from now (today)
       await generateSubscriptionDeliveryLogs(newSubscription, plan, nextDelivery, endDate, finalDeliveryTime);
+
+      // ✅ FIX: Verify nextDeliveryDate matches the first generated log for renewals
+      const renewalLogs = await storage.getSubscriptionDeliveryLogs(newSubscription.id);
+      if (renewalLogs && renewalLogs.length > 0) {
+        const firstLog = renewalLogs.sort((a, b) => 
+          new Date(a.date).getTime() - new Date(b.date).getTime()
+        )[0];
+        const firstLogDate = new Date(firstLog.date);
+        firstLogDate.setHours(0, 0, 0, 0);
+        const currentNextDeliveryDate = new Date(newSubscription.nextDeliveryDate);
+        currentNextDeliveryDate.setHours(0, 0, 0, 0);
+        if (firstLogDate.getTime() !== currentNextDeliveryDate.getTime()) {
+          await storage.updateSubscription(newSubscription.id, { nextDeliveryDate: firstLog.date });
+          console.log(`✅ Corrected renewed subscription nextDeliveryDate to match first log`);
+        }
+      }
 
       res.status(201).json(newSubscription);
     } catch (error: any) {
