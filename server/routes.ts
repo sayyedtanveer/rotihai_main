@@ -43,17 +43,18 @@ const DELIVERY_LOG_STATUS = {
 function isDeliveryDay(date: Date, frequency: string, deliveryDays: string[]): boolean {
   if (!deliveryDays || deliveryDays.length === 0) return false;
 
-  if (frequency === "monthly") {
-    // For monthly: deliveryDays contains day numbers like ["1", "15"]
-    const dayOfMonth = date.getDate().toString();
-    return deliveryDays.includes(dayOfMonth);
-  } else if (frequency === "weekly" || frequency === "daily") {
-    // For weekly/daily: deliveryDays contains weekday names like ["monday", "tuesday", ...]
+  // ✅ NEW: Detect format intelligently - handle BOTH day-of-month AND weekday names
+  const hasWeekdayNames = isWeekdayNameFormat(deliveryDays);
+
+  if (hasWeekdayNames) {
+    // Format: ["monday", "tuesday", ...] - works for any frequency
     const dayName = date.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
     return deliveryDays.includes(dayName);
+  } else {
+    // Format: ["1", "15"] - day of month (for monthly or other numeric formats)
+    const dayOfMonth = date.getDate().toString();
+    return deliveryDays.includes(dayOfMonth);
   }
-
-  return false;
 }
 
 // ✅ Helper: Determine actual delivery days format
@@ -74,23 +75,12 @@ function getNextActualDeliveryDate(fromDate: Date, frequency: string, deliveryDa
   checkDate.setDate(checkDate.getDate() + 1);  // ✅ START FROM TOMORROW, NOT TODAY
   checkDate.setHours(0, 0, 0, 0);
 
-  const hasWeekdayNames = isWeekdayNameFormat(deliveryDays);
-  const maxIterations = frequency === "monthly" ? 32 : 7; // Check up to 32 days for monthly, 7 for weekly
+  const maxIterations = frequency === "monthly" ? 32 : 7;
   let iterations = 0;
 
   while (iterations < maxIterations) {
-    let isValidDay = false;
-
-    if (hasWeekdayNames) {
-      // For weekday-named plans (daily/weekly with weekday names)
-      const dayName = checkDate.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
-      isValidDay = deliveryDays.some(d => d.toLowerCase() === dayName);
-    } else {
-      // For day-of-month plans (monthly with numbers like ["1", "15"])
-      isValidDay = isDeliveryDay(checkDate, frequency, deliveryDays);
-    }
-
-    if (isValidDay) {
+    // ✅ Use isDeliveryDay which now handles BOTH format types (weekday names AND day-of-month)
+    if (isDeliveryDay(checkDate, frequency, deliveryDays)) {
       return new Date(checkDate);
     }
 
