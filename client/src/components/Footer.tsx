@@ -1,12 +1,30 @@
-import { Facebook, Instagram, Twitter, MessageCircle } from "lucide-react";
+import { Facebook, Instagram, Twitter, MessageCircle, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { useLocation } from "wouter";
+import { useAuth } from "@/hooks/useAuth";
 
 export default function Footer() {
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
+  const { user } = useAuth();
+  const userToken = localStorage.getItem("userToken");
+  const isAuthenticated = !!(user || userToken);
   const [email, setEmail] = useState("");
+
+  const handleProfileClick = () => {
+    if (isAuthenticated) {
+      setLocation("/profile");
+    } else {
+      toast({
+        title: "Login Required",
+        description: "Please login to view your profile",
+        variant: "destructive",
+      });
+    }
+  };
 
   const handleWhatsAppSupport = () => {
     const message = "Hi! I need help with my order from RotiHai.";
@@ -90,8 +108,18 @@ export default function Footer() {
           </div> */}
 
           <div>
-            <h4 className="font-semibold mb-4" data-testid="text-support-title">Customer Support</h4>
+            <h4 className="font-semibold mb-4" data-testid="text-support-title">Account & Support</h4>
             <ul className="space-y-2 text-sm text-muted-foreground">
+              <li>
+                <button
+                  onClick={handleProfileClick}
+                  className="hover:text-primary transition-colors flex items-center gap-2 w-full text-left"
+                  data-testid="link-profile"
+                >
+                  <User className="h-4 w-4" />
+                  My Profile
+                </button>
+              </li>
               <li><a href="#" className="hover:text-primary transition-colors" data-testid="link-help">Help Center</a></li>
               <li><a href="#" className="hover:text-primary transition-colors" data-testid="link-track">Track Order</a></li>
               <li><a href="#" className="hover:text-primary transition-colors" data-testid="link-contact">Contact Us</a></li>

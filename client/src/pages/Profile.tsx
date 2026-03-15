@@ -446,7 +446,18 @@ export default function Profile() {
                           <div className="flex gap-2">
                             <MapPin className="h-4 w-4 mt-3 text-muted-foreground" />
                             <Input
-                              value={user.address}
+                              value={(() => {
+                                try {
+                                  const parsed = JSON.parse(user.address);
+                                  if (parsed.building || parsed.street || parsed.area) {
+                                    const parts = [parsed.building, parsed.street, parsed.area, parsed.city, parsed.pincode].filter(Boolean);
+                                    return parts.join(", ");
+                                  }
+                                  return user.address;
+                                } catch {
+                                  return user.address;
+                                }
+                              })()}
                               readOnly
                               className="bg-muted"
                             />
