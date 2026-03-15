@@ -673,7 +673,59 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
       setIsAuthSubAddressValidated(false);
       console.log("[SUBSCRIPTION] Pre-populated address from stored pincode, awaiting validation:", storedPincode);
     }
-    // Priority 2: Fallback to user profile address (for returning customers with no recent pincode)
+    // Priority 2: Fallback to existing subscription address (for users buying additional plans)
+    else if (mySubscriptions && mySubscriptions.length > 0 && mySubscriptions[0]?.address) {
+      try {
+        // Try to parse address from existing subscription
+        const parsedAddress = typeof mySubscriptions[0].address === 'string' 
+          ? JSON.parse(mySubscriptions[0].address)
+          : mySubscriptions[0].address;
+        
+        initialAddress = {
+          building: parsedAddress.building || "",
+          street: parsedAddress.street || "",
+          area: parsedAddress.area || "",
+          city: parsedAddress.city || "Mumbai",
+          pincode: parsedAddress.pincode || "",
+          latitude: parsedAddress.latitude || null,
+          longitude: parsedAddress.longitude || null,
+        };
+        setAuthenticatedSubAddress(initialAddress);
+        setIsAuthSubAddressValidated(false);
+        console.log("[SUBSCRIPTION] Pre-populated address from existing subscription:", initialAddress);
+      } catch (error) {
+        // If address parsing fails, try user profile
+        if (userProfile?.address) {
+          try {
+            const parsedAddress = typeof userProfile.address === 'string' 
+              ? JSON.parse(userProfile.address)
+              : userProfile.address;
+            
+            initialAddress = {
+              building: parsedAddress.building || "",
+              street: parsedAddress.street || "",
+              area: parsedAddress.area || "",
+              city: parsedAddress.city || "Mumbai",
+              pincode: parsedAddress.pincode || "",
+              latitude: parsedAddress.latitude || null,
+              longitude: parsedAddress.longitude || null,
+            };
+            setAuthenticatedSubAddress(initialAddress);
+            setIsAuthSubAddressValidated(false);
+            console.log("[SUBSCRIPTION] Pre-populated address from user profile:", initialAddress);
+          } catch (profileError) {
+            setAuthenticatedSubAddress(null);
+            setIsAuthSubAddressValidated(false);
+            console.log("[SUBSCRIPTION] Failed to parse profile address, starting fresh");
+          }
+        } else {
+          setAuthenticatedSubAddress(null);
+          setIsAuthSubAddressValidated(false);
+          console.log("[SUBSCRIPTION] Failed to parse subscription address, starting fresh");
+        }
+      }
+    }
+    // Priority 3: Fallback to user profile address (for returning customers with no active subscriptions)
     else if (userProfile?.address) {
       try {
         // Try to parse address as JSON if it's stored as object
@@ -692,7 +744,7 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
         };
         setAuthenticatedSubAddress(initialAddress);
         setIsAuthSubAddressValidated(false);
-        console.log("[SUBSCRIPTION] Pre-populated address from user profile (no recent pincode):", initialAddress);
+        console.log("[SUBSCRIPTION] Pre-populated address from user profile (no active subscriptions):", initialAddress);
       } catch (error) {
         // If address parsing fails, leave empty
         setAuthenticatedSubAddress(null);
@@ -700,11 +752,11 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
         console.log("[SUBSCRIPTION] Failed to parse user profile address, starting fresh");
       }
     }
-    // Priority 3: No data available, start fresh
+    // Priority 4: No data available, start fresh
     else {
       setAuthenticatedSubAddress(null);
       setIsAuthSubAddressValidated(false);
-      console.log("[SUBSCRIPTION] No stored pincode or profile address, user starting fresh");
+      console.log("[SUBSCRIPTION] No stored data available, user starting fresh");
     }
 
     if (isRotiCategory) {
