@@ -11,7 +11,7 @@ import { verifyToken as verifyUserToken } from "./userAuth";
 import { requireAdmin } from "./adminAuth";
 import { sendEmail, createWelcomeEmail, createPasswordResetEmail, createPasswordChangeConfirmationEmail } from "./emailService";
 import { sendOrderPlacedAdminNotification } from "./whatsappService";
-import { db, subscriptions, orders, walletSettings, referralRewards, newsletterSubscribers } from "@shared/db";
+import { db, subscriptions, orders, walletSettings, referralRewards, newsletterSubscribers, users } from "@shared/db";
 import { eq } from "drizzle-orm";
 import { ZodError } from "zod";
 import axios from "axios";
@@ -1042,6 +1042,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Apply referral code during registration
+  // Validate referral code (public endpoint - doesn't require authentication)
+  app.post("/api/referral/validate", async (req: any, res) => {
+    try {
+      const { referralCode } = req.body;
+
+      if (!referralCode) {
+        return res.status(400).json({ valid: false, message: "Referral code is required" });
+      }
+
+      // Check if system is enabled
+      const settings = await storage.getActiveReferralReward();
+      if (!settings?.isActive) {
+        return res.status(400).json({ valid: false, message: "Referral system is currently disabled" });
+      }
+
+      // Check if referral code exists
+      const referrer = await db.query.users.findFirst({
+        where: (u, { eq: eqOp }) => eqOp(u.referralCode, referralCode.trim().toUpperCase()),
+      });
+
+      if (!referrer) {
+        return res.status(400).json({ valid: false, message: "Invalid referral code" });
+      }
+
+      // Code is valid
+      res.json({
+        valid: true,
+        message: "Valid referral code!",
+        bonus: settings.referredBonus || 50,
+        referrerName: referrer.name || "Friend"
+      });
+    } catch (error: any) {
+      console.error("Error validating referral:", error);
+      res.status(500).json({ valid: false, message: "Error validating referral code" });
+    }
+  });
+
   app.post("/api/user/apply-referral", requireUser(), async (req: AuthenticatedUserRequest, res) => {
     try {
       const userId = req.authenticatedUser!.userId;
@@ -1753,6 +1790,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let appliedReferralBonus = 0;
 
       const referralCodeInput = (req.body as any).referralCode;
+      
+      // Log referral code receipt for debugging
+      if (referralCodeInput) {
+        console.log(`📱 Received referral code in order request: ${referralCodeInput}`);
+      }
 
       if (req.headers.authorization?.startsWith("Bearer ")) {
         const token = req.headers.authorization.substring(7);

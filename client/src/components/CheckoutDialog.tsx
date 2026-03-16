@@ -27,6 +27,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { useWalletUpdates } from "@/hooks/useWalletUpdates";
 import { useApplyReferral } from "@/hooks/useApplyReferral";
+import { useValidateReferralCode } from "@/hooks/useValidateReferralCode";
 import { Loader2, Clock, MapPin, CheckCircle2 } from "lucide-react";
 import { getDeliveryMessage, calculateDistance as calculateDistanceLoc } from "@/lib/locationUtils";
 import { calculateDistance, calculateDelivery } from "@shared/deliveryUtils";
@@ -86,6 +87,13 @@ export default function CheckoutDialog({
 
   const [couponCode, setCouponCode] = useState("");
   const [referralCode, setReferralCode] = useState("");
+  const [isValidatingReferral, setIsValidatingReferral] = useState(false);
+  const [referralValidation, setReferralValidation] = useState<{
+    valid: boolean;
+    message: string;
+    bonus?: number;
+    referrerName?: string;
+  } | null>(null);
   const [subtotal, setSubtotal] = useState(0);
   const [originalSubtotal, setOriginalSubtotal] = useState(0); // Original price before item discounts
   const [deliveryFee, setDeliveryFee] = useState(0);
@@ -262,6 +270,7 @@ export default function CheckoutDialog({
   const { user, isAuthenticated, isLoading: isUserLoading, userToken } = useAuth();
   const { location: deliveryLocation, setDeliveryLocation } = useDeliveryLocation();
   const applyReferralMutation = useApplyReferral();
+  const validateReferralMutation = useValidateReferralCode();
   const isMobile = useIsMobile();
 
   // STALE TOKEN RECOVERY: If the browser has a userToken but useAuth says we are NOT authenticated
@@ -1999,6 +2008,10 @@ export default function CheckoutDialog({
       console.log("useWalletBalance:", useWalletBalance);
       console.log("walletAmountToUse:", walletAmountToUse);
       console.log("walletAmountUsed in order:", orderData.walletAmountUsed);
+      console.log("referralCode in order:", orderData.referralCode);
+      console.log("userToken state:", userToken);
+      console.log("referralCode state:", referralCode);
+      console.log("isAuthenticated:", isAuthenticated);
       console.log("Sending order data:", orderData);
       console.log("================");
 
@@ -2044,10 +2057,17 @@ export default function CheckoutDialog({
 
       // Show different messages for new vs existing users
       if (result.accountCreated) {
+        // Build account message with referral info
         let accountMessage = `Order #${result.id.slice(0, 8)} created. Your login password is the last 6 digits of your phone: ${phone.slice(-6)}`;
+        
+        // Add referral bonus info if backend applied it
         if (result.appliedReferralBonus && result.appliedReferralBonus > 0) {
           accountMessage += `. You received ₹${result.appliedReferralBonus} referral bonus!`;
+          console.log(`✅ Backend applied referral bonus: ₹${result.appliedReferralBonus}`);
+        } else if (referralCode.trim()) {
+          console.warn(`⚠️ Referral code was provided but backend didn't apply bonus. Code: ${referralCode}`);
         }
+
         toast({
           title: "✓ Account Created & Order Placed!",
           description: accountMessage,
@@ -2071,14 +2091,16 @@ export default function CheckoutDialog({
         }
 
         // ✅ Apply referral code if provided by new user AND not already applied during order creation
-        if (referralCode.trim() && result.accessToken && !result.appliedReferralBonus) {
-          try {
+        if (referralCode.trim() && result.accessToken) {
+          // Only attempt frontend application if backend didn't already apply
+          if (!result.appliedReferralBonus) {
+            console.log("Backend didn't apply referral, attempting frontend application");
             applyReferralMutation.mutate({
               referralCode: referralCode.trim(),
               userToken: result.accessToken,
             });
-          } catch (err) {
-            console.error("Failed to apply referral code:", err);
+          } else {
+            console.log(`✅ Referral bonus of ₹${result.appliedReferralBonus} already applied by backend`);
           }
         }
       } else {
@@ -2806,21 +2828,90 @@ export default function CheckoutDialog({
                               (Optional)
                             </span>
                           </Label>
-                          <Input
-                            id="referralCode"
-                            type="text"
-                            placeholder="Enter friend's referral code"
-                            value={referralCode}
-                            onChange={(e) =>
-                              setReferralCode(e.target.value.toUpperCase())
-                            }
-                            className="font-mono uppercase"
-                            maxLength={20}
-                            data-testid="input-checkout-referral-code"
-                          />
-                          <p className="text-xs text-muted-foreground mt-1">
-                            Have a referral code? Enter it to earn bonus rewards!
-                          </p>
+                          <div className="flex gap-2">
+                            <Input
+                              id="referralCode"
+                              type="text"
+                              placeholder="Enter friend's referral code"
+                              value={referralCode}
+                              onChange={(e) => {
+                                setReferralCode(e.target.value.toUpperCase());
+                                // Clear validation when user changes the code
+                                if (referralValidation) {
+                                  setReferralValidation(null);
+                                }
+                              }}
+                              className="font-mono uppercase"
+                              maxLength={20}
+                              data-testid="input-checkout-referral-code"
+                            />
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={async () => {
+                                if (!referralCode.trim()) {
+                                  setReferralValidation({
+                                    valid: false,
+                                    message: "Enter a referral code first"
+                                  });
+                                  return;
+                                }
+                                setIsValidatingReferral(true);
+                                try {
+                                  const result = await validateReferralMutation.mutateAsync({
+                                    referralCode: referralCode.trim(),
+                                  });
+                                  setReferralValidation(result);
+                                } catch (error: any) {
+                                  setReferralValidation({
+                                    valid: false,
+                                    message: error.message
+                                  });
+                                } finally {
+                                  setIsValidatingReferral(false);
+                                }
+                              }}
+                              disabled={isValidatingReferral || !referralCode.trim()}
+                              className="whitespace-nowrap"
+                            >
+                              {isValidatingReferral ? (
+                                <>
+                                  <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                                  Checking...
+                                </>
+                              ) : (
+                                "Verify"
+                              )}
+                            </Button>
+                          </div>
+                          {referralValidation && (
+                            <div className={`text-xs mt-2 p-2 rounded ${
+                              referralValidation.valid 
+                                ? "bg-green-50 text-green-700 border border-green-200" 
+                                : "bg-red-50 text-red-700 border border-red-200"
+                            }`}>
+                              <div className="flex items-center gap-1">
+                                {referralValidation.valid && (
+                                  <CheckCircle2 className="w-4 h-4" />
+                                )}
+                                <span className="font-medium">{referralValidation.message}</span>
+                              </div>
+                              {referralValidation.valid && referralValidation.bonus && (
+                                <p className="mt-1">You'll get ₹{referralValidation.bonus} bonus from {referralValidation.referrerName}</p>
+                              )}
+                            </div>
+                          )}
+                          {!referralValidation && referralCode.trim() && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Click "Verify" to confirm your referral code before placing order
+                            </p>
+                          )}
+                          {!referralCode.trim() && !referralValidation && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Have a referral code? Enter it to earn bonus rewards!
+                            </p>
+                          )}
                         </div>
                       )}
 
