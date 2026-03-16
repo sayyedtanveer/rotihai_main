@@ -73,16 +73,19 @@ export function useAuth(): UseAuthReturn {
             'Authorization': `Bearer ${token}`
           }
         });
+        console.log('✅ User profile loaded:', response.data);
         return response.data;
       } catch (err: any) {
         if (err.response?.status === 401) {
+          console.warn('🔒 401 Unauthorized - removing token');
           handle401Error("user");
           throw new Error('Session expired');
         }
+        console.error('❌ Failed to fetch user profile:', err.message);
         throw new Error('Failed to fetch user profile');
       }
     },
-    retry: false,
+    retry: 1,  // ✅ Retry once on failure instead of no retries
     staleTime: 1000 * 60 * 5,
     enabled: !!localStorage.getItem('userToken'),
   });

@@ -36,7 +36,7 @@ type FrontendChef = BaseChef & {
 };
 
 export default function Profile() {
-  const { user: replitUser, isLoading: authLoading } = useAuth();
+  const { user: authUser, isLoading: authLoading, error: authError } = useAuth();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -47,16 +47,6 @@ export default function Profile() {
 
   // 📡 Enable real-time wallet updates for authenticated users on this page
   useWalletUpdates();
-
-  // 🧍 Fetch authenticated user (always fetch when token exists to ensure data is loaded)
-  const { data: phoneUser, isLoading: phoneUserLoading } = useQuery<ProfileUser>({
-    queryKey: ["/api/user/profile", userToken],
-    queryFn: async () => {
-      const response = await api.get("/api/user/profile");
-      return response.data;
-    },
-    enabled: !!userToken,  // ✅ Fetch whenever userToken exists, regardless of replitUser state
-  });
 
   // 🧩 Categories
   const { data: categories = [] } = useQuery<Category[]>({
@@ -182,8 +172,8 @@ export default function Profile() {
     },
   });
 
-  const user: ProfileUser | null = replitUser || phoneUser || null;
-  const isLoading = phoneUserLoading || authLoading;
+  const user: ProfileUser | null = authUser as ProfileUser | null;
+  const isLoading = authLoading;
 
   // Show loading state while checking auth
   if (isLoading) {
@@ -198,8 +188,43 @@ export default function Profile() {
     );
   }
 
+  // Show error if auth failed
+  if (authError) {
+    return (
+      <div className="min-h-screen flex flex-col">
+        <Header
+          onMenuClick={() => {}}
+          onCartClick={() => {}}
+          onChefListClick={() => {}}
+          onSubscriptionClick={() => {}}
+          onLoginClick={() => {}}
+          onOffersClick={() => setLocation("/")}
+        />
+        <main className="flex-1 bg-muted/30">
+          <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <Card className="text-center py-12">
+              <CardContent className="flex flex-col items-center gap-4">
+                <div>
+                  <CardTitle className="mb-2">Error Loading Profile</CardTitle>
+                  <CardDescription className="mb-4">
+                    {authError.message || "An error occurred while loading your profile"}
+                  </CardDescription>
+                </div>
+                <div className="flex gap-2">
+                  <Button onClick={() => window.location.reload()}>Try Again</Button>
+                  <Button variant="outline" onClick={() => setLocation("/")}>Go Home</Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </main>
+        <Footer />
+      </div>
+    );
+  }
+
   // Redirect if not authenticated after loading is complete
-  if (!userToken && !replitUser) {
+  if (!userToken && !authUser) {
     return <Redirect to="/" />;
   }
 

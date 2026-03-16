@@ -6,49 +6,57 @@ export function useVersionCheck() {
 
     const checkForNewVersion = async () => {
       try {
-        // Fetch version.json with cache-busting
+        // Fetch version.json with cache-busting - ALWAYS fresh
         const response = await fetch(`/version.json?t=${Date.now()}`, {
           cache: 'no-store',
+          headers: {
+            'Pragma': 'no-cache',
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+          }
         });
         
         if (!response.ok) return;
 
         const data = await response.json();
-        const currentVersion = localStorage.getItem('appVersion');
-        const newVersion = data.version;
+        const currentBuildId = localStorage.getItem('appBuildId');
+        const newBuildId = data.buildId;
 
-        // ✅ If version changed, show refresh prompt
-        if (currentVersion && currentVersion !== newVersion) {
-          console.log(`🔄 New version available: ${newVersion}`);
+        console.log(`📦 Version check - Current: ${currentBuildId}, Latest: ${newBuildId}`);
+
+        // ✅ If buildId changed, auto-refresh (don't ask, just refresh)
+        if (currentBuildId && currentBuildId !== newBuildId) {
+          console.log(`🔄 NEW DEPLOYMENT DETECTED! Version: ${data.version}`);
           
-          // Show browser notification
-          if ('showNotification' in Notification || 'Notification' in window) {
-            const msg = 'New app version available! Please refresh the page.';
+          // Show notification to user
+          try {
             if ('Notification' in window && Notification.permission === 'granted') {
-              new Notification('Roti Hai Update', {
-                body: msg,
+              new Notification('Roti Hai Updated', {
+                body: 'App has been updated to the latest version!',
                 icon: '/favicon.ico',
+                tag: 'version-update',
               });
             }
+          } catch (notifError) {
+            console.debug('Notification failed:', notifError);
           }
 
-          // Optionally show an alert/banner
-          const shouldRefresh = localStorage.getItem('showVersionPrompt') !== 'false';
-          if (shouldRefresh) {
-            const refresh = confirm('🔄 New version available! Would you like to refresh?');
-            if (refresh) {
-              location.reload();
-            } else {
-              localStorage.setItem('showVersionPrompt', 'false');
-            }
-          }
-        } else if (!currentVersion) {
-          // First load - just save version
-          localStorage.setItem('appVersion', newVersion);
-          localStorage.removeItem('showVersionPrompt');
+          // ✅ Auto-refresh after 1 second (smooth transition)
+          // This preserves all user data in localStorage automatically
+          setTimeout(() => {
+            console.log(`🔄 Reloading with new version: ${newBuildId}`);
+            // Hard refresh to bypass all caches
+            window.location.reload();
+          }, 1000);
+        } else if (!currentBuildId && newBuildId) {
+          // First load - just save buildId
+          console.log(`📦 Initial load - saving buildId: ${newBuildId}`);
+          localStorage.setItem('appBuildId', newBuildId);
+          localStorage.setItem('appVersion', data.version);
+        } else if (currentBuildId === newBuildId) {
+          // Same version - no action needed
+          console.log(`✅ App is running latest version`);
         }
       } catch (error) {
-        // Silently fail - version check is non-critical
         console.debug('Version check failed:', error);
       }
     };
@@ -56,8 +64,8 @@ export function useVersionCheck() {
     // Check immediately on load
     checkForNewVersion();
 
-    // Check periodically (every 5 minutes)
-    versionCheckInterval = setInterval(checkForNewVersion, 5 * 60 * 1000);
+    // Check frequently for production (every 2 minutes)
+    versionCheckInterval = setInterval(checkForNewVersion, 2 * 60 * 1000);
 
     return () => {
       if (versionCheckInterval) clearInterval(versionCheckInterval);
