@@ -3890,6 +3890,17 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // Get coupon statistics
+  app.get("/api/admin/coupon-stats", requireAdmin(), async (req: AuthenticatedAdminRequest, res) => {
+    try {
+      const stats = await storage.getCouponStats();
+      res.json(stats);
+    } catch (error) {
+      console.error("Error fetching coupon stats:", error);
+      res.status(500).json({ message: "Failed to fetch coupon statistics" });
+    }
+  });
+
   // ================= REFERRAL MANAGEMENT =================
 
   // Get all referrals with user details

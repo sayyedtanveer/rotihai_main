@@ -217,6 +217,7 @@ export interface IStorage {
   createCoupon(data: any): Promise<Coupon>;
   deleteCoupon(id: string): Promise<boolean>;
   updateCoupon(id: string, data: Partial<Coupon>): Promise<Coupon | undefined>;
+  getCouponStats(): Promise<any[]>;
 
   // Referral management methods
   getAllReferrals(): Promise<any[]>;
@@ -2612,6 +2613,43 @@ export class MemStorage implements IStorage {
       .where(eq(coupons.id, id))
       .returning();
     return updated || undefined;
+  }
+
+  // Get coupon statistics
+  async getCouponStats(): Promise<any[]> {
+    const allCoupons = await db.query.coupons.findMany();
+    
+    const stats = [];
+    for (const coupon of allCoupons) {
+      // Get all usages for this coupon
+      const usages = await db.query.couponUsages.findMany({
+        where: (cu, { eq }) => eq(cu.couponId, coupon.id),
+      });
+
+      // Count unique users
+      const uniqueUsers = new Set(usages.map((u: any) => u.userId)).size;
+      
+      // Get last used date
+      let lastUsed = null;
+      if (usages.length > 0) {
+        const sorted = [...usages].sort((a: any, b: any) => 
+          new Date(b.usedAt).getTime() - new Date(a.usedAt).getTime()
+        );
+        lastUsed = sorted[0].usedAt;
+      }
+
+      stats.push({
+        id: coupon.id,
+        code: coupon.code,
+        totalUsed: usages.length,
+        uniqueUsers,
+        totalDiscount: 0, // Would need order data to calculate accurately
+        avgDiscount: 0, // Would need order data to calculate accurately
+        lastUsed,
+      });
+    }
+
+    return stats;
   }
 
   // ================= NEW REFERRAL MANAGEMENT METHODS =================

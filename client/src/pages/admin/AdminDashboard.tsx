@@ -3,6 +3,8 @@ import { AdminLayout } from "@/components/admin/AdminLayout";
 import api from "@/lib/apiClient";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { DollarSign, ShoppingCart, Users, Clock, TrendingUp, Package, UserCog, Truck, ShoppingBag, CheckCircle, Eye } from "lucide-react";
+import { useEffect } from "react";
+import { queryClient } from "@/lib/queryClient";
 
 interface DashboardMetrics {
   userCount: number;
@@ -21,6 +23,25 @@ interface VisitorReport {
 }
 
 export default function AdminDashboard() {
+  // Listen for reconnects / foregrounding to refetch dashboard metrics
+  useEffect(() => {
+    const handleReactivate = () => {
+      if (document.visibilityState === "visible" && navigator.onLine) {
+        console.log("🔄 Admin Dashboard: App returned online/foreground, refetching metrics...");
+        queryClient.invalidateQueries({ queryKey: ["/api/admin/dashboard/metrics"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/admin/reports/visitors"] });
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleReactivate);
+    window.addEventListener("online", handleReactivate);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleReactivate);
+      window.removeEventListener("online", handleReactivate);
+    };
+  }, []);
+
   const { data: metrics, isLoading } = useQuery<DashboardMetrics>({
     queryKey: ["/api/admin/dashboard/metrics"],
     queryFn: async () => {

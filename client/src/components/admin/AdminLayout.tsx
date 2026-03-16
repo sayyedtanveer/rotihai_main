@@ -214,6 +214,12 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                 <span>Referrals</span>
               </div>
             </Link>
+            <Link href="/admin/coupons">
+              <div className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-colors cursor-pointer ${location === "/admin/coupons" ? "bg-primary text-primary-foreground" : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700"}`}>
+                <ShoppingCart className="w-5 h-5" />
+                <span>Coupons</span>
+              </div>
+            </Link>
             <Link href="/admin/wallet-logs">
               <div className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-colors cursor-pointer ${location === "/admin/wallet-logs" ? "bg-primary text-primary-foreground" : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700"}`}>
                 <Wallet className="w-5 h-5" />

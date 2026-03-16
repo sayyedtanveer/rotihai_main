@@ -41,6 +41,7 @@ import AdminWalletSettings from "./pages/admin/AdminWalletSettings";
 import AdminDeliveryTimeSlots from "@/pages/admin/AdminDeliveryTimeSlots";
 import InviteEarn from "@/pages/InviteEarn";
 import AdminReferrals from "@/pages/admin/AdminReferrals";
+import AdminCoupons from "@/pages/admin/AdminCoupons";
 import AdminWalletLogs from "@/pages/admin/AdminWalletLogs";
 import AdminVisitorAnalytics from "@/pages/admin/AdminVisitorAnalytics";
 import AdminNotificationSettings from "@/pages/admin/AdminNotificationSettings";
@@ -108,6 +109,7 @@ function Router() {
       <Route path="/admin/wallet-settings" component={AdminWalletSettings} />
       <Route path="/admin/delivery-time-slots" component={AdminDeliveryTimeSlots} />
       <Route path="/admin/referrals" component={AdminReferrals} />
+      <Route path="/admin/coupons" component={AdminCoupons} />
       <Route path="/admin/wallet-logs" component={AdminWalletLogs} />
       <Route path="/admin/visitor-analytics" component={AdminVisitorAnalytics} />
       <Route path="/admin/notification-settings" component={AdminNotificationSettings} />
