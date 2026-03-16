@@ -28,6 +28,7 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { User, Mail, MapPin, Phone, LogOut, Lock, Gift, Edit2, Loader2 } from "lucide-react";
 import type { Category, Chef as BaseChef } from "@shared/schema";
+import type { ProfileUser } from "@/types/profileuser";
 
 // ✅ Frontend-safe version of Chef (adds optional lat/long if Drizzle didn’t generate them yet)
 type FrontendChef = BaseChef & {
