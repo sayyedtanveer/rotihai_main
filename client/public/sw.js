@@ -1,7 +1,8 @@
-// ✅ CRITICAL: Service Worker version - changes on EVERY deployment to force cache invalidation
-// Using build timestamp: this MUST BE UPDATED by the build system or server on deployment
-// Format: v{major}-{ISO-date-string}
-const SW_VERSION = 'v1-' + new Date().toISOString().replace(/[:.]/g, '-');
+// ✅ CRITICAL: SW_VERSION is injected at BUILD TIME by vite.config.ts versionPlugin.
+// The placeholder __SW_BUILD_ID__ is replaced with the actual build timestamp string.
+// This guarantees the file BYTES change on every deployment so the browser detects a new SW.
+// Do NOT change this back to new Date() — that runs in the browser and never changes the file.
+const SW_VERSION = '__SW_BUILD_ID__';
 const OFFLINE_CACHE = 'rotihai-offline-' + SW_VERSION;
 
 // ✅ Aggressive install: Clear ALL caches immediately and skip waiting

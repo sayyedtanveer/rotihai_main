@@ -4,8 +4,9 @@ import path from "path";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 import fs from "fs";
 
-// ✅ Plugin to generate version.json on every build
-// This ensures every deployment gets a unique version identifier
+// ✅ Plugin to generate version.json on every build AND inject build ID into sw.js
+// This ensures every deployment gets a unique build identifier baked into the SW file bytes,
+// which forces the browser to detect and install the new Service Worker.
 const versionPlugin: Plugin = {
   name: 'version-plugin',
   apply: 'build',
@@ -26,13 +27,34 @@ const versionPlugin: Plugin = {
     
     console.log(`📦 Version plugin: Generated version ${buildId}`);
     
+    // ✅ Emit version.json for client-side version polling
     this.emitFile({
       type: 'asset',
       fileName: 'version.json',
       source: versionJson,
     });
+
+    // ✅ Inject build ID into sw.js so its BYTES change every build.
+    // The browser's SW update algorithm compares file bytes — if nothing changes,
+    // it skips the update. By embedding the build ID, we guarantee a byte change.
+    try {
+      const swSource = fs.readFileSync(
+        path.resolve(import.meta.dirname, 'client', 'public', 'sw.js'),
+        'utf-8'
+      );
+      const swWithBuildId = swSource.replace('__SW_BUILD_ID__', `v-${buildId}`);
+      this.emitFile({
+        type: 'asset',
+        fileName: 'sw.js',
+        source: swWithBuildId,
+      });
+      console.log(`📦 Version plugin: Injected build ID into sw.js → v-${buildId}`);
+    } catch (err) {
+      console.warn('⚠️ Version plugin: Could not inject build ID into sw.js:', err);
+    }
   },
 };
+
 
 export default defineConfig({
   plugins: [

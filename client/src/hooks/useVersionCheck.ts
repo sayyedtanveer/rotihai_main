@@ -23,30 +23,34 @@ export function useVersionCheck() {
 
         console.log(`📦 Version check - Current: ${currentBuildId}, Latest: ${newBuildId}`);
 
-        // ✅ If buildId changed, auto-refresh (don't ask, just refresh)
+        // ✅ If buildId changed, do a HARD reload that bypasses the Service Worker cache.
+        // window.location.reload() is a soft reload — the active SW intercepts it and may
+        // serve old cached files, defeating the purpose. We unregister the SW first, then
+        // navigate, so the browser fetches fresh assets directly from the server.
         if (currentBuildId && currentBuildId !== newBuildId) {
-          console.log(`🔄 NEW DEPLOYMENT DETECTED! Version: ${data.version}`);
-          
-          // Show notification to user
-          try {
-            if ('Notification' in window && Notification.permission === 'granted') {
-              new Notification('Roti Hai Updated', {
-                body: 'App has been updated to the latest version!',
-                icon: '/favicon.ico',
-                tag: 'version-update',
-              });
-            }
-          } catch (notifError) {
-            console.debug('Notification failed:', notifError);
-          }
+          console.log(`🔄 NEW DEPLOYMENT DETECTED! Version: ${data.version}. Performing hard reload.`);
 
-          // ✅ Auto-refresh after 1 second (smooth transition)
-          // This preserves all user data in localStorage automatically
-          setTimeout(() => {
-            console.log(`🔄 Reloading with new version: ${newBuildId}`);
-            // Hard refresh to bypass all caches
-            window.location.reload();
-          }, 1000);
+          // Save the new buildId NOW so we don't loop on the next load
+          localStorage.setItem('appBuildId', newBuildId);
+          localStorage.setItem('appVersion', data.version);
+
+          // Unregister SW then navigate (hard reload)
+          const doHardReload = async () => {
+            if ('serviceWorker' in navigator) {
+              try {
+                const registrations = await navigator.serviceWorker.getRegistrations();
+                await Promise.all(registrations.map(r => r.unregister()));
+                console.log('🔄 Service workers unregistered. Reloading...');
+              } catch (e) {
+                console.debug('SW unregister error (non-fatal):', e);
+              }
+            }
+            // Full navigation — not interceptable by a SW
+            window.location.href = window.location.href;
+          };
+
+          setTimeout(doHardReload, 1000);
+
         } else if (!currentBuildId && newBuildId) {
           // First load - just save buildId
           console.log(`📦 Initial load - saving buildId: ${newBuildId}`);
