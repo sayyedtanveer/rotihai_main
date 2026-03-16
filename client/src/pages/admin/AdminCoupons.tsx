@@ -10,7 +10,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import api from "@/lib/apiClient";
-import { Loader2, Plus, Edit2, Trash2, Eye, TrendingUp } from "lucide-react";
+import { Loader2, Plus, Edit2, Trash2, Eye, TrendingUp, Info } from "lucide-react";
+import { AdminLayout } from "@/components/admin/AdminLayout";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 interface Coupon {
   id: string;
@@ -224,24 +226,52 @@ export default function AdminCoupons() {
   const coupon = editingCoupon || { code: "" };
 
   return (
-    <div className="space-y-6 p-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold">Coupon Management</h1>
-          <p className="text-muted-foreground">Create and manage discount coupons</p>
+    <AdminLayout>
+      <div className="space-y-6">
+        <div className="flex justify-between items-center">
+          <div>
+            <h1 className="text-3xl font-bold">Coupon Management</h1>
+            <p className="text-muted-foreground mt-1">
+              Create and manage discount coupons. Share these codes with users to give them a discount on their orders.
+              Users can apply these codes during checkout.
+            </p>
+          </div>
+          <Button onClick={handleCreate} className="gap-2">
+            <Plus className="w-4 h-4" />
+            Create Coupon
+          </Button>
         </div>
-        <Button onClick={handleCreate} className="gap-2">
-          <Plus className="w-4 h-4" />
-          Create Coupon
-        </Button>
-      </div>
 
-      <Tabs defaultValue="coupons" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="coupons">All Coupons ({coupons.length})</TabsTrigger>
-          <TabsTrigger value="active">Active Only</TabsTrigger>
-          <TabsTrigger value="expired">Expired</TabsTrigger>
-        </TabsList>
+        <Card className="bg-blue-50/50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-900 mb-6">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg flex items-center gap-2 text-blue-800 dark:text-blue-300">
+              <Info className="w-5 h-5" />
+              How to Create a Coupon Code
+            </CardTitle>
+            <CardDescription className="text-blue-700/80 dark:text-blue-400">
+              Follow these guidelines to properly configure discount codes for your customers.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="text-sm text-slate-600 dark:text-slate-300">
+            <ul className="list-disc pl-5 space-y-2">
+              <li><strong>Coupon Code:</strong> A unique, uppercase code (e.g., WELCOME50, DIWALI20) that users type at checkout.</li>
+              <li><strong>Description:</strong> Internal note explaining the coupon's purpose (e.g., "New user welcome offer").</li>
+              <li><strong>Discount Type & Value:</strong> Choose <em>Percentage</em> (e.g., 10%) or <em>Fixed Amount</em> (e.g., ₹50 off).</li>
+              <li><strong>Minimum Order Amount (₹):</strong> Order subtotal must be at least this value to apply the coupon. Set to 0 if no minimum.</li>
+              <li><strong>Max Discount (₹):</strong> Limits the maximum money offset for <em>Percentage</em> discounts (e.g., 50% off up to ₹100 max).</li>
+              <li><strong>Usage Limit:</strong> Total times this coupon can be claimed across <strong>all</strong> users before it expires. Leave blank for unlimited.</li>
+              <li><strong>Per-User Limit:</strong> Max times a <strong>single person</strong> can use this specific code (usually 1 for welcome offers).</li>
+              <li><strong>Valid Until:</strong> The expiration date of the coupon. Afterwards, users cannot redeem it.</li>
+            </ul>
+          </CardContent>
+        </Card>
+
+        <Tabs defaultValue="coupons" className="space-y-4">
+          <TabsList>
+            <TabsTrigger value="coupons">All Coupons ({coupons.length})</TabsTrigger>
+            <TabsTrigger value="active">Active Only</TabsTrigger>
+            <TabsTrigger value="expired">Expired</TabsTrigger>
+          </TabsList>
 
         <TabsContent value="coupons">
           <CouponTable
@@ -510,7 +540,8 @@ export default function AdminCoupons() {
           onClose={() => setShowStats(null)}
         />
       )}
-    </div>
+      </div>
+    </AdminLayout>
   );
 }
 
