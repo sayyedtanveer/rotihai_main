@@ -1,5 +1,5 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -134,6 +134,27 @@ export default function AdminSubscriptions() {
     enabled: !!token,
     refetchInterval: 60 * 1000, // Refetch every minute
   });
+
+  // Listen for reconnects / foregrounding to refetch subscriptions
+  useEffect(() => {
+    const handleReactivate = () => {
+      if (document.visibilityState === "visible" && navigator.onLine) {
+        console.log("🔄 Admin Subscriptions: App returned online/foreground, refetching...");
+        queryClient.invalidateQueries({ queryKey: ["/api/admin", "subscriptions"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/admin/subscriptions/missed-deliveries", missedDeliveriesFilter] });
+        queryClient.invalidateQueries({ queryKey: ["/api/admin/subscriptions/today-deliveries"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/admin/subscriptions/overdue-preparations"] });
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleReactivate);
+    window.addEventListener("online", handleReactivate);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleReactivate);
+      window.removeEventListener("online", handleReactivate);
+    };
+  }, [missedDeliveriesFilter]);
 
   const { data: chefs } = useQuery<Array<{ id: string; name: string; isActive: boolean }>>({
     queryKey: ["/api/admin", "chefs"],

@@ -14,7 +14,7 @@ interface ScheduleItem {
   date: Date;
   time: string;
   items: any[];
-  status: "delivered" | "pending";
+  status: "delivered" | "pending" | "skipped" | "scheduled";
 }
 
 interface ScheduleData {

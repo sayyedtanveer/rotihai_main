@@ -173,6 +173,24 @@ export default function AdminOrders() {
     };
   }, []);
 
+  // Listen for reconnects / foregrounding to refetch orders
+  useEffect(() => {
+    const handleReactivate = () => {
+      if (document.visibilityState === "visible" && navigator.onLine) {
+        console.log("🔄 Admin Orders: App returned online/foreground, refetching missed orders...");
+        queryClient.invalidateQueries({ queryKey: ["/api/admin", "orders"] });
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleReactivate);
+    window.addEventListener("online", handleReactivate);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleReactivate);
+      window.removeEventListener("online", handleReactivate);
+    };
+  }, []);
+
   const handleOpenAssignDialog = (order: Order) => {
     setSelectedOrderForAssignment(order);
     setSelectedDeliveryPersonId(order.assignedTo || "");
