@@ -2070,8 +2070,8 @@ export default function CheckoutDialog({
           );
         }
 
-        // Apply referral code if provided by new user
-        if (referralCode.trim() && result.accessToken) {
+        // ✅ Apply referral code if provided by new user AND not already applied during order creation
+        if (referralCode.trim() && result.accessToken && !result.appliedReferralBonus) {
           try {
             applyReferralMutation.mutate({
               referralCode: referralCode.trim(),
