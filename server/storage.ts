@@ -1322,6 +1322,17 @@ export class MemStorage implements IStorage {
     return subs.map(serializeSubscription);
   }
 
+  // Get active AND paused subscriptions for a chef (for partner dashboard)
+  async getActiveAndPausedSubscriptionsByChef(chefId: string): Promise<Subscription[]> {
+    const subs = await db.query.subscriptions.findMany({
+      where: (s, { and, eq, inArray }) => and(
+        eq(s.chefId, chefId),
+        inArray(s.status, ["active", "paused"])  // ✅ Include both active and paused
+      ),
+    });
+    return subs.map(serializeSubscription);
+  }
+
   // Subscription Delivery Logs
   async getSubscriptionDeliveryLogs(subscriptionId: string): Promise<SubscriptionDeliveryLog[]> {
     return db.query.subscriptionDeliveryLogs.findMany({

@@ -81,7 +81,8 @@ export function registerPartnerRoutes(app: Express): void {
         return;
       }
 
-      const chefSubscriptionsRaw = await storage.getActiveSubscriptionsByChef(chefId);
+      // ✅ Get both active AND paused subscriptions so chef can see all their subscriptions
+      const chefSubscriptionsRaw = await storage.getActiveAndPausedSubscriptionsByChef(chefId);
       console.log(`Partner subscriptions (DB): chefId=${chefId}, matchedSubs=${chefSubscriptionsRaw.length}`);
 
       const enrichedSubscriptions = await Promise.all(

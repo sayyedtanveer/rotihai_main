@@ -2475,6 +2475,15 @@ export function registerAdminRoutes(app: Express) {
 
       const updated = await storage.updateSubscription(subscriptionId, updateData);
       console.log(`📋 Admin changed subscription ${subscriptionId} status to: ${status}`);
+
+      // ✅ Broadcast status change to relevant parties (chef and customer)
+      try {
+        const { broadcastSubscriptionUpdate } = await import("./websocket");
+        broadcastSubscriptionUpdate(updated);
+      } catch (err) {
+        console.log("Note: WebSocket broadcast attempted for subscription status change");
+      }
+
       res.json(updated);
     } catch (error) {
       console.error("Error changing subscription status:", error);

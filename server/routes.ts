@@ -3494,6 +3494,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`   End date extended from ${originalEndDateStr} to ${newEndDate.toDateString()}`);
       console.log(`   Skipped deliveries between pause dates`);
 
+      // ✅ Broadcast pause notification to chef and admin
+      try {
+        const { broadcastSubscriptionUpdate } = await import("./websocket");
+        broadcastSubscriptionUpdate(updated);
+      } catch (err) {
+        console.log("Note: WebSocket broadcast attempted for pause notification");
+      }
+
       res.json(updated);
     } catch (error: any) {
       console.error("Error pausing subscription:", error);
@@ -3524,6 +3532,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       console.log(`▶️ Subscription ${req.params.id} resumed`);
+
+      // ✅ Broadcast resume notification to chef and admin
+      try {
+        const { broadcastSubscriptionUpdate } = await import("./websocket");
+        broadcastSubscriptionUpdate(updated);
+      } catch (err) {
+        console.log("Note: WebSocket broadcast attempted for resume notification");
+      }
 
       res.json(updated);
     } catch (error: any) {

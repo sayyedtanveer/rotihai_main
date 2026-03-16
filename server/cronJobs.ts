@@ -67,6 +67,17 @@ export async function autoResumeSubscriptions(): Promise<void> {
         .where(eq(subscriptions.id, subscription.id));
 
       console.log(`▶️ Auto-resumed subscription ${subscription.id} (scheduled for ${subscription.pauseResumeDate})`);
+
+      // ✅ Broadcast auto-resume notification to chef and admin
+      try {
+        const { broadcastSubscriptionUpdate } = await import("./websocket");
+        const updated = await storage.getSubscription(subscription.id);
+        if (updated) {
+          broadcastSubscriptionUpdate(updated);
+        }
+      } catch (err) {
+        console.log(`Note: WebSocket broadcast attempted for auto-resume of subscription ${subscription.id}`);
+      }
     }
 
     if (pausedSubscriptions.length > 0) {
