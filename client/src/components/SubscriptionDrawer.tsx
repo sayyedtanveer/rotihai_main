@@ -616,6 +616,77 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
     }
   }, [isAuthSubAddressValidated]);
 
+  // ─── Reactive address backfill ────────────────────────────────────────────
+  // When the slot-selection modal is open but authenticatedSubAddress is still
+  // null, it means the data (userProfile / mySubscriptions) wasn't yet loaded
+  // at click-time (common for users registered via menu→checkout flow).
+  // This effect re-runs whenever those query results arrive and fills the
+  // address in — using the same priority order as handleSubscribe.
+  // It is a no-op in all other situations (address already set, modal closed).
+  useEffect(() => {
+    if (!showSlotSelectionModal || authenticatedSubAddress !== null) return;
+
+    // Priority 1: Stored pincode from localStorage (set by home page pincode widget)
+    const storedPincode = getStoredPincodeValidation();
+    if (storedPincode?.pincode && storedPincode?.latitude && storedPincode?.longitude) {
+      setAuthenticatedSubAddress({
+        building: "",
+        street: "",
+        area: storedPincode.area || "",
+        city: "Mumbai",
+        pincode: storedPincode.pincode,
+        latitude: storedPincode.latitude,
+        longitude: storedPincode.longitude,
+      });
+      console.log("[SUBSCRIPTION] Reactive: populated address from stored pincode");
+      return;
+    }
+
+    // Priority 2: Existing subscription address
+    if (mySubscriptions && mySubscriptions.length > 0 && mySubscriptions[0]?.address) {
+      try {
+        const parsed = typeof mySubscriptions[0].address === "string"
+          ? JSON.parse(mySubscriptions[0].address)
+          : mySubscriptions[0].address;
+        setAuthenticatedSubAddress({
+          building: parsed.building || "",
+          street: parsed.street || "",
+          area: parsed.area || "",
+          city: parsed.city || "Mumbai",
+          pincode: parsed.pincode || "",
+          latitude: parsed.latitude || null,
+          longitude: parsed.longitude || null,
+        });
+        console.log("[SUBSCRIPTION] Reactive: populated address from existing subscription");
+        return;
+      } catch {
+        // fall through to next priority
+      }
+    }
+
+    // Priority 3: User profile address (key fix — data may arrive asynchronously)
+    if (userProfile?.address) {
+      try {
+        const parsed = typeof userProfile.address === "string"
+          ? JSON.parse(userProfile.address)
+          : userProfile.address;
+        setAuthenticatedSubAddress({
+          building: parsed.building || "",
+          street: parsed.street || "",
+          area: parsed.area || "",
+          city: parsed.city || "Mumbai",
+          pincode: parsed.pincode || "",
+          latitude: parsed.latitude || null,
+          longitude: parsed.longitude || null,
+        });
+        console.log("[SUBSCRIPTION] Reactive: populated address from user profile (async load)");
+      } catch {
+        console.log("[SUBSCRIPTION] Reactive: failed to parse user profile address");
+      }
+    }
+  }, [showSlotSelectionModal, authenticatedSubAddress, mySubscriptions, userProfile]);
+  // ─────────────────────────────────────────────────────────────────────────
+
   // Cancel mutation is removed as per the requirement
 
   const activePlans = plans?.filter(p => p.isActive) || [];
