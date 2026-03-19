@@ -18,9 +18,20 @@ import {
   Users, 
   Package,
   Download,
-  BarChart3
+  BarChart3,
+  ChefHat,
+  Star,
+  Search
 } from "lucide-react";
 import { useState } from "react";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface SalesReport {
   totalRevenue: number;
@@ -56,11 +67,31 @@ interface SubscriptionReport {
   topPlans: Array<{ id: string; name: string; subscriberCount: number; revenue: number }>;
 }
 
+interface ChefReport {
+  totalRevenue: number;
+  totalOrders: number;
+  chefCount: number;
+  averageRevenuePerChef: number;
+  chefStats: Array<{
+    id: string;
+    name: string;
+    totalRevenue: number;
+    totalOrders: number;
+    averageOrderValue: number;
+    topProducts: Array<{ id: string; name: string; quantity: number; revenue: number }>;
+    rating: number;
+    isVerified: boolean;
+  }>;
+}
+
 export default function AdminReports() {
   const [dateRange, setDateRange] = useState<{ from: Date; to: Date }>({
     from: subDays(new Date(), 30),
     to: new Date(),
   });
+  const [selectedChefId, setSelectedChefId] = useState<string>("");
+  const [searchChef, setSearchChef] = useState("");
+
 
   const { data: salesReport, isLoading: salesLoading } = useQuery<SalesReport>({
     queryKey: ["/api/admin/reports/sales", dateRange],
@@ -109,6 +140,20 @@ export default function AdminReports() {
         { headers: { Authorization: `Bearer ${token}` } }
       );
       if (!response.ok) throw new Error("Failed to fetch subscription report");
+      return response.json();
+    },
+  });
+
+  const { data: chefReport } = useQuery<ChefReport>({
+    queryKey: ["/api/admin/reports/chefs", dateRange, selectedChefId],
+    queryFn: async () => {
+      const token = localStorage.getItem("adminToken");
+      let url = `/api/admin/reports/chefs?from=${dateRange.from.toISOString()}&to=${dateRange.to.toISOString()}`;
+      if (selectedChefId) {
+        url += `&chefId=${selectedChefId}`;
+      }
+      const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      if (!response.ok) throw new Error("Failed to fetch chef report");
       return response.json();
     },
   });
@@ -185,6 +230,7 @@ export default function AdminReports() {
             <TabsTrigger value="users">Users</TabsTrigger>
             <TabsTrigger value="inventory">Inventory</TabsTrigger>
             <TabsTrigger value="subscriptions">Subscriptions</TabsTrigger>
+            <TabsTrigger value="chefs">Chefs</TabsTrigger>
           </TabsList>
 
           <TabsContent value="sales" className="space-y-4">
@@ -464,6 +510,166 @@ export default function AdminReports() {
                         </div>
                       </div>
                       <p className="font-semibold">₹{plan.revenue}</p>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="chefs" className="space-y-4">
+            <div className="space-y-4">
+              {/* Chef Selection & Search */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 block">
+                    Filter by Chef
+                  </label>
+                  <Select value={selectedChefId} onValueChange={setSelectedChefId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="All Chefs" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">All Chefs</SelectItem>
+                      {chefReport?.chefStats?.map((chef) => (
+                        <SelectItem key={chef.id} value={chef.id}>
+                          {chef.name} {chef.isVerified && "✓"}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div>
+                  <label className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 block">
+                    Search Chef
+                  </label>
+                  <div className="relative">
+                    <Search className="absolute left-2 top-2.5 h-4 w-4 text-slate-400" />
+                    <Input
+                      placeholder="Search chef name..."
+                      value={searchChef}
+                      onChange={(e) => setSearchChef(e.target.value)}
+                      className="pl-8"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Overview Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">₹{chefReport?.totalRevenue || 0}</div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">Total Orders</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{chefReport?.totalOrders || 0}</div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">Active Chefs</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{chefReport?.chefCount || 0}</div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">Avg Revenue/Chef</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">₹{chefReport?.averageRevenuePerChef || 0}</div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Chef Performance Table */}
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle>Chef Performance</CardTitle>
+                  <CardDescription>Sales and order metrics per chef</CardDescription>
+                </div>
+                <Button size="sm" variant="outline" onClick={() => handleExportCSV('chefs')}>
+                  <Download className="w-4 h-4 mr-2" />
+                  Export
+                </Button>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4 max-h-[600px] overflow-y-auto">
+                  {chefReport?.chefStats
+                    ?.filter(chef => 
+                      searchChef === "" || 
+                      chef.name?.toLowerCase().includes(searchChef.toLowerCase())
+                    )
+                    ?.map((chef, index) => (
+                    <div key={chef.id} className="border rounded-lg p-4 hover:bg-slate-50 dark:hover:bg-slate-900 transition">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-3">
+                          <Badge variant="outline">{index + 1}</Badge>
+                          <div>
+                            <p className="font-semibold">{chef.name}</p>
+                            <div className="flex items-center gap-2 mt-1">
+                              {chef.isVerified && (
+                                <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900">
+                                  ✓ Verified
+                                </Badge>
+                              )}
+                              {chef.rating > 0 && (
+                                <div className="flex items-center gap-1 text-xs">
+                                  <Star className="w-3 h-3 fill-yellow-400 text-yellow-400" />
+                                  <span>{chef.rating.toFixed(1)}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-2xl font-bold text-green-600">₹{chef.totalRevenue}</p>
+                          <p className="text-sm text-muted-foreground">{chef.totalOrders} orders</p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-3 mb-3 text-sm">
+                        <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded">
+                          <p className="text-muted-foreground">Avg Order Value</p>
+                          <p className="font-semibold">₹{chef.averageOrderValue}</p>
+                        </div>
+                        <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded">
+                          <p className="text-muted-foreground">Total Orders</p>
+                          <p className="font-semibold">{chef.totalOrders}</p>
+                        </div>
+                        <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded">
+                          <p className="text-muted-foreground">Total Revenue</p>
+                          <p className="font-semibold">₹{chef.totalRevenue}</p>
+                        </div>
+                      </div>
+
+                      {chef.topProducts?.length > 0 && (
+                        <div className="border-t pt-3">
+                          <p className="text-xs font-semibold text-slate-600 dark:text-slate-400 mb-2">Top Products</p>
+                          <div className="flex flex-wrap gap-2">
+                            {chef.topProducts?.map((product, pidx) => (
+                              <Badge key={product.id} variant="secondary" className="text-xs">
+                                {product.name} ({product.quantity} × ₹{product.revenue})
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

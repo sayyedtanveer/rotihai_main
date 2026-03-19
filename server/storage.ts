@@ -120,6 +120,7 @@ export interface IStorage {
   getUserReport(from: Date, to: Date): Promise<any>;
   getInventoryReport(): Promise<any>;
   getSubscriptionReport(from: Date, to: Date): Promise<any>;
+  getChefReport(from: Date, to: Date, chefId?: string): Promise<any>;
 
   // Delivery Personnel methods
   getDeliveryPersonnelByPhone(phone: string): Promise<DeliveryPersonnel | undefined>;
@@ -1508,6 +1509,84 @@ export class MemStorage implements IStorage {
       subscriptionRevenue: planStats.reduce((sum, p) => sum + p.revenue, 0),
       topPlans: planStats.sort((a, b) => b.revenue - a.revenue).slice(0, 5),
     };
+  }
+
+  async getChefReport(from: Date, to: Date, chefId?: string) {
+    try {
+      // Get all chefs
+      const allChefs = await db.query.chefs.findMany();
+      
+      // Get all orders in date range
+      const allOrders = await db.query.orders.findMany();
+      const filteredOrders = allOrders.filter(o => {
+        const createdAt = new Date(o.createdAt);
+        return createdAt >= from && createdAt <= to;
+      });
+
+      // If specific chef requested, filter orders
+      let chefOrders = filteredOrders;
+      let targetChefs = allChefs;
+      
+      if (chefId) {
+        chefOrders = filteredOrders.filter(o => o.chefId === chefId);
+        targetChefs = allChefs.filter(c => c.id === chefId);
+      }
+
+      // Calculate stats per chef
+      const chefStats = targetChefs.map(chef => {
+        const orders = chefOrders.filter(o => o.chefId === chef.id);
+        const totalRevenue = orders.reduce((sum, o) => sum + o.total, 0);
+        const ordersCount = orders.length;
+        const avgOrderValue = ordersCount > 0 ? Math.round(totalRevenue / ordersCount) : 0;
+
+        // Top products for this chef
+        const productSales = new Map<string, { name: string; quantity: number; revenue: number }>();
+        for (const order of orders) {
+          for (const item of order.items as any[]) {
+            const existing = productSales.get(item.id) || { name: item.name, quantity: 0, revenue: 0 };
+            productSales.set(item.id, {
+              name: item.name,
+              quantity: existing.quantity + item.quantity,
+              revenue: existing.revenue + (item.price * item.quantity),
+            });
+          }
+        }
+
+        const topProducts = Array.from(productSales.entries())
+          .map(([id, data]) => ({ id, ...data }))
+          .sort((a, b) => b.revenue - a.revenue)
+          .slice(0, 3);
+
+        return {
+          id: chef.id,
+          name: chef.username || chef.name,
+          totalRevenue,
+          totalOrders: ordersCount,
+          averageOrderValue: avgOrderValue,
+          topProducts,
+          rating: chef.rating || 0,
+          isVerified: chef.isVerified || false,
+        };
+      });
+
+      // Sort by revenue
+      const sortedChefs = chefStats.sort((a, b) => b.totalRevenue - a.totalRevenue);
+
+      // Overall stats
+      const totalRevenue = chefOrders.reduce((sum, o) => sum + o.total, 0);
+      const totalOrdersCount = chefOrders.length;
+
+      return {
+        totalRevenue,
+        totalOrders: totalOrdersCount,
+        chefCount: targetChefs.length,
+        averageRevenuePerChef: targetChefs.length > 0 ? Math.round(totalRevenue / targetChefs.length) : 0,
+        chefStats: sortedChefs,
+      };
+    } catch (error) {
+      console.error("Error in getChefReport:", error);
+      throw error;
+    }
   }
 
   async getDeliverySettings(): Promise<DeliverySetting[]> {
