@@ -89,7 +89,7 @@ export default function AdminReports() {
     from: subDays(new Date(), 30),
     to: new Date(),
   });
-  const [selectedChefId, setSelectedChefId] = useState<string>("");
+  const [selectedChefId, setSelectedChefId] = useState<string>("all");
   const [searchChef, setSearchChef] = useState("");
 
 
@@ -149,7 +149,7 @@ export default function AdminReports() {
     queryFn: async () => {
       const token = localStorage.getItem("adminToken");
       let url = `/api/admin/reports/chefs?from=${dateRange.from.toISOString()}&to=${dateRange.to.toISOString()}`;
-      if (selectedChefId) {
+      if (selectedChefId && selectedChefId !== "all") {
         url += `&chefId=${selectedChefId}`;
       }
       const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
@@ -530,7 +530,7 @@ export default function AdminReports() {
                       <SelectValue placeholder="All Chefs" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">All Chefs</SelectItem>
+                      <SelectItem value="all">All Chefs</SelectItem>
                       {chefReport?.chefStats?.map((chef) => (
                         <SelectItem key={chef.id} value={chef.id}>
                           {chef.name} {chef.isVerified && "✓"}
