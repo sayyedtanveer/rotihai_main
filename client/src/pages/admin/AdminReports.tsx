@@ -706,6 +706,118 @@ export default function AdminReports() {
               </CardContent>
             </Card>
           </TabsContent>
+
+          <TabsContent value="rotihai" className="space-y-4">
+            {/* Rotihai Earnings Overview */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">Total Rotihai Earnings</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-green-600">₹{rothiaiReport?.totalRothiaiEarnings || 0}</div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">Platform Commission</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-blue-600">₹{rothiaiReport?.breakdown?.platformCommission || 0}</div>
+                  <p className="text-xs text-muted-foreground mt-1">(20% from orders)</p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">Delivery Fees</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-purple-600">₹{rothiaiReport?.breakdown?.deliveryFeeEarnings || 0}</div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">Total Orders</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{rothiaiReport?.totalOrders || 0}</div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Earnings Breakdown */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Earnings Breakdown</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between border-b pb-3">
+                    <span className="text-slate-600 dark:text-slate-400">Platform Commission (20%)</span>
+                    <span className="font-semibold text-lg">₹{rothiaiReport?.breakdown?.platformCommission || 0}</span>
+                  </div>
+                  <div className="flex items-center justify-between border-b pb-3">
+                    <span className="text-slate-600 dark:text-slate-400">Delivery Fee Earnings</span>
+                    <span className="font-semibold text-lg">₹{rothiaiReport?.breakdown?.deliveryFeeEarnings || 0}</span>
+                  </div>
+                  <div className="flex items-center justify-between border-b pb-3">
+                    <span className="text-slate-600 dark:text-slate-400">Discount Handling</span>
+                    <span className="font-semibold text-lg">₹{rothiaiReport?.breakdown?.discountTaken || 0}</span>
+                  </div>
+                  <div className="flex items-center justify-between pt-3 border-t-2">
+                    <span className="font-bold text-slate-900 dark:text-slate-100">Total Earnings</span>
+                    <span className="font-bold text-xl text-green-600">₹{rothiaiReport?.totalRothiaiEarnings || 0}</span>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Wallet Info</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div className="p-4 bg-slate-50 dark:bg-slate-900 rounded-lg">
+                      <p className="text-sm text-muted-foreground mb-1">Wallet Amount Used by Customers</p>
+                      <p className="text-2xl font-bold">₹{rothiaiReport?.breakdown?.walletUsed || 0}</p>
+                    </div>
+                    <p className="text-xs text-muted-foreground text-center pt-4">
+                      This amount was already in customer wallets and used for orders
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Category-wise Earnings */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Category-wise Earnings</CardTitle>
+                <CardDescription>Rotihai earnings breakdown by order category</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4 max-h-[500px] overflow-y-auto">
+                  {rothiaiReport?.categoryBreakdown?.map((category, index) => (
+                    <div key={category.name} className="border rounded-lg p-4 hover:bg-slate-50 dark:hover:bg-slate-900 transition">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-3">
+                          <Badge variant="outline">{index + 1}</Badge>
+                          <div>
+                            <p className="font-semibold">{category.name}</p>
+                            <p className="text-sm text-muted-foreground">{category.orders} orders</p>
+                          </div>
+                        </div>
+                        <p className="font-bold text-lg text-green-600">₹{category.earnings}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
         </Tabs>
       </div>
     </AdminLayout>
