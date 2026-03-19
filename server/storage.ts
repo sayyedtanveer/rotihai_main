@@ -1689,6 +1689,71 @@ export class MemStorage implements IStorage {
     }
   }
 
+  async getChefPayoutDetails(from: Date, to: Date, chefId?: string) {
+    try {
+      // Get all orders in date range
+      const allOrders = await db.query.orders.findMany();
+      const filteredOrders = allOrders.filter(o => {
+        const createdAt = new Date(o.createdAt);
+        return createdAt >= from && createdAt <= to;
+      });
+
+      // If specific chef requested, filter by chefId
+      let chefOrders = filteredOrders;
+      if (chefId) {
+        chefOrders = filteredOrders.filter(o => o.chefId === chefId);
+      }
+
+      // Build detailed order list with item-wise calculations
+      const detailedOrders = chefOrders.map(order => {
+        let totalChefEarning = 0;
+        
+        const items = (order.items as any[]).map(item => {
+          const itemChefEarning = item.hotelPrice ? Math.round(item.hotelPrice * item.quantity) : 0;
+          totalChefEarning += itemChefEarning;
+          
+          return {
+            id: item.id,
+            name: item.name,
+            price: item.price,
+            hotelPrice: item.hotelPrice || 0,
+            quantity: item.quantity,
+            chefEarning: itemChefEarning,
+          };
+        });
+
+        return {
+          id: order.id,
+          createdAt: order.createdAt,
+          customerName: order.customerName,
+          phone: order.phone,
+          status: order.status,
+          paymentStatus: order.paymentStatus,
+          deliveredAt: order.deliveredAt,
+          items,
+          subtotal: order.subtotal,
+          totalChefEarning,
+          orderIncome: totalChefEarning,
+          paidToChef: false,  // Default: not paid
+          paidAt: undefined,
+        };
+      });
+
+      // Calculate totals
+      const totalOrders = detailedOrders.length;
+      const totalChefEarnings = detailedOrders.reduce((sum, o) => sum + o.totalChefEarning, 0);
+
+      return {
+        totalOrders,
+        totalChefEarnings,
+        orders: detailedOrders,
+      };
+    } catch (error) {
+      console.error("Error in getChefPayoutDetails:", error);
+      throw error;
+    }
+  }
+
   async getDeliverySettings(): Promise<DeliverySetting[]> {
     return db.query.deliverySettings.findMany({ where: (ds, { eq }) => eq(ds.isActive, true) });
   }

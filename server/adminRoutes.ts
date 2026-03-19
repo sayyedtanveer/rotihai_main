@@ -3250,6 +3250,21 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  app.get("/api/admin/reports/chef-payout", requireAdmin(), async (req, res) => {
+    try {
+      const { from, to, chefId } = req.query;
+      const report = await storage.getChefPayoutDetails(
+        from ? new Date(from as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+        to ? new Date(to as string) : new Date(),
+        chefId as string | undefined
+      );
+      res.json(report);
+    } catch (error) {
+      console.error("Get chef payout details error:", error);
+      res.status(500).json({ message: "Failed to fetch chef payout details" });
+    }
+  });
+
   // Visitor Analytics Reports
   app.get("/api/admin/reports/visitors", requireAdmin(), async (req, res) => {
     try {

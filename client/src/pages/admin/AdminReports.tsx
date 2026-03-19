@@ -1,6 +1,6 @@
 
 import { useQuery } from "@tanstack/react-query";
-import { AdminLayout } from "@/components/admin/AdminLayout";
+import React, { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -23,7 +23,6 @@ import {
   Star,
   Search
 } from "lucide-react";
-import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -99,6 +98,33 @@ interface RothiaiEarningsReport {
     name: string;
     orders: number;
     earnings: number;
+  }>;
+}
+
+interface ChefPayoutReport {
+  totalOrders: number;
+  totalChefEarnings: number;
+  orders: Array<{
+    id: string;
+    createdAt: string;
+    customerName: string;
+    phone: string;
+    status: string;
+    paymentStatus: string;
+    deliveredAt?: string;
+    items: Array<{
+      id: string;
+      name: string;
+      price: number;
+      hotelPrice: number;
+      quantity: number;
+      chefEarning: number;
+    }>;
+    subtotal: number;
+    totalChefEarning: number;
+    orderIncome?: number;  // Total chef earning for this order
+    paidToChef?: boolean;
+    paidAt?: string;
   }>;
 }
 
@@ -189,6 +215,32 @@ export default function AdminReports() {
     },
   });
 
+  const { data: chefPayoutReport } = useQuery<ChefPayoutReport>({
+    queryKey: ["/api/admin/reports/chef-payout", dateRange, selectedChefId],
+    queryFn: async () => {
+      const token = localStorage.getItem("adminToken");
+      let url = `/api/admin/reports/chef-payout?from=${dateRange.from.toISOString()}&to=${dateRange.to.toISOString()}`;
+      if (selectedChefId && selectedChefId !== "all") {
+        url += `&chefId=${selectedChefId}`;
+      }
+      const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      if (!response.ok) throw new Error("Failed to fetch chef payout details");
+      return response.json();
+    },
+  });
+
+  const { data: chefs } = useQuery<any[]>({
+    queryKey: ["/api/admin/chefs"],
+    queryFn: async () => {
+      const token = localStorage.getItem("adminToken");
+      const response = await fetch("/api/admin/chefs", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) throw new Error("Failed to fetch chefs");
+      return response.json();
+    },
+  });
+
   const handleExportCSV = (reportType: string) => {
     const token = localStorage.getItem("adminToken");
     window.open(
@@ -263,6 +315,7 @@ export default function AdminReports() {
             <TabsTrigger value="subscriptions">Subscriptions</TabsTrigger>
             <TabsTrigger value="chefs">Chef Earnings</TabsTrigger>
             <TabsTrigger value="rotihai">Rotihai Earnings</TabsTrigger>
+            <TabsTrigger value="chef-payout">Chef Payout Details</TabsTrigger>
           </TabsList>
 
           <TabsContent value="sales" className="space-y-4">
@@ -845,6 +898,117 @@ export default function AdminReports() {
                     </div>
                   ))}
                 </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="chef-payout" className="space-y-4">
+            {/* Payout Summary */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">Total Orders</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{chefPayoutReport?.totalOrders || 0}</div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">Total Chef Earnings</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-green-600">₹{chefPayoutReport?.totalChefEarnings || 0}</div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">Average per Order</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">₹{chefPayoutReport?.totalOrders && chefPayoutReport?.totalOrders > 0 ? Math.round(chefPayoutReport.totalChefEarnings / chefPayoutReport.totalOrders) : 0}</div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Order Details Table */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Order-wise Payout Details</CardTitle>
+                <CardDescription>Complete breakdown for payout processing</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left py-3 px-4">Order ID</th>
+                        <th className="text-left py-3 px-4">Date & Time</th>
+                        <th className="text-left py-3 px-4">Customer</th>
+                        <th className="text-left py-3 px-4">Items</th>
+                        <th className="text-right py-3 px-4">Price/Unit</th>
+                        <th className="text-right py-3 px-4">Hotel Cost</th>
+                        <th className="text-right py-3 px-4">Qty</th>
+                        <th className="text-right py-3 px-4">Chef Earning</th>
+                        <th className="text-left py-3 px-4">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {chefPayoutReport?.orders?.map((order) => (
+                        <React.Fragment key={order.id}>
+                          {/* Order Header Row */}
+                          <tr className="bg-slate-50 dark:bg-slate-900 border-b">
+                            <td className="py-2 px-4 font-semibold text-blue-600">{order.id.slice(0, 8)}</td>
+                            <td className="py-2 px-4">{new Date(order.createdAt).toLocaleString()}</td>
+                            <td className="py-2 px-4">
+                              <div>
+                                <p className="font-medium">{order.customerName}</p>
+                                <p className="text-xs text-muted-foreground">{order.phone}</p>
+                              </div>
+                            </td>
+                            <td className="py-2 px-4 text-muted-foreground text-xs">{order.items.length} items</td>
+                            <td className="text-right py-2 px-4"></td>
+                            <td className="text-right py-2 px-4"></td>
+                            <td className="text-right py-2 px-4"></td>
+                            <td className="text-right py-2 px-4 font-bold text-green-600">₹{order.totalChefEarning}</td>
+                            <td className="py-2 px-4">
+                              <Badge variant={order.status === "delivered" ? "default" : "secondary"}>
+                                {order.status}
+                              </Badge>
+                            </td>
+                          </tr>
+                          
+                          {/* Item Rows */}
+                          {order.items.map((item, idx) => (
+                            <tr key={`${order.id}-${idx}`} className="border-b hover:bg-slate-50 dark:hover:bg-slate-900/50">
+                              <td className="py-2 px-4"></td>
+                              <td className="py-2 px-4"></td>
+                              <td className="py-2 px-4"></td>
+                              <td className="py-2 px-4 font-medium text-slate-900 dark:text-slate-100">{item.name}</td>
+                              <td className="text-right py-2 px-4">₹{item.price}</td>
+                              <td className="text-right py-2 px-4 font-semibold text-slate-700 dark:text-slate-300">₹{item.hotelPrice}</td>
+                              <td className="text-right py-2 px-4">{item.quantity}</td>
+                              <td className="text-right py-2 px-4 font-bold text-green-600">₹{item.chefEarning}</td>
+                              <td className="py-2 px-4">
+                                <Badge variant="outline" className="text-xs">
+                                  Markup: ₹{item.price - item.hotelPrice}
+                                </Badge>
+                              </td>
+                            </tr>
+                          ))}
+                        </React.Fragment>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {!chefPayoutReport?.orders || chefPayoutReport.orders.length === 0 && (
+                  <div className="text-center py-8 text-muted-foreground">
+                    No orders found for the selected period
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
