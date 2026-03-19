@@ -1533,24 +1533,21 @@ export class MemStorage implements IStorage {
         targetChefs = allChefs.filter(c => c.id === chefId);
       }
 
-      // PLATFORM COMMISSION RATE (20%)
-      const PLATFORM_COMMISSION_RATE = 0.20;
-
       // Calculate stats per chef
       const chefStats = targetChefs.map(chef => {
         const orders = chefOrders.filter(o => o.chefId === chef.id);
         
-        // Calculate chef earnings: subtotal * (1 - commission) for each order
+        // Calculate chef earnings: sum of hotelPrice for each item (what chef gets)
         let chefEarnings = 0;
         const productSales = new Map<string, { name: string; quantity: number; revenue: number }>();
         
         for (const order of orders) {
-          // Chef earnings = subtotal * (1 - platform commission)
-          const orderEarnings = Math.round(order.subtotal * (1 - PLATFORM_COMMISSION_RATE));
-          chefEarnings += orderEarnings;
-          
-          // Track top products
+          // Chef earnings = hotelPrice * quantity for each item
           for (const item of order.items as any[]) {
+            const itemChefEarning = item.hotelPrice ? Math.round(item.hotelPrice * item.quantity) : 0;
+            chefEarnings += itemChefEarning;
+            
+            // Track top products by selling price
             const existing = productSales.get(item.id) || { name: item.name, quantity: 0, revenue: 0 };
             productSales.set(item.id, {
               name: item.name,
@@ -1584,7 +1581,12 @@ export class MemStorage implements IStorage {
       const sortedChefs = chefStats.sort((a, b) => b.chefEarnings - a.chefEarnings);
 
       // Overall stats
-      const totalChefEarnings = chefOrders.reduce((sum, o) => sum + Math.round(o.subtotal * (1 - PLATFORM_COMMISSION_RATE)), 0);
+      const totalChefEarnings = chefOrders.reduce((sum, o) => {
+        const orderChefEarnings = (o.items as any[]).reduce((itemSum, item) => {
+          return itemSum + (item.hotelPrice ? Math.round(item.hotelPrice * item.quantity) : 0);
+        }, 0);
+        return sum + orderChefEarnings;
+      }, 0);
       const totalOrdersCount = chefOrders.length;
 
       return {
@@ -1602,8 +1604,6 @@ export class MemStorage implements IStorage {
 
   async getRothiaiEarningsReport(from: Date, to: Date) {
     try {
-      const PLATFORM_COMMISSION_RATE = 0.20;
-
       // Get all orders in date range
       const allOrders = await db.query.orders.findMany();
       const filteredOrders = allOrders.filter(o => {
@@ -1611,14 +1611,18 @@ export class MemStorage implements IStorage {
         return createdAt >= from && createdAt <= to;
       });
 
-      // Calculate Rotihai earnings
-      let platformCommission = 0;  // 20% from subtotal
+      // Calculate Rotihai earnings: commission = price - hotelPrice per item
+      let platformCommission = 0;  // price - hotelPrice for each item
       let deliveryFeeEarnings = 0;  // All delivery fees
       let discountTaken = 0;  // Discounts applied
       let walletUsed = 0;  // Wallet amount used by customers
 
       for (const order of filteredOrders) {
-        platformCommission += Math.round(order.subtotal * PLATFORM_COMMISSION_RATE);
+        // Platform commission = markup on each item (selling price - hotel cost)
+        for (const item of order.items as any[]) {
+          const itemCommission = (item.price - (item.hotelPrice || 0)) * item.quantity;
+          platformCommission += Math.round(itemCommission);
+        }
         deliveryFeeEarnings += order.deliveryFee;
         discountTaken += order.discount;
         walletUsed += order.walletAmountUsed;
@@ -1632,7 +1636,14 @@ export class MemStorage implements IStorage {
         const catId = order.categoryId || 'unknown';
         const catName = order.categoryName || 'Other';
         const existing = categoryEarnings.get(catId) || { name: catName, orders: 0, earnings: 0 };
-        const orderEarnings = Math.round(order.subtotal * PLATFORM_COMMISSION_RATE) + order.deliveryFee + order.discount;
+        
+        // Calculate commission per item for this order
+        let orderCommission = 0;
+        for (const item of order.items as any[]) {
+          const itemCommission = (item.price - (item.hotelPrice || 0)) * item.quantity;
+          orderCommission += Math.round(itemCommission);
+        }
+        const orderEarnings = orderCommission + order.deliveryFee + order.discount;
         categoryEarnings.set(catId, {
           name: catName,
           orders: existing.orders + 1,
