@@ -628,10 +628,10 @@ export default function AdminReports() {
                                   ✓ Verified
                                 </Badge>
                               )}
-                              {chef.rating > 0 && (
+                              {(Number(chef.rating) || 0) > 0 && (
                                 <div className="flex items-center gap-1 text-xs">
                                   <Star className="w-3 h-3 fill-yellow-400 text-yellow-400" />
-                                  <span>{chef.rating.toFixed(1)}</span>
+                                  <span>{Number(chef.rating).toFixed(1)}</span>
                                 </div>
                               )}
                             </div>

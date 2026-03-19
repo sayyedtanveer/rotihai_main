@@ -1564,7 +1564,7 @@ export class MemStorage implements IStorage {
           totalOrders: ordersCount,
           averageOrderValue: avgOrderValue,
           topProducts,
-          rating: chef.rating || 0,
+          rating: typeof chef.rating === 'number' ? chef.rating : (parseFloat(chef.rating) || 0),
           isVerified: chef.isVerified || false,
         };
       });
