@@ -3236,6 +3236,20 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  app.get("/api/admin/reports/rotihai-earnings", requireAdmin(), async (req, res) => {
+    try {
+      const { from, to } = req.query;
+      const report = await storage.getRothiaiEarningsReport(
+        from ? new Date(from as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+        to ? new Date(to as string) : new Date()
+      );
+      res.json(report);
+    } catch (error) {
+      console.error("Get rotihai earnings report error:", error);
+      res.status(500).json({ message: "Failed to fetch rotihai earnings report" });
+    }
+  });
+
   // Visitor Analytics Reports
   app.get("/api/admin/reports/visitors", requireAdmin(), async (req, res) => {
     try {

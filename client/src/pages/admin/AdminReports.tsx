@@ -68,19 +68,35 @@ interface SubscriptionReport {
 }
 
 interface ChefReport {
-  totalRevenue: number;
+  totalChefEarnings: number;
   totalOrders: number;
   chefCount: number;
-  averageRevenuePerChef: number;
+  averageEarningsPerChef: number;
   chefStats: Array<{
     id: string;
     name: string;
-    totalRevenue: number;
+    chefEarnings: number;
     totalOrders: number;
-    averageOrderValue: number;
+    averageEarning: number;
     topProducts: Array<{ id: string; name: string; quantity: number; revenue: number }>;
     rating: number;
     isVerified: boolean;
+  }>;
+}
+
+interface RothiaiEarningsReport {
+  totalOrders: number;
+  totalRothiaiEarnings: number;
+  breakdown: {
+    platformCommission: number;
+    deliveryFeeEarnings: number;
+    discountTaken: number;
+    walletUsed: number;
+  };
+  categoryBreakdown: Array<{
+    name: string;
+    orders: number;
+    earnings: number;
   }>;
 }
 
@@ -158,6 +174,19 @@ export default function AdminReports() {
     },
   });
 
+  const { data: rothiaiReport } = useQuery<RothiaiEarningsReport>({
+    queryKey: ["/api/admin/reports/rotihai-earnings", dateRange],
+    queryFn: async () => {
+      const token = localStorage.getItem("adminToken");
+      const response = await fetch(
+        `/api/admin/reports/rotihai-earnings?from=${dateRange.from.toISOString()}&to=${dateRange.to.toISOString()}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!response.ok) throw new Error("Failed to fetch rotihai earnings report");
+      return response.json();
+    },
+  });
+
   const handleExportCSV = (reportType: string) => {
     const token = localStorage.getItem("adminToken");
     window.open(
@@ -230,7 +259,8 @@ export default function AdminReports() {
             <TabsTrigger value="users">Users</TabsTrigger>
             <TabsTrigger value="inventory">Inventory</TabsTrigger>
             <TabsTrigger value="subscriptions">Subscriptions</TabsTrigger>
-            <TabsTrigger value="chefs">Chefs</TabsTrigger>
+            <TabsTrigger value="chefs">Chef Earnings</TabsTrigger>
+            <TabsTrigger value="rotihai">Rotihai Earnings</TabsTrigger>
           </TabsList>
 
           <TabsContent value="sales" className="space-y-4">
@@ -561,10 +591,10 @@ export default function AdminReports() {
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <Card>
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
+                  <CardTitle className="text-sm font-medium">Total Chef Earnings</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">₹{chefReport?.totalRevenue || 0}</div>
+                  <div className="text-2xl font-bold">₹{chefReport?.totalChefEarnings || 0}</div>
                 </CardContent>
               </Card>
 
@@ -588,10 +618,10 @@ export default function AdminReports() {
 
               <Card>
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium">Avg Revenue/Chef</CardTitle>
+                  <CardTitle className="text-sm font-medium">Avg Earnings/Chef</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">₹{chefReport?.averageRevenuePerChef || 0}</div>
+                  <div className="text-2xl font-bold">₹{chefReport?.averageEarningsPerChef || 0}</div>
                 </CardContent>
               </Card>
             </div>
@@ -638,23 +668,23 @@ export default function AdminReports() {
                           </div>
                         </div>
                         <div className="text-right">
-                          <p className="text-2xl font-bold text-green-600">₹{chef.totalRevenue}</p>
+                          <p className="text-2xl font-bold text-green-600">₹{chef.chefEarnings}</p>
                           <p className="text-sm text-muted-foreground">{chef.totalOrders} orders</p>
                         </div>
                       </div>
 
                       <div className="grid grid-cols-3 gap-3 mb-3 text-sm">
                         <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded">
-                          <p className="text-muted-foreground">Avg Order Value</p>
-                          <p className="font-semibold">₹{chef.averageOrderValue}</p>
+                          <p className="text-muted-foreground">Avg Earning</p>
+                          <p className="font-semibold">₹{chef.averageEarning}</p>
                         </div>
                         <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded">
                           <p className="text-muted-foreground">Total Orders</p>
                           <p className="font-semibold">{chef.totalOrders}</p>
                         </div>
                         <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded">
-                          <p className="text-muted-foreground">Total Revenue</p>
-                          <p className="font-semibold">₹{chef.totalRevenue}</p>
+                          <p className="text-muted-foreground">Total Earnings</p>
+                          <p className="font-semibold">₹{chef.chefEarnings}</p>
                         </div>
                       </div>
 

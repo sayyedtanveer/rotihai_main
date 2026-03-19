@@ -121,6 +121,7 @@ export interface IStorage {
   getInventoryReport(): Promise<any>;
   getSubscriptionReport(from: Date, to: Date): Promise<any>;
   getChefReport(from: Date, to: Date, chefId?: string): Promise<any>;
+  getRothiaiEarningsReport(from: Date, to: Date): Promise<any>;
 
   // Delivery Personnel methods
   getDeliveryPersonnelByPhone(phone: string): Promise<DeliveryPersonnel | undefined>;
@@ -1532,16 +1533,23 @@ export class MemStorage implements IStorage {
         targetChefs = allChefs.filter(c => c.id === chefId);
       }
 
+      // PLATFORM COMMISSION RATE (20%)
+      const PLATFORM_COMMISSION_RATE = 0.20;
+
       // Calculate stats per chef
       const chefStats = targetChefs.map(chef => {
         const orders = chefOrders.filter(o => o.chefId === chef.id);
-        const totalRevenue = orders.reduce((sum, o) => sum + o.total, 0);
-        const ordersCount = orders.length;
-        const avgOrderValue = ordersCount > 0 ? Math.round(totalRevenue / ordersCount) : 0;
-
-        // Top products for this chef
+        
+        // Calculate chef earnings: subtotal * (1 - commission) for each order
+        let chefEarnings = 0;
         const productSales = new Map<string, { name: string; quantity: number; revenue: number }>();
+        
         for (const order of orders) {
+          // Chef earnings = subtotal * (1 - platform commission)
+          const orderEarnings = Math.round(order.subtotal * (1 - PLATFORM_COMMISSION_RATE));
+          chefEarnings += orderEarnings;
+          
+          // Track top products
           for (const item of order.items as any[]) {
             const existing = productSales.get(item.id) || { name: item.name, quantity: 0, revenue: 0 };
             productSales.set(item.id, {
@@ -1552,6 +1560,9 @@ export class MemStorage implements IStorage {
           }
         }
 
+        const ordersCount = orders.length;
+        const avgEarning = ordersCount > 0 ? Math.round(chefEarnings / ordersCount) : 0;
+
         const topProducts = Array.from(productSales.entries())
           .map(([id, data]) => ({ id, ...data }))
           .sort((a, b) => b.revenue - a.revenue)
@@ -1560,31 +1571,91 @@ export class MemStorage implements IStorage {
         return {
           id: chef.id,
           name: chef.username || chef.name,
-          totalRevenue,
+          chefEarnings,  // Changed from totalRevenue
           totalOrders: ordersCount,
-          averageOrderValue: avgOrderValue,
+          averageEarning: avgEarning,  // Changed from averageOrderValue
           topProducts,
           rating: typeof chef.rating === 'number' ? chef.rating : (parseFloat(chef.rating) || 0),
           isVerified: chef.isVerified || false,
         };
       });
 
-      // Sort by revenue
-      const sortedChefs = chefStats.sort((a, b) => b.totalRevenue - a.totalRevenue);
+      // Sort by earnings
+      const sortedChefs = chefStats.sort((a, b) => b.chefEarnings - a.chefEarnings);
 
       // Overall stats
-      const totalRevenue = chefOrders.reduce((sum, o) => sum + o.total, 0);
+      const totalChefEarnings = chefOrders.reduce((sum, o) => sum + Math.round(o.subtotal * (1 - PLATFORM_COMMISSION_RATE)), 0);
       const totalOrdersCount = chefOrders.length;
 
       return {
-        totalRevenue,
+        totalChefEarnings,
         totalOrders: totalOrdersCount,
         chefCount: targetChefs.length,
-        averageRevenuePerChef: targetChefs.length > 0 ? Math.round(totalRevenue / targetChefs.length) : 0,
+        averageEarningsPerChef: targetChefs.length > 0 ? Math.round(totalChefEarnings / targetChefs.length) : 0,
         chefStats: sortedChefs,
       };
     } catch (error) {
       console.error("Error in getChefReport:", error);
+      throw error;
+    }
+  }
+
+  async getRothiaiEarningsReport(from: Date, to: Date) {
+    try {
+      const PLATFORM_COMMISSION_RATE = 0.20;
+
+      // Get all orders in date range
+      const allOrders = await db.query.orders.findMany();
+      const filteredOrders = allOrders.filter(o => {
+        const createdAt = new Date(o.createdAt);
+        return createdAt >= from && createdAt <= to;
+      });
+
+      // Calculate Rotihai earnings
+      let platformCommission = 0;  // 20% from subtotal
+      let deliveryFeeEarnings = 0;  // All delivery fees
+      let discountTaken = 0;  // Discounts applied
+      let walletUsed = 0;  // Wallet amount used by customers
+
+      for (const order of filteredOrders) {
+        platformCommission += Math.round(order.subtotal * PLATFORM_COMMISSION_RATE);
+        deliveryFeeEarnings += order.deliveryFee;
+        discountTaken += order.discount;
+        walletUsed += order.walletAmountUsed;
+      }
+
+      const totalRothiaiEarnings = platformCommission + deliveryFeeEarnings + discountTaken;
+
+      // Get category-wise breakdown
+      const categoryEarnings = new Map<string, { name: string; orders: number; earnings: number }>();
+      for (const order of filteredOrders) {
+        const catId = order.categoryId || 'unknown';
+        const catName = order.categoryName || 'Other';
+        const existing = categoryEarnings.get(catId) || { name: catName, orders: 0, earnings: 0 };
+        const orderEarnings = Math.round(order.subtotal * PLATFORM_COMMISSION_RATE) + order.deliveryFee + order.discount;
+        categoryEarnings.set(catId, {
+          name: catName,
+          orders: existing.orders + 1,
+          earnings: existing.earnings + orderEarnings,
+        });
+      }
+
+      const categoryBreakdown = Array.from(categoryEarnings.values())
+        .sort((a, b) => b.earnings - a.earnings);
+
+      return {
+        totalOrders: filteredOrders.length,
+        totalRothiaiEarnings,
+        breakdown: {
+          platformCommission,
+          deliveryFeeEarnings,
+          discountTaken,
+          walletUsed,
+        },
+        categoryBreakdown,
+      };
+    } catch (error) {
+      console.error("Error in getRothiaiEarningsReport:", error);
       throw error;
     }
   }
