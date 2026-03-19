@@ -47,5 +47,6 @@ export const {
   deliveryAreas,
   adminSettings,
   newsletterSubscribers,
-  pendingBroadcasts
+  pendingBroadcasts,
+  payoutTransactions
 } = schema;
