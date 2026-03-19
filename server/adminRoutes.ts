@@ -3265,6 +3265,45 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // Mark single payout as paid
+  app.post("/api/admin/payouts/mark-paid", requireAdmin(), async (req, res) => {
+    try {
+      const { payoutId, transactionId } = req.body;
+      const updated = await storage.markChefPayoutAsPaid(payoutId, transactionId);
+      res.json(updated);
+    } catch (error) {
+      console.error("Mark payout paid error:", error);
+      res.status(500).json({ message: "Failed to mark payout as paid" });
+    }
+  });
+
+  // Mark multiple payouts as paid (bulk)
+  app.post("/api/admin/payouts/mark-paid-bulk", requireAdmin(), async (req, res) => {
+    try {
+      const { payoutIds } = req.body;
+      if (!Array.isArray(payoutIds) || payoutIds.length === 0) {
+        return res.status(400).json({ message: "Invalid payout IDs" });
+      }
+      const updated = await storage.markMultiplePayoutsAsPaid(payoutIds);
+      res.json({ success: true, count: updated.length });
+    } catch (error) {
+      console.error("Mark multiple payouts paid error:", error);
+      res.status(500).json({ message: "Failed to mark payouts as paid" });
+    }
+  });
+
+  // Get payout status for an order
+  app.get("/api/admin/payouts/:orderId", requireAdmin(), async (req, res) => {
+    try {
+      const { orderId } = req.params;
+      const payout = await storage.getChefPayoutStatus(orderId);
+      res.json(payout || { status: "no_record" });
+    } catch (error) {
+      console.error("Get payout status error:", error);
+      res.status(500).json({ message: "Failed to fetch payout status" });
+    }
+  });
+
   // Visitor Analytics Reports
   app.get("/api/admin/reports/visitors", requireAdmin(), async (req, res) => {
     try {

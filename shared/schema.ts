@@ -280,6 +280,26 @@ export const walletSettings = pgTable("wallet_settings", {
 export type WalletSettings = typeof walletSettings.$inferSelect;
 export type InsertWalletSettings = typeof walletSettings.$inferInsert;
 
+export const payoutTransactions = pgTable("payout_transactions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  chefId: text("chef_id").notNull(),
+  orderId: varchar("order_id").notNull(),
+  amount: integer("amount").notNull(),  // Chef earning amount
+  status: varchar("status", { length: 20 }).notNull().default("pending"),  // pending, paid, failed
+  paymentMethod: varchar("payment_method", { length: 50 }),  // bank, upi, cash, etc
+  transactionId: varchar("transaction_id"),  // Reference to payment gateway
+  notes: text("notes"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  paidAt: timestamp("paid_at"),
+  failedAt: timestamp("failed_at"),
+  failureReason: text("failure_reason"),
+}, (table) => [
+  index("IDX_payout_chef").on(table.chefId),
+  index("IDX_payout_order").on(table.orderId),
+  index("IDX_payout_status").on(table.status),
+  index("IDX_payout_created").on(table.createdAt),
+]);
+
 export const referralRewards = pgTable("referral_rewards", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),

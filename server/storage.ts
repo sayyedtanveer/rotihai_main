@@ -1,10 +1,10 @@
 import { type Category, type InsertCategory, type Product, type InsertProduct, type Order, type InsertOrder, type User, type UpsertUser, type Chef, type AdminUser, type InsertAdminUser, type PartnerUser, type Subscription, type SubscriptionPlan, type DeliverySetting, type InsertDeliverySetting, type CartSetting, type InsertCartSetting, type DeliveryPersonnel, type InsertDeliveryPersonnel, type WalletTransaction, type ReferralReward, type PromotionalBanner, type InsertPromotionalBanner, type SubscriptionDeliveryLog, type InsertSubscriptionDeliveryLog, type DeliveryTimeSlot, type InsertDeliveryTimeSlot, type Coupon, type RotiSettings, type InsertRotiSettings, type Visitor, type DeliveryArea, type InsertDeliveryArea, type AdminSettings } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { nanoid } from "nanoid";
-import { eq, and, gte, lte, desc, asc, or, isNull, sql, count, lt } from "drizzle-orm";
+import { eq, and, gte, lte, desc, asc, or, isNull, sql, count, lt, inArray, update } from "drizzle-orm";
 import {
   db, users, categories, products, orders, chefs, adminUsers, partnerUsers, subscriptions,
-  subscriptionPlans, subscriptionDeliveryLogs, deliverySettings, cartSettings, deliveryPersonnel, coupons, couponUsages, referrals, walletTransactions, referralRewards, promotionalBanners, deliveryTimeSlots, rotiSettings, visitors, deliveryAreas, adminSettings
+  subscriptionPlans, subscriptionDeliveryLogs, deliverySettings, cartSettings, deliveryPersonnel, coupons, couponUsages, referrals, walletTransactions, referralRewards, promotionalBanners, deliveryTimeSlots, rotiSettings, visitors, deliveryAreas, adminSettings, payoutTransactions
 } from "@shared/db";
 
 export interface IStorage {
@@ -1705,7 +1705,7 @@ export class MemStorage implements IStorage {
       }
 
       // Build detailed order list with item-wise calculations
-      const detailedOrders = chefOrders.map(order => {
+      const detailedOrders = await Promise.all(chefOrders.map(async order => {
         let totalChefEarning = 0;
         
         const items = (order.items as any[]).map(item => {
@@ -1722,6 +1722,11 @@ export class MemStorage implements IStorage {
           };
         });
 
+        // Get payout status for this order
+        const payout = await db.query.payoutTransactions.findFirst({
+          where: (pt, { eq }) => eq(pt.orderId, order.id),
+        });
+
         return {
           id: order.id,
           createdAt: order.createdAt,
@@ -1734,10 +1739,10 @@ export class MemStorage implements IStorage {
           subtotal: order.subtotal,
           totalChefEarning,
           orderIncome: totalChefEarning,
-          paidToChef: false,  // Default: not paid
-          paidAt: undefined,
+          paidToChef: payout?.status === "paid",
+          paidAt: payout?.paidAt?.toISOString(),
         };
-      });
+      }));
 
       // Calculate totals
       const totalOrders = detailedOrders.length;
@@ -1751,6 +1756,67 @@ export class MemStorage implements IStorage {
     } catch (error) {
       console.error("Error in getChefPayoutDetails:", error);
       throw error;
+    }
+  }
+
+  async createChefPayout(chefId: string, orderId: string, amount: number, paymentMethod?: string) {
+    try {
+      const payout = await db.insert(payoutTransactions).values({
+        chefId,
+        orderId,
+        amount,
+        status: "pending",
+        paymentMethod,
+      }).returning();
+      return payout[0];
+    } catch (error) {
+      console.error("Error creating chef payout:", error);
+      throw error;
+    }
+  }
+
+  async markChefPayoutAsPaid(payoutId: string, transactionId?: string) {
+    try {
+      const updated = await db.update(payoutTransactions)
+        .set({
+          status: "paid",
+          paidAt: new Date(),
+          transactionId,
+        })
+        .where(eq(payoutTransactions.id, payoutId))
+        .returning();
+      return updated[0];
+    } catch (error) {
+      console.error("Error marking payout as paid:", error);
+      throw error;
+    }
+  }
+
+  async markMultiplePayoutsAsPaid(payoutIds: string[]) {
+    try {
+      const updated = await db.update(payoutTransactions)
+        .set({
+          status: "paid",
+          paidAt: new Date(),
+        })
+        .where(inArray(payoutTransactions.id, payoutIds))
+        .returning();
+      return updated;
+    } catch (error) {
+      console.error("Error marking multiple payouts as paid:", error);
+      throw error;
+    }
+  }
+
+  async getChefPayoutStatus(orderId: string) {
+    try {
+      const payout = await db.query.payoutTransactions.findFirst({
+        where: (pt, { eq }) => eq(pt.orderId, orderId),
+      });
+      return payout;
+    } catch (error) {
+      console.error("Error getting payout status:", error);
+      return null;
     }
   }
 
