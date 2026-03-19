@@ -22,7 +22,11 @@ import {
   BarChart3,
   ChefHat,
   Star,
-  Search
+  Search,
+  Check,
+  Clock,
+  Loader,
+  AlertCircle
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
@@ -136,6 +140,10 @@ export default function AdminReports() {
   });
   const [selectedChefId, setSelectedChefId] = useState<string>("all");
   const [searchChef, setSearchChef] = useState("");
+  const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
+  const [isMarkingPaid, setIsMarkingPaid] = useState(false);
+  const [payoutError, setPayoutError] = useState<string | null>(null);
+  const [payoutSuccess, setPayoutSuccess] = useState<string | null>(null);
 
 
   const { data: salesReport, isLoading: salesLoading } = useQuery<SalesReport>({
@@ -248,6 +256,52 @@ export default function AdminReports() {
       `/api/admin/reports/export/${reportType}?from=${dateRange.from.toISOString()}&to=${dateRange.to.toISOString()}&token=${token}`,
       '_blank'
     );
+  };
+
+  const handleMarkAsPaid = async (orderIds: string[]) => {
+    setPayoutError(null);
+    setPayoutSuccess(null);
+    setIsMarkingPaid(true);
+
+    try {
+      const token = localStorage.getItem("adminToken");
+      const response = await fetch("/api/admin/payouts/mark-paid-bulk", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ payoutIds: orderIds }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to mark payouts as paid");
+      }
+
+      setPayoutSuccess(`Successfully marked ${orderIds.length} order(s) as paid!`);
+      setSelectedOrders(new Set());
+      
+      // Refetch chef payout report
+      const refetchUrl = `/api/admin/reports/chef-payout?from=${dateRange.from.toISOString()}&to=${dateRange.to.toISOString()}${
+        selectedChefId && selectedChefId !== "all" ? `&chefId=${selectedChefId}` : ""
+      }`;
+      const refetchResponse = await fetch(refetchUrl, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (refetchResponse.ok) {
+        // Trigger query refresh (in a real app, use React Query's invalidateQueries)
+        window.location.reload();
+      }
+
+      // Auto-dismiss success message after 5 seconds
+      setTimeout(() => setPayoutSuccess(null), 5000);
+    } catch (error: any) {
+      setPayoutError(error.message || "Failed to mark payouts as paid");
+      console.error("Error marking payouts as paid:", error);
+    } finally {
+      setIsMarkingPaid(false);
+    }
   };
 
   return (
@@ -937,14 +991,70 @@ export default function AdminReports() {
             {/* Order Details Table */}
             <Card>
               <CardHeader>
-                <CardTitle>Order-wise Payout Details</CardTitle>
-                <CardDescription>Complete breakdown for payout processing</CardDescription>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle>Order-wise Payout Details</CardTitle>
+                    <CardDescription>Complete breakdown for payout processing</CardDescription>
+                  </div>
+                  {selectedOrders.size > 0 && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-slate-600">
+                        {selectedOrders.size} selected • ₹{Array.from(selectedOrders).reduce((sum, orderId) => {
+                          const order = chefPayoutReport?.orders?.find(o => o.id === orderId);
+                          return sum + (order?.totalChefEarning || 0);
+                        }, 0)} total
+                      </span>
+                      <Button 
+                        size="sm" 
+                        onClick={() => handleMarkAsPaid(Array.from(selectedOrders))}
+                        disabled={isMarkingPaid}
+                        className="gap-2"
+                      >
+                        {isMarkingPaid ? <Loader className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                        Mark as Paid
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        variant="outline"
+                        onClick={() => setSelectedOrders(new Set())}
+                      >
+                        Clear
+                      </Button>
+                    </div>
+                  )}
+                </div>
               </CardHeader>
               <CardContent className="space-y-4">
+                {payoutError && (
+                  <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded p-3 text-sm text-red-700 dark:text-red-400 flex gap-2">
+                    <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                    {payoutError}
+                  </div>
+                )}
+                {payoutSuccess && (
+                  <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded p-3 text-sm text-green-700 dark:text-green-400 flex gap-2">
+                    <Check className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                    {payoutSuccess}
+                  </div>
+                )}
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b">
+                        <th className="text-left py-3 px-4 w-10">
+                          <input 
+                            type="checkbox"
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedOrders(new Set(chefPayoutReport?.orders?.map(o => o.id) || []));
+                              } else {
+                                setSelectedOrders(new Set());
+                              }
+                            }}
+                            checked={selectedOrders.size === (chefPayoutReport?.orders?.length || 0) && (chefPayoutReport?.orders?.length || 0) > 0}
+                            className="rounded"
+                          />
+                        </th>
                         <th className="text-left py-3 px-4">Order ID</th>
                         <th className="text-left py-3 px-4">Date & Time</th>
                         <th className="text-left py-3 px-4">Customer</th>
@@ -953,14 +1063,32 @@ export default function AdminReports() {
                         <th className="text-right py-3 px-4">Hotel Cost</th>
                         <th className="text-right py-3 px-4">Qty</th>
                         <th className="text-right py-3 px-4">Chef Earning</th>
-                        <th className="text-left py-3 px-4">Status</th>
+                        <th className="text-left py-3 px-4">Payment Status</th>
+                        <th className="text-left py-3 px-4">Action</th>
                       </tr>
                     </thead>
                     <tbody>
                       {chefPayoutReport?.orders?.map((order) => (
                         <React.Fragment key={order.id}>
                           {/* Order Header Row */}
-                          <tr className="bg-slate-50 dark:bg-slate-900 border-b">
+                          <tr className={`bg-slate-50 dark:bg-slate-900 border-b ${selectedOrders.has(order.id) ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}>
+                            <td className="py-2 px-4">
+                              <input 
+                                type="checkbox"
+                                checked={selectedOrders.has(order.id)}
+                                onChange={(e) => {
+                                  const newSelected = new Set(selectedOrders);
+                                  if (e.target.checked) {
+                                    newSelected.add(order.id);
+                                  } else {
+                                    newSelected.delete(order.id);
+                                  }
+                                  setSelectedOrders(newSelected);
+                                }}
+                                disabled={order.paidToChef}
+                                className="rounded"
+                              />
+                            </td>
                             <td className="py-2 px-4 font-semibold text-blue-600">{order.id.slice(0, 8)}</td>
                             <td className="py-2 px-4">{new Date(order.createdAt).toLocaleString()}</td>
                             <td className="py-2 px-4">
@@ -975,15 +1103,37 @@ export default function AdminReports() {
                             <td className="text-right py-2 px-4"></td>
                             <td className="text-right py-2 px-4 font-bold text-green-600">₹{order.totalChefEarning}</td>
                             <td className="py-2 px-4">
-                              <Badge variant={order.status === "delivered" ? "default" : "secondary"}>
-                                {order.status}
-                              </Badge>
+                              {order.paidToChef ? (
+                                <Badge className="bg-green-600 text-white gap-1">
+                                  <Check className="h-3 w-3" />
+                                  Paid {order.paidAt && `on ${new Date(order.paidAt).toLocaleDateString()}`}
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="gap-1 border-yellow-300 text-yellow-700 dark:text-yellow-400">
+                                  <Clock className="h-3 w-3" />
+                                  Pending
+                                </Badge>
+                              )}
+                            </td>
+                            <td className="py-2 px-4">
+                              {!order.paidToChef && (
+                                <Button 
+                                  size="sm" 
+                                  variant="outline"
+                                  onClick={() => handleMarkAsPaid([order.id])}
+                                  disabled={isMarkingPaid}
+                                  className="h-8 text-xs"
+                                >
+                                  {isMarkingPaid ? <Loader className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                                </Button>
+                              )}
                             </td>
                           </tr>
                           
                           {/* Item Rows */}
                           {order.items.map((item, idx) => (
-                            <tr key={`${order.id}-${idx}`} className="border-b hover:bg-slate-50 dark:hover:bg-slate-900/50">
+                            <tr key={`${order.id}-${idx}`} className={`border-b hover:bg-slate-50 dark:hover:bg-slate-900/50 ${selectedOrders.has(order.id) ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''}`}>
+                              <td className="py-2 px-4"></td>
                               <td className="py-2 px-4"></td>
                               <td className="py-2 px-4"></td>
                               <td className="py-2 px-4"></td>
@@ -997,6 +1147,7 @@ export default function AdminReports() {
                                   Markup: ₹{item.price - item.hotelPrice}
                                 </Badge>
                               </td>
+                              <td></td>
                             </tr>
                           ))}
                         </React.Fragment>
