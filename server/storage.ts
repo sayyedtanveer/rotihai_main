@@ -1628,7 +1628,23 @@ export class MemStorage implements IStorage {
         walletUsed += order.walletAmountUsed;
       }
 
-      const totalRothiaiEarnings = platformCommission + deliveryFeeEarnings + discountTaken;
+      const grossRothiaiEarnings = platformCommission + deliveryFeeEarnings + discountTaken;
+
+      // Calculate referral bonuses paid out in this period
+      const allReferrals = await db.query.referrals.findMany();
+      let referralBonusesSpent = 0;
+      for (const referral of allReferrals) {
+        // Only count completed or approved referrals within the date range
+        if ((referral.status === 'completed' || referral.status === 'approved') && referral.createdAt) {
+          const createdAt = new Date(referral.createdAt);
+          if (createdAt >= from && createdAt <= to) {
+            referralBonusesSpent += (referral.referrerBonus || 0) + (referral.referredBonus || 0);
+          }
+        }
+      }
+
+      // Net earnings = Gross earnings - Referral bonuses paid
+      const totalRothiaiEarnings = grossRothiaiEarnings - referralBonusesSpent;
 
       // Get category-wise breakdown
       const categoryEarnings = new Map<string, { name: string; orders: number; earnings: number }>();
@@ -1656,12 +1672,14 @@ export class MemStorage implements IStorage {
 
       return {
         totalOrders: filteredOrders.length,
-        totalRothiaiEarnings,
+        grossRothiaiEarnings,
+        totalRothiaiEarnings,  // NET after referral bonuses
         breakdown: {
           platformCommission,
           deliveryFeeEarnings,
           discountTaken,
           walletUsed,
+          referralBonusesSpent,  // NEW: What platform paid out for referrals
         },
         categoryBreakdown,
       };

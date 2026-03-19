@@ -86,12 +86,14 @@ interface ChefReport {
 
 interface RothiaiEarningsReport {
   totalOrders: number;
-  totalRothiaiEarnings: number;
+  grossRothiaiEarnings: number;
+  totalRothiaiEarnings: number;  // NET earnings after referral bonuses
   breakdown: {
     platformCommission: number;
     deliveryFeeEarnings: number;
     discountTaken: number;
     walletUsed: number;
+    referralBonusesSpent: number;  // Referral bonuses paid out
   };
   categoryBreakdown: Array<{
     name: string;
@@ -710,31 +712,42 @@ export default function AdminReports() {
           <TabsContent value="rotihai" className="space-y-4">
             {/* Rotihai Earnings Overview */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <Card>
+              <Card className="border-l-4 border-l-green-500">
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium">Total Rotihai Earnings</CardTitle>
+                  <CardTitle className="text-sm font-medium">NET Earnings (After Expenses)</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold text-green-600">₹{rothiaiReport?.totalRothiaiEarnings || 0}</div>
+                  <p className="text-xs text-muted-foreground mt-1">Gross - Referral Spent</p>
                 </CardContent>
               </Card>
 
               <Card>
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium">Platform Commission</CardTitle>
+                  <CardTitle className="text-sm font-medium">Gross Earnings</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-blue-600">₹{rothiaiReport?.breakdown?.platformCommission || 0}</div>
-                  <p className="text-xs text-muted-foreground mt-1">(20% from orders)</p>
+                  <div className="text-2xl font-bold text-blue-600">₹{rothiaiReport?.grossRothiaiEarnings || 0}</div>
+                  <p className="text-xs text-muted-foreground mt-1">Before expenses</p>
                 </CardContent>
               </Card>
 
               <Card>
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium">Delivery Fees</CardTitle>
+                  <CardTitle className="text-sm font-medium">Referral Expenses</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-purple-600">₹{rothiaiReport?.breakdown?.deliveryFeeEarnings || 0}</div>
+                  <div className="text-2xl font-bold text-red-600">₹{rothiaiReport?.breakdown?.referralBonusesSpent || 0}</div>
+                  <p className="text-xs text-muted-foreground mt-1">Bonuses paid out</p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">Total Orders</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{rothiaiReport?.totalOrders || 0}</div>
                 </CardContent>
               </Card>
 
@@ -755,21 +768,38 @@ export default function AdminReports() {
                   <CardTitle>Earnings Breakdown</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between border-b pb-3">
-                    <span className="text-slate-600 dark:text-slate-400">Platform Commission (20%)</span>
-                    <span className="font-semibold text-lg">₹{rothiaiReport?.breakdown?.platformCommission || 0}</span>
+                  <div className="bg-green-50 dark:bg-green-900/20 rounded p-3 mb-4">
+                    <p className="text-xs font-semibold text-slate-600 dark:text-slate-400 mb-3">INCOME</p>
+                    <div className="flex items-center justify-between border-b pb-2 mb-2">
+                      <span className="text-slate-600 dark:text-slate-400">Platform Commission (Markup)</span>
+                      <span className="font-semibold text-green-700 dark:text-green-400">₹{rothiaiReport?.breakdown?.platformCommission || 0}</span>
+                    </div>
+                    <div className="flex items-center justify-between border-b pb-2 mb-2">
+                      <span className="text-slate-600 dark:text-slate-400">Delivery Fee Earnings</span>
+                      <span className="font-semibold text-green-700 dark:text-green-400">₹{rothiaiReport?.breakdown?.deliveryFeeEarnings || 0}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-600 dark:text-slate-400">Discount Handling</span>
+                      <span className="font-semibold text-green-700 dark:text-green-400">₹{rothiaiReport?.breakdown?.discountTaken || 0}</span>
+                    </div>
                   </div>
-                  <div className="flex items-center justify-between border-b pb-3">
-                    <span className="text-slate-600 dark:text-slate-400">Delivery Fee Earnings</span>
-                    <span className="font-semibold text-lg">₹{rothiaiReport?.breakdown?.deliveryFeeEarnings || 0}</span>
+
+                  <div className="flex items-center justify-between bg-blue-50 dark:bg-blue-900/20 p-3 rounded font-semibold">
+                    <span className="text-slate-900 dark:text-slate-100">Gross Earnings</span>
+                    <span className="text-lg text-blue-600 dark:text-blue-400">₹{rothiaiReport?.grossRothiaiEarnings || 0}</span>
                   </div>
-                  <div className="flex items-center justify-between border-b pb-3">
-                    <span className="text-slate-600 dark:text-slate-400">Discount Handling</span>
-                    <span className="font-semibold text-lg">₹{rothiaiReport?.breakdown?.discountTaken || 0}</span>
+
+                  <div className="bg-red-50 dark:bg-red-900/20 rounded p-3 my-4">
+                    <p className="text-xs font-semibold text-slate-600 dark:text-slate-400 mb-3">EXPENSES</p>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-600 dark:text-slate-400">Referral Bonuses Paid</span>
+                      <span className="font-semibold text-red-700 dark:text-red-400">-₹{rothiaiReport?.breakdown?.referralBonusesSpent || 0}</span>
+                    </div>
                   </div>
-                  <div className="flex items-center justify-between pt-3 border-t-2">
-                    <span className="font-bold text-slate-900 dark:text-slate-100">Total Earnings</span>
-                    <span className="font-bold text-xl text-green-600">₹{rothiaiReport?.totalRothiaiEarnings || 0}</span>
+
+                  <div className="flex items-center justify-between bg-slate-100 dark:bg-slate-800 p-3 rounded border-t-2 border-b-2 border-slate-300 dark:border-slate-700">
+                    <span className="font-bold text-slate-900 dark:text-slate-100">NET Earnings (After Expenses)</span>
+                    <span className="font-bold text-xl text-green-600 dark:text-green-400">₹{rothiaiReport?.totalRothiaiEarnings || 0}</span>
                   </div>
                 </CardContent>
               </Card>
