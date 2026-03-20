@@ -475,10 +475,7 @@ export class MemStorage implements IStorage {
   async createCategory(insertCategory: InsertCategory): Promise<Category> {
     const id = randomUUID();
     const category: Category = { 
-      requiresDeliverySlot: false, 
-      displayOrder: 999, 
-      isAutoAssign: false,  // ← Explicitly set default for new categories
-      ...insertCategory, 
+      ...insertCategory,
       id 
     };
     await db.insert(categories).values(category);

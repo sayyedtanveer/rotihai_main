@@ -386,7 +386,9 @@ export const subscriptionDeliveryLogs = pgTable("subscription_delivery_logs", {
 export const insertCategorySchema = createInsertSchema(categories).omit({
   id: true,
 }).extend({
-  isAutoAssign: z.boolean().default(false),  // ← Ensure isAutoAssign defaults to false
+  requiresDeliverySlot: z.boolean().default(false),
+  displayOrder: z.number().default(999),
+  isAutoAssign: z.boolean().default(false),  // Hybrid chef model: auto-assign instead of user selection
 });
 
 export const insertProductSchema = createInsertSchema(products).omit({
