@@ -2433,7 +2433,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
 
       const nearbyChefs = chefsWithDistance
-        .filter(chef => (chef as any).isActive !== false && maxDeliveryDistance(chef))
+        .filter(chef => maxDeliveryDistance(chef))
         .sort((a, b) => (a.distanceFromUser || 0) - (b.distanceFromUser || 0));
 
       console.log(`   Found ${nearbyChefs.length} nearby chef(s):`);
@@ -2467,8 +2467,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Filter chefs that serve this pincode
       const chefsServingPincode = allChefs.filter(chef => {
-        if (!chef.isActive) return false;
-
         // Check if chef's servicePincodes includes this pincode
         const servicePincodes = (chef.servicePincodes || []) as string[];
         const servesThisPincode = servicePincodes.includes(pincode);
