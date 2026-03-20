@@ -264,6 +264,12 @@ export interface IStorage {
   setAdminSetting(key: string, value: string, description?: string): Promise<void>;
   getDefaultCoordinates(): Promise<{ latitude: number; longitude: number }>;
   setDefaultCoordinates(latitude: number, longitude: number): Promise<void>;
+
+  // Auto-assign chef methods (for Ghar Ka Khana category)
+  shouldUseAutoAssignMode(categoryId: string): Promise<boolean>;
+  getEligibleChefsForAutoAssign(categoryId: string, pincode: string): Promise<Chef[]>;
+  countActiveOrdersForChef(chefId: string): Promise<number>;
+  autoAssignChef(categoryId: string, pincode: string): Promise<{ chefId: string; reason: string }>;
 }
 
 /**
@@ -468,7 +474,13 @@ export class MemStorage implements IStorage {
 
   async createCategory(insertCategory: InsertCategory): Promise<Category> {
     const id = randomUUID();
-    const category: Category = { requiresDeliverySlot: false, displayOrder: 999, ...insertCategory, id };
+    const category: Category = { 
+      requiresDeliverySlot: false, 
+      displayOrder: 999, 
+      isAutoAssign: false,  // ← Explicitly set default for new categories
+      ...insertCategory, 
+      id 
+    };
     await db.insert(categories).values(category);
     return category;
   }
@@ -3478,6 +3490,142 @@ export class MemStorage implements IStorage {
       console.log("[STORAGE] Default coordinates updated:", { latitude, longitude });
     } catch (error) {
       console.error("[STORAGE] Error setting default coordinates:", error);
+    }
+  }
+
+  // ============================================
+  // AUTO-ASSIGN CHEF METHODS (Ghar Ka Khana)
+  // ============================================
+
+  async shouldUseAutoAssignMode(categoryId: string): Promise<boolean> {
+    try {
+      // ✅ FIX #7: Check explicit feature flag first
+      const featureFlagValue = await this.getAdminSetting('ENABLE_AUTO_ASSIGN_HYBRID_MODEL') || 'true';
+      const isFeatureFlagEnabled = featureFlagValue !== 'false';
+      
+      if (!isFeatureFlagEnabled) {
+        console.log(`[AUTO-ASSIGN] Feature flag ENABLE_AUTO_ASSIGN_HYBRID_MODEL is disabled`);
+        return false;
+      }
+
+      const category = await this.getCategoryById(categoryId) as any;
+      if (!category) return false;
+
+      // ✅ FIX #1: Use isAutoAssign DB flag instead of string matching (production-safe)
+      const shouldAutoAssign = category.isAutoAssign === true;
+      
+      console.log(`[AUTO-ASSIGN] shouldUseAutoAssignMode for "${category.name}" (categoryId: ${categoryId}): ${shouldAutoAssign}`);
+      return shouldAutoAssign;
+    } catch (error) {
+      console.error("[AUTO-ASSIGN] Error in shouldUseAutoAssignMode:", error);
+      return false;
+    }
+  }
+
+  async getEligibleChefsForAutoAssign(categoryId: string, pincode: string): Promise<Chef[]> {
+    try {
+      // Get all chefs in this category
+      const chefs = await this.getChefsByCategory(categoryId);
+      
+      // Filter: active chefs that serve this pincode
+      const eligible = chefs.filter(chef => {
+        const isActive = chef.isActive !== false;
+        const servicesPincode = !chef.servicePincodes || chef.servicePincodes.length === 0
+          ? true  // No pincode restrictions = serves all pincodes
+          : chef.servicePincodes.some(p => String(p).trim() === String(pincode).trim());
+        
+        return isActive && servicesPincode;
+      });
+
+      console.log(`[AUTO-ASSIGN] Eligible chefs for category ${categoryId}, pincode ${pincode}: ${eligible.length}`);
+      return eligible;
+    } catch (error) {
+      console.error("[AUTO-ASSIGN] Error in getEligibleChefsForAutoAssign:", error);
+      return [];
+    }
+  }
+
+  async countActiveOrdersForChef(chefId: string): Promise<number> {
+    try {
+      // ✅ FIX #5: Count only truly ACTIVE orders that block chef capacity
+      // INCLUDE: pending, approved, preparing (chef is working on these)
+      // EXCLUDE: cancelled, rejected, delivered, completed (no longer blocking capacity)
+      const count = await db
+        .select({ count: sql`COUNT(*)` })
+        .from(orders)
+        .where(
+          and(
+            eq(orders.chefId, chefId),
+            or(
+              eq(orders.status, "pending"),
+              eq(orders.status, "preparing"),
+              eq(orders.status, "approved")
+            )
+          )
+        );
+      
+      const result = count[0]?.count as number || 0;
+      console.log(`[LOAD-BALANCE] Chef ${chefId}: ${result} active orders (pending/approved/preparing)`);
+      return result;
+    } catch (error) {
+      console.error("[LOAD-BALANCE] Error counting orders for chef:", error);
+      return 0;
+    }
+  }
+
+  async autoAssignChef(categoryId: string, pincode: string): Promise<{ chefId: string; reason: string }> {
+    try {
+      console.log(`[AUTO-ASSIGN] Starting auto-assign for category ${categoryId}, pincode ${pincode}`);
+
+      // Get eligible chefs
+      const eligible = await this.getEligibleChefsForAutoAssign(categoryId, pincode);
+      
+      if (eligible.length === 0) {
+        throw new Error("No chefs available in your area. Please try again later or contact support.");
+      }
+
+      // If only one eligible chef, auto-assign
+      if (eligible.length === 1) {
+        const selected = eligible[0];
+        console.log(`[AUTO-ASSIGN] Only one eligible chef: ${selected.id} (${selected.name})`);
+        return {
+          chefId: selected.id,
+          reason: "only-available-chef"
+        };
+      }
+
+      // Multiple chefs: use load balancing with tiebreaker
+      console.log(`[AUTO-ASSIGN] Multiple chefs available (${eligible.length}), using load balancing...`);
+      
+      const loads = await Promise.all(
+        eligible.map(async (chef) => {
+          const load = await this.countActiveOrdersForChef(chef.id);
+          return { chef, load };
+        })
+      );
+
+      // ✅ FIX #3: Sort by (load ASC) then by (random tiebreaker)
+      // This prevents race condition: if two chefs have same load,
+      // randomize to avoid both being selected simultaneously
+      loads.sort((a, b) => {
+        const loadDiff = a.load - b.load;
+        // If loads are different, use load (ascending - fewer orders = higher priority)
+        if (loadDiff !== 0) return loadDiff;
+        // If loads are equal, use random tiebreaker to break ties
+        return Math.random() > 0.5 ? 1 : -1;
+      });
+      
+      const selected = loads[0];
+      console.log(`[AUTO-ASSIGN] Load distribution:`, loads.map(l => `${l.chef.name}=${l.load}`).join(", "));
+      console.log(`[AUTO-ASSIGN] Selected chef ${selected.chef.id} (${selected.chef.name}) with load ${selected.load}`);
+      
+      return {
+        chefId: selected.chef.id,
+        reason: "load-balancing"
+      };
+    } catch (error) {
+      console.error("[AUTO-ASSIGN] Error in autoAssignChef:", error);
+      throw error;
     }
   }
 

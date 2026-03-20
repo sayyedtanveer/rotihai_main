@@ -215,7 +215,14 @@ export default function CheckoutDialog({
   // This syncs the validated pincode from Hero to Checkout seamlessly
   // ============================================
   useEffect(() => {
-    if (!isOpen || !cart?.chefId) {
+    // For auto-assign mode (Ghar Ka Khana), allow checkout even without chefId
+    // For other categories, require chefId
+    const hasChef = cart?.chefId !== undefined && cart.chefId !== null;
+    const isAutoAssignCategory = cart?.categoryName?.toLowerCase().includes('ghar') || 
+                                 cart?.categoryName?.toLowerCase().includes('roti');
+    const canProceed = hasChef || isAutoAssignCategory;
+
+    if (!isOpen || !canProceed) {
       return;
     }
 
@@ -239,7 +246,7 @@ export default function CheckoutDialog({
 
       console.log("[AUTO-SYNC-PINCODE] ✅ Pre-filled checkout form with stored pincode");
     }
-  }, [isOpen, cart?.chefId, addressPincode]);
+  }, [isOpen, cart?.chefId, cart?.categoryName, addressPincode]);
 
   // ============================================
   // RESTORE ADDRESS CONFIRMATION ON DIALOG REOPEN

@@ -1553,24 +1553,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Calculate distance from CHEF'S LOCATION to DELIVERY ADDRESS
       const { calculateDistance } = await import("@shared/deliveryUtils");
 
-      // Get chef's location from database (if no chefId, use Kurla West default)
+      // ============================================
+      // AUTO-ASSIGN CHEF (Hybrid Chef Model)
+      // ============================================
+      // ✅ FIX #6: Improve error messages for user friendliness
+      // ✅ FIX #7: Check feature flag and category flag
+      if (!sanitized.chefId && sanitized.categoryId) {
+        const shouldAutoAssign = await storage.shouldUseAutoAssignMode(sanitized.categoryId);
+        
+        if (shouldAutoAssign) {
+          console.log(`[AUTO-ASSIGN] Attempting auto-assignment for category ${sanitized.categoryId}, pincode ${sanitized.addressPincode}`);
+          try {
+            const assignment = await storage.autoAssignChef(sanitized.categoryId, sanitized.addressPincode);
+            sanitized.chefId = assignment.chefId;
+            console.log(`[AUTO-ASSIGN] Chef auto-assigned: ${assignment.chefId} (reason: ${assignment.reason})`);
+          } catch (error) {
+            console.error("[AUTO-ASSIGN] Auto-assignment failed:", error);
+            // ✅ FIX #6: User-friendly error messages
+            return res.status(400).json({
+              message: (error as any).message || "No chefs available in your area. Please try again later or contact support.",
+              requiresChefSelection: false,
+              error: (error as any).message,
+              code: "NO_CHEF_AVAILABLE_AUTO_ASSIGN"
+            });
+          }
+        }
+      }
+
+      // If still no chefId, it's required for other categories
+      if (!sanitized.chefId) {
+        return res.status(400).json({ message: "chefId is required" });
+      }
+
+      // Get chef's location from database
       let chefLat = 19.0728;
       let chefLon = 72.8826;
       let chefName = "Kurla West Kitchen";
       let maxDeliveryDistance = 5; // Default fallback
       let chef: any = null;
 
-      if (sanitized.chefId) {
-        chef = await db.query.chefs.findFirst({
-          where: (c: any, { eq }: any) => eq(c.id, sanitized.chefId)
-        });
-        if (chef) {
-          chefLat = chef.latitude ?? 19.0728;
-          chefLon = chef.longitude ?? 72.8826;
-          chefName = chef.name;
-          // Use chef's specific delivery distance limit, not hardcoded 2.5km!
-          maxDeliveryDistance = chef.maxDeliveryDistanceKm ?? 5;
-        }
+      chef = await db.query.chefs.findFirst({
+        where: (c: any, { eq }: any) => eq(c.id, sanitized.chefId)
+      });
+      if (chef) {
+        chefLat = chef.latitude ?? 19.0728;
+        chefLon = chef.longitude ?? 72.8826;
+        chefName = chef.name;
+        // Use chef's specific delivery distance limit, not hardcoded 2.5km!
+        maxDeliveryDistance = chef.maxDeliveryDistanceKm ?? 5;
       }
 
       const addressDistance = calculateDistance(chefLat, chefLon, customerLatitude, customerLongitude);

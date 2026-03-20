@@ -34,15 +34,20 @@ export default function CategoryMenuDrawer({
   const { productAvailability, chefStatuses } = useCustomerNotifications();
   // Removed instructionProduct and specialInstruction state
 
-  if (!isOpen || !category || !chef) return null;
+  if (!isOpen || !category) return null;
 
-  // Use realtime chef status from WebSocket, fallback to chef prop
-  const realtimeChefStatus = chefStatuses[chef.id];
-  const isChefClosed = realtimeChefStatus !== undefined ? !realtimeChefStatus : (chef.isActive === false);
+  // Handle Ghar Ka Khana auto-assign mode (chef === null)
+  const isAutoAssignMode = chef === null;
+  const chefId = chef?.id;
+  
+  // USE realtime chef status from WebSocket, fallback to chef prop
+  const realtimeChefStatus = chefId ? chefStatuses[chefId] : undefined;
+  const isChefClosed = chefId && (realtimeChefStatus !== undefined ? !realtimeChefStatus : (chef?.isActive === false));
 
-  const categoryProducts = products.filter(
-    (p) => p.categoryId === category.id && p.chefId === chef.id
-  );
+  // In auto-assign mode, show all category products; otherwise show chef-specific products
+  const categoryProducts = isAutoAssignMode
+    ? products.filter((p) => p.categoryId === category.id)
+    : products.filter((p) => p.categoryId === category.id && p.chefId === chefId);
 
   const avgRating = categoryProducts.length > 0
     ? (categoryProducts.reduce((sum, p) => sum + parseFloat(p.rating), 0) / categoryProducts.length).toFixed(1)
@@ -86,12 +91,23 @@ export default function CategoryMenuDrawer({
           <div className="p-4 border-b">
             <div className="flex items-center justify-between gap-2 mb-2">
               <div className="flex items-center gap-2 flex-wrap min-w-0">
-                <h3 className="font-semibold text-lg">{chef.name}</h3>
-                {(chef as any).isVerified && (
-                  <Badge variant="secondary" className="gap-1 text-xs bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 border-0 shrink-0">
-                    <BadgeCheck className="h-3.5 w-3.5" />
-                    Verified by Roti Hai
-                  </Badge>
+                {isAutoAssignMode ? (
+                  <>
+                    <h3 className="font-semibold text-lg">{category.name}</h3>
+                    <Badge className="gap-1 text-xs bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border-0 shrink-0">
+                      🔄 Auto-assigned
+                    </Badge>
+                  </>
+                ) : (
+                  <>
+                    <h3 className="font-semibold text-lg">{chef?.name}</h3>
+                    {(chef as any)?.isVerified && (
+                      <Badge variant="secondary" className="gap-1 text-xs bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 border-0 shrink-0">
+                        <BadgeCheck className="h-3.5 w-3.5" />
+                        Verified by Roti Hai
+                      </Badge>
+                    )}
+                  </>
                 )}
               </div>
               <Button
@@ -103,10 +119,12 @@ export default function CategoryMenuDrawer({
                 <X className="h-5 w-5" />
               </Button>
             </div>
-            <p className="text-sm text-muted-foreground">{category.name}</p>
+            <p className="text-sm text-muted-foreground">
+              {isAutoAssignMode ? "Chef will be auto-assigned based on availability" : category.name}
+            </p>
           </div>
 
-          {isChefClosed && (
+          {!isAutoAssignMode && chef && isChefClosed && (
             <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-md p-3 mx-4">
               <p className="text-sm font-semibold text-red-700 dark:text-red-400">
                 ⚠️ Currently Closed

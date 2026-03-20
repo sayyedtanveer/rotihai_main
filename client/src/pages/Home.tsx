@@ -557,12 +557,31 @@ export default function Home() {
     setIsCategoryMenuOpen(true);
   };
 
+  // ✅ FIX #1: Use category flag instead of string matching (production-safe)
+  const isAutoAssignCategory = (category: Category | null): boolean => {
+    if (!category) return false;
+    // Check isAutoAssign flag from database (production-safe approach)
+    // Falls back to empty check if flag doesn't exist yet (backward compatibility)
+    return (category as any).isAutoAssign === true;
+  };
+
   const handleBrowseCategory = (categoryId: string) => {
     const category = categories.find(c => c.id === categoryId);
     if (category) {
-      setSelectedCategoryForChefList(category);
       setSelectedCategoryTab(categoryId);
-      setIsChefListOpen(true);
+      
+      // For auto-assign categories: skip chef selection, go directly to menu
+      if (isAutoAssignCategory(category)) {
+        console.log(`[HYBRID-MODEL] "${category.name}" has auto-assign enabled - skipping chef selection`);
+        setSelectedCategoryForMenu(category);
+        setSelectedChefForMenu(null);  // ← No specific chef selected
+        setIsCategoryMenuOpen(true);
+      } else {
+        // For normal categories: show chef selection drawer (existing behavior)
+        console.log(`[HYBRID-MODEL] "${category.name}" requires manual chef selection`);
+        setSelectedCategoryForChefList(category);
+        setIsChefListOpen(true);
+      }
     }
   };
 

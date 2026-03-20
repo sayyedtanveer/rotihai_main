@@ -64,6 +64,7 @@ export const categories = pgTable("categories", {
   itemCount: text("item_count").notNull(),
   requiresDeliverySlot: boolean("requires_delivery_slot").notNull().default(false),
   displayOrder: integer("display_order").notNull().default(999),
+  isAutoAssign: boolean("is_auto_assign").notNull().default(false), // Hybrid chef model: auto-assign instead of user selection
 });
 
 export const chefs = pgTable("chefs", {
@@ -384,6 +385,8 @@ export const subscriptionDeliveryLogs = pgTable("subscription_delivery_logs", {
 
 export const insertCategorySchema = createInsertSchema(categories).omit({
   id: true,
+}).extend({
+  isAutoAssign: z.boolean().default(false),  // ← Ensure isAutoAssign defaults to false
 });
 
 export const insertProductSchema = createInsertSchema(products).omit({
