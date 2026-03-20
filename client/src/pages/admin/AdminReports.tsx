@@ -114,6 +114,8 @@ interface ChefPayoutReport {
     createdAt: string;
     customerName: string;
     phone: string;
+    chefId: string;
+    chefName: string;
     status: string;
     paymentStatus: string;
     deliveredAt?: string;
@@ -225,7 +227,7 @@ export default function AdminReports() {
     },
   });
 
-  const { data: chefPayoutReport } = useQuery<ChefPayoutReport>({
+  const { data: chefPayoutReport, refetch: refetchPayoutReport, isLoading: isLoadingPayout } = useQuery<ChefPayoutReport>({
     queryKey: ["/api/admin/reports/chef-payout", dateRange, selectedChefId],
     queryFn: async () => {
       const token = localStorage.getItem("adminToken");
@@ -233,9 +235,12 @@ export default function AdminReports() {
       if (selectedChefId && selectedChefId !== "all") {
         url += `&chefId=${selectedChefId}`;
       }
+      console.log("[Payout Report] Fetching:", url);
       const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
       if (!response.ok) throw new Error("Failed to fetch chef payout details");
-      return response.json();
+      const data = await response.json();
+      console.log("[Payout Report] Data received:", data);
+      return data;
     },
   });
 
@@ -265,6 +270,7 @@ export default function AdminReports() {
     setIsMarkingPaid(true);
 
     try {
+      console.log("[Mark as Paid] Starting with payoutIds:", orderIds);
       const token = localStorage.getItem("adminToken");
       const response = await fetch("/api/admin/payouts/mark-paid-bulk", {
         method: "POST",
@@ -277,29 +283,26 @@ export default function AdminReports() {
 
       if (!response.ok) {
         const error = await response.json();
+        console.error("[Mark as Paid] Error response:", error);
         throw new Error(error.message || "Failed to mark payouts as paid");
       }
 
+      const result = await response.json();
+      console.log("[Mark as Paid] Success:", result);
+      
       setPayoutSuccess(`Successfully marked ${orderIds.length} order(s) as paid!`);
       setSelectedOrders(new Set());
       
-      // Refetch chef payout report
-      const refetchUrl = `/api/admin/reports/chef-payout?from=${dateRange.from.toISOString()}&to=${dateRange.to.toISOString()}${
-        selectedChefId && selectedChefId !== "all" ? `&chefId=${selectedChefId}` : ""
-      }`;
-      const refetchResponse = await fetch(refetchUrl, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (refetchResponse.ok) {
-        // Trigger query refresh (in a real app, use React Query's invalidateQueries)
-        window.location.reload();
-      }
+      // Refetch chef payout report using React Query
+      console.log("[Mark as Paid] Refetching payout report...");
+      await refetchPayoutReport();
 
       // Auto-dismiss success message after 5 seconds
       setTimeout(() => setPayoutSuccess(null), 5000);
     } catch (error: any) {
-      setPayoutError(error.message || "Failed to mark payouts as paid");
-      console.error("Error marking payouts as paid:", error);
+      const errorMessage = error.message || "Failed to mark payouts as paid";
+      setPayoutError(errorMessage);
+      console.error("[Mark as Paid] Error:", errorMessage, error);
     } finally {
       setIsMarkingPaid(false);
     }
@@ -959,6 +962,37 @@ export default function AdminReports() {
           </TabsContent>
 
           <TabsContent value="chef-payout" className="space-y-4">
+            {/* Chef Selection Filter */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 block">
+                  Filter by Chef
+                </label>
+                <Select value={selectedChefId} onValueChange={setSelectedChefId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="All Chefs" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Chefs</SelectItem>
+                    {chefs?.map((chef) => (
+                      <SelectItem key={chef.id} value={chef.id}>
+                        {chef.name} {chef.isVerified && "✓"}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {selectedChefId !== "all" && (
+                <div className="flex items-end">
+                  <div className="px-3 py-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded text-sm">
+                    <span className="text-blue-600 dark:text-blue-400 font-medium">
+                      Selected Chef: {chefs?.find(c => c.id === selectedChefId)?.name || "Unknown"}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* Payout Summary */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <Card>
@@ -1063,6 +1097,7 @@ export default function AdminReports() {
                         </th>
                         <th className="text-left py-3 px-4">Order ID</th>
                         <th className="text-left py-3 px-4">Date & Time</th>
+                        <th className="text-left py-3 px-4">Chef</th>
                         <th className="text-left py-3 px-4">Customer</th>
                         <th className="text-left py-3 px-4">Items</th>
                         <th className="text-right py-3 px-4">Price/Unit</th>
@@ -1098,6 +1133,11 @@ export default function AdminReports() {
                             </td>
                             <td className="py-2 px-4 font-semibold text-blue-600">{order.id.slice(0, 8)}</td>
                             <td className="py-2 px-4">{new Date(order.createdAt).toLocaleString()}</td>
+                            <td className="py-2 px-4">
+                              <Badge variant="outline" className="text-xs">
+                                {order.chefName}
+                              </Badge>
+                            </td>
                             <td className="py-2 px-4">
                               <div>
                                 <p className="font-medium">{order.customerName}</p>
@@ -1140,6 +1180,7 @@ export default function AdminReports() {
                           {/* Item Rows */}
                           {order.items.map((item, idx) => (
                             <tr key={`${order.id}-${idx}`} className={`border-b hover:bg-slate-50 dark:hover:bg-slate-900/50 ${order.payoutId && selectedOrders.has(order.payoutId) ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''}`}>
+                              <td className="py-2 px-4"></td>
                               <td className="py-2 px-4"></td>
                               <td className="py-2 px-4"></td>
                               <td className="py-2 px-4"></td>

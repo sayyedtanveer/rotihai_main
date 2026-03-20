@@ -1747,6 +1747,8 @@ export class MemStorage implements IStorage {
           createdAt: order.createdAt,
           customerName: order.customerName,
           phone: order.phone,
+          chefId: order.chefId || "",
+          chefName: order.chefName || "Unknown Chef",
           status: order.status,
           paymentStatus: order.paymentStatus,
           deliveredAt: order.deliveredAt,
