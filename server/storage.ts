@@ -1739,6 +1739,7 @@ export class MemStorage implements IStorage {
           subtotal: order.subtotal,
           totalChefEarning,
           orderIncome: totalChefEarning,
+          payoutId: payout?.id || null,
           paidToChef: payout?.status === "paid",
           paidAt: payout?.paidAt?.toISOString(),
         };

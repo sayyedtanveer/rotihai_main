@@ -128,6 +128,7 @@ interface ChefPayoutReport {
     subtotal: number;
     totalChefEarning: number;
     orderIncome?: number;  // Total chef earning for this order
+    payoutId: string | null;
     paidToChef?: boolean;
     paidAt?: string;
   }>;
@@ -999,8 +1000,8 @@ export default function AdminReports() {
                   {selectedOrders.size > 0 && (
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-slate-600">
-                        {selectedOrders.size} selected • ₹{Array.from(selectedOrders).reduce((sum, orderId) => {
-                          const order = chefPayoutReport?.orders?.find(o => o.id === orderId);
+                        {selectedOrders.size} selected • ₹{Array.from(selectedOrders).reduce((sum, payoutId) => {
+                          const order = chefPayoutReport?.orders?.find(o => o.payoutId === payoutId);
                           return sum + (order?.totalChefEarning || 0);
                         }, 0)} total
                       </span>
@@ -1046,12 +1047,12 @@ export default function AdminReports() {
                             type="checkbox"
                             onChange={(e) => {
                               if (e.target.checked) {
-                                setSelectedOrders(new Set(chefPayoutReport?.orders?.map(o => o.id) || []));
+                                setSelectedOrders(new Set(chefPayoutReport?.orders?.filter(o => o.payoutId && !o.paidToChef).map(o => o.payoutId!) || []));
                               } else {
                                 setSelectedOrders(new Set());
                               }
                             }}
-                            checked={selectedOrders.size === (chefPayoutReport?.orders?.length || 0) && (chefPayoutReport?.orders?.length || 0) > 0}
+                            checked={selectedOrders.size === (chefPayoutReport?.orders?.filter(o => !o.paidToChef).length || 0) && (chefPayoutReport?.orders?.filter(o => !o.paidToChef).length || 0) > 0}
                             className="rounded"
                           />
                         </th>
@@ -1071,21 +1072,22 @@ export default function AdminReports() {
                       {chefPayoutReport?.orders?.map((order) => (
                         <React.Fragment key={order.id}>
                           {/* Order Header Row */}
-                          <tr className={`bg-slate-50 dark:bg-slate-900 border-b ${selectedOrders.has(order.id) ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}>
+                          <tr className={`bg-slate-50 dark:bg-slate-900 border-b ${selectedOrders.has(order.payoutId || '') ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}>
                             <td className="py-2 px-4">
                               <input 
                                 type="checkbox"
-                                checked={selectedOrders.has(order.id)}
+                                checked={order.payoutId ? selectedOrders.has(order.payoutId) : false}
                                 onChange={(e) => {
+                                  if (!order.payoutId) return;
                                   const newSelected = new Set(selectedOrders);
                                   if (e.target.checked) {
-                                    newSelected.add(order.id);
+                                    newSelected.add(order.payoutId);
                                   } else {
-                                    newSelected.delete(order.id);
+                                    newSelected.delete(order.payoutId);
                                   }
                                   setSelectedOrders(newSelected);
                                 }}
-                                disabled={order.paidToChef}
+                                disabled={order.paidToChef || !order.payoutId}
                                 className="rounded"
                               />
                             </td>
@@ -1116,11 +1118,11 @@ export default function AdminReports() {
                               )}
                             </td>
                             <td className="py-2 px-4">
-                              {!order.paidToChef && (
+                              {!order.paidToChef && order.payoutId && (
                                 <Button 
                                   size="sm" 
                                   variant="outline"
-                                  onClick={() => handleMarkAsPaid([order.id])}
+                                  onClick={() => handleMarkAsPaid([order.payoutId!])}
                                   disabled={isMarkingPaid}
                                   className="h-8 text-xs"
                                 >
@@ -1132,7 +1134,7 @@ export default function AdminReports() {
                           
                           {/* Item Rows */}
                           {order.items.map((item, idx) => (
-                            <tr key={`${order.id}-${idx}`} className={`border-b hover:bg-slate-50 dark:hover:bg-slate-900/50 ${selectedOrders.has(order.id) ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''}`}>
+                            <tr key={`${order.id}-${idx}`} className={`border-b hover:bg-slate-50 dark:hover:bg-slate-900/50 ${order.payoutId && selectedOrders.has(order.payoutId) ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''}`}>
                               <td className="py-2 px-4"></td>
                               <td className="py-2 px-4"></td>
                               <td className="py-2 px-4"></td>
