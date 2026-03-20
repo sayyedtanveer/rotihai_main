@@ -1,7 +1,7 @@
 import { type Category, type InsertCategory, type Product, type InsertProduct, type Order, type InsertOrder, type User, type UpsertUser, type Chef, type AdminUser, type InsertAdminUser, type PartnerUser, type Subscription, type SubscriptionPlan, type DeliverySetting, type InsertDeliverySetting, type CartSetting, type InsertCartSetting, type DeliveryPersonnel, type InsertDeliveryPersonnel, type WalletTransaction, type ReferralReward, type PromotionalBanner, type InsertPromotionalBanner, type SubscriptionDeliveryLog, type InsertSubscriptionDeliveryLog, type DeliveryTimeSlot, type InsertDeliveryTimeSlot, type Coupon, type RotiSettings, type InsertRotiSettings, type Visitor, type DeliveryArea, type InsertDeliveryArea, type AdminSettings } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { nanoid } from "nanoid";
-import { eq, and, gte, lte, desc, asc, or, isNull, sql, count, lt, inArray, update } from "drizzle-orm";
+import { eq, and, gte, lte, desc, asc, or, isNull, sql, count, lt, inArray } from "drizzle-orm";
 import {
   db, users, categories, products, orders, chefs, adminUsers, partnerUsers, subscriptions,
   subscriptionPlans, subscriptionDeliveryLogs, deliverySettings, cartSettings, deliveryPersonnel, coupons, couponUsages, referrals, walletTransactions, referralRewards, promotionalBanners, deliveryTimeSlots, rotiSettings, visitors, deliveryAreas, adminSettings, payoutTransactions
@@ -1567,7 +1567,7 @@ export class MemStorage implements IStorage {
 
         return {
           id: chef.id,
-          name: chef.username || chef.name,
+          name: chef.name,
           chefEarnings,  // Changed from totalRevenue
           totalOrders: ordersCount,
           averageEarning: avgEarning,  // Changed from averageOrderValue
