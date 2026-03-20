@@ -1722,10 +1722,25 @@ export class MemStorage implements IStorage {
           };
         });
 
-        // Get payout status for this order
-        const payout = await db.query.payoutTransactions.findFirst({
+        // Get payout status for this order - check if exists
+        let payout = await db.query.payoutTransactions.findFirst({
           where: (pt, { eq }) => eq(pt.orderId, order.id),
         });
+
+        // Auto-create payout if it doesn't exist yet (for delivered/pending payment orders)
+        if (!payout && order.chefId) {
+          try {
+            const newPayout = await this.createChefPayout(
+              order.chefId,
+              order.id,
+              totalChefEarning,
+              "bank"
+            );
+            payout = newPayout;
+          } catch (err) {
+            console.warn(`Failed to auto-create payout for order ${order.id}:`, err);
+          }
+        }
 
         return {
           id: order.id,

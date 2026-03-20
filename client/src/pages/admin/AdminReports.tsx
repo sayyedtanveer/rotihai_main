@@ -1038,8 +1038,13 @@ export default function AdminReports() {
                     {payoutSuccess}
                   </div>
                 )}
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
+                {!chefPayoutReport?.orders || chefPayoutReport.orders.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    {chefPayoutReport ? "No orders found for the selected period" : "Loading payout details..."}
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b">
                         <th className="text-left py-3 px-4 w-10">
@@ -1156,11 +1161,6 @@ export default function AdminReports() {
                       ))}
                     </tbody>
                   </table>
-                </div>
-
-                {!chefPayoutReport?.orders || chefPayoutReport.orders.length === 0 && (
-                  <div className="text-center py-8 text-muted-foreground">
-                    No orders found for the selected period
                   </div>
                 )}
               </CardContent>
