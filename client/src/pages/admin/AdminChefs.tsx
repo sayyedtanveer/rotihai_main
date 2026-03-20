@@ -165,6 +165,7 @@ export default function AdminChefs() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin", "chefs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/chefs"] });
       toast({
         title: data.isActive ? "Chef is now OPEN" : "Chef is now CLOSED",
         description: data.isActive

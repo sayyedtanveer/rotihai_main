@@ -401,8 +401,14 @@ export default function CartCard({
           onClick={onCheckout}
           disabled={disabled || chefClosed || allItemsUnavailable}
           data-testid="button-checkout"
+          title={chefClosed ? `${chefName} is Closed` : allItemsUnavailable ? 'Items Unavailable' : `Checkout from ${chefName}`}
         >
-          {chefClosed ? `${chefName} is Closed` : allItemsUnavailable ? 'Items Unavailable' : `Checkout from ${chefName}`}
+          <span className="hidden sm:inline">
+            {chefClosed ? `${chefName} is Closed` : allItemsUnavailable ? 'Items Unavailable' : `Checkout from ${chefName}`}
+          </span>
+          <span className="inline sm:hidden">
+            {chefClosed ? 'Closed' : allItemsUnavailable ? 'Unavailable' : 'Checkout'}
+          </span>
         </Button>
       </CardFooter>
     </Card>
