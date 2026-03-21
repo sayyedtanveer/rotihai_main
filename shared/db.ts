@@ -1,3 +1,11 @@
+// Determine database type from connection string
+export const dbType = (() => {
+  const connStr = process.env.DATABASE_URL || '';
+  if (connStr.includes('mysql') || connStr.includes(':3306')) return 'mysql';
+  if (connStr.includes('mongodb') || connStr.includes(':27017')) return 'mongodb';
+  return 'postgresql'; // default
+})();
+
 // shared/db.ts (or wherever this file exists)
 
 import { drizzle } from 'drizzle-orm/node-postgres';
@@ -49,5 +57,6 @@ export const {
   newsletterSubscribers,
   pendingBroadcasts,
   pendingCheckouts,
-  payoutTransactions
+  payoutTransactions,
+  paymentVerificationLog
 } = schema;

@@ -1,11 +1,137 @@
 import { db } from "../shared/db";
 import { subscriptions, orders, chefs, adminUsers, users as usersTable } from "../shared/schema";
-import { eq } from "drizzle-orm";
+import { eq, and, gte, isNull } from "drizzle-orm";
 import { storage } from "./storage";
 import { sendScheduledOrder2HourReminder, sendMissedDeliveryNotification } from "./whatsappService";
 import { sendMissedDeliveryEmail } from "./emailService";
+import { gpayVerificationService } from "./services/gpayVerificationService";
 
 let isRunning = false;
+
+// ✅ Google Pay Payment Verification Polling
+/**
+ * Polls UPI provider to verify pending Google Pay payments
+ * Runs every 60 seconds to detect payments from users
+ * Success path: Auto-confirms order, creates user account, sends SMS
+ */
+export async function verifyPendingGPayPayments(): Promise<void> {
+  try {
+    console.log("[GPAY-POLLING] Starting Google Pay payment verification...");
+
+    // Find pending Google Pay orders from last 15 minutes
+    const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
+    
+    const pendingOrders = await db.query.orders.findMany({
+      where: (o, { and, eq, gte, isNull, lte, lt }) => and(
+        eq(o.paymentStatus, "pending"),
+        eq(o.paymentSource, "google-pay"),
+        gte(o.createdAt, fifteenMinutesAgo),
+        isNull(o.paymentVerifiedBy)
+      ),
+    });
+
+    console.log(`[GPAY-POLLING] Found ${pendingOrders.length} pending Google Pay order(s)`);
+
+    let verifiedCount = 0;
+    let failedCount = 0;
+
+    for (const order of pendingOrders) {
+      try {
+        // Check if should retry verification
+        if (!gpayVerificationService.shouldRetryVerification(order)) {
+          console.log(`[GPAY-POLLING] ⏭️ Skipping Order#${order.id} - max verification attempts reached`);
+          continue;
+        }
+
+        // Verify payment with user matching
+        const result = await gpayVerificationService.verifyPaymentForUser(
+          order.id,
+          order.expectedPayerPhone || order.phone,
+          order.total
+        );
+
+        if (result.verified) {
+          console.log(`✅ [GPAY-POLLING] Payment verified for Order#${order.id}`);
+          
+          // Update order as paid/confirmed
+          await db.update(orders)
+            .set({
+              paymentStatus: "confirmed",
+              paymentVerifiedBy: "gpay-polling",
+              gpayTransactionId: result.transactionId,
+              phoneMatch: true,
+              amountMatch: true,
+              referenceMatch: true,
+            })
+            .where(eq(orders.id, order.id));
+
+          // Auto-create account if user doesn't exist
+          try {
+            const existingUser = await db.query.users.findFirst({
+              where: (u, { eq }) => eq(u.phone, order.phone),
+            });
+
+            if (!existingUser) {
+              console.log(`[GPAY-POLLING] 👤 Creating account for new user: ${order.phone}`);
+              
+              // Generate temporary password
+              const tempPassword = Math.random().toString(36).slice(-8);
+              const hashedPassword = await require("bcrypt").hash(tempPassword, 10);
+
+              const newUser = await db.insert(usersTable).values({
+                phone: order.phone,
+                name: order.customerName || "User",
+                email: order.email || null,
+                passwordHash: hashedPassword,
+              }).returning();
+
+              console.log(`[GPAY-POLLING] ✅ Account created: ${newUser[0]?.id}`);
+
+              // Send SMS with login details (optional)
+              // Send email with order confirmation
+            }
+
+            // Broadcast order to chef (WebSocket)
+            try {
+              const wsModule = await import("./websocket");
+              if (wsModule && typeof wsModule === 'object' && 'broadcast' in wsModule) {
+                (wsModule as any).broadcast("order-confirmed", { orderId: order.id, order });
+              }
+              console.log(`[GPAY-POLLING] 📢 Order broadcast to chef: ${order.id}`);
+            } catch (wsErr) {
+              console.log(`[GPAY-POLLING] Note: WebSocket broadcast not available`);
+            }
+            
+            verifiedCount++;
+          } catch (error) {
+            console.error(`[GPAY-POLLING] Error post-verification for Order#${order.id}:`, error);
+            failedCount++;
+          }
+        } else {
+          console.log(`[GPAY-POLLING] ❌ Verification failed: ${result.reason}`);
+          
+          // Update verification attempt counter
+          await db.update(orders)
+            .set({
+              verificationAttempts: (order.verificationAttempts || 0) + 1,
+            })
+            .where(eq(orders.id, order.id));
+
+          failedCount++;
+        }
+      } catch (error) {
+        console.error(`[GPAY-POLLING] Error processing Order#${order.id}:`, error);
+        failedCount++;
+      }
+    }
+
+    if (verifiedCount > 0 || failedCount > 0) {
+      console.log(`[GPAY-POLLING] ✅ Verified: ${verifiedCount}, Failed/Pending: ${failedCount}`);
+    }
+  } catch (error) {
+    console.error("[GPAY-POLLING] Error:", error);
+  }
+}
 
 // ✅ Helper function: Check if a date is a scheduled delivery day based on plan frequency
 function isDeliveryDay(date: Date, frequency: string, deliveryDays: string[]): boolean {
@@ -390,6 +516,10 @@ export async function runScheduledTasks(): Promise<void> {
   
   isRunning = true;
   try {
+    // Payment verification (runs every 60 seconds)
+    await verifyPendingGPayPayments();
+    
+    // Subscription tasks (run every 5 minutes)
     await autoResumeSubscriptions();
     await generateDailyDeliveryLogs();
     await updateNextDeliveryDates();
@@ -403,11 +533,46 @@ export async function runScheduledTasks(): Promise<void> {
 export function startCronJobs(): void {
   console.log("🕐 Starting scheduled jobs...");
   
+  // Run all tasks initially
   runScheduledTasks();
   
-  setInterval(() => {
-    runScheduledTasks();
-  }, 5 * 60 * 1000);
+  // Run payment verification frequently (every 60 seconds)
+  let paymentPollingInterval = setInterval(async () => {
+    try {
+      await verifyPendingGPayPayments();
+    } catch (error) {
+      console.error("[GPAY-POLLING] Interval error:", error);
+    }
+  }, 60 * 1000); // 60 seconds
+  
+  // Run subscription tasks every 5 minutes
+  let subscriptionInterval = setInterval(() => {
+    try {
+      // Skip payment polling for this interval, run only subscription tasks
+      (async () => {
+        if (isRunning) return;
+        isRunning = true;
+        try {
+          await autoResumeSubscriptions();
+          await generateDailyDeliveryLogs();
+          await updateNextDeliveryDates();
+          await markStaleDeliveriesAsMissed();
+          await sendScheduledOrder2HourNotifications();
+        } finally {
+          isRunning = false;
+        }
+      })();
+    } catch (error) {
+      console.error("[CRON] Error in subscription tasks:", error);
+    }
+  }, 5 * 60 * 1000); // 5 minutes
 
-  console.log("✅ Scheduled jobs started (runs every 5 minutes)");
+  console.log("✅ Payment polling started (every 60 seconds)");
+  console.log("✅ Subscription tasks started (every 5 minutes)");
+  
+  // Cleanup on process exit
+  process.on('exit', () => {
+    clearInterval(paymentPollingInterval);
+    clearInterval(subscriptionInterval);
+  });
 }

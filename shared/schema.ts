@@ -177,6 +177,35 @@ export const orders = pgTable("orders", {
   pickedUpAt: timestamp("picked_up_at"),
   deliveredAt: timestamp("delivered_at"),
   createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  // Google Pay verification fields
+  paymentVerificationKey: varchar("payment_verification_key", { length: 100 }),
+  expectedPayerPhone: varchar("expected_payer_phone", { length: 20 }),
+  paymentSource: varchar("payment_source", { length: 50 }),
+  gpayTransactionId: varchar("gpay_transaction_id", { length: 100 }).unique(),
+  phoneMatch: boolean("phone_match"),
+  amountMatch: boolean("amount_match"),
+  referenceMatch: boolean("reference_match"),
+  paymentVerifiedBy: varchar("payment_verified_by", { length: 50 }),
+  verificationAttempts: integer("verification_attempts").notNull().default(0),
+});
+
+export const paymentVerificationLog = pgTable("payment_verification_log", {
+  id: varchar("id", { length: 100 }).primaryKey(),
+  orderId: varchar("order_id").notNull(),
+  checkAttemptNumber: integer("check_attempt_number").notNull(),
+  expectedPhone: varchar("expected_phone", { length: 20 }),
+  actualPhone: varchar("actual_phone", { length: 20 }),
+  phoneMatch: boolean("phone_match"),
+  expectedAmount: integer("expected_amount"),
+  actualAmount: integer("actual_amount"),
+  amountMatch: boolean("amount_match"),
+  expectedReference: varchar("expected_reference", { length: 100 }),
+  actualReference: varchar("actual_reference", { length: 100 }),
+  referenceMatch: boolean("reference_match"),
+  verificationStatus: varchar("verification_status", { length: 50 }),
+  failureReason: varchar("failure_reason", { length: 500 }),
+  gpayTransactionId: varchar("gpay_transaction_id", { length: 100 }),
+  checkedAt: timestamp("checked_at").notNull().defaultNow(),
 });
 
 export const deliverySettings = pgTable("delivery_settings", {

@@ -5,6 +5,7 @@ import { insertOrderSchema, userLoginSchema, insertUserSchema } from "@shared/sc
 import { registerAdminRoutes } from "./adminRoutes";
 import { registerPartnerRoutes } from "./partnerRoutes";
 import { registerDeliveryRoutes } from "./deliveryRoutes";
+import gpayVerificationRoutes from "./routes/gpay-verification";
 import { setupWebSocket, broadcastNewOrder, broadcastOrderUpdate, broadcastSubscriptionDelivery, broadcastNewSubscriptionToAdmin, broadcastSubscriptionAssignmentToPartner, broadcastWalletUpdate } from "./websocket";
 import { hashPassword, verifyPassword, generateAccessToken, generateRefreshToken, requireUser, type AuthenticatedUserRequest } from "./userAuth";
 import { verifyToken as verifyUserToken } from "./userAuth";
@@ -314,6 +315,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerAdminRoutes(app);
   registerPartnerRoutes(app);
   registerDeliveryRoutes(app);
+  
+  // ✅ Register Google Pay verification routes
+  app.use("/api/payments", gpayVerificationRoutes);
 
   // Helper: compute cutoff hours before a slot based on its start time.
   // We don't currently store per-slot cutoff in the DB, so infer a reasonable default:
@@ -1891,6 +1895,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         paymentStatus: "pending",
         userId,
         referralCode: referralCodeInput ? referralCodeInput.trim().toUpperCase() : null,
+        // ✅ Google Pay verification fields
+        paymentSource: "google-pay",
+        expectedPayerPhone: sanitized.phone,
+        paymentVerificationKey: `Order#${Date.now()}`,
+        verificationAttempts: 0,
       };
 
       console.log("📦 Creating order with userId:", userId, "accountCreated:", accountCreated);

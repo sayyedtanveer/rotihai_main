@@ -525,6 +525,14 @@ export default function Home() {
     }
   };
 
+  // ✅ Called when QR dialog is closed/canceled - redirect to home completely
+  const handlePaymentQRClose = () => {
+    console.log("[PAYMENT] User canceled QR payment - closing and returning to home");
+    setIsPaymentQROpen(false);
+    setPaymentOrderDetails(null);
+    // Don't reopen checkout - user goes back to home page
+  };
+
   // ✅ Called when checkout dialog closes
   const handleCheckoutClose = () => {
     setIsCheckoutOpen(false);
@@ -1517,10 +1525,7 @@ export default function Home() {
       {paymentOrderDetails && (
         <PaymentQRDialog
           isOpen={isPaymentQROpen}
-          onClose={() => {
-            setIsPaymentQROpen(false);
-            setIsCheckoutOpen(true); // Return to checkout dialog
-          }}
+          onClose={handlePaymentQRClose}
           paymentData={paymentOrderDetails}
           checkoutCategoryId={checkoutCategoryId}
           onOrderSuccess={() => {

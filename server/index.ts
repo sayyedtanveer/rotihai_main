@@ -515,6 +515,13 @@ app.use((req, res, next) => {
     serveStatic(app);
   }
 
+  // ✅ Initialize cron jobs (payment verification, subscriptions, etc.)
+  try {
+    const { startCronJobs } = await import("./cronJobs");
+    startCronJobs();
+  } catch (error) {
+    console.error("Failed to start cron jobs:", error);
+  }
 
 
 
