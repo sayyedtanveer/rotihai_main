@@ -792,6 +792,26 @@ export default function CheckoutDialog({
     }
   }, [user, isAuthenticated, isOpen, customerLatitude]);
 
+  // 🛡️ FIX BUG 5: Validate cart exists when dialog opens to prevent stale prop issue
+  // If cart prop is null/empty but exists in Zustand store, refresh it
+  useEffect(() => {
+    if (isOpen && (!cart || cart.items.length === 0)) {
+      const { getAllCarts } = useCart.getState();
+      const allCarts = getAllCarts();
+      
+      if (allCarts.length > 0) {
+        // If we have carts in store but cart prop is stale, log a warning
+        // This helps debug the state sync issue
+        console.log("[CHECKOUT] 🚨 Cart prop is empty but store has carts. Cart prop may be stale.", {
+          cartProp: cart,
+          storeCarts: allCarts,
+          cartPropChefId: cart?.chefId,
+          storeCartChefIds: allCarts.map(c => c.chefId)
+        });
+      }
+    }
+  }, [isOpen, cart]);
+
   // 🛡️ FIX BUG 1: Restore user form data when dialog reopens (for non-authenticated users)
   // This ensures name, phone, email don't get cleared when user closes and reopens checkout
   useEffect(() => {
@@ -1921,7 +1941,23 @@ export default function CheckoutDialog({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!cart || cart.items.length === 0) {
+    // 🛡️ FIX BUG 5: Check both cart prop AND live Zustand store for cart data
+    // This prevents stale prop issue after payment clearing
+    let validCart = cart;
+    
+    if (!validCart || validCart.items.length === 0) {
+      // Cart prop is empty, check if there's a fresh cart in Zustand store
+      const { getAllCarts } = useCart.getState();
+      const allCarts = getAllCarts();
+      
+      if (allCarts.length > 0) {
+        // Use the first available cart from store
+        validCart = allCarts[0];
+        console.log("[CHECKOUT] Using cart from Zustand store instead of stale prop:", validCart);
+      }
+    }
+    
+    if (!validCart || validCart.items.length === 0) {
       toast({
         title: "Error",
         description: "Your cart is empty",
@@ -1931,10 +1967,10 @@ export default function CheckoutDialog({
     }
 
     // Check if chef is accepting orders
-    if (cart.chefIsActive === false) {
+    if (validCart.chefIsActive === false) {
       toast({
         title: "Chef Currently Closed",
-        description: `${cart.chefName} is not accepting orders right now. Please try again later.`,
+        description: `${validCart.chefName} is not accepting orders right now. Please try again later.`,
         variant: "destructive",
       });
       return;
@@ -2017,7 +2053,7 @@ export default function CheckoutDialog({
         addressArea,
         addressCity,
         addressPincode,
-        items: cart.items.map((item: CartItem) => ({
+        items: validCart.items.map((item: CartItem) => ({
           id: item.id,
           name: item.name,
           price: item.price,
@@ -2034,9 +2070,9 @@ export default function CheckoutDialog({
         couponCode: appliedCoupon?.code,
         referralCode: referralCode ? referralCode.trim().toUpperCase() : undefined,
         total,
-        chefId: cart.chefId || cart.items[0]?.chefId,
-        categoryId: cart.categoryId,
-        categoryName: cart.categoryName,
+        chefId: validCart.chefId || validCart.items[0]?.chefId,
+        categoryId: validCart.categoryId,
+        categoryName: validCart.categoryName,
         deliveryTime:
           requiresDeliverySlot && selectedDeliveryTime
             ? selectedDeliveryTime

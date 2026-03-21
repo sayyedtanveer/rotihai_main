@@ -62,6 +62,10 @@ export default defineConfig({
     runtimeErrorOverlay(),
     versionPlugin,
   ],
+  define: {
+    // Inject build timestamp for cache-busting (available as import.meta.env.VITE_BUILD_TIME)
+    'import.meta.env.VITE_BUILD_TIME': JSON.stringify(Date.now().toString()),
+  },
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "client", "src"),
