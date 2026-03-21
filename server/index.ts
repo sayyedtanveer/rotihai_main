@@ -65,12 +65,14 @@ app.use((req, res, next) => {
       'Expires': '0',
     });
   }
-  // ✅ HTML Files: No cache for proper SPA routing
+  // ✅ HTML Files: AGGRESSIVE No cache - never store, always validate
+  // This ensures browsers fetch fresh HTML on every visit
   else if (req.path.endsWith('.html') || req.path === '/') {
     res.set({
-      'Cache-Control': 'no-cache, no-store, must-revalidate',
-      'Pragma': 'no-cache',
-      'Expires': '0',
+      'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
+      'Pragma': 'no-cache, no-store',
+      'Expires': '-1',
+      'ETag': Date.now().toString(), // Force revalidation every second
     });
   }
   // ✅ Hashed Static Assets: Cache aggressively (hash changes on every build)
