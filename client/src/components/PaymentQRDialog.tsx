@@ -39,6 +39,7 @@ interface PaymentQRDialogProps {
   defaultPassword?: string;
   onPaymentConfirmed?: (transactionId: string) => void;
   isSubmitting?: boolean;
+  onOrderSuccess?: () => void;
 }
 
 export default function PaymentQRDialog({
@@ -56,7 +57,8 @@ export default function PaymentQRDialog({
   accountCreated = false,
   defaultPassword = "",
   onPaymentConfirmed,
-  isSubmitting = false
+  isSubmitting = false,
+  onOrderSuccess
 }: PaymentQRDialogProps) {
   // ✅ OPTION A: Use paymentData if available (normal orders), fallback to legacy props (subscriptions)
   const isOptionA = !!paymentData;
@@ -279,6 +281,14 @@ export default function PaymentQRDialog({
             description: accountMessage,
           });
 
+          // ✅ Clear cart and form data after order confirmation
+          if (onOrderSuccess) {
+            onOrderSuccess();
+          }
+          // Clear saved form data from localStorage
+          localStorage.removeItem("checkoutFormData");
+          console.log("[PAYMENT QR] Cleared checkout form data from localStorage");
+
           // ✅ Show account created dialog instead of immediately navigating
           setCreatedOrderId(newOrderId);
           setShowAccountDialog(true);
@@ -287,6 +297,14 @@ export default function PaymentQRDialog({
             title: "✓ Payment Confirmed!",
             description: "Your order has been submitted. We'll verify the payment shortly.",
           });
+
+          // ✅ Clear cart and form data after order confirmation
+          if (onOrderSuccess) {
+            onOrderSuccess();
+          }
+          // Clear saved form data from localStorage
+          localStorage.removeItem("checkoutFormData");
+          console.log("[PAYMENT QR] Cleared checkout form data from localStorage");
 
           // Navigate to tracking page for existing users
           setLocation(`/track/${newOrderId}`);
@@ -341,6 +359,14 @@ export default function PaymentQRDialog({
             ? "Your account has been created and you're logged in!"
             : "Your order has been submitted. We'll verify the payment shortly.",
         });
+
+        // ✅ Clear cart and form data after order confirmation
+        if (onOrderSuccess) {
+          onOrderSuccess();
+        }
+        // Clear saved form data from localStorage
+        localStorage.removeItem("checkoutFormData");
+        console.log("[PAYMENT QR] Cleared checkout form data from localStorage");
 
         setLocation(`/track/${orderId}`);
         setTimeout(() => {

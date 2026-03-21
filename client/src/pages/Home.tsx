@@ -1499,6 +1499,13 @@ export default function Home() {
           }}
           paymentData={paymentOrderDetails}
           checkoutCategoryId={checkoutCategoryId}
+          onOrderSuccess={() => {
+            // 🛡️ FIX BUG 2: Clear cart after order is confirmed
+            if (checkoutCategoryId) {
+              clearCart(checkoutCategoryId);
+              console.log("[HOME] Cart cleared for category:", checkoutCategoryId);
+            }
+          }}
         />
       )}
 

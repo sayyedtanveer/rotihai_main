@@ -792,6 +792,34 @@ export default function CheckoutDialog({
     }
   }, [user, isAuthenticated, isOpen, customerLatitude]);
 
+  // 🛡️ FIX BUG 1: Restore user form data when dialog reopens (for non-authenticated users)
+  // This ensures name, phone, email don't get cleared when user closes and reopens checkout
+  useEffect(() => {
+    if (isOpen && !isAuthenticated) {
+      // Try to restore previously entered form data from localStorage
+      const savedFormData = localStorage.getItem("checkoutFormData");
+      if (savedFormData) {
+        try {
+          const formData = JSON.parse(savedFormData);
+          if (formData.customerName) setCustomerName(formData.customerName);
+          if (formData.phone) setPhone(formData.phone);
+          if (formData.email) setEmail(formData.email);
+          console.log("[CHECKOUT-FIX] Restored form data for non-authenticated user");
+        } catch (e) {
+          console.error("[CHECKOUT] Failed to restore form data:", e);
+        }
+      }
+    }
+  }, [isOpen, isAuthenticated]);
+
+  // 🛡️ FIX BUG 1: Save form data to localStorage whenever values change (for non-authenticated users)
+  useEffect(() => {
+    if (!isAuthenticated && (customerName || phone || email)) {
+      const formData = { customerName, phone, email };
+      localStorage.setItem("checkoutFormData", JSON.stringify(formData));
+    }
+  }, [customerName, phone, email, isAuthenticated]);
+
   // Restore saved address fields from Context and localStorage when checkout opens
   useEffect(() => {
     // Check if pincode is available in delivery context
