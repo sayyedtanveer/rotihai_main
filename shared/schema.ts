@@ -152,6 +152,7 @@ export const orders = pgTable("orders", {
   deliveryFee: integer("delivery_fee").notNull(),
   discount: integer("discount").notNull().default(0),
   couponCode: varchar("coupon_code", { length: 50 }),
+  referralCode: varchar("referral_code", { length: 20 }),
   walletAmountUsed: integer("wallet_amount_used").notNull().default(0),
   total: integer("total").notNull(),
   status: text("status").notNull().default("pending"),
@@ -916,3 +917,62 @@ export const insertPendingBroadcastSchema = createInsertSchema(pendingBroadcasts
 
 export type InsertPendingBroadcast = z.infer<typeof insertPendingBroadcastSchema>;
 export type PendingBroadcast = typeof pendingBroadcasts.$inferSelect;
+
+// Pending Checkouts - Save user info when they click "Pay & Confirm" (before payment confirmation)
+export const pendingCheckouts = pgTable("pending_checkouts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  phone: varchar("phone", { length: 20 }).notNull(),
+  customerName: varchar("customer_name", { length: 255 }).notNull(),
+  email: varchar("email", { length: 255 }),
+  address: text("address"),
+  addressBuilding: varchar("address_building", { length: 255 }),
+  addressStreet: varchar("address_street", { length: 255 }),
+  addressArea: varchar("address_area", { length: 255 }),
+  addressCity: varchar("address_city", { length: 100 }).default("Mumbai"),
+  addressPincode: varchar("address_pincode", { length: 10 }),
+  items: jsonb("items").notNull(), // Array of {id, name, price, quantity, categoryId, chefId, ...}
+  subtotal: decimal("subtotal", { precision: 10, scale: 2 }).notNull(),
+  deliveryFee: decimal("delivery_fee", { precision: 10, scale: 2 }).notNull(),
+  discount: decimal("discount", { precision: 10, scale: 2 }).default("0"),
+  total: decimal("total", { precision: 10, scale: 2 }).notNull(),
+  chefId: varchar("chef_id"),
+  categoryId: varchar("category_id"),
+  categoryName: varchar("category_name", { length: 255 }),
+  customerLatitude: decimal("customer_latitude", { precision: 10, scale: 6 }),
+  customerLongitude: decimal("customer_longitude", { precision: 10, scale: 6 }),
+  couponCode: varchar("coupon_code", { length: 50 }),
+  referralCode: varchar("referral_code", { length: 50 }),
+  walletAmountUsed: decimal("wallet_amount_used", { precision: 10, scale: 2 }).default("0"),
+  bonusUsedAtCheckout: decimal("bonus_used_at_checkout", { precision: 10, scale: 2 }).default("0"),
+  deliverySlotId: varchar("delivery_slot_id"),
+  deliveryTime: varchar("delivery_time", { length: 100 }),
+  deliveryDate: varchar("delivery_date", { length: 10 }),
+  status: varchar("status", { length: 20 }).notNull().default("pending"), // "pending", "confirmed" (order created), "abandoned"
+  isDeleted: boolean("is_deleted").notNull().default(false), // Soft delete: true when payment completed
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  orderId: varchar("order_id"), // Links to actual order once created
+}, (table) => [
+  index("IDX_pending_checkouts_phone").on(table.phone),
+  index("IDX_pending_checkouts_status").on(table.status),
+  index("IDX_pending_checkouts_created").on(table.createdAt),
+  index("IDX_pending_checkouts_order").on(table.orderId),
+  index("IDX_pending_checkouts_deleted").on(table.isDeleted),
+]);
+
+export const insertPendingCheckoutSchema = createInsertSchema(pendingCheckouts).extend({
+  id: z.string().optional(),
+  createdAt: z.date().optional(),
+  updatedAt: z.date().optional(),
+  orderId: z.string().nullable().optional(),
+  status: z.string().optional(),
+}).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  orderId: true,
+  status: true,
+});
+
+export type InsertPendingCheckout = z.infer<typeof insertPendingCheckoutSchema>;
+export type PendingCheckout = typeof pendingCheckouts.$inferSelect;

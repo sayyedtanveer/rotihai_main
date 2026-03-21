@@ -1983,7 +1983,7 @@ export default function CheckoutDialog({
         customerLatitude,
         customerLongitude,
         couponCode: appliedCoupon?.code,
-        referralCode: referralCode && !userToken ? referralCode.trim().toUpperCase() : undefined,
+        referralCode: referralCode ? referralCode.trim().toUpperCase() : undefined,
         total,
         chefId: cart.chefId || cart.items[0]?.chefId,
         categoryId: cart.categoryId,
@@ -2004,130 +2004,36 @@ export default function CheckoutDialog({
         walletAmountUsed: useWalletBalance ? walletAmountToUse : 0,
       };
 
-      console.log("=== ORDER DATA ===");
-      console.log("useWalletBalance:", useWalletBalance);
-      console.log("walletAmountToUse:", walletAmountToUse);
-      console.log("walletAmountUsed in order:", orderData.walletAmountUsed);
-      console.log("referralCode in order:", orderData.referralCode);
-      console.log("userToken state:", userToken);
-      console.log("referralCode state:", referralCode);
-      console.log("isAuthenticated:", isAuthenticated);
-      console.log("Sending order data:", orderData);
-      console.log("================");
+      console.log("=== OPTION A FLOW: ORDER DATA (NOT CREATED YET) ===");
+      console.log("Order will be created after payment confirmation");
+      console.log("orderData:", orderData);
+      console.log("===============================================");
 
-      const response = await api.post("/api/orders", orderData);
-      const result = response.data;
-      console.log("Order created successfully:", result);
-
-      // Force refresh of user profile to pull latest state (e.g. updated name or address during checkout)
-      if (isAuthenticated || result.accountCreated || (!isAuthenticated && result.accessToken)) {
-        queryClient.invalidateQueries({ queryKey: ["/api/user"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/user/profile"] });
+      // ✅ Save pending checkout details (user info + cart)
+      let pendingCheckoutId: string | null = null;
+      try {
+        const pendingCheckoutResponse = await api.post("/api/pending-checkouts", orderData);
+        const pendingCheckout = pendingCheckoutResponse.data;
+        pendingCheckoutId = pendingCheckout.id;
+        console.log("[CHECKOUT] Pending checkout saved:", pendingCheckout.id);
+      } catch (err) {
+        console.error("[CHECKOUT] Warning: Failed to save pending checkout (non-blocking):", err);
+        // Non-blocking - still allow payment flow even if pending checkout save fails
       }
 
-      // Claim referral bonus if eligible and user wants to use it
-      if (
-        useBonusAtCheckout &&
-        isAuthenticated &&
-        userToken &&
-        bonusEligible &&
-        pendingBonus > 0
-      ) {
-        try {
-          const bonusResponse = await api.post(
-            "/api/user/claim-bonus-at-checkout",
-            {
-              orderTotal: total,
-              orderId: result.id,
-            },
-          );
-
-          const bonusResult = bonusResponse.data;
-          if (bonusResult.bonusClaimed) {
-            toast({
-              title: "✓ Referral bonus claimed!",
-              description: `₹${bonusResult.amount} bonus has been added to your wallet.`,
-              duration: 5000,
-            });
-          }
-        } catch (err) {
-          console.error("Error claiming bonus:", err);
-        }
-      }
-
-      // Show different messages for new vs existing users
-      if (result.accountCreated) {
-        // Build account message with referral info
-        let accountMessage = `Order #${result.id.slice(0, 8)} created. Your login password is the last 6 digits of your phone: ${phone.slice(-6)}`;
-        
-        // Add referral bonus info if backend applied it
-        if (result.appliedReferralBonus && result.appliedReferralBonus > 0) {
-          accountMessage += `. You received ₹${result.appliedReferralBonus} referral bonus!`;
-          console.log(`✅ Backend applied referral bonus: ₹${result.appliedReferralBonus}`);
-        } else if (referralCode.trim()) {
-          console.warn(`⚠️ Referral code was provided but backend didn't apply bonus. Code: ${referralCode}`);
-        }
-
-        toast({
-          title: "✓ Account Created & Order Placed!",
-          description: accountMessage,
-          duration: 10000, // Show for 10 seconds
-        });
-
-        // Store the new user token for future requests
-        if (result.accessToken) {
-          localStorage.setItem("userToken", result.accessToken);
-          // Store user data for immediate use
-          localStorage.setItem(
-            "userData",
-            JSON.stringify({
-              id: result.userId || result.user?.id,
-              name: customerName,
-              phone: phone,
-              email: email || "",
-              address: address || "",
-            }),
-          );
-        }
-
-        // ✅ Apply referral code if provided by new user AND not already applied during order creation
-        if (referralCode.trim() && result.accessToken) {
-          // Only attempt frontend application if backend didn't already apply
-          if (!result.appliedReferralBonus) {
-            console.log("Backend didn't apply referral, attempting frontend application");
-            applyReferralMutation.mutate({
-              referralCode: referralCode.trim(),
-              userToken: result.accessToken,
-            });
-          } else {
-            console.log(`✅ Referral bonus of ₹${result.appliedReferralBonus} already applied by backend`);
-          }
-        }
-      } else {
-        toast({
-          title: "✓ Order placed successfully!",
-          description: `Order #${result.id.slice(0, 8)} created`,
-        });
-      }
-
-      // Clear the cart for this category after successful order
-      if (onClearCart && cart?.categoryId) {
-        onClearCart();
-      }
-
-      // Call the payment QR callback
+      // ✅ OPTION A: Don't create order yet - pass orderData to payment dialog
+      // Order will be created AFTER payment is confirmed
       onShowPaymentQR({
-        orderId: result.id,
+        orderData,
         amount: total,
         customerName,
         phone,
         email,
         address,
-        accountCreated: result.accountCreated,
-        defaultPassword: phone.slice(-6), // Always use last 6 digits
+        pendingCheckoutId, // Include pending checkout ID for later confirmation
       });
 
-      // Reset form
+      // Reset form for next order
       setCustomerName("");
       setPhone("");
       setEmail("");
@@ -2146,7 +2052,7 @@ export default function CheckoutDialog({
       // Close the checkout dialog
       onClose();
     } catch (error: any) {
-      console.error("Order creation error:", error);
+      console.error("Order validation error:", error);
 
       const errorData = error.response?.data || {};
 
@@ -2898,7 +2804,7 @@ export default function CheckoutDialog({
                                 <span className="font-medium">{referralValidation.message}</span>
                               </div>
                               {referralValidation.valid && referralValidation.bonus && (
-                                <p className="mt-1">You'll get ₹{referralValidation.bonus} bonus from {referralValidation.referrerName}</p>
+                                <p className="mt-1">✅ You'll get ₹{referralValidation.bonus} bonus after your first order is delivered (from {referralValidation.referrerName})</p>
                               )}
                             </div>
                           )}
@@ -3359,7 +3265,7 @@ export default function CheckoutDialog({
                       ) : addressZoneValidated && !addressInDeliveryZone ? (
                         `🚫 ${address.split(",")[0].trim()} - ${addressZoneDistance.toFixed(1)}km away`
                       ) : (
-                        `Pay ₹${total.toFixed(2)}`
+                        `Pay & Confirm ₹${total.toFixed(2)}`
                       )}
                     </Button>
                   )}

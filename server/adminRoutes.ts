@@ -4592,4 +4592,26 @@ export function registerAdminRoutes(app: Express) {
       res.status(500).json({ message: error.message || "Failed to fetch leaderboard" });
     }
   });
+
+  // ========== REFERRAL SYSTEM ADMIN ENDPOINTS ==========
+  
+  // Manually trigger referral expiration cleanup (for testing/emergency)
+  app.post("/api/admin/referrals/expire", requireAdminOrManager(), async (req: AuthenticatedAdminRequest, res) => {
+    try {
+      console.log(`🕐 [ADMIN] Manual trigger: Expiring old pending referrals`);
+      const expiredCount = await storage.expireOldPendingReferrals();
+      
+      res.json({
+        success: true,
+        message: `Expired ${expiredCount} old pending referrals`,
+        expiredCount,
+      });
+    } catch (error: any) {
+      console.error("Error triggering referral expiration:", error);
+      res.status(500).json({ 
+        success: false,
+        message: error.message || "Failed to trigger referral expiration" 
+      });
+    }
+  });
 }

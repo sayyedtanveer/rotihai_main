@@ -70,23 +70,9 @@ export default function DeliveryDashboard() {
     requestNotificationPermission();
   }, []);
 
-  // Auto-refresh access token before expiry
-  useEffect(() => {
-    const refreshToken = async () => {
-      try {
-        const response = await apiRequest("POST", "/api/delivery/auth/refresh");
-        const data = await response.json();
-        localStorage.setItem("deliveryToken", data.accessToken);
-      } catch (error) {
-        console.error("Token refresh failed:", error);
-      }
-    };
-
-    // Refresh token every 10 minutes (before 15min expiry)
-    const tokenRefreshInterval = setInterval(refreshToken, 10 * 60 * 1000);
-
-    return () => clearInterval(tokenRefreshInterval);
-  }, []);
+  // Note: Token refresh disabled because delivery tokens are set to 90d (long-lived sessions)
+  // No need to refresh before expiry - user will only logout on explicit logout action
+  // If refresh is needed in future, ensure refreshToken is stored and sent in request body
 
 
   const { data: orders = [] } = useQuery<any[]>({

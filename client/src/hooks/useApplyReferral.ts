@@ -33,8 +33,8 @@ export function useApplyReferral() {
       queryClient.invalidateQueries({ queryKey: ["/api/user/referral-eligibility"] });
       
       toast({
-        title: "✓ Success!",
-        description: `Referral bonus of ₹${data.bonus || 50} added to your wallet!`,
+        title: "✓ Referral Applied!",
+        description: `You'll get ₹${data.bonus || 50} bonus after your first order is delivered 🎉`,
       });
     },
     onError: (error: Error) => {

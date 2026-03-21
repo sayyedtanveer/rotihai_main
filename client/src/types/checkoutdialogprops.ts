@@ -6,22 +6,20 @@ export interface CheckoutDialogProps {
   cart: CategoryCart | null;
   onClearCart?: () => void;
   onShowPaymentQR: ({
-    orderId,
+    orderData,
     amount,
     customerName,
     phone,
     email,
     address,
-    accountCreated,
-    defaultPassword,
+    pendingCheckoutId,
   }: {
-    orderId: string;
+    orderData: any;
     amount: number;
     customerName: string;
     phone: string;
     email: string | undefined;
     address: string;
-    accountCreated: boolean;
-    defaultPassword?: string;
+    pendingCheckoutId: string | null;
   }) => void;
 }

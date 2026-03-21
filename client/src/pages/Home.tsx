@@ -133,14 +133,12 @@ export default function Home() {
   const [checkoutCategoryId, setCheckoutCategoryId] = useState<string>("");
   const [isPaymentQROpen, setIsPaymentQROpen] = useState(false);
   const [paymentOrderDetails, setPaymentOrderDetails] = useState<{
-    orderId: string;
+    orderData: any;
     amount: number;
     customerName: string;
     phone: string;
     email?: string;
     address: string;
-    accountCreated?: boolean;
-    defaultPassword?: string;
   } | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isCategoryMenuOpen, setIsCategoryMenuOpen] = useState(false);
@@ -494,17 +492,15 @@ export default function Home() {
 
 
   // ✅ Called when checkout creates order successfully
-  const handleShowPaymentQR = (orderDetails: {
-    orderId: string;
+  const handleShowPaymentQR = (paymentData: {
+    orderData: any;
     amount: number;
     customerName: string;
     phone: string;
     email?: string;
     address: string;
-    accountCreated?: boolean;
-    defaultPassword?: string;
   }) => {
-    setPaymentOrderDetails(orderDetails);
+    setPaymentOrderDetails(paymentData);
     setIsCheckoutOpen(false);
     setTimeout(() => {
       setIsPaymentQROpen(true);
@@ -1497,15 +1493,12 @@ export default function Home() {
       {paymentOrderDetails && (
         <PaymentQRDialog
           isOpen={isPaymentQROpen}
-          onClose={() => handleOrderSuccess(checkoutCategoryId)}
-          orderId={paymentOrderDetails.orderId}
-          amount={paymentOrderDetails.amount}
-          customerName={paymentOrderDetails.customerName}
-          phone={paymentOrderDetails.phone}
-          email={paymentOrderDetails.email}
-          address={paymentOrderDetails.address}
-          accountCreated={paymentOrderDetails.accountCreated}
-          defaultPassword={paymentOrderDetails.defaultPassword}
+          onClose={() => {
+            setIsPaymentQROpen(false);
+            setIsCheckoutOpen(true); // Return to checkout dialog
+          }}
+          paymentData={paymentOrderDetails}
+          checkoutCategoryId={checkoutCategoryId}
         />
       )}
 

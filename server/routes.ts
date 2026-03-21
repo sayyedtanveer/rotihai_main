@@ -20,6 +20,41 @@ import axios from "axios";
 const DEFAULT_DELIVERY_TIME = "09:00";
 const WEEKDAY_NAMES = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
+// 🛡️ RATE LIMITING: Simple in-memory rate limiter for referral code validation
+interface RateLimitEntry {
+  count: number;
+  resetAt: number;
+}
+
+const rateLimitStore = new Map<string, RateLimitEntry>();
+const REFERRAL_RATE_LIMIT = {
+  windowMs: 60 * 1000,  // 1 minute window
+  maxRequests: 10,      // Maximum 10 requests per minute per IP
+};
+
+// Helper function to check rate limit
+function checkRateLimitReferralValidation(ip: string): boolean {
+  const now = Date.now();
+  const entry = rateLimitStore.get(ip);
+
+  if (!entry || now > entry.resetAt) {
+    // Create new entry
+    rateLimitStore.set(ip, {
+      count: 1,
+      resetAt: now + REFERRAL_RATE_LIMIT.windowMs,
+    });
+    return true; // Allow request
+  }
+
+  // Increment counter
+  if (entry.count < REFERRAL_RATE_LIMIT.maxRequests) {
+    entry.count++;
+    return true; // Allow request
+  }
+
+  return false; // Rate limit exceeded
+}
+
 // ⚡ Performance optimization: Disable email sending for subscriptions (can be enabled via env)
 const SEND_SUBSCRIPTION_EMAILS = false; // Emails disabled for performance
 // Subscription status constants
@@ -1045,6 +1080,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Validate referral code (public endpoint - doesn't require authentication)
   app.post("/api/referral/validate", async (req: any, res) => {
     try {
+      // 🛡️ Check rate limit for this IP
+      const clientIp = req.ip || req.connection.remoteAddress || "unknown";
+      if (!checkRateLimitReferralValidation(clientIp)) {
+        console.warn(`⚠️ [RATE LIMIT] Referral validation rate limit exceeded for IP: ${clientIp}`);
+        return res.status(429).json({
+          valid: false,
+          message: "Too many validation attempts. Please try again later.",
+          retryAfter: REFERRAL_RATE_LIMIT.windowMs / 1000,
+        });
+      }
+
       const { referralCode } = req.body;
 
       if (!referralCode) {
@@ -1071,6 +1117,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         valid: true,
         message: "Valid referral code!",
         bonus: settings.referredBonus || 50,
+        bonusNote: "Bonus will be credited after your first order is delivered",
         referrerName: referrer.name || "Friend"
       });
     } catch (error: any) {
@@ -1099,9 +1146,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const bonus = settings.referredBonus || 50;
       res.json({
-        message: "Referral bonus applied successfully",
+        message: "Referral code applied successfully! 🎁",
         bonus,
-        note: "Bonus is credited to your wallet. It will be available for your next order."
+        note: "Your ₹50 bonus will be credited to wallet after your first order is delivered",
+        status: "pending"
       });
     } catch (error: any) {
       console.error("Error applying referral:", error);
@@ -1808,67 +1856,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         let user = await storage.getUserByPhone(sanitized.phone);
 
         if (!user) {
-          // NEW PHONE = Create new account
-          // Email can be reused across different phone numbers
-          accountCreated = true;
-          const tempPassword = sanitized.phone.slice(-6);
-          generatedPassword = tempPassword;
-          const passwordHash = await hashPassword(tempPassword);
-
-          try {
-            user = await storage.createUser({
-              name: sanitized.customerName,
-              phone: sanitized.phone,
-              email: sanitized.email || null,
-              address: sanitized.address || null,
-              passwordHash,
-              referralCode: null,
-              walletBalance: 0,
-              // Save geocoded coordinates for reuse in future orders
-              latitude: customerLatitude,
-              longitude: customerLongitude,
-            });
-            console.log(`✅ New account created with phone: ${sanitized.phone}, Email: ${sanitized.email || 'Not provided'}`);
-
-            // Apply referral code if provided (new user only)
-            if (referralCodeInput && user.id) {
-              try {
-                await storage.applyReferralBonus(referralCodeInput.trim().toUpperCase(), user.id);
-                console.log(`✅ Referral code ${referralCodeInput} applied to new user ${user.id}`);
-
-                // Get the bonus amount from wallet transactions
-                const transactions = await storage.getWalletTransactions(user.id, 1);
-                const referralTransaction = transactions.find(t => t.type === 'referral_bonus');
-                if (referralTransaction) {
-                  appliedReferralBonus = referralTransaction.amount;
-                }
-              } catch (referralError: any) {
-                console.warn(`⚠️ Failed to apply referral code: ${referralError.message}`);
-                // Don't fail the order if referral fails - it's optional
-              }
-            }
-
-            // Send welcome email if provided (non-blocking) - disabled for performance
-            if (SEND_SUBSCRIPTION_EMAILS && sanitized.email && generatedPassword) {
-              const emailHtml = createWelcomeEmail(sanitized.customerName, sanitized.phone, generatedPassword);
-              // Fire and forget - don't block response waiting for email
-              sendEmail({
-                to: sanitized.email,
-                subject: '🍽️ Welcome to RotiHai - Your Account Details',
-                html: emailHtml,
-              }).then(() => {
-                console.log(`✅ Welcome email sent to ${sanitized.email}`);
-                emailSent = true;
-              }).catch((err) => {
-                console.error(`⚠️ Failed to send welcome email to ${sanitized.email}:`, err);
-              });
-            } else if (sanitized.email && generatedPassword) {
-              console.log(`📧 Subscription email disabled for performance. Email sending skipped for ${sanitized.email}`);
-            }
-          } catch (createUserError: any) {
-            console.error("Error creating user:", createUserError);
-            throw createUserError;
-          }
+          // NEW PHONE = Do NOT create account yet. Will be created on payment confirmation.
+          // This allows user to cancel the payment without creating an account.
+          console.log(`📝 New phone ${sanitized.phone} detected. Account will be created after payment confirmation.`);
+          accountCreated = false;
+          generatedPassword = sanitized.phone.slice(-6);
+          // userId remains null - will be set on payment confirmation
         } else {
           // EXISTING PHONE = Use existing account
           console.log(`✅ Existing account found with phone: ${sanitized.phone}`);
@@ -1887,12 +1880,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
               // Don't fail the order if coordinate update fails
             }
           }
-        }
 
-        if (user) {
           userId = user.id;
-        } else {
-          throw new Error("Failed to create or find user account");
         }
       }
 
@@ -1901,6 +1890,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...result.data,
         paymentStatus: "pending",
         userId,
+        referralCode: referralCodeInput ? referralCodeInput.trim().toUpperCase() : null,
       };
 
       console.log("📦 Creating order with userId:", userId, "accountCreated:", accountCreated);
@@ -2154,6 +2144,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let accessToken: string | undefined;
       let refreshToken: string | undefined;
       let userCreated = false;
+      let appliedReferralBonus = 0;
 
       // Check if order userId is null (new user) - create account on payment confirmation
       if (!order.userId) {
@@ -2204,6 +2195,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Generate tokens for immediate login
           accessToken = generateAccessToken(user);
           refreshToken = generateRefreshToken(user);
+          
+          // 🎯 Apply referral bonus if order has referral code (new user only)
+          if (order.referralCode && userCreated) {
+            console.log(`🎁 [REFERRAL] Attempting to apply referral code: ${order.referralCode} for new user ${user.id}`);
+            try {
+              await storage.applyReferralBonus(order.referralCode, user.id);
+              // Get the bonus amount from settings
+              const settings = await storage.getActiveReferralReward();
+              appliedReferralBonus = settings?.referredBonus || 50;
+              console.log(`✅ [REFERRAL] Bonus applied successfully for code: ${order.referralCode} - Amount: ₹${appliedReferralBonus}`);
+            } catch (referralError: any) {
+              console.warn(`⚠️ [REFERRAL] Failed to apply referral bonus (non-blocking):`, referralError.message);
+              // Don't fail order creation if referral application fails
+            }
+          }
         } else {
           console.log(`👤 User already exists with phone ${order.phone}, linking to order`);
           // Link existing user to order
@@ -2306,6 +2312,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         response.userCreated = true;
         response.accessToken = accessToken;
         response.refreshToken = refreshToken;
+        // Include the default password (last 6 digits of phone) for display in frontend
+        response.defaultPassword = order.phone.slice(-6);
+        // Include applied referral bonus if any  
+        if (appliedReferralBonus > 0) {
+          response.appliedReferralBonus = appliedReferralBonus;
+        }
       }
 
       // 📡 BROADCAST to admin, partner/chef, and delivery boy in real-time
@@ -2318,6 +2330,104 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error("Error confirming payment:", error);
       res.status(500).json({ message: error.message || "Failed to confirm payment" });
+    }
+  });
+
+  // ============ PENDING CHECKOUTS ENDPOINTS ============
+  
+  // Save pending checkout details (when user clicks "Pay & Confirm")
+  app.post("/api/pending-checkouts", async (req: any, res) => {
+    try {
+      const checkoutData = req.body;
+
+      // Validation
+      if (!checkoutData.phone || !checkoutData.customerName) {
+        return res.status(400).json({ message: "Phone and customer name required" });
+      }
+
+      const pending = await storage.savePendingCheckout(checkoutData);
+
+      console.log(`✅ Pending checkout saved: ${pending.id}`);
+      res.status(201).json(pending);
+    } catch (error: any) {
+      console.error("Error saving pending checkout:", error);
+      res.status(500).json({ message: error.message || "Failed to save checkout" });
+    }
+  });
+
+  // Get pending checkouts by phone (for user to track)
+  app.get("/api/pending-checkouts/by-phone/:phone", async (req, res) => {
+    try {
+      const { phone } = req.params;
+
+      if (!phone) {
+        return res.status(400).json({ message: "Phone number required" });
+      }
+
+      const pending = await storage.getPendingCheckoutsByPhone(phone);
+      res.json(pending);
+    } catch (error: any) {
+      console.error("Error fetching pending checkouts:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch pending checkouts" });
+    }
+  });
+
+  // Admin: Get all pending checkouts
+  app.get("/api/admin/pending-checkouts", async (req: any, res) => {
+    try {
+      // Optional: Add admin authentication check here
+      const pending = await storage.getAllPendingCheckouts();
+      res.json(pending);
+    } catch (error: any) {
+      console.error("Error fetching all pending checkouts:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch pending checkouts" });
+    }
+  });
+
+  // Admin: Delete pending checkout (manual cleanup)
+  app.delete("/api/admin/pending-checkouts/:id", async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const deleted = await storage.deletePendingCheckout(id);
+
+      if (!deleted) {
+        return res.status(404).json({ message: "Pending checkout not found" });
+      }
+
+      console.log(`✅ Pending checkout deleted: ${id}`);
+      res.json({ message: "Pending checkout deleted" });
+    } catch (error: any) {
+      console.error("Error deleting pending checkout:", error);
+      res.status(500).json({ message: error.message || "Failed to delete pending checkout" });
+    }
+  });
+
+  // Mark pending checkout as confirmed and soft deleted (after successful payment)
+  app.patch("/api/pending-checkouts/:id/confirm", async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { orderId } = req.body;
+
+      console.log(`[PENDING-CHECKOUT] Confirming checkout - ID: ${id}, Order: ${orderId}`);
+
+      const updated = await storage.markPendingCheckoutAsConfirmedAndDeleted(id, orderId);
+
+      if (!updated) {
+        console.warn(`[PENDING-CHECKOUT] ⚠️ Pending checkout not found: ${id}`);
+        return res.status(404).json({ message: "Pending checkout not found" });
+      }
+
+      console.log(`✅ [PENDING-CHECKOUT] Confirmed and soft deleted:`, {
+        checkoutId: updated.id,
+        status: updated.status,
+        isDeleted: updated.isDeleted,
+        orderId: updated.orderId,
+      });
+      
+      res.json({ message: "Pending checkout confirmed", data: updated });
+    } catch (error: any) {
+      console.error("[PENDING-CHECKOUT] Error confirming pending checkout:", error);
+      res.status(500).json({ message: error.message || "Failed to confirm pending checkout" });
     }
   });
 
@@ -5600,6 +5710,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   const httpServer = createServer(app);
   setupWebSocket(httpServer);
+
+  // 🕐 Set up periodic jobs
+  // Run referral expiration cleanup daily at 2 AM
+  setInterval(async () => {
+    const now = new Date();
+    const hours = now.getHours();
+    const minutes = now.getMinutes();
+    
+    // Run at 2:00 AM - 2:01 AM window
+    if (hours === 2 && minutes === 0) {
+      console.log(`🕐 [SCHEDULER] Running daily referral expiration cleanup at ${now.toISOString()}`);
+      try {
+        const expiredCount = await storage.expireOldPendingReferrals();
+        console.log(`✅ [SCHEDULER] Referral cleanup complete: ${expiredCount} referrals expired`);
+      } catch (error: any) {
+        console.error(`❌ [SCHEDULER] Error in referral cleanup:`, error.message);
+      }
+    }
+  }, 60 * 1000); // Check every minute
 
   return httpServer;
 }

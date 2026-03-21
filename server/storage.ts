@@ -1,10 +1,10 @@
-import { type Category, type InsertCategory, type Product, type InsertProduct, type Order, type InsertOrder, type User, type UpsertUser, type Chef, type AdminUser, type InsertAdminUser, type PartnerUser, type Subscription, type SubscriptionPlan, type DeliverySetting, type InsertDeliverySetting, type CartSetting, type InsertCartSetting, type DeliveryPersonnel, type InsertDeliveryPersonnel, type WalletTransaction, type ReferralReward, type PromotionalBanner, type InsertPromotionalBanner, type SubscriptionDeliveryLog, type InsertSubscriptionDeliveryLog, type DeliveryTimeSlot, type InsertDeliveryTimeSlot, type Coupon, type RotiSettings, type InsertRotiSettings, type Visitor, type DeliveryArea, type InsertDeliveryArea, type AdminSettings } from "@shared/schema";
+import { type Category, type InsertCategory, type Product, type InsertProduct, type Order, type InsertOrder, type User, type UpsertUser, type Chef, type AdminUser, type InsertAdminUser, type PartnerUser, type Subscription, type SubscriptionPlan, type DeliverySetting, type InsertDeliverySetting, type CartSetting, type InsertCartSetting, type DeliveryPersonnel, type InsertDeliveryPersonnel, type WalletTransaction, type ReferralReward, type PromotionalBanner, type InsertPromotionalBanner, type SubscriptionDeliveryLog, type InsertSubscriptionDeliveryLog, type DeliveryTimeSlot, type InsertDeliveryTimeSlot, type Coupon, type RotiSettings, type InsertRotiSettings, type Visitor, type DeliveryArea, type InsertDeliveryArea, type AdminSettings, type PendingCheckout, type InsertPendingCheckout } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { nanoid } from "nanoid";
 import { eq, and, gte, lte, desc, asc, or, isNull, sql, count, lt, inArray } from "drizzle-orm";
 import {
   db, users, categories, products, orders, chefs, adminUsers, partnerUsers, subscriptions,
-  subscriptionPlans, subscriptionDeliveryLogs, deliverySettings, cartSettings, deliveryPersonnel, coupons, couponUsages, referrals, walletTransactions, referralRewards, promotionalBanners, deliveryTimeSlots, rotiSettings, visitors, deliveryAreas, adminSettings, payoutTransactions
+  subscriptionPlans, subscriptionDeliveryLogs, deliverySettings, cartSettings, deliveryPersonnel, coupons, couponUsages, referrals, walletTransactions, referralRewards, promotionalBanners, deliveryTimeSlots, rotiSettings, visitors, deliveryAreas, adminSettings, payoutTransactions, pendingCheckouts
 } from "@shared/db";
 
 export interface IStorage {
@@ -264,6 +264,16 @@ export interface IStorage {
   setAdminSetting(key: string, value: string, description?: string): Promise<void>;
   getDefaultCoordinates(): Promise<{ latitude: number; longitude: number }>;
   setDefaultCoordinates(latitude: number, longitude: number): Promise<void>;
+
+  // Pending Checkouts methods
+  savePendingCheckout(data: InsertPendingCheckout): Promise<PendingCheckout>;
+  getPendingCheckout(id: string): Promise<PendingCheckout | undefined>;
+  getPendingCheckoutsByPhone(phone: string): Promise<PendingCheckout[]>;
+  getAllPendingCheckouts(): Promise<PendingCheckout[]>;
+  updatePendingCheckout(id: string, data: Partial<PendingCheckout>): Promise<PendingCheckout | undefined>;
+  markPendingCheckoutAsConfirmed(id: string, orderId: string): Promise<PendingCheckout | undefined>;
+  markPendingCheckoutAsConfirmedAndDeleted(id: string, orderId: string): Promise<PendingCheckout | undefined>;
+  deletePendingCheckout(id: string): Promise<boolean>;
 }
 
 /**
@@ -2048,7 +2058,10 @@ export class MemStorage implements IStorage {
   }
 
   async rejectOrder(orderId: string, rejectedBy: string, reason: string): Promise<Order | undefined> {
-    const [order] = await db
+    const order = await this.getOrderById(orderId);
+    if (!order) return undefined;
+
+    const [updatedOrder] = await db
       .update(orders)
       .set({
         status: "rejected",
@@ -2057,7 +2070,53 @@ export class MemStorage implements IStorage {
       })
       .where(eq(orders.id, orderId))
       .returning();
-    return order;
+
+    // 🎁 CLAWBACK: Reverse referral bonus if order had referral code
+    // Only reverse referred user bonus (₹50) - referrer bonus (₹100) is only given on delivery
+    if (updatedOrder && updatedOrder.userId && updatedOrder.referralCode) {
+      try {
+        const userId = updatedOrder.userId;
+        const refCode = updatedOrder.referralCode;
+        console.log(`🎁 [REFERRAL CLAWBACK] Order rejected - checking for referral to reverse for user: ${userId}`);
+        
+        // Find pending referral for this user (using the referral code from order)
+        const referral = await db.query.referrals.findFirst({
+          where: (r, { eq, and }) => and(
+            eq(r.referredId, userId),
+            eq(r.status, "pending"),
+            eq(r.referralCode, refCode)
+          ),
+        });
+
+        if (referral) {
+          console.log(`🎁 [REFERRAL CLAWBACK] Found pending referral: ${referral.id} - Status: ${referral.status}`);
+          
+          // Only clawback if referral is still pending (not yet completed)
+          if (referral.referredBonus > 0) {
+            const clawbackAmount = referral.referredBonus;
+            
+            // Create negative wallet transaction to reverse the bonus
+            await this.createWalletTransaction({
+              userId: updatedOrder.userId,
+              amount: -clawbackAmount,
+              type: "debit",
+              description: `Referral bonus reversed - order #${orderId} rejected`,
+              referenceId: referral.id,
+              referenceType: "referral",
+            });
+
+            console.log(`✅ [REFERRAL CLAWBACK] Reversed ₹${clawbackAmount} for user ${updatedOrder.userId}`);
+          }
+        } else {
+          console.log(`ℹ️ [REFERRAL CLAWBACK] No pending referral found to clawback`);
+        }
+      } catch (clawbackError: any) {
+        console.error(`⚠️ [REFERRAL CLAWBACK] Error during clawback (non-blocking):`, clawbackError.message);
+        // Don't fail order rejection if clawback fails
+      }
+    }
+
+    return updatedOrder;
   }
 
   async assignOrderToDeliveryPerson(orderId: string, deliveryPersonId: string): Promise<Order | undefined> {
@@ -2212,12 +2271,36 @@ export class MemStorage implements IStorage {
         throw new Error("You cannot use your own referral code");
       }
 
+      // 🛡️ NEW: Validate referrer account health (fraud prevention)
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      if (referrer.createdAt && new Date(referrer.createdAt) > sevenDaysAgo) {
+        throw new Error("Referrer account must be at least 7 days old to share referrals");
+      }
+
+      // 🛡️ NEW: Verify referrer has placed at least one order
+      const referrerOrders = await tx.query.orders.findMany({
+        where: (o, { eq }) => eq(o.userId, referrer.id),
+      });
+      
+      if (referrerOrders.length === 0) {
+        throw new Error("Referrer must have placed at least one order before sharing referrals");
+      }
+
       const newUser = await tx.query.users.findFirst({
         where: (u, { eq }) => eq(u.id, newUserId),
       });
 
       if (!newUser) {
         throw new Error("User not found");
+      }
+
+      // 🛡️ NEW: Check if user has already placed orders (must be 0)
+      const userOrders = await tx.query.orders.findMany({
+        where: (o, { eq }) => eq(o.userId, newUserId),
+      });
+
+      if (userOrders.length > 0) {
+        throw new Error("You can only use a referral code before placing your first order");
       }
 
       // Check if user already used a referral
@@ -2272,15 +2355,8 @@ export class MemStorage implements IStorage {
 
       const [referral] = await tx.insert(referrals).values(referralData).returning();
 
-      // Give instant bonus to new user with proper wallet transaction
-      await this.createWalletTransaction({
-        userId: newUserId,
-        amount: referredBonus,
-        type: "referral_bonus",
-        description: `Welcome bonus for using ${referrer.name}'s referral code (${referralCode})`,
-        referenceId: referral.id,
-        referenceType: "referral",
-      }, tx);
+      // ✅ BONUS CREDIT MOVED: Now happens on delivery in completeReferralOnFirstOrder()
+      // Just create the pending referral record here
     });
   }
 
@@ -2333,8 +2409,18 @@ export class MemStorage implements IStorage {
       const monthlyEarnings = completedThisMonth.reduce((sum, r) => sum + r.referrerBonus, 0);
       const canCreditBonus = monthlyEarnings + referral.referrerBonus <= maxEarningsPerMonth;
 
+      // 🎁 NEW: Credit ₹50 to referred user
+      await this.createWalletTransaction({
+        userId: referral.referredId,
+        amount: referral.referredBonus,
+        type: "referral_bonus",
+        description: `Referral welcome bonus - your first order delivered!`,
+        referenceId: referral.id,
+        referenceType: "referral",
+      }, tx);
+
       if (canCreditBonus) {
-        // Credit referrer bonus
+        // 🎁 Credit ₹100 to referrer
         await this.createWalletTransaction({
           userId: referral.referrerId,
           amount: referral.referrerBonus,
@@ -2368,6 +2454,36 @@ export class MemStorage implements IStorage {
       where: (r, { eq }) => eq(r.referredId, referredId),
     });
     return referral || null;
+  }
+
+  // 🕐 Expire old pending referrals (daily cleanup job)
+  async expireOldPendingReferrals(): Promise<number> {
+    try {
+      const settings = await this.getActiveReferralReward();
+      const expiryDays = settings?.expiryDays || 30;
+      
+      // Calculate cutoff date (30 days ago by default)
+      const expiryDate = new Date(Date.now() - expiryDays * 24 * 60 * 60 * 1000);
+      
+      console.log(`🕐 [REFERRAL EXPIRY] Expiring referrals older than ${expiryDays} days (before ${expiryDate.toISOString()})`);
+
+      // Update all pending referrals created before the cutoff date to expired status
+      const result = await db.update(referrals)
+        .set({
+          status: "expired",
+        })
+        .where(and(
+          eq(referrals.status, "pending"),
+          lt(referrals.createdAt, expiryDate)
+        ))
+        .returning();
+
+      console.log(`✅ [REFERRAL EXPIRY] Expired ${result.length} old pending referrals`);
+      return result.length;
+    } catch (error: any) {
+      console.error(`❌ [REFERRAL EXPIRY] Error expiring old referrals:`, error.message);
+      return 0;
+    }
   }
 
   async getUserWalletBalance(userId: string): Promise<number> {
@@ -3479,6 +3595,128 @@ export class MemStorage implements IStorage {
     } catch (error) {
       console.error("[STORAGE] Error setting default coordinates:", error);
     }
+  }
+
+  // ============ PENDING CHECKOUTS METHODS ============
+
+  async savePendingCheckout(data: InsertPendingCheckout): Promise<PendingCheckout> {
+    const id = randomUUID();
+    const now = new Date();
+
+    const pending: PendingCheckout = {
+      id,
+      ...data,
+      status: "pending",
+      orderId: null,
+      createdAt: now,
+      updatedAt: now,
+    } as PendingCheckout;
+
+    await db.insert(pendingCheckouts).values(pending);
+    console.log(`✅ Pending checkout saved: ${id} for phone ${data.phone}`);
+    return pending;
+  }
+
+  async getPendingCheckout(id: string): Promise<PendingCheckout | undefined> {
+    return db.query.pendingCheckouts.findFirst({
+      where: (pc, { eq }) => eq(pc.id, id),
+    });
+  }
+
+  async getPendingCheckoutsByPhone(phone: string): Promise<PendingCheckout[]> {
+    return db.query.pendingCheckouts.findMany({
+      where: (pc, { eq }) => eq(pc.phone, phone),
+      orderBy: (pc, { desc }) => [desc(pc.createdAt)],
+    });
+  }
+
+  async getAllPendingCheckouts(): Promise<PendingCheckout[]> {
+    return db.query.pendingCheckouts.findMany({
+      where: (pc, { eq }) => eq(pc.isDeleted, false),
+      orderBy: (pc, { desc }) => [desc(pc.createdAt)],
+    });
+  }
+
+  async updatePendingCheckout(id: string, data: Partial<PendingCheckout>): Promise<PendingCheckout | undefined> {
+    await db.update(pendingCheckouts)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(pendingCheckouts.id, id));
+    return this.getPendingCheckout(id);
+  }
+
+  async markPendingCheckoutAsConfirmed(id: string, orderId: string): Promise<PendingCheckout | undefined> {
+    return this.updatePendingCheckout(id, {
+      status: "confirmed",
+      orderId,
+    } as any);
+  }
+
+  async markPendingCheckoutAsConfirmedAndDeleted(id: string, orderId: string): Promise<PendingCheckout | undefined> {
+    console.log(`[DEBUG] Updating pending checkout: id=${id}, orderId=${orderId}`);
+    
+    // Get the current checkout to find the phone number
+    const currentCheckout = await this.getPendingCheckout(id);
+    if (!currentCheckout) {
+      console.warn(`[DEBUG] Pending checkout not found: ${id}`);
+      return undefined;
+    }
+
+    console.log(`[PENDING-CHECKOUT-CLEANUP] Phone: ${currentCheckout.phone}, Current ID: ${id}`);
+
+    // ✅ Mark ALL other pending checkouts for this phone as "abandoned"
+    // (This handles the case where user abandoned previous checkouts and came back to pay)
+    const otherCheckouts = await db.query.pendingCheckouts.findMany({
+      where: (pc, { eq, and }) => and(
+        eq(pc.phone, currentCheckout.phone),
+        eq(pc.status, "pending")
+      ),
+    });
+
+    if (otherCheckouts.length > 0) {
+      const otherIds = otherCheckouts
+        .filter(pc => pc.id !== id) // Exclude current checkout
+        .map(pc => pc.id);
+
+      if (otherIds.length > 0) {
+        console.log(`[PENDING-CHECKOUT-CLEANUP] Marking ${otherIds.length} old pending checkouts as abandoned for ${currentCheckout.phone}`);
+        
+        await db.update(pendingCheckouts)
+          .set({
+            status: "abandoned",
+            updatedAt: new Date(),
+          })
+          .where(inArray(pendingCheckouts.id, otherIds));
+
+        console.log(`✅ [PENDING-CHECKOUT-CLEANUP] Abandoned old pending checkouts:`, otherIds);
+      }
+    }
+
+    // ✅ Now update the current checkout as confirmed and soft-deleted
+    await db.update(pendingCheckouts)
+      .set({
+        status: "confirmed",
+        orderId: orderId,
+        isDeleted: true,
+        updatedAt: new Date(),
+      })
+      .where(eq(pendingCheckouts.id, id));
+    
+    const updated = await this.getPendingCheckout(id);
+    console.log(`[DEBUG] Pending checkout updated:`, {
+      id,
+      status: updated?.status,
+      isDeleted: updated?.isDeleted,
+      orderId: updated?.orderId,
+      updatedAt: updated?.updatedAt,
+    });
+    
+    return updated;
+  }
+
+  async deletePendingCheckout(id: string): Promise<boolean> {
+    const result = await db.delete(pendingCheckouts)
+      .where(eq(pendingCheckouts.id, id));
+    return result.rowCount ? result.rowCount > 0 : false;
   }
 
 }

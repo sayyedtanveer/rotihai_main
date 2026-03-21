@@ -48,5 +48,6 @@ export const {
   adminSettings,
   newsletterSubscribers,
   pendingBroadcasts,
+  pendingCheckouts,
   payoutTransactions
 } = schema;
