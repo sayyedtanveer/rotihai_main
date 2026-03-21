@@ -805,20 +805,41 @@ export default function CheckoutDialog({
           if (formData.phone) setPhone(formData.phone);
           if (formData.email) setEmail(formData.email);
           console.log("[CHECKOUT-FIX] Restored form data for non-authenticated user");
+
+          // 🛡️ FIX: Also restore address validation states if same chef
+          if (formData.chefId === cart?.chefId && formData.addressValidationStates) {
+            const validationStates = formData.addressValidationStates;
+            setAddressZoneValidated(validationStates.addressZoneValidated);
+            setAddressInDeliveryZone(validationStates.addressInDeliveryZone);
+            setAddressConfirmed(validationStates.addressConfirmed);
+            setIsEditingAddress(false); // Show view mode if already validated
+            console.log("[CHECKOUT-FIX] Restored address validation states for same chef");
+          }
         } catch (e) {
           console.error("[CHECKOUT] Failed to restore form data:", e);
         }
       }
     }
-  }, [isOpen, isAuthenticated]);
+  }, [isOpen, isAuthenticated, cart?.chefId]);
 
   // 🛡️ FIX BUG 1: Save form data to localStorage whenever values change (for non-authenticated users)
   useEffect(() => {
     if (!isAuthenticated && (customerName || phone || email)) {
-      const formData = { customerName, phone, email };
+      const formData = { 
+        customerName, 
+        phone, 
+        email,
+        // 🛡️ FIX: Also save chef ID and address validation states
+        chefId: cart?.chefId,
+        addressValidationStates: {
+          addressZoneValidated,
+          addressInDeliveryZone,
+          addressConfirmed
+        }
+      };
       localStorage.setItem("checkoutFormData", JSON.stringify(formData));
     }
-  }, [customerName, phone, email, isAuthenticated]);
+  }, [customerName, phone, email, isAuthenticated, addressZoneValidated, addressInDeliveryZone, addressConfirmed, cart?.chefId]);
 
   // Restore saved address fields from Context and localStorage when checkout opens
   useEffect(() => {

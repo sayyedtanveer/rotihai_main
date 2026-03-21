@@ -166,6 +166,9 @@ export default function Home() {
   } | null>(null);
   const { user } = useAuth();
 
+  // 🎁 Extract pending referral bonus amount for display
+  const pendingBonusAmount = user?.pendingBonus?.amount || 0;
+
   const { carts, addToCart: cartAddToCart, canAddItem, clearCart, getTotalItems, setUserLocation, getAllCartsWithDelivery, updateChefStatus, fetchChefStatuses, userLatitude, userLongitude, updateQuantity, removeFromCart } = useCart();
   const queryClient = useQueryClient();
 
@@ -976,7 +979,28 @@ export default function Home() {
 
           // Logged in: check order count to decide full vs teaser
           return (
-            <ReferEarnBanner user={user} />
+            <>
+              {/* 🎁 Show Pending Referral Bonus Badge if user has one */}
+              {pendingBonusAmount > 0 && (
+                <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-8 py-2">
+                  <div className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-950/30 dark:to-emerald-950/30 border border-green-200 dark:border-green-800 rounded-xl p-3 sm:p-4 flex items-center gap-3">
+                    <div className="text-2xl sm:text-3xl flex-shrink-0">💚</div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-bold text-sm text-green-900 dark:text-green-100">
+                        Referral Bonus Earned!
+                      </h3>
+                      <p className="text-xs text-green-700 dark:text-green-300 mt-0.5">
+                        ₹<span className="font-bold text-base">{pendingBonusAmount}</span> waiting • Use at checkout or check <span className="font-semibold">Profile</span> for details
+                      </p>
+                    </div>
+                    <div className="flex-shrink-0">
+                      <Gift className="h-5 w-5 text-green-600 dark:text-green-400" />
+                    </div>
+                  </div>
+                </div>
+              )}
+              <ReferEarnBanner user={user} />
+            </>
           );
         })()}
 
@@ -1503,6 +1527,21 @@ export default function Home() {
             // 🛡️ FIX BUG 2: Clear cart after order is confirmed
             if (checkoutCategoryId) {
               clearCart(checkoutCategoryId);
+              // Also clear from localStorage immediately to ensure persistence
+              try {
+                const state = localStorage.getItem("cart-storage");
+                if (state) {
+                  const parsed = JSON.parse(state);
+                  if (parsed.state?.carts) {
+                    parsed.state.carts = parsed.state.carts.filter(
+                      (c: any) => c.categoryId !== checkoutCategoryId
+                    );
+                    localStorage.setItem("cart-storage", JSON.stringify(parsed));
+                  }
+                }
+              } catch (e) {
+                console.warn("[HOME] Failed to clear cart from localStorage", e);
+              }
               console.log("[HOME] Cart cleared for category:", checkoutCategoryId);
             }
           }}
