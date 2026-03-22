@@ -14,8 +14,10 @@ import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 import { format } from "date-fns";
 import { CheckCircle, Clock, CreditCard, Search, Filter } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { playNotificationSoundTwoTone } from "@/lib/notificationSound";
+import { getWebSocketURL } from "@/lib/fetchClient";
+
 export default function AdminPayments() {
   const { toast } = useToast();
   const [currentPage, setCurrentPage] = useState(1);
@@ -23,6 +25,51 @@ export default function AdminPayments() {
   const [paymentStatusFilter, setPaymentStatusFilter] = useState("all");
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const itemsPerPage = 100;
+
+  // 📡 WebSocket listener for real-time order updates (cancel, status changes, etc.)
+  useEffect(() => {
+    const token = localStorage.getItem("adminToken");
+    if (!token) return;
+
+    const wsUrl = getWebSocketURL(`?token=${encodeURIComponent(token)}&type=admin`);
+    const ws = new WebSocket(wsUrl);
+
+    ws.onopen = () => {
+      console.log("✅ AdminPayments WebSocket connected for real-time updates");
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+
+        // Listen for order updates (payment status changes, cancellations, etc.)
+        if (data.type === "order_update" || data.type === "new_order") {
+          const order = data.data as Order;
+          console.log("📡 AdminPayments received order update:", {
+            orderId: order.id,
+            status: order.status,
+            paymentStatus: order.paymentStatus,
+          });
+
+          // Refresh payment orders list to show updated status
+          queryClient.invalidateQueries({ queryKey: ["/api/admin", "orders", "payments"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/admin", "orders"] });
+        }
+      } catch (error) {
+        console.error("❌ WebSocket message parse error:", error);
+      }
+    };
+
+    ws.onerror = (error) => {
+      console.error("❌ AdminPayments WebSocket error:", error);
+    };
+
+    return () => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.close();
+      }
+    };
+  }, []);
 
   const { data: orders, isLoading } = useQuery<Order[]>({
     queryKey: ["/api/admin", "orders", "payments"],
@@ -37,6 +84,31 @@ export default function AdminPayments() {
       return filteredOrders.sort((a: Order, b: Order) =>
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
+    },
+  });
+
+  const markAsPaidMutation = useMutation({
+    mutationFn: async ({ orderId }: { orderId: string }) => {
+      const response = await api.patch(`/api/admin/orders/${orderId}/payment`, {
+        paymentStatus: "paid"
+      });
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin", "orders", "payments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin", "orders"] });
+
+      toast({
+        title: "✓ Marked as Paid",
+        description: "Payment verified. Click 'Confirm & Send to Chef' to proceed.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Update failed",
+        description: error?.response?.data?.message || error?.message || "Failed to mark as paid",
+        variant: "destructive",
+      });
     },
   });
 
@@ -56,8 +128,8 @@ export default function AdminPayments() {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/dashboard/metrics"] });
 
       toast({
-        title: "✓ Payment Confirmed",
-        description: "Order sent to chef for preparation",
+        title: "✓ Order Confirmed & Sent to Chef",
+        description: "Chef is now preparing the order",
       });
 
       // 📱 Send push notification to offline users (non-blocking, fire and forget)
@@ -79,7 +151,7 @@ export default function AdminPayments() {
     onError: (error: any) => {
       toast({
         title: "Update failed",
-        description: error?.response?.data?.message || error?.message || "Failed to confirm payment",
+        description: error?.response?.data?.message || error?.message || "Failed to confirm order",
         variant: "destructive",
       });
     },
@@ -132,9 +204,9 @@ export default function AdminPayments() {
             <p className="text-sm font-medium text-blue-900 dark:text-blue-100 mb-2">Payment Workflow:</p>
             <ol className="text-xs text-blue-700 dark:text-blue-300 space-y-1">
               <li>1️⃣ Customer places order → QR code shown automatically</li>
-              <li>2️⃣ Customer pays via UPI → Waits for confirmation</li>
-              <li>3️⃣ <strong>You verify payment</strong> in UPI app → Click "Confirm Payment"</li>
-              <li>4️⃣ Order sent to Chef → Chef prepares food</li>
+              <li>2️⃣ Customer pays via UPI → Order becomes "Pending"</li>
+              <li>3️⃣ <strong>Check UPI app for payment</strong> → Click "✓ Mark as Paid"</li>
+              <li>4️⃣ <strong>Then click "Confirm to Chef"</strong> → Order sent to Chef for preparation</li>
               <li>5️⃣ Delivery person picks up → Delivers to customer</li>
             </ol>
           </div>
@@ -265,17 +337,35 @@ export default function AdminPayments() {
                           </Badge>
                         </TableCell>
                         <TableCell>
-                          <Button
-                            size="sm"
-                            onClick={() => confirmPaymentMutation.mutate({ orderId: order.id })}
-                            disabled={
-                              confirmPaymentMutation.isPending || order.paymentStatus === "confirmed"
-                            }
-                            data-testid={`button-confirm-${order.id}`}
-                          >
-                            <CheckCircle className="w-4 h-4 mr-1" />
-                            Confirm
-                          </Button>
+                          <div className="flex gap-2 flex-wrap">
+                            {order.paymentStatus === "pending" && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => markAsPaidMutation.mutate({ orderId: order.id })}
+                                disabled={markAsPaidMutation.isPending}
+                                data-testid={`button-mark-paid-${order.id}`}
+                              >
+                                ✓ Mark as Paid
+                              </Button>
+                            )}
+                            {(order.paymentStatus === "paid" || order.paymentStatus === "pending") && order.paymentStatus !== "confirmed" && (
+                              <Button
+                                size="sm"
+                                onClick={() => confirmPaymentMutation.mutate({ orderId: order.id })}
+                                disabled={confirmPaymentMutation.isPending}
+                                data-testid={`button-confirm-${order.id}`}
+                              >
+                                <CheckCircle className="w-4 h-4 mr-1" />
+                                Confirm to Chef
+                              </Button>
+                            )}
+                            {order.paymentStatus === "confirmed" && (
+                              <span className="text-xs font-medium text-green-700 dark:text-green-300">
+                                ✓ Confirmed
+                              </span>
+                            )}
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}

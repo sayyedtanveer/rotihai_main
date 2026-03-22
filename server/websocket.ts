@@ -418,10 +418,13 @@ export function broadcastOrderUpdate(order: Order) {
         client.ws.send(message);
         deliveryNotified = true;
         console.log(`  ✅ Sent to delivery ${clientId}`);
-      } else if (client.type === "customer" && client.orderId === order.id) {
-        client.ws.send(message);
-        customerNotified = true;
-        console.log(`  ✅ Sent to customer ${clientId}`);
+      } else if (client.type === "customer") {
+        // Send to customer if connected by specific orderId OR by userId (to get all their order updates)
+        if (client.orderId === order.id || client.userId === order.userId) {
+          client.ws.send(message);
+          customerNotified = true;
+          console.log(`  ✅ Sent to customer ${clientId} (${client.orderId ? `order: ${client.orderId}` : `user: ${client.userId}`})`);
+        }
       } else if (client.type === "chef" && String(client.chefId) !== String(order.chefId)) {
         console.log(`  ❌ Chef ${clientId} skipped - chefId mismatch (client: ${client.chefId}, order: ${order.chefId})`);
       }

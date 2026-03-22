@@ -1976,11 +1976,13 @@ export default function CheckoutDialog({
       return;
     }
 
-    // ENFORCE: Location must be enabled to place order
-    if (customerLatitude === null || customerLongitude === null || !addressZoneValidated || !addressInDeliveryZone) {
+    // ✅ RELAXED: If coordinates weren't captured (e.g., user refreshed page), 
+    // we'll use Kurla West defaults. Only enforce zone validation if user explicitly set coordinates.
+    // This allows users who refresh to still place orders with default coordinates.
+    if (customerLatitude !== null && customerLongitude !== null && (!addressZoneValidated || !addressInDeliveryZone)) {
       toast({
-        title: "Address Validation Required",
-        description: "Please enter and confirm a delivery address within our service zone.",
+        title: "Address Out of Service Zone",
+        description: "This address is outside our delivery zone. Please adjust your address.",
         variant: "destructive",
       });
       return;
@@ -2042,6 +2044,12 @@ export default function CheckoutDialog({
         ? slotInfo.nextAvailableDate.toISOString().split("T")[0]
         : undefined;
 
+      // ✅ FALLBACK: Use Kurla West coordinates if address validation hasn't set them yet
+      // This handles the case where user refreshes page and coordinates get lost
+      // Default Kurla West: 19.0728, 72.8826 (same as server default)
+      const finalLatitude = customerLatitude ?? 19.0728;
+      const finalLongitude = customerLongitude ?? 72.8826;
+
       const orderData = {
         customerName,
         phone,
@@ -2065,8 +2073,8 @@ export default function CheckoutDialog({
         subtotal,
         deliveryFee,
         discount,
-        customerLatitude,
-        customerLongitude,
+        customerLatitude: finalLatitude,
+        customerLongitude: finalLongitude,
         couponCode: appliedCoupon?.code,
         referralCode: referralCode ? referralCode.trim().toUpperCase() : undefined,
         total,
@@ -2089,33 +2097,39 @@ export default function CheckoutDialog({
         walletAmountUsed: useWalletBalance ? walletAmountToUse : 0,
       };
 
-      console.log("=== OPTION A FLOW: ORDER DATA (NOT CREATED YET) ===");
-      console.log("Order will be created after payment confirmation");
+      console.log("=== OPTION A FLOW: CREATE ORDER NOW ===");
+      console.log("Creating order immediately at checkout");
       console.log("orderData:", orderData);
-      console.log("===============================================");
 
-      // ✅ Save pending checkout details (user info + cart)
-      let pendingCheckoutId: string | null = null;
+      // ✅ CREATE ORDER IMMEDIATELY (with paymentStatus: pending)
+      // This ensures admin sees order in notifications even before payment
+      let orderId: string | null = null;
+      let orderResponse: any = null;
       try {
-        const pendingCheckoutResponse = await api.post("/api/pending-checkouts", orderData);
-        const pendingCheckout = pendingCheckoutResponse.data;
-        pendingCheckoutId = pendingCheckout.id;
-        console.log("[CHECKOUT] Pending checkout saved:", pendingCheckout.id);
-      } catch (err) {
-        console.error("[CHECKOUT] Warning: Failed to save pending checkout (non-blocking):", err);
-        // Non-blocking - still allow payment flow even if pending checkout save fails
+        orderResponse = await api.post("/api/orders", orderData);
+        orderId = orderResponse.data.id;
+        console.log("[CHECKOUT] Order created successfully:", orderId);
+        console.log("[CHECKOUT] Order waiting for payment confirmation...");
+      } catch (err: any) {
+        console.error("[CHECKOUT] Failed to create order:", err);
+        toast({
+          title: "Error",
+          description: err?.response?.data?.message || "Failed to create order",
+          variant: "destructive",
+        });
+        setIsLoading(false);
+        return;
       }
 
-      // ✅ OPTION A: Don't create order yet - pass orderData to payment dialog
-      // Order will be created AFTER payment is confirmed
+      // ✅ Now show payment QR with order created
       onShowPaymentQR({
-        orderData,
+        orderData: orderResponse.data, // Pass complete order object
         amount: total,
         customerName,
         phone,
         email,
         address,
-        pendingCheckoutId, // Include pending checkout ID for later confirmation
+        pendingCheckoutId: null, // No pending checkout needed, order already created
       });
 
       // Reset form for next order

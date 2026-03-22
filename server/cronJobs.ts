@@ -511,6 +511,59 @@ export async function markStaleDeliveriesAsMissed(): Promise<void> {
   }
 }
 
+// ✅ Expire pending payment orders using expiresAt timestamp (reliable, clock-independent)
+/**
+ * Marks orders as expired when expiresAt <= NOW()
+ * Uses persistent timestamp column for reliability
+ * This prevents stale pending orders and frees up inventory
+ */
+export async function expirePendingPaymentOrders(): Promise<void> {
+  try {
+    const now = new Date();
+
+    console.log(`[EXPIRY-CHECK] Checking for pending payment orders with expiresAt <= ${now.toISOString()}...`);
+
+    // Find all pending payment orders that have passed their expiry deadline
+    // Using persistent expiresAt column instead of calculated time
+    const expiredOrders = await db.query.orders.findMany({
+      where: (o, { and, eq, lt, isNull }) => and(
+        eq(o.paymentStatus, "pending"),
+        lt(o.expiresAt, now), // ✅ Using expiresAt column (not createdAt calculation)
+        isNull(o.paymentVerifiedBy) // Not yet confirmed
+      ),
+    });
+
+    if (expiredOrders.length === 0) {
+      console.log(`[EXPIRY-CHECK] No expired pending payment orders found`);
+      return;
+    }
+
+    console.log(`[EXPIRY-CHECK] Found ${expiredOrders.length} expired pending payment order(s)`);
+
+    let expiredCount = 0;
+    for (const order of expiredOrders) {
+      try {
+        // Mark order as expired using storage interface (accepts any status string)
+        await storage.updateOrderStatus(order.id, "expired");
+
+        console.log(`[EXPIRY-CHECK] ⏱️ Order ${order.id} marked as EXPIRED (expiresAt: ${order.expiresAt})`);
+        expiredCount++;
+
+        // Optionally: Send notification to user about expired order
+        // They can submit a new order if needed
+      } catch (error) {
+        console.error(`[EXPIRY-CHECK] Error expiring order ${order.id}:`, error);
+      }
+    }
+
+    if (expiredCount > 0) {
+      console.log(`✅ [EXPIRY-CHECK] Marked ${expiredCount} order(s) as expired`);
+    }
+  } catch (error) {
+    console.error("[EXPIRY-CHECK] Error in expirePendingPaymentOrders:", error);
+  }
+}
+
 export async function runScheduledTasks(): Promise<void> {
   if (isRunning) return;
   
@@ -518,6 +571,9 @@ export async function runScheduledTasks(): Promise<void> {
   try {
     // Payment verification (runs every 60 seconds)
     await verifyPendingGPayPayments();
+    
+    // Order expiry check (runs every task cycle, expires after 25 mins)
+    await expirePendingPaymentOrders();
     
     // Subscription tasks (run every 5 minutes)
     await autoResumeSubscriptions();

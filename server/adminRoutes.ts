@@ -12,10 +12,10 @@ import {
   verifyToken,
   type AuthenticatedAdminRequest,
 } from "./adminAuth";
-import { db, walletSettings, referralRewards } from "@shared/db";
+import { db, walletSettings, referralRewards, orders } from "@shared/db";
 import { adminLoginSchema, insertAdminUserSchema, insertCategorySchema, insertProductSchema, insertDeliveryPersonnelSchema, insertDeliveryTimeSlotsSchema, insertReferralRewardSchema, insertCouponSchema } from "@shared/schema";
 import { fromZodError } from "zod-validation-error";
-import { broadcastOrderUpdate, broadcastNewOrder, notifyDeliveryAssignment, cancelPreparedOrderTimeout, broadcastProductAvailabilityUpdate, broadcastChefStatusUpdate, broadcastSubscriptionAssignmentToPartner, broadcastSubscriptionUpdate } from "./websocket";
+import { broadcastOrderUpdate, broadcastNewOrder, notifyDeliveryAssignment, cancelPreparedOrderTimeout, broadcastProductAvailabilityUpdate, broadcastChefStatusUpdate, broadcastSubscriptionAssignmentToPartner, broadcastSubscriptionUpdate, broadcastWalletUpdate } from "./websocket";
 import { hashPassword as hashDeliveryPassword } from "./deliveryAuth";
 import { eq } from "drizzle-orm";
 import { subscriptions } from "@shared/schema";
@@ -466,10 +466,130 @@ export function registerAdminRoutes(app: Express) {
       console.log(`Current order status: ${order.status}, Payment status: ${order.paymentStatus}`);
       console.log(`Chef ID: ${order.chefId}`);
 
-      // Update payment status to confirmed and order status to confirmed
+      let userCreated = false;
+      let appliedReferralBonus = 0;
+      let accessToken: string | undefined;
+      let refreshToken: string | undefined;
+
+      // ✅ FIX: Handle user account creation (same logic as payment-confirmed endpoint)
+      if (!order.userId) {
+        console.log(`📝 Admin payment confirmed for new user order ${orderId} - Creating user account`);
+
+        let user = await storage.getUserByPhone(order.phone);
+
+        if (!user) {
+          // Create new user account with default password (last 6 digits of phone)
+          const generatedPassword = order.phone.slice(-6);
+          const passwordHash = await hashPassword(generatedPassword);
+
+          user = await storage.createUser({
+            name: order.customerName,
+            phone: order.phone,
+            email: order.email || null,
+            address: order.address || null,
+            passwordHash,
+            referralCode: null,
+            walletBalance: 0,
+            latitude: null,
+            longitude: null,
+          });
+
+          console.log(`✅ New user created on admin payment confirmation: ${user.id} - Phone: ${order.phone}`);
+          userCreated = true;
+
+          // Update order with new userId
+          await db.update(orders).set({ userId: user.id }).where(eq(orders.id, orderId));
+          order.userId = user.id;
+
+          // Generate tokens for immediate login
+          accessToken = generateAccessToken(user);
+          refreshToken = generateRefreshToken(user);
+
+          // 🎯 Apply referral bonus if order has referral code (new user only)
+          if (order.referralCode && userCreated) {
+            console.log(`🎁 [REFERRAL] Attempting to apply referral code: ${order.referralCode} for new user ${user.id}`);
+            try {
+              await storage.applyReferralBonus(order.referralCode, user.id);
+              // Get the bonus amount from settings
+              const settings = await storage.getActiveReferralReward();
+              appliedReferralBonus = settings?.referredBonus || 50;
+              console.log(`✅ [REFERRAL] Bonus applied successfully for code: ${order.referralCode} - Amount: ₹${appliedReferralBonus}`);
+            } catch (referralError: any) {
+              console.warn(`⚠️ [REFERRAL] Failed to apply referral bonus (non-blocking):`, referralError.message);
+              // Don't fail order creation if referral application fails
+            }
+          }
+        } else {
+          console.log(`👤 User already exists with phone ${order.phone}, linking to order`);
+          // Link existing user to order
+          await db.update(orders).set({ userId: user.id }).where(eq(orders.id, orderId));
+          order.userId = user.id;
+
+          // Generate tokens for login
+          accessToken = generateAccessToken(user);
+          refreshToken = generateRefreshToken(user);
+        }
+      }
+
+      // Update payment status
       const updatedOrder = await storage.updateOrderPaymentStatus(orderId, paymentStatus as "pending" | "paid" | "confirmed");
 
       console.log(`✅ Updated order payment status: ${updatedOrder?.paymentStatus}`);
+
+      // ✅ FIX: Handle wallet deduction (same logic as payment-confirmed endpoint)
+      if (updatedOrder && updatedOrder.walletAmountUsed && updatedOrder.walletAmountUsed > 0 && updatedOrder.userId) {
+        console.log(`\n💳 [=${'='.repeat(50)}] WALLET DEDUCTION TRACE [${'='.repeat(50)}]`);
+        console.log(`💳 [WALLET] Processing wallet deduction for order ${orderId}...`);
+        console.log(`💳 [WALLET] Order walletAmountUsed value: ₹${updatedOrder.walletAmountUsed}`);
+
+        // Get current wallet balance before deduction
+        const userBefore = await storage.getUser(updatedOrder.userId);
+        const balanceBefore = userBefore?.walletBalance || 0;
+        console.log(`💳 [WALLET] User ID: ${updatedOrder.userId}`);
+        console.log(`💳 [WALLET] Wallet balance BEFORE: ₹${balanceBefore}`);
+
+        // Check if wallet has already been deducted for this order (double-check)
+        const existingTransactions = await storage.getWalletTransactions(updatedOrder.userId, 100);
+        const deductionTransactions = existingTransactions.filter(
+          (txn: any) => txn.referenceId === orderId && txn.type === "debit"
+        );
+
+        if (deductionTransactions.length > 0) {
+          console.log(`⏭️ [WALLET] Found ${deductionTransactions.length} existing debit transaction(s) for order ${orderId}. Skipping...`);
+          const existingAmount = deductionTransactions.reduce((sum: number, txn: any) => sum + txn.amount, 0);
+          console.log(`   Already deducted: ₹${existingAmount}`);
+        } else {
+          console.log(`💳 [WALLET] No existing transaction found. Proceeding with deduction...`);
+          try {
+            // Create wallet transaction for audit trail (this also updates the wallet balance atomically)
+            await storage.createWalletTransaction({
+              userId: updatedOrder.userId,
+              amount: updatedOrder.walletAmountUsed,
+              type: "debit",
+              description: `Admin payment confirmation for order #${updatedOrder.id}`,
+              referenceId: updatedOrder.id,
+              referenceType: "order",
+            });
+            console.log(`✅ [WALLET] Balance updated and transaction logged`);
+
+            // Get updated wallet balance
+            const updatedUser = await storage.getUser(updatedOrder.userId);
+            const newWalletBalance = updatedUser?.walletBalance || 0;
+            console.log(`   User wallet balance AFTER: ₹${newWalletBalance}`);
+            console.log(`   Calculation: ₹${balanceBefore} - ₹${updatedOrder.walletAmountUsed} = ₹${newWalletBalance}`);
+
+            // 📣 Broadcast wallet update to customer in real-time
+            broadcastWalletUpdate(updatedOrder.userId, newWalletBalance);
+            console.log(`✅ [WALLET] Broadcast sent to user ${updatedOrder.userId}`);
+
+            console.log(`✅ [WALLET] COMPLETE: ₹${updatedOrder.walletAmountUsed} deducted from wallet for order #${updatedOrder.id}`);
+            console.log(`💳 [${'='.repeat(100)}]\n`);
+          } catch (walletError: any) {
+            console.error("❌ [WALLET] ERROR during deduction:", walletError.message);
+            // Don't fail the payment confirmation if wallet deduction fails - it's non-critical
+          }
+        }
+      }
 
       if (paymentStatus === "confirmed") {
         // Also update order status to confirmed
@@ -494,7 +614,23 @@ export function registerAdminRoutes(app: Express) {
         }
       }
 
-      res.json(updatedOrder);
+      const response: any = {
+        message: `Order payment ${paymentStatus === 'confirmed' ? 'confirmed and sent to chef' : `marked as ${paymentStatus}`}`,
+        order: updatedOrder,
+      };
+
+      // Include user creation details if new account was created
+      if (userCreated) {
+        response.userCreated = true;
+        response.accessToken = accessToken;
+        response.refreshToken = refreshToken;
+        response.defaultPassword = order.phone.slice(-6);
+        if (appliedReferralBonus > 0) {
+          response.appliedReferralBonus = appliedReferralBonus;
+        }
+      }
+
+      res.json(response);
     } catch (error: any) {
       console.error("Error updating payment status:", error);
       res.status(500).json({ message: error.message || "Failed to update payment status" });

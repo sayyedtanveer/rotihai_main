@@ -44,6 +44,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { format } from "date-fns";
 import type { Category, Order, Chef } from "@shared/schema";
 import { queryClient } from "@/lib/queryClient";
+import { getWebSocketURL } from "@/lib/fetchClient";
 
 export default function MyOrders() {
   const [, setLocation] = useLocation();
@@ -94,6 +95,58 @@ export default function MyOrders() {
       return response.data;
     },
   });
+
+  // 📡 WebSocket listener for real-time order updates (cancellations, status changes, etc.)
+  useEffect(() => {
+    if (!userToken) return;
+
+    // Get user ID from localStorage (stored during login)
+    const userData = localStorage.getItem("userData");
+    const userId = userData ? JSON.parse(userData)?.id : null;
+    
+    if (!userId) {
+      console.warn("❌ No user ID found in localStorage, WebSocket won't receive order updates");
+      return;
+    }
+
+    const wsUrl = getWebSocketURL(`?token=${encodeURIComponent(userToken)}&type=customer&userId=${encodeURIComponent(userId)}`);
+    const ws = new WebSocket(wsUrl);
+
+    ws.onopen = () => {
+      console.log("✅ MyOrders WebSocket connected for real-time updates");
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+
+        // Listen for order updates (status changes, cancellations, etc.)
+        if (data.type === "order_update") {
+          const order = data.data as Order;
+          console.log("📡 MyOrders received order update:", {
+            orderId: order.id,
+            status: order.status,
+            paymentStatus: order.paymentStatus,
+          });
+
+          // Refresh customer orders list to show updated status
+          queryClient.invalidateQueries({ queryKey: ["/api/orders", userToken] });
+        }
+      } catch (error) {
+        console.error("❌ WebSocket message parse error:", error);
+      }
+    };
+
+    ws.onerror = (error) => {
+      console.error("❌ MyOrders WebSocket error:", error);
+    };
+
+    return () => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.close();
+      }
+    };
+  }, [userToken]);
 
   // Show loading state while checking auth
   if (authLoading || (userToken && isLoading)) {

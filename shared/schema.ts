@@ -177,6 +177,7 @@ export const orders = pgTable("orders", {
   pickedUpAt: timestamp("picked_up_at"),
   deliveredAt: timestamp("delivered_at"),
   createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  expiresAt: timestamp("expires_at").notNull().default(sql`now() + interval '30 minutes'`), // Payment deadline for pending orders
   // Google Pay verification fields
   paymentVerificationKey: varchar("payment_verification_key", { length: 100 }),
   expectedPayerPhone: varchar("expected_payer_phone", { length: 20 }),

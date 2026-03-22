@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { getWebSocketURL } from "@/lib/fetchClient";
 import { useRoute } from "wouter";
 import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -30,6 +31,9 @@ export default function OrderTracking() {
   const orderId = params?.orderId;
   const [wsConnected, setWsConnected] = useState(false);
   const userToken = localStorage.getItem("userToken");
+  
+  // ✅ Fetch user profile if logged in (for dropdown user scenario)
+  const { user, isAuthenticated } = useAuth();
 
   const { data: rawOrder, isLoading } = useQuery<Order>({
     queryKey: ["/api/orders", orderId],

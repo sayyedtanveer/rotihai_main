@@ -1900,6 +1900,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         expectedPayerPhone: sanitized.phone,
         paymentVerificationKey: `Order#${Date.now()}`,
         verificationAttempts: 0,
+        // ✅ Set payment expiry (30 minutes from now) - CRITICAL for reliable expiry logic
+        expiresAt: new Date(Date.now() + 30 * 60 * 1000),
       };
 
       console.log("📦 Creating order with userId:", userId, "accountCreated:", accountCreated);
@@ -2221,6 +2223,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         } else {
           console.log(`👤 User already exists with phone ${order.phone}, linking to order`);
+          
+          // 🔍 CHECK: Is this user's first use after account was auto-created by admin?
+          // Get user's order count BEFORE this payment to detect if this is first login
+          const userOrderCount = await db.select()
+            .from(orders)
+            .where(eq(orders.userId, user.id))
+            .then((rows: any) => rows.length);
+          
+          const isFirstLoginAfterAdminCreation = userOrderCount === 0 && 
+            user.createdAt && 
+            (Date.now() - new Date(user.createdAt).getTime()) < 3600000; // Within 1 hour of creation
+          
+          console.log(`[DROPDOWN USER] User order count: ${userOrderCount}, isFirstLogin: ${isFirstLoginAfterAdminCreation}`);
+          
           // Link existing user to order
           await db.update(orders).set({ userId: user.id }).where(eq(orders.id, id));
           order.userId = user.id;
@@ -2228,6 +2244,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Generate tokens for login
           accessToken = generateAccessToken(user);
           refreshToken = generateRefreshToken(user);
+          
+          // ✅ If this is first login after admin created account, treat as "account just activated"
+          // Frontend will show account dialog with welcome message + track order
+          if (isFirstLoginAfterAdminCreation) {
+            userCreated = true;  // Signal frontend to show account dialog
+            console.log(`[DROPDOWN USER] First login detected - showing account dialog`);
+          }
+        }
+      } else {
+        // ✅ SCENARIO: User already exists on order (e.g., admin created earlier on THIS order)
+        // Generate tokens so we can auto-login the user if they're not logged in
+        console.log(`👤 User already linked to order ${id} (userId: ${order.userId}). Generating tokens for potential auto-login.`);
+        const existingUser = await storage.getUser(order.userId);
+        if (existingUser) {
+          accessToken = generateAccessToken(existingUser);
+          refreshToken = generateRefreshToken(existingUser);
+          console.log(`✅ Tokens generated for existing user: ${existingUser.id}`);
         }
       }
 
@@ -2249,6 +2282,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const updatedOrder = await storage.updateOrderPaymentStatus(id, "paid");
 
       console.log(`✅ Payment confirmed for order ${id} - Status: ${updatedOrder?.paymentStatus}`);
+
+      // ✅ MARK PENDING CHECKOUTS AS ABANDONED when payment is confirmed
+      // If user had abandoned carts (pending checkouts) for same phone, mark them as abandoned
+      // since they're now proceeding with payment
+      if (updatedOrder?.phone) {
+        try {
+          const pendingForPhone = await storage.getPendingCheckoutsByPhone(updatedOrder.phone);
+          const pendingIds = pendingForPhone
+            .filter(pc => pc.status === "pending" && pc.id !== updatedOrder.id) // Exclude this order
+            .map(pc => pc.id);
+
+          if (pendingIds.length > 0) {
+            console.log(`[PENDING-CHECKOUT-CLEANUP] Marking ${pendingIds.length} pending checkouts as abandoned for phone ${updatedOrder.phone}`);
+            
+            // Mark all old pending checkouts as abandoned
+            for (const pendingId of pendingIds) {
+              await storage.updatePendingCheckout(pendingId, {
+                status: "abandoned",
+              } as any);
+            }
+            
+            console.log(`✅ [PENDING-CHECKOUT-CLEANUP] Marked as abandoned:`, pendingIds);
+          }
+        } catch (cleanupError: any) {
+          console.warn(`⚠️ [PENDING-CHECKOUT-CLEANUP] Error marking pending checkouts as abandoned:`, cleanupError.message);
+          // Don't fail payment confirmation if cleanup fails
+        }
+      }
 
       // 💳 DEDUCT WALLET BALANCE when payment is confirmed (only once)
       if (updatedOrder && updatedOrder.walletAmountUsed && updatedOrder.walletAmountUsed > 0 && updatedOrder.userId) {
@@ -2316,17 +2377,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         order: updatedOrder,
       };
 
-      // Include tokens and user info if new account was created
+      // ✅ HANDLE ALL SCENARIOS + RETURN USER DATA FOR TRACK PAGE:
+      // userCreated=true means: Show account dialog (NEW user OR first login after admin creation)
+      // userCreated=false means: Auto-login without dialog (regular existing user)
+      
       if (userCreated) {
-        response.userCreated = true;
+        // Scenario 2 (new user) OR Scenario 1B (first login after admin creation - dropout user)
+        response.userCreated = true;  // Frontend will show account dialog
         response.accessToken = accessToken;
         response.refreshToken = refreshToken;
-        // Include the default password (last 6 digits of phone) for display in frontend
+        
+        // Include the default password for display in account dialog
+        // For new users: generated just now (last 6 digits of phone)  
+        // For first login: also last 6 digits of phone (what admin would have given them)
         response.defaultPassword = order.phone.slice(-6);
+        
         // Include applied referral bonus if any  
         if (appliedReferralBonus > 0) {
           response.appliedReferralBonus = appliedReferralBonus;
         }
+      } else if (accessToken && refreshToken) {
+        // Scenario 1A: Existing user (not first login), auto-login
+        response.userCreated = false;  // No account dialog needed
+        response.accessToken = accessToken;
+        response.refreshToken = refreshToken;
+        console.log(`✅ [RESPONSE] Returning tokens for existing user auto-login`);
       }
 
       // 📡 BROADCAST to admin, partner/chef, and delivery boy in real-time
@@ -2339,6 +2414,82 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error("Error confirming payment:", error);
       res.status(500).json({ message: error.message || "Failed to confirm payment" });
+    }
+  });
+
+  // ✅ Cancel order when user clicks Cancel on QR page
+  app.post("/api/orders/:id/cancel", async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      if (!id) {
+        return res.status(400).json({ 
+          message: "Order ID is required",
+          errorCode: "MISSING_ORDER_ID"
+        });
+      }
+
+      console.log(`\n🔄 CANCEL REQUEST: Attempting to cancel order ${id}`);
+
+      const order = await storage.getOrderById(id);
+      if (!order) {
+        console.log(`❌ CANCEL FAILED: Order ${id} not found`);
+        return res.status(404).json({ 
+          message: "Order not found",
+          errorCode: "ORDER_NOT_FOUND"
+        });
+      }
+
+      console.log(`📋 Order found - Current Status: ${order.status}, Payment: ${order.paymentStatus}`);
+
+      // Only allow cancelling orders that are still pending (not yet paid/completed)
+      if (order.paymentStatus === "paid" || order.paymentStatus === "confirmed") {
+        console.log(`❌ CANCEL FAILED: Order ${id} already paid/confirmed - Cannot cancel`);
+        return res.status(400).json({ 
+          message: "Cannot cancel order - payment already confirmed",
+          errorCode: "PAYMENT_ALREADY_CONFIRMED",
+          currentPaymentStatus: order.paymentStatus
+        });
+      }
+
+      // Update order status to cancelled
+      const updatedOrder = await db.update(orders)
+        .set({ 
+          status: "cancelled",
+        })
+        .where(eq(orders.id, id))
+        .returning();
+
+      if (!updatedOrder || updatedOrder.length === 0) {
+        console.log(`❌ CANCEL FAILED: Database update failed for order ${id}`);
+        return res.status(500).json({ 
+          message: "Failed to update order status",
+          errorCode: "DATABASE_UPDATE_FAILED"
+        });
+      }
+
+      console.log(`✅ Order ${id} successfully cancelled - Status: ${updatedOrder[0].status}`);
+
+      // Broadcast order cancellation to admin in real-time
+      console.log(`📡 Broadcasting cancellation to admin...`);
+      broadcastOrderUpdate(updatedOrder[0]);
+
+      res.json({
+        message: "Order cancelled successfully",
+        order: updatedOrder[0],
+        success: true
+      });
+    } catch (error: any) {
+      console.error(`❌ CANCEL ERROR for order ${req.params.id}:`, {
+        message: error.message,
+        stack: error.stack,
+        code: error.code
+      });
+      res.status(500).json({ 
+        message: error.message || "Failed to cancel order",
+        errorCode: "CANCEL_ERROR",
+        details: process.env.NODE_ENV === "development" ? error.message : undefined
+      });
     }
   });
 
