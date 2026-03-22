@@ -384,7 +384,7 @@ export default function AdminPayments() {
                                     ✓ Mark as Paid
                                   </Button>
                                 )}
-                                {(order.paymentStatus === "paid" || order.paymentStatus === "pending") && order.paymentStatus !== "confirmed" && (
+                                {(order.paymentStatus === "paid" || order.paymentStatus === "pending") && (
                                   <Button
                                     size="sm"
                                     onClick={() => confirmPaymentMutation.mutate({ orderId: order.id })}
