@@ -170,6 +170,29 @@ export default function AdminPayments() {
     }
   };
 
+  const getOrderStatusColor = (status: string) => {
+    switch (status) {
+      case "pending":
+        return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200";
+      case "confirmed":
+        return "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200";
+      case "accepted_by_chef":
+        return "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200";
+      case "preparing":
+        return "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200";
+      case "prepared":
+        return "bg-cyan-100 text-cyan-800 dark:bg-cyan-900 dark:text-cyan-200";
+      case "out_for_delivery":
+        return "bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-200";
+      case "delivered":
+        return "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200";
+      case "cancelled":
+        return "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200";
+      default:
+        return "bg-slate-100 text-slate-800 dark:bg-slate-900 dark:text-slate-200";
+    }
+  };
+
   // Filter and search orders
   const filteredOrders = orders?.filter((order) => {
     const matchesSearch =
@@ -278,6 +301,7 @@ export default function AdminPayments() {
                       <TableHead>Items</TableHead>
                       <TableHead>Total</TableHead>
                       <TableHead>Date</TableHead>
+                      <TableHead>Order Status</TableHead>
                       <TableHead>Payment Status</TableHead>
                       <TableHead>Action</TableHead>
                     </TableRow>
@@ -329,6 +353,11 @@ export default function AdminPayments() {
                           </span>
                         </TableCell>
                         <TableCell>
+                          <Badge className={getOrderStatusColor(order.status)}>
+                            {order.status.replace("_", " ").toUpperCase()}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
                           <Badge className={getPaymentStatusColor(order.paymentStatus)}>
                             {order.paymentStatus === "pending" && <Clock className="w-3 h-3 mr-1" />}
                             {order.paymentStatus === "paid" && <CheckCircle className="w-3 h-3 mr-1" />}
@@ -338,32 +367,40 @@ export default function AdminPayments() {
                         </TableCell>
                         <TableCell>
                           <div className="flex gap-2 flex-wrap">
-                            {order.paymentStatus === "pending" && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => markAsPaidMutation.mutate({ orderId: order.id })}
-                                disabled={markAsPaidMutation.isPending}
-                                data-testid={`button-mark-paid-${order.id}`}
-                              >
-                                ✓ Mark as Paid
-                              </Button>
-                            )}
-                            {(order.paymentStatus === "paid" || order.paymentStatus === "pending") && order.paymentStatus !== "confirmed" && (
-                              <Button
-                                size="sm"
-                                onClick={() => confirmPaymentMutation.mutate({ orderId: order.id })}
-                                disabled={confirmPaymentMutation.isPending}
-                                data-testid={`button-confirm-${order.id}`}
-                              >
-                                <CheckCircle className="w-4 h-4 mr-1" />
-                                Confirm to Chef
-                              </Button>
-                            )}
-                            {order.paymentStatus === "confirmed" && (
-                              <span className="text-xs font-medium text-green-700 dark:text-green-300">
-                                ✓ Confirmed
+                            {order.status === "cancelled" ? (
+                              <span className="text-xs font-medium text-red-700 dark:text-red-300">
+                                ⛔ Order Cancelled
                               </span>
+                            ) : (
+                              <>
+                                {order.paymentStatus === "pending" && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => markAsPaidMutation.mutate({ orderId: order.id })}
+                                    disabled={markAsPaidMutation.isPending}
+                                    data-testid={`button-mark-paid-${order.id}`}
+                                  >
+                                    ✓ Mark as Paid
+                                  </Button>
+                                )}
+                                {(order.paymentStatus === "paid" || order.paymentStatus === "pending") && order.paymentStatus !== "confirmed" && (
+                                  <Button
+                                    size="sm"
+                                    onClick={() => confirmPaymentMutation.mutate({ orderId: order.id })}
+                                    disabled={confirmPaymentMutation.isPending}
+                                    data-testid={`button-confirm-${order.id}`}
+                                  >
+                                    <CheckCircle className="w-4 h-4 mr-1" />
+                                    Confirm to Chef
+                                  </Button>
+                                )}
+                                {order.paymentStatus === "confirmed" && (
+                                  <span className="text-xs font-medium text-green-700 dark:text-green-300">
+                                    ✓ Confirmed
+                                  </span>
+                                )}
+                              </>
                             )}
                           </div>
                         </TableCell>
