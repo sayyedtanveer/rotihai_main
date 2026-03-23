@@ -192,18 +192,23 @@ export default function PaymentQRDialog({
       
       if (app === "gpay") {
         if (isIOS) {
-          // iOS: Open Google Pay with phone search
-          // Format: tez://send?pa=PHONE@phonepe (UPI allows phone-based transfer)
+          // iOS: Open Google Pay (Tez) with recipient search
+          // Format: tez://send?pa=PHONE@UPI_PROVIDER
+          // Common UPI providers: okaxis, okhdfcbank, okicici, okpnb, etc.
           if (merchantPhone) {
-            window.location.href = `tez://send?pa=${merchantPhone}@okhdfcbank`;
+            // Try with okhdfcbank first (HDFC Bank), standard provider code
+            const upiId = `${merchantPhone}@okhdfcbank`;
+            window.location.href = `tez://send?pa=${upiId}`;
           } else {
             window.location.href = "tez://";
           }
         } else {
-          // Android: Use UPI request with phone-based recipient
-          // Format: upi://req?pa=PHONE@bank
+          // Android: Use UPI direct request format for Google Pay
+          // This opens the UPI request dialog with pre-filled recipient
           if (merchantPhone) {
-            window.location.href = `upi://req?pa=${merchantPhone}@okhdfcbank`;
+            const upiId = `${merchantPhone}@okhdfcbank`;
+            // Android uses upi:// scheme for recipient-based transfers
+            window.location.href = `upi://req?pa=${upiId}`;
           } else {
             window.location.href = "https://pay.google.com";
           }
@@ -213,7 +218,7 @@ export default function PaymentQRDialog({
       toast({
         title: "Opening Google Pay",
         description: merchantPhone 
-          ? `Sending to: ${merchantPhone}\nAmount: ₹${amount}\nVerify and complete`
+          ? `Recipient: ${merchantPhone}\nAmount: ₹${amount}\nVerify and complete`
           : `Enter amount: ₹${amount}\nVerify and complete`,
       });
     } catch (error) {
@@ -775,8 +780,8 @@ export default function PaymentQRDialog({
               </div>
               <p className="text-xs text-slate-600 dark:text-slate-400">
                 <strong>Steps:</strong><br/>
-                1. Click "Google Pay" button (pre-searches our number)<br/>
-                2. If not found, enter our phone: <strong>{phone}</strong><br/>
+                1. Click "Google Pay" button (auto-searches our number)<br/>
+                2. Verify our phone: <strong>{paymentSettings.merchantPhone}</strong><br/>
                 3. Enter amount: <strong>₹{amount}</strong><br/>
                 4. Complete payment and return to confirm
               </p>
