@@ -79,6 +79,7 @@ export default function CheckoutDialog({
   const [addressArea, setAddressArea] = useState("");
   const [addressCity, setAddressCity] = useState("Mumbai");
   const [addressPincode, setAddressPincode] = useState("");
+  const [deliveryInstructions, setDeliveryInstructions] = useState(""); // ✅ NEW: Optional delivery instructions
 
   // Full address for display
   const address = [addressBuilding, addressStreet, addressArea, addressCity, addressPincode]
@@ -753,6 +754,7 @@ export default function CheckoutDialog({
       setCustomerName(user.name || "");
       setPhone(user.phone || "");
       setEmail(user.email || "");
+      setDeliveryInstructions(""); // ✅ Reset delivery instructions when loading from profile
       
       // ✅ FIX: Parse structured address properly from user profile
       let parsedAddress = null;
@@ -782,7 +784,7 @@ export default function CheckoutDialog({
       const hasStoredCoords = !!localStorage.getItem("lastValidatedDeliveryAddress") || !!localStorage.getItem("lastValidatedAddressStructured");
       const userWithLocation = user as any; // Cast to bypass TS if User type is missing these fields
       
-      // ✅ NEW: Only mark address as validated if ALL required fields are present
+      // ✅ ALL 4 FIELDS REQUIRED: Building, Street, Area, Pincode must all be present
       const hasCompleteAddress = 
         parsedAddress?.building?.trim() &&
         parsedAddress?.street?.trim() &&
@@ -794,7 +796,7 @@ export default function CheckoutDialog({
         setCustomerLatitude(userWithLocation.latitude);
         setCustomerLongitude(userWithLocation.longitude);
         
-        // Only mark validated if address is complete
+        // Only mark validated if ALL 4 address fields are complete
         if (hasCompleteAddress) {
           setAddressZoneValidated(true);
           setAddressInDeliveryZone(true);
@@ -808,6 +810,13 @@ export default function CheckoutDialog({
       setActiveTab("checkout");
     }
   }, [user, isAuthenticated, isOpen, customerLatitude]);
+
+  // ✅ NEW: Reset delivery instructions when dialog closes
+  useEffect(() => {
+    if (!isOpen) {
+      setDeliveryInstructions("");
+    }
+  }, [isOpen]);
 
   // 🛡️ FIX BUG 5: Validate cart exists when dialog opens to prevent stale prop issue
   // If cart prop is null/empty but exists in Zustand store, refresh it
@@ -1677,14 +1686,14 @@ export default function CheckoutDialog({
       return;
     }
 
-    // ✅ NEW: Require Building/House No
+    // ✅ MANDATORY: Require Building/House No
     if (!addressBuilding.trim()) {
       setLocationError("Please enter building/house number");
       setAddressZoneValidated(false);
       return;
     }
 
-    // ✅ NEW: Require Street/Colony
+    // ✅ MANDATORY: Require Street/Colony
     if (!addressStreet.trim()) {
       setLocationError("Please enter street/colony name");
       setAddressZoneValidated(false);
@@ -2029,6 +2038,43 @@ export default function CheckoutDialog({
       return;
     }
 
+    // ✅ NEW: Validate all 4 address fields are mandatory
+    if (!addressBuilding.trim()) {
+      toast({
+        title: "Address Incomplete",
+        description: "Please enter building/house number",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!addressStreet.trim()) {
+      toast({
+        title: "Address Incomplete",
+        description: "Please enter street/colony name",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!addressArea.trim()) {
+      toast({
+        title: "Address Incomplete",
+        description: "Please enter area/locality name",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!addressPincode.trim()) {
+      toast({
+        title: "Address Incomplete",
+        description: "Please enter pincode",
+        variant: "destructive",
+      });
+      return;
+    }
+
     // Prevent checkout if phone exists but user is not logged in
     // CRITICAL: We must check !isAuthenticated, NOT just !userToken. 
     // A stale/expired token in localStorage would bypass this check but fail the order.
@@ -2092,6 +2138,7 @@ export default function CheckoutDialog({
         addressArea,
         addressCity,
         addressPincode,
+        deliveryInstructions: deliveryInstructions.trim() || undefined, // ✅ NEW: Add optional delivery instructions
         items: validCart.items.map((item: CartItem) => ({
           id: item.id,
           name: item.name,
@@ -2447,7 +2494,7 @@ export default function CheckoutDialog({
                         <div className="grid grid-cols-2 gap-2">
                           <div>
                             <Label htmlFor="building" className="text-xs text-gray-600">
-                              Building/House No
+                              Building/House No <span className="text-red-500">*</span>
                             </Label>
                             <Input
                               id="building"
@@ -2455,11 +2502,12 @@ export default function CheckoutDialog({
                               onChange={(e) => handleAddressChange('building', e.target.value)}
                               placeholder="e.g., 18/20"
                               className="text-sm"
+                              required
                             />
                           </div>
                           <div>
                             <Label htmlFor="street" className="text-xs text-gray-600">
-                              Street/Colony
+                              Street/Colony <span className="text-red-500">*</span>
                             </Label>
                             <Input
                               id="street"
@@ -2467,6 +2515,7 @@ export default function CheckoutDialog({
                               onChange={(e) => handleAddressChange('street', e.target.value)}
                               placeholder="e.g., LJG Colony"
                               className="text-sm"
+                              required
                             />
                           </div>
                         </div>
@@ -2582,6 +2631,23 @@ export default function CheckoutDialog({
                               />
                             </div>
                           </div>
+                        </div>
+
+                        {/* ✅ NEW: Delivery Instructions (Optional) */}
+                        <div className="space-y-2">
+                          <Label htmlFor="deliveryInstructions" className="text-xs text-gray-600">
+                            Delivery Instructions (Optional)
+                          </Label>
+                          <textarea
+                            id="deliveryInstructions"
+                            value={deliveryInstructions}
+                            onChange={(e) => setDeliveryInstructions(e.target.value.slice(0, 200))}
+                            placeholder="e.g., 'Red gate building', 'Near the temple', 'Watch dog present'"
+                            maxLength={200}
+                            rows={2}
+                            className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent resize-none"
+                          />
+                          <p className="text-xs text-gray-500">{deliveryInstructions.length}/200</p>
                         </div>
                       </div>
                     ) : (

@@ -1,6 +1,8 @@
 import type { Express } from "express";
 import jwt from "jsonwebtoken";
 import { storage } from "./storage";
+import fs from "fs/promises";
+import path from "path";
 import {
   hashPassword,
   verifyPassword,
@@ -12,6 +14,11 @@ import {
   verifyToken,
   type AuthenticatedAdminRequest,
 } from "./adminAuth";
+// ✅ Import user token generators for customer accounts
+import {
+  generateAccessToken as generateUserAccessToken,
+  generateRefreshToken as generateUserRefreshToken,
+} from "./userAuth";
 import { db, walletSettings, referralRewards, orders } from "@shared/db";
 import { adminLoginSchema, insertAdminUserSchema, insertCategorySchema, insertProductSchema, insertDeliveryPersonnelSchema, insertDeliveryTimeSlotsSchema, insertReferralRewardSchema, insertCouponSchema } from "@shared/schema";
 import { fromZodError } from "zod-validation-error";
@@ -501,9 +508,9 @@ export function registerAdminRoutes(app: Express) {
           await db.update(orders).set({ userId: user.id }).where(eq(orders.id, orderId));
           order.userId = user.id;
 
-          // Generate tokens for immediate login
-          accessToken = generateAccessToken(user);
-          refreshToken = generateRefreshToken(user);
+          // Generate tokens for immediate login (using customer user tokens, not admin tokens)
+          accessToken = generateUserAccessToken(user);
+          refreshToken = generateUserRefreshToken(user);
 
           // 🎯 Apply referral bonus if order has referral code (new user only)
           if (order.referralCode && userCreated) {
@@ -525,9 +532,9 @@ export function registerAdminRoutes(app: Express) {
           await db.update(orders).set({ userId: user.id }).where(eq(orders.id, orderId));
           order.userId = user.id;
 
-          // Generate tokens for login
-          accessToken = generateAccessToken(user);
-          refreshToken = generateRefreshToken(user);
+          // Generate tokens for login (using customer user tokens, not admin tokens)
+          accessToken = generateUserAccessToken(user);
+          refreshToken = generateUserRefreshToken(user);
         }
       }
 
@@ -4117,6 +4124,107 @@ export function registerAdminRoutes(app: Express) {
     } catch (error) {
       console.error("Error fetching coupon stats:", error);
       res.status(500).json({ message: "Failed to fetch coupon statistics" });
+    }
+  });
+
+  // ============ PAYMENT SETTINGS ENDPOINTS ============
+
+  const PAYMENT_SETTINGS_FILE = path.join(process.cwd(), "data", "payment-settings.json");
+
+  // Helper: Ensure data directory exists
+  const ensureDataDir = async () => {
+    try {
+      await fs.mkdir(path.join(process.cwd(), "data"), { recursive: true });
+    } catch (error) {
+      // Directory already exists
+    }
+  };
+
+  // Helper: Read payment settings from JSON file
+  const readPaymentSettings = async () => {
+    try {
+      await ensureDataDir();
+      const data = await fs.readFile(PAYMENT_SETTINGS_FILE, 'utf-8');
+      return JSON.parse(data);
+    } catch (error) {
+      // File doesn't exist or error reading - return defaults
+      return {
+        merchantPhone: process.env.VITE_MERCHANT_PHONE || "9773765103",
+        upiId: process.env.VITE_UPI_ID || "sayyedtanveer1410-1@oksbi",
+        merchantName: "RotiHai",
+        supportPhone: "918169020290",
+      };
+    }
+  };
+
+  // Helper: Write payment settings to JSON file
+  const writePaymentSettings = async (settings: any) => {
+    try {
+      await ensureDataDir();
+      await fs.writeFile(PAYMENT_SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf-8');
+      return settings;
+    } catch (error) {
+      console.error("Error writing payment settings:", error);
+      throw error;
+    }
+  };
+
+  // Public: Get payment settings (for payment UI)
+  app.get("/api/payment-settings", async (req, res) => {
+    try {
+      const settings = await readPaymentSettings();
+      res.json(settings);
+    } catch (error) {
+      console.error("Error fetching payment settings:", error);
+      res.status(500).json({ message: "Failed to fetch payment settings" });
+    }
+  });
+
+  // Admin: Get payment settings
+  app.get("/api/admin/payment-settings", requireAdmin(), async (req: AuthenticatedAdminRequest, res) => {
+    try {
+      const settings = await readPaymentSettings();
+      res.json(settings);
+    } catch (error) {
+      console.error("Error fetching payment settings:", error);
+      res.status(500).json({ message: "Failed to fetch payment settings" });
+    }
+  });
+
+  // Admin: Save payment settings
+  app.post("/api/admin/payment-settings", requireAdmin(), async (req: AuthenticatedAdminRequest, res) => {
+    try {
+      const { merchantPhone, upiId, merchantName, supportPhone } = req.body;
+
+      // Validate required fields
+      if (!merchantPhone || !merchantName) {
+        res.status(400).json({ message: "Merchant phone and name are required" });
+        return;
+      }
+
+      // Validate phone format (10 digits or with +91 prefix)
+      const cleanPhone = merchantPhone.replace(/\D/g, '');
+      if (!/^\d{10}$|^91\d{10}$/.test(cleanPhone)) {
+        res.status(400).json({ message: "Invalid merchant phone number. Use 10 digits or +91 format." });
+        return;
+      }
+
+      // Save to file
+      const settings = await writePaymentSettings({
+        merchantPhone,
+        upiId: upiId || process.env.VITE_UPI_ID || "sayyedtanveer1410-1@oksbi",
+        merchantName,
+        supportPhone: supportPhone || "918169020290",
+      });
+
+      console.log("✅ Admin updated payment settings:", { merchantPhone, merchantName });
+      res.json({
+        message: "Payment settings updated successfully",
+        settings,
+      });
+    } catch (error: any) {
+      console.error("Error updating payment settings:", error);
+      res.status(500).json({ message: error.message || "Failed to update payment settings" });
     }
   });
 

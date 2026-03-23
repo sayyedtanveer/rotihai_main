@@ -82,6 +82,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     { name: "Orders", href: "/admin/orders", icon: ShoppingBag },
     { name: "Payments", href: "/admin/payments", icon: CreditCard },
     { name: "Pending Checkouts", href: "/admin/pending-checkouts", icon: Clock },
+    { name: "Payment Settings", href: "/admin/payment-settings", icon: CreditCard },
     { name: "Products", href: "/admin/products", icon: Package },
     { name: "Inventory", href: "/admin/inventory", icon: Boxes },
     { name: "Categories", href: "/admin/categories", icon: FolderKanban },

@@ -74,7 +74,7 @@ export default function PaymentQRDialog({
   const address = paymentData ? paymentData.address : legacyAddress;
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [upiId] = useState(PAYMENT_CONFIG.upiId);
+  const [paymentSettings, setPaymentSettings] = useState<any>(PAYMENT_CONFIG);
   const [hasPaid, setHasPaid] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
   const [upiIntent, setUpiIntent] = useState("");
@@ -87,6 +87,27 @@ export default function PaymentQRDialog({
   const { isAuthenticated } = useAuth();  // ✅ NEW: Check if user is logged in
   const [, setLocation] = useLocation();
   const isMobile = isMobileDevice();
+
+  // ✅ Fetch payment settings dynamically on component mount
+  useEffect(() => {
+    const fetchPaymentSettings = async () => {
+      try {
+        const response = await fetch("/api/payment-settings");
+        if (response.ok) {
+          const settings = await response.json();
+          setPaymentSettings(settings);
+          console.log("[PAYMENT QR] Fetched payment settings:", settings);
+        }
+      } catch (error) {
+        console.warn("[PAYMENT QR] Failed to fetch payment settings, using defaults:", error);
+        // Use defaults if fetch fails
+      }
+    };
+
+    if (isOpen) {
+      fetchPaymentSettings();
+    }
+  }, [isOpen]);
 
   // Set isConfirming to true when dialog opens (prevents closing immediately)
   // Reset when dialog closes
@@ -107,8 +128,8 @@ export default function PaymentQRDialog({
     if (isOpen) {
       const transactionRef = isOptionA ? `TEMP${Date.now()}` : (orderId || "TXN").slice(0, 8);
       const intent = generateUPIIntent({
-        upiId: upiId,
-        name: PAYMENT_CONFIG.merchantName,
+        upiId: paymentSettings.upiId,
+        name: paymentSettings.merchantName,
         amount: amount || 0,
         transactionNote: `Order #${transactionRef}`,
       });
@@ -117,7 +138,7 @@ export default function PaymentQRDialog({
       console.log("[PAYMENT QR] Dialog opened, setting intent");
       setUpiIntent(intent);
     }
-  }, [isOpen, upiId, amount, orderId, isOptionA]);
+  }, [isOpen, paymentSettings.upiId, paymentSettings.merchantName, amount, orderId, isOptionA]);
 
   // Render QR code to canvas separately after intent is set
   useEffect(() => {
@@ -155,7 +176,7 @@ export default function PaymentQRDialog({
   }, [upiIntent]);
 
   const copyUpiId = () => {
-    navigator.clipboard.writeText(upiId);
+    navigator.clipboard.writeText(paymentSettings.upiId);
     toast({
       title: "Copied!",
       description: "UPI ID copied to clipboard",
@@ -166,30 +187,34 @@ export default function PaymentQRDialog({
     try {
       const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
       
-      // Get merchant phone number (you might need to add this to PAYMENT_CONFIG)
-      const merchantPhone = phone || PAYMENT_CONFIG.merchantPhone || "";
+      // Get merchant phone number from settings
+      const merchantPhone = paymentSettings.merchantPhone || "";
       
       if (app === "gpay") {
         if (isIOS) {
-          // iOS: Open Google Pay with phone number search
-          // Format: tez://search?phone=PHONE_NUMBER or similar
-          window.location.href = merchantPhone 
-            ? `tez://search?phone=${merchantPhone}`
-            : "tez://";
+          // iOS: Open Google Pay with phone search
+          // Format: tez://send?pa=PHONE@phonepe (UPI allows phone-based transfer)
+          if (merchantPhone) {
+            window.location.href = `tez://send?pa=${merchantPhone}@okhdfcbank`;
+          } else {
+            window.location.href = "tez://";
+          }
         } else {
-          // Android: Open Google Pay with payment intent to phone number
-          // Use the tez:// scheme with search parameter for the phone
-          window.location.href = merchantPhone
-            ? `tez://upi/send?pa=${merchantPhone}@okaxis`
-            : "https://pay.google.com";
+          // Android: Use UPI request with phone-based recipient
+          // Format: upi://req?pa=PHONE@bank
+          if (merchantPhone) {
+            window.location.href = `upi://req?pa=${merchantPhone}@okhdfcbank`;
+          } else {
+            window.location.href = "https://pay.google.com";
+          }
         }
       }
 
       toast({
         title: "Opening Google Pay",
         description: merchantPhone 
-          ? `Search for ${merchantPhone}\nEnter amount: ₹${amount}\nComplete payment`
-          : `Enter amount: ₹${amount}\nSearch for: ${phone || "Recipient"}\nComplete payment`,
+          ? `Sending to: ${merchantPhone}\nAmount: ₹${amount}\nVerify and complete`
+          : `Enter amount: ₹${amount}\nVerify and complete`,
       });
     } catch (error) {
       console.error("[PAYMENT QR] Error opening payment app:", error);
@@ -812,7 +837,7 @@ export default function PaymentQRDialog({
 
           <div className="border-t pt-3 sm:pt-4 space-y-2 sm:space-y-3">
             <div className="flex items-center justify-between bg-muted/50 p-2 sm:p-3 rounded-lg">
-              <span className="text-sm font-medium">UPI ID: {upiId}</span>
+              <span className="text-sm font-medium">UPI ID: {paymentSettings.upiId}</span>
               <Button
                 size="sm"
                 variant="ghost"
