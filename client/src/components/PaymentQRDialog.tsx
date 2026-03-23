@@ -9,7 +9,7 @@ import { Loader2, Copy, Smartphone, AlertCircle, CheckCircle2, ChevronDown } fro
 import { useToast } from "@/hooks/use-toast";
 import QRCode from "qrcode";
 import { useLocation } from "wouter";
-import { generateUPIIntent, isMobileDevice } from "@/lib/upi-payment";
+import { generateUPIIntent, isMobileDevice, getPaymentAppDeepLink } from "@/lib/upi-payment";
 import { PAYMENT_CONFIG } from "@/lib/paymentConfig";
 import api from "@/lib/apiClient";
 import { queryClient } from "@/lib/queryClient";
@@ -164,14 +164,14 @@ export default function PaymentQRDialog({
 
   const handlePayWithApp = (app: "gpay" | "phonepe" | "paytm") => {
     try {
-      // Use standard UPI protocol - user will see app chooser dialog
-      // No app-specific deep links needed (avoids merchant validation errors)
-      console.log(`[PAYMENT QR] Opening UPI payment:`, upiIntent);
-      window.location.href = upiIntent;
+      // Use app-specific deep link to open the exact UPI app
+      const appSpecificLink = getPaymentAppDeepLink(app, upiIntent);
+      console.log(`[PAYMENT QR] Opening ${app} with deep link:`, appSpecificLink);
+      window.location.href = appSpecificLink;
 
       toast({
         title: "Opening Payment App",
-        description: "Choose your UPI app to complete payment...",
+        description: `Opening ${app === "gpay" ? "Google Pay" : app === "phonepe" ? "PhonePe" : "Paytm"}...`,
       });
     } catch (error) {
       console.error("[PAYMENT QR] Error opening payment app:", error);
@@ -302,13 +302,15 @@ export default function PaymentQRDialog({
           queryClient.invalidateQueries({ queryKey: ["user-orders"] });
           queryClient.invalidateQueries({ queryKey: ["user-profile"] });
 
+          // ✅ CRITICAL: Clear cart BEFORE navigating away to prevent race conditions
+          onOrderSuccess?.();
+
           setLocation(`/track/${orderIdFromCheckout}`);
           setTimeout(() => {
             onClose();
           }, 100);
         }
 
-        onOrderSuccess?.();
         return;
       }
 
@@ -413,7 +415,7 @@ export default function PaymentQRDialog({
             description: "Your order has been submitted. We'll verify the payment shortly.",
           });
 
-          // ✅ Clear cart and form data after order confirmation
+          // ✅ CRITICAL: Clear cart BEFORE navigating away to prevent race conditions
           if (onOrderSuccess) {
             onOrderSuccess();
           }
@@ -524,7 +526,7 @@ export default function PaymentQRDialog({
           }, 100);
         }
 
-        // ✅ Clear cart and form data after order confirmation
+        // ✅ CRITICAL: Clear cart BEFORE dialog closes to prevent race conditions
         if (onOrderSuccess) {
           onOrderSuccess();
         }
@@ -694,21 +696,41 @@ export default function PaymentQRDialog({
           {upiIntent && (
             <div className="space-y-3 bg-slate-50 dark:bg-slate-900/20 p-4 rounded-lg border border-slate-200 dark:border-slate-700">
               <div className="flex items-center gap-2">
-                <span className="text-sm font-bold text-foreground">Or Pay with UPI App</span>
-                <span className="inline-block px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded text-xs font-semibold">Quick</span>
+                <span className="text-sm font-bold text-foreground">Pay with Your UPI App</span>
+                <span className="inline-block px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded text-xs font-semibold">Recommended</span>
               </div>
               <div className="flex gap-2">
                 <Button
-                  variant="outline"
-                  className="flex-1 flex flex-col items-center gap-2 h-auto py-4 border-2 hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950/20 transition-all"
+                  variant="default"
+                  className="flex-1 flex flex-col items-center gap-2 h-auto py-4 bg-green-600 hover:bg-green-700 text-white border-0 transition-all"
                   onClick={() => handlePayWithApp("gpay")}
                   data-testid="button-pay-gpay"
                 >
+                  <span className="text-2xl">💳</span>
+                  <span className="text-xs font-semibold">Google Pay</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled
+                  className="flex-1 flex flex-col items-center gap-2 h-auto py-4 opacity-50 cursor-not-allowed"
+                  data-testid="button-pay-phonepe"
+                  title="Coming soon"
+                >
                   <span className="text-2xl">📱</span>
-                  <span className="text-xs font-semibold">Open UPI App</span>
+                  <span className="text-xs font-semibold">PhonePe</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled
+                  className="flex-1 flex flex-col items-center gap-2 h-auto py-4 opacity-50 cursor-not-allowed"
+                  data-testid="button-pay-paytm"
+                  title="Coming soon"
+                >
+                  <span className="text-2xl">💰</span>
+                  <span className="text-xs font-semibold">Paytm</span>
                 </Button>
               </div>
-              <p className="text-xs text-slate-600 dark:text-slate-400">Your UPI app will open. Scan the QR code or enter details manually.</p>
+              <p className="text-xs text-slate-600 dark:text-slate-400">Your UPI app will open. Enter the UPI ID and amount manually to complete payment.</p>
             </div>
           )}
 

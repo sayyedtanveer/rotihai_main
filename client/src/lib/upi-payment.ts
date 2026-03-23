@@ -9,7 +9,8 @@ export interface UPIPaymentParams {
 
 /**
  * Generates UPI intent string for payment
- * Format: upi://pay?pa=<UPI_ID>&pn=<NAME>&am=<AMOUNT>&tn=<NOTE>
+ * For personal accounts: uses minimal format to avoid merchant validation
+ * Format: upi://pay?pa=<UPI_ID>&am=<AMOUNT>
  */
 export function generateUPIIntent({
   upiId,
@@ -17,11 +18,11 @@ export function generateUPIIntent({
   amount,
   transactionNote,
 }: UPIPaymentParams): string {
+  // Use minimal format for personal accounts (avoids merchant validation errors)
+  // Only include UPI ID and amount, skip name and note which trigger strict validation
   const params = new URLSearchParams({
     pa: upiId,
-    pn: name,
     am: amount.toString(),
-    tn: transactionNote,
     cu: "INR",
   });
 
