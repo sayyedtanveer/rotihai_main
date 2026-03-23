@@ -203,14 +203,16 @@ export default function PaymentQRDialog({
             window.location.href = "tez://";
           }
         } else {
-          // Android: Use UPI direct request format for Google Pay
-          // This opens the UPI request dialog with pre-filled recipient
+          // Android: Use Intent URI to specifically target Google Pay app
+          // This ensures Google Pay opens, not any other UPI app
           if (merchantPhone) {
             const upiId = `${merchantPhone}@okhdfcbank`;
-            // Android uses upi:// scheme for recipient-based transfers
-            window.location.href = `upi://req?pa=${upiId}`;
+            // Use intent:// URI to target Google Pay package specifically
+            // Format: intent://send?pa=UPI_ID#Intent;scheme=upi;package=com.google.android.apps.nbu.paisa.user;end
+            const intentUri = `intent://send?pa=${upiId}#Intent;scheme=upi;package=com.google.android.apps.nbu.paisa.user;action=android.intent.action.SENDTO;end`;
+            window.location.href = intentUri;
           } else {
-            window.location.href = "https://pay.google.com";
+            window.location.href = "https://play.google.com/store/apps/details?id=com.google.android.apps.nbu.paisa.user";
           }
         }
       }
