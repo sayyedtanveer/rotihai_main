@@ -192,15 +192,15 @@ export default function PaymentQRDialog({
       
       if (app === "gpay") {
         if (isIOS) {
-          // iOS: Open Google Pay (Tez) with recipient search
-          // Format: tez://send?pa=PHONE@UPI_PROVIDER
-          // Common UPI providers: okaxis, okhdfcbank, okicici, okpnb, etc.
+          // iOS: Use UPI deeplink with payee name to auto-fill recipient search
+          // The 'pn' (payee name) parameter helps iOS pre-populate the recipient field
           if (merchantPhone) {
-            // Try with okhdfcbank first (HDFC Bank), standard provider code
             const upiId = `${merchantPhone}@okhdfcbank`;
-            window.location.href = `tez://send?pa=${upiId}`;
+            // Add payee name to help pre-populate recipient in search
+            const payeeName = paymentSettings.merchantName || "Roti Vilas";
+            window.location.href = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(payeeName)}&tr=RotiVilasPayment`;
           } else {
-            window.location.href = "tez://";
+            window.location.href = "upi://";
           }
         } else {
           // Android: Use Intent URI to specifically target Google Pay app
