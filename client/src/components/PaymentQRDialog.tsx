@@ -164,43 +164,38 @@ export default function PaymentQRDialog({
 
   const handlePayWithApp = (app: "gpay" | "phonepe" | "paytm") => {
     try {
-      // Detect iOS
       const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
       
-      if (isIOS) {
-        // iOS: UPI app handling is limited. WhatsApp intercepts most UPI links.
-        // Best approach: Copy UPI ID and show instructions to manually open Google Pay
-        console.log("[PAYMENT QR] iOS detected - showing manual entry instructions");
-        
-        navigator.clipboard.writeText(upiId);
-        
-        toast({
-          title: "UPI ID Copied",
-          description: `UPI ID copied! Open Google Pay and paste it. Amount: ₹${amount}`,
-        });
-        
-        // Optional: Try to open Google Pay anyway (might work on some iOS versions)
-        // But user has already been instructed to do manual entry
-        setTimeout(() => {
-          window.location.href = `tez://upi/pay?pa=${upiId}&cu=INR`;
-        }, 1000);
-        
-        return;
-      }
+      // Get merchant phone number (you might need to add this to PAYMENT_CONFIG)
+      const merchantPhone = phone || PAYMENT_CONFIG.merchantPhone || "";
       
-      // Android: Open UPI app with standard protocol
-      console.log(`[PAYMENT QR] Android - Opening ${app}:`, upiIntent);
-      window.location.href = upiIntent;
+      if (app === "gpay") {
+        if (isIOS) {
+          // iOS: Open Google Pay with phone number search
+          // Format: tez://search?phone=PHONE_NUMBER or similar
+          window.location.href = merchantPhone 
+            ? `tez://search?phone=${merchantPhone}`
+            : "tez://";
+        } else {
+          // Android: Open Google Pay with payment intent to phone number
+          // Use the tez:// scheme with search parameter for the phone
+          window.location.href = merchantPhone
+            ? `tez://upi/send?pa=${merchantPhone}@okaxis`
+            : "https://pay.google.com";
+        }
+      }
 
       toast({
-        title: "Opening Payment App",
-        description: `Opening ${app === "gpay" ? "Google Pay" : app === "phonepe" ? "PhonePe" : "Paytm"}. Enter ₹${amount}...`,
+        title: "Opening Google Pay",
+        description: merchantPhone 
+          ? `Search for ${merchantPhone}\nEnter amount: ₹${amount}\nComplete payment`
+          : `Enter amount: ₹${amount}\nSearch for: ${phone || "Recipient"}\nComplete payment`,
       });
     } catch (error) {
       console.error("[PAYMENT QR] Error opening payment app:", error);
       toast({
         title: "Error",
-        description: "Failed to open payment app. Please scan QR code instead.",
+        description: "Failed to open app. Please scan QR code instead.",
         variant: "destructive",
       });
     }
@@ -753,7 +748,13 @@ export default function PaymentQRDialog({
                   <span className="text-xs font-semibold">Paytm</span>
                 </Button>
               </div>
-              <p className="text-xs text-slate-600 dark:text-slate-400">Tap to open your UPI app. Manually enter amount: <strong>₹{amount}</strong></p>
+              <p className="text-xs text-slate-600 dark:text-slate-400">
+                <strong>Steps:</strong><br/>
+                1. Click "Google Pay" button (pre-searches our number)<br/>
+                2. If not found, enter our phone: <strong>{phone}</strong><br/>
+                3. Enter amount: <strong>₹{amount}</strong><br/>
+                4. Complete payment and return to confirm
+              </p>
             </div>
           )}
 
