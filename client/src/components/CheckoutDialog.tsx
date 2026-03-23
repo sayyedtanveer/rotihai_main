@@ -755,10 +755,11 @@ export default function CheckoutDialog({
       setEmail(user.email || "");
       
       // ✅ FIX: Parse structured address properly from user profile
+      let parsedAddress = null;
       if (user.address) {
         try {
           // Try to parse address as JSON if it's stored as object
-          const parsedAddress = typeof user.address === 'string' 
+          parsedAddress = typeof user.address === 'string' 
             ? JSON.parse(user.address)
             : user.address;
           
@@ -780,12 +781,28 @@ export default function CheckoutDialog({
       // ✅ Restore coordinates from DB if localStorage is empty and we don't have them yet
       const hasStoredCoords = !!localStorage.getItem("lastValidatedDeliveryAddress") || !!localStorage.getItem("lastValidatedAddressStructured");
       const userWithLocation = user as any; // Cast to bypass TS if User type is missing these fields
+      
+      // ✅ NEW: Only mark address as validated if ALL required fields are present
+      const hasCompleteAddress = 
+        parsedAddress?.building?.trim() &&
+        parsedAddress?.street?.trim() &&
+        parsedAddress?.area?.trim() &&
+        parsedAddress?.pincode?.trim();
+      
       if (userWithLocation.latitude && userWithLocation.longitude && !hasStoredCoords && customerLatitude === null) {
         console.log("[CHECKOUT] Restoring coordinates from DB profile:", userWithLocation.latitude, userWithLocation.longitude);
         setCustomerLatitude(userWithLocation.latitude);
         setCustomerLongitude(userWithLocation.longitude);
-        setAddressZoneValidated(true);
-        setAddressInDeliveryZone(true);
+        
+        // Only mark validated if address is complete
+        if (hasCompleteAddress) {
+          setAddressZoneValidated(true);
+          setAddressInDeliveryZone(true);
+          console.log("[CHECKOUT] ✅ Complete address loaded - marked as validated");
+        } else {
+          setAddressZoneValidated(false);
+          console.log("[CHECKOUT] ⚠️ Incomplete address loaded - NOT marked as validated, requires re-validation");
+        }
       }
 
       setActiveTab("checkout");
@@ -1656,6 +1673,20 @@ export default function CheckoutDialog({
     // Require at least area
     if (!addressArea.trim() || addressArea.trim().length < 2) {
       setLocationError("Please enter at least the area/locality name");
+      setAddressZoneValidated(false);
+      return;
+    }
+
+    // ✅ NEW: Require Building/House No
+    if (!addressBuilding.trim()) {
+      setLocationError("Please enter building/house number");
+      setAddressZoneValidated(false);
+      return;
+    }
+
+    // ✅ NEW: Require Street/Colony
+    if (!addressStreet.trim()) {
+      setLocationError("Please enter street/colony name");
       setAddressZoneValidated(false);
       return;
     }
