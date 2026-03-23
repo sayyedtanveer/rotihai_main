@@ -164,15 +164,37 @@ export default function PaymentQRDialog({
 
   const handlePayWithApp = (app: "gpay" | "phonepe" | "paytm") => {
     try {
-      // Use standard UPI protocol (not app-specific deep links)
-      // App-specific deep links trigger merchant validation
-      // Standard upi:// protocol is treated as personal transfer (no limits)
-      console.log(`[PAYMENT QR] Opening ${app} with standard UPI protocol:`, upiIntent);
+      // Detect iOS
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+      
+      if (isIOS) {
+        // iOS: UPI app handling is limited. WhatsApp intercepts most UPI links.
+        // Best approach: Copy UPI ID and show instructions to manually open Google Pay
+        console.log("[PAYMENT QR] iOS detected - showing manual entry instructions");
+        
+        navigator.clipboard.writeText(upiId);
+        
+        toast({
+          title: "UPI ID Copied",
+          description: `UPI ID copied! Open Google Pay and paste it. Amount: ₹${amount}`,
+        });
+        
+        // Optional: Try to open Google Pay anyway (might work on some iOS versions)
+        // But user has already been instructed to do manual entry
+        setTimeout(() => {
+          window.location.href = `tez://upi/pay?pa=${upiId}&cu=INR`;
+        }, 1000);
+        
+        return;
+      }
+      
+      // Android: Open UPI app with standard protocol
+      console.log(`[PAYMENT QR] Android - Opening ${app}:`, upiIntent);
       window.location.href = upiIntent;
 
       toast({
         title: "Opening Payment App",
-        description: `Opening ${app === "gpay" ? "Google Pay" : app === "phonepe" ? "PhonePe" : "Paytm"}...`,
+        description: `Opening ${app === "gpay" ? "Google Pay" : app === "phonepe" ? "PhonePe" : "Paytm"}. Enter ₹${amount}...`,
       });
     } catch (error) {
       console.error("[PAYMENT QR] Error opening payment app:", error);
@@ -731,7 +753,7 @@ export default function PaymentQRDialog({
                   <span className="text-xs font-semibold">Paytm</span>
                 </Button>
               </div>
-              <p className="text-xs text-slate-600 dark:text-slate-400">Your UPI app will open. Enter the UPI ID and amount manually to complete payment.</p>
+              <p className="text-xs text-slate-600 dark:text-slate-400">Tap to open your UPI app. Manually enter amount: <strong>₹{amount}</strong></p>
             </div>
           )}
 

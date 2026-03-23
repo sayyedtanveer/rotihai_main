@@ -9,8 +9,9 @@ export interface UPIPaymentParams {
 
 /**
  * Generates UPI intent string for payment
- * For personal accounts: uses minimal format to avoid merchant validation
- * Format: upi://pay?pa=<UPI_ID>&am=<AMOUNT>
+ * For personal accounts: uses UPIID only (NO amount) to avoid merchant validation
+ * Bank validation is triggered by including amount - user enters amount manually in app
+ * Format: upi://pay?pa=<UPI_ID>
  */
 export function generateUPIIntent({
   upiId,
@@ -18,11 +19,12 @@ export function generateUPIIntent({
   amount,
   transactionNote,
 }: UPIPaymentParams): string {
-  // Use minimal format for personal accounts (avoids merchant validation errors)
-  // Only include UPI ID and amount, skip name and note which trigger strict validation
+  // CRITICAL: Do NOT include amount (am) parameter
+  // Including amount triggers merchant validation which blocks personal accounts
+  // Bank will show limit errors even for ₹1 transfers
+  // User will manually enter amount in their UPI app
   const params = new URLSearchParams({
     pa: upiId,
-    am: amount.toString(),
     cu: "INR",
   });
 
