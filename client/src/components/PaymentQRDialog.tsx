@@ -9,7 +9,7 @@ import { Loader2, Copy, Smartphone, AlertCircle, CheckCircle2, ChevronDown } fro
 import { useToast } from "@/hooks/use-toast";
 import QRCode from "qrcode";
 import { useLocation } from "wouter";
-import { generateUPIIntent, isMobileDevice, getPaymentAppDeepLink } from "@/lib/upi-payment";
+import { generateUPIIntent, isMobileDevice } from "@/lib/upi-payment";
 import { PAYMENT_CONFIG } from "@/lib/paymentConfig";
 import api from "@/lib/apiClient";
 import { queryClient } from "@/lib/queryClient";
@@ -164,10 +164,11 @@ export default function PaymentQRDialog({
 
   const handlePayWithApp = (app: "gpay" | "phonepe" | "paytm") => {
     try {
-      // Use app-specific deep link to open the exact UPI app
-      const appSpecificLink = getPaymentAppDeepLink(app, upiIntent);
-      console.log(`[PAYMENT QR] Opening ${app} with deep link:`, appSpecificLink);
-      window.location.href = appSpecificLink;
+      // Use standard UPI protocol (not app-specific deep links)
+      // App-specific deep links trigger merchant validation
+      // Standard upi:// protocol is treated as personal transfer (no limits)
+      console.log(`[PAYMENT QR] Opening ${app} with standard UPI protocol:`, upiIntent);
+      window.location.href = upiIntent;
 
       toast({
         title: "Opening Payment App",
