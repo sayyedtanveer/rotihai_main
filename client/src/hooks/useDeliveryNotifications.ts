@@ -15,94 +15,101 @@ export function useDeliveryNotifications() {
   const fetchPendingBroadcasts = useCallback(async () => {
     try {
       const token = localStorage.getItem("deliveryToken");
-      console.log("[NOTIFICATIONS] 📥 Fetching pending broadcasts - token exists:", !!token);
+      console.log("[NOTIFICATIONS] Step 1️⃣ Token check:", !!token, `Length: ${token?.length || 0}`);
       
       if (!token) {
         console.log("[NOTIFICATIONS] ⏸️ No token, skipping fetch");
         return;
       }
 
-      console.log("[NOTIFICATIONS] 🔍 Token details:", {
-        tokenLength: token.length,
-        tokenStart: token.substring(0, 20) + "...",
-        tokenEnd: "..." + token.substring(token.length - 20)
+      // Step 2: Log token structure
+      console.log("[NOTIFICATIONS] Step 2️⃣ Token structure valid:", {
+        startsWithEyJ: token.startsWith('eyJ'),
+        hasDots: token.includes('.'),
+        length: token.length
       });
 
-      console.log("[NOTIFICATIONS] 📡 Calling /api/notifications/pending with token");
       const { default: api } = await import("@/lib/apiClient");
+      console.log("[NOTIFICATIONS] Step 3️⃣ API/axios imported successfully");
       
-      try {
-        const { data: pending } = await api.get("/api/notifications/pending");
-        console.log("[NOTIFICATIONS] ✅ Received response, count:", pending?.length || 0);
+      // Step 4: Make the request with explicit Authorization header
+      console.log("[NOTIFICATIONS] Step 4️⃣ Making request to /api/notifications/pending with explicit token");
+      const { data: pending } = await api.get("/api/notifications/pending", {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      console.log("[NOTIFICATIONS] Step 5️⃣ ✅ SUCCESS! Received pending:", pending?.length || 0, 'items');
 
-        if (Array.isArray(pending) && pending.length > 0) {
-          console.log(`📥 Recovered ${pending.length} pending broadcasts`);
+      if (Array.isArray(pending) && pending.length > 0) {
+        console.log(`📥 Recovered ${pending.length} pending broadcasts`);
 
-          let newOrdersCountLocal = 0;
-          const processedIds: string[] = [];
+        let newOrdersCountLocal = 0;
+        const processedIds: string[] = [];
 
-          pending.forEach((broadcast: any) => {
-            if (["order_assigned", "order_confirmed", "new_prepared_order"].includes(broadcast.eventType)) {
-              const order = broadcast.payload?.data || broadcast.payload?.order;
-              if (order && !processedOrderIds.current.has(order.id)) {
-                processedOrderIds.current.add(order.id);
-                newOrdersCountLocal++;
+        pending.forEach((broadcast: any) => {
+          if (["order_assigned", "order_confirmed", "new_prepared_order"].includes(broadcast.eventType)) {
+            const order = broadcast.payload?.data || broadcast.payload?.order;
+            if (order && !processedOrderIds.current.has(order.id)) {
+              processedOrderIds.current.add(order.id);
+              newOrdersCountLocal++;
 
-                const notificationTitle =
-                  broadcast.eventType === "order_confirmed" ? "Order Ready for Pickup!" :
-                    broadcast.eventType === "new_prepared_order" ? "New Order Available!" :
-                      "New Delivery Assignment!";
+              const notificationTitle =
+                broadcast.eventType === "order_confirmed" ? "Order Ready for Pickup!" :
+                  broadcast.eventType === "new_prepared_order" ? "New Order Available!" :
+                    "New Delivery Assignment!";
 
-                toast({
-                  title: `Recovered: ${notificationTitle}`,
-                  description: broadcast.payload?.message || `Order #${order.id.slice(0, 8)}`,
-                  duration: 10000,
+              toast({
+                title: `Recovered: ${notificationTitle}`,
+                description: broadcast.payload?.message || `Order #${order.id.slice(0, 8)}`,
+                duration: 10000,
+              });
+
+              if (Notification.permission === "granted") {
+                new Notification(notificationTitle, {
+                  body: broadcast.payload?.message || `Order #${order.id.slice(0, 8)}`,
+                  icon: "/favicon.png",
+                  tag: order.id,
                 });
-
-                if (Notification.permission === "granted") {
-                  new Notification(notificationTitle, {
-                    body: broadcast.payload?.message || `Order #${order.id.slice(0, 8)}`,
-                    icon: "/favicon.png",
-                    tag: order.id,
-                  });
-                }
               }
             }
-
-            if (["order_assigned", "order_confirmed", "order_update", "new_prepared_order"].includes(broadcast.eventType)) {
-              queryClient.invalidateQueries({ queryKey: ["/api/delivery/orders"] });
-              queryClient.invalidateQueries({ queryKey: ["/api/delivery/available-orders"] });
-            }
-
-            processedIds.push(broadcast.id);
-          });
-
-          if (newOrdersCountLocal > 0) {
-            setNewAssignmentsCount(prev => prev + newOrdersCountLocal);
-            try {
-              const alertAudio = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBTGH0fPTgjMGHm7A7+OZURE=");
-              alertAudio.play().catch(() => { });
-            } catch (_) { }
           }
 
-          if (processedIds.length > 0) {
-            await api.post("/api/notifications/mark-delivered", { ids: processedIds });
+          if (["order_assigned", "order_confirmed", "order_update", "new_prepared_order"].includes(broadcast.eventType)) {
+            queryClient.invalidateQueries({ queryKey: ["/api/delivery/orders"] });
+            queryClient.invalidateQueries({ queryKey: ["/api/delivery/available-orders"] });
           }
+
+          processedIds.push(broadcast.id);
+        });
+
+        if (newOrdersCountLocal > 0) {
+          setNewAssignmentsCount(prev => prev + newOrdersCountLocal);
+          try {
+            const alertAudio = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBTGH0fPTgjMGHm7A7+OZURE=");
+            alertAudio.play().catch(() => { });
+          } catch (_) { }
         }
-      } catch (apiError: any) {
-        if (apiError?.response?.status === 401) {
-          console.error("[NOTIFICATIONS] ⚠️ Got 401 on notifications endpoint");
-          console.error("[NOTIFICATIONS] Token might be invalid on backend, but dashboard will continue working");
-          console.error("[NOTIFICATIONS] Error details:", apiError.response?.data);
-          // Silently return - dashboard continues working even without notifications
-          return;
+
+        if (processedIds.length > 0) {
+          await api.post("/api/notifications/mark-delivered", { ids: processedIds });
         }
-        throw apiError; // Rethrow other errors
       }
     } catch (error: any) {
-      console.error("[NOTIFICATIONS] ❌ Failed to fetch pending delivery broadcasts:", error?.message);
-      console.error("[NOTIFICATIONS] Error will not affect dashboard - dashboard stays loaded");
-      // Silently catch all errors - notifications are non-critical
+      // Log all error details
+      console.error("[NOTIFICATIONS] ❌ ERROR at some step:");
+      console.error("[NOTIFICATIONS] Error type:", error?.name);
+      console.error("[NOTIFICATIONS] Error message:", error?.message);
+      console.error("[NOTIFICATIONS] Status code:", error?.response?.status);
+      console.error("[NOTIFICATIONS] Response data:", error?.response?.data);
+      console.error("[NOTIFICATIONS] URL:", error?.config?.url);
+      console.error("[NOTIFICATIONS] Request headers:", {
+        hasAuth: !!error?.config?.headers?.Authorization,
+        authStartsWith: error?.config?.headers?.Authorization?.substring(0, 20)
+      });
+      
+      // Silently catch - notifications are non-critical
     }
   }, []);
 
