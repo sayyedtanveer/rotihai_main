@@ -50,8 +50,16 @@ export function generateRefreshToken(deliveryPerson: DeliveryPersonnel): string 
 
 export function verifyToken(token: string): DeliveryTokenPayload | null {
   try {
-    return jwt.verify(token, JWT_SECRET) as DeliveryTokenPayload;
-  } catch (error) {
+    const payload = jwt.verify(token, JWT_SECRET) as DeliveryTokenPayload;
+    console.log("[DELIVERY-VERIFY-TOKEN] ✅ Token verified with JWT_SECRET:", JWT_SECRET.substring(0, 10) + "...");
+    return payload;
+  } catch (error: any) {
+    console.error("[DELIVERY-VERIFY-TOKEN] ❌ Token verification failed:", {
+      jwtSecret: JWT_SECRET.substring(0, 10) + "...",
+      errorName: error?.name,
+      errorMessage: error?.message,
+      tokenLength: token.length
+    });
     return null;
   }
 }

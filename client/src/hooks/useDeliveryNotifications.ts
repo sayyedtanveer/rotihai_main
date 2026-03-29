@@ -32,13 +32,9 @@ export function useDeliveryNotifications() {
       const { default: api } = await import("@/lib/apiClient");
       console.log("[NOTIFICATIONS] Step 3️⃣ API/axios imported successfully");
       
-      // Step 4: Make the request with explicit Authorization header
-      console.log("[NOTIFICATIONS] Step 4️⃣ Making request to /api/notifications/pending with explicit token");
-      const { data: pending } = await api.get("/api/notifications/pending", {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      // Step 4: Make the request - interceptor will add Authorization header
+      console.log("[NOTIFICATIONS] Step 4️⃣ Making request to /api/notifications/pending");
+      const { data: pending } = await api.get("/api/notifications/pending");
       
       console.log("[NOTIFICATIONS] Step 5️⃣ ✅ SUCCESS! Received pending:", pending?.length || 0, 'items');
 

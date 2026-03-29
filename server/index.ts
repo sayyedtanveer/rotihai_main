@@ -536,5 +536,11 @@ app.use((req, res, next) => {
     reusePort: true,
   }, () => {
     log(`serving on port ${port}`);
+    
+    // ✅ Diagnostics: Show JWT configuration on startup
+    console.log("\n🔐 ===== JWT CONFIGURATION =====");
+    console.log("JWT_SECRET env var is:", process.env.JWT_SECRET ? "SET ✅" : "NOT SET (using fallback) ⚠️");
+    console.log("All auth modules will use:", process.env.JWT_SECRET ? `process.env.JWT_SECRET` : `fallback 'mysecretkey123'`);
+    console.log("================================\n");
   });
 })();
