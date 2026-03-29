@@ -2199,6 +2199,11 @@ export default function CheckoutDialog({
         return;
       }
 
+      // ✅ CLEAR THE CART IMMEDIATELY after order is created
+      if (onClearCart) {
+        onClearCart();
+      }
+
       // ✅ Now show payment QR with order created
       onShowPaymentQR({
         orderData: orderResponse.data, // Pass complete order object

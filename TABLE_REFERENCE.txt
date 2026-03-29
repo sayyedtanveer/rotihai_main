@@ -1,0 +1,261 @@
+; ==============================================================================
+; QUICK REFERENCE: TABLE SUMMARY & PRODUCTION FIX
+; ==============================================================================
+
+; Complete list of all 31 tables in the schema
+; Use this to check which tables are missing in production
+
+COMPLETE TABLE LIST (31 total):
+
+USER MANAGEMENT (4):
+  ✓ sessions          - Browser session storage for authentication
+  ✓ users             - Customer user accounts
+  ✓ admin_users       - Admin dashboard users
+  ✓ partner_users     - Chef/Partner login accounts
+
+PRODUCTS & SHOPS (3):
+  ✓ categories        - Food categories (Roti, Meal, etc.)
+  ✓ chefs             - Chef/Restaurant information
+  ✓ products          - Food items with pricing & inventory
+
+ORDER MANAGEMENT (4):
+  ✓ orders            - Main order records
+  ✓ payment_verification_log - Google Pay verification records
+  ✓ delivery_personnel - Delivery staff
+  ✓ payout_transactions - Chef/Partner payments
+
+SUBSCRIPTIONS (3):
+  ✓ subscriptions     - Active subscription records
+  ✓ subscription_plans - Subscription templates
+  ✓ subscription_delivery_logs - Scheduled deliveries
+
+WALLET & FINANCE (4):
+  ✓ wallet_transactions - Transaction history
+  ✓ wallet_settings   - Wallet configuration
+  ✓ coupons           - Promo codes
+  ✓ coupon_usages     - Coupon redemption logs
+
+PROMOTIONS & REFERRALS (3):
+  ✓ referrals         - Referral program
+  ✓ referral_rewards  - Referral bonus config
+  ✓ cart_settings     - Min order per category
+
+DELIVERY & TIME (3):
+  ✓ delivery_settings - Zone-based delivery pricing
+  ✓ delivery_time_slots - Available delivery hours
+  ✓ delivery_areas    - Delivery zone definitions
+
+CONFIGURATION (4):
+  ✓ roti_settings     - Roti order time restrictions
+  ✓ admin_settings    - Admin configuration key-value store
+  ✓ push_subscriptions - Push notification endpoints
+  ✓ pending_broadcasts - Offline message queue
+  ✓ newsletter_subscribers - Email subscriber list
+  ✓ visitors          - Analytics & visitor tracking
+  ✓ promotional_banners - Marketing banners
+
+═══════════════════════════════════════════════════════════════════════════════
+
+HOW TO CHECK IF TABLES ARE MISSING IN PRODUCTION:
+
+Step 1: Connect to production database
+  export DATABASE_URL="postgresql://user:password@host:5432/db?sslmode=require"
+  
+Step 2: Run this command to list existing tables:
+  psql "$DATABASE_URL" -c "
+    SELECT tablename FROM pg_tables 
+    WHERE schemaname='public' 
+    ORDER BY tablename;"
+
+Step 3: Compare with the list above
+
+Step 4: If tables are missing, run the complete migration:
+  psql "$DATABASE_URL" -f FULL_DATABASE_MIGRATION.sql
+
+Step 5: Verify the fix:
+  psql "$DATABASE_URL" -f VERIFY_DATABASE.sql
+
+═══════════════════════════════════════════════════════════════════════════════
+
+QUICK COMPARISON COMMANDS:
+
+Find all tables in LOCAL:
+  psql -d replitrotihai_local -tc \
+    "SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename;" \
+    | sort > local_tables.txt
+
+Find all tables in PRODUCTION:
+  psql "$PRODUCTION_URL" -tc \
+    "SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename;" \
+    | sort > prod_tables.txt
+
+Find tables in LOCAL but NOT in PRODUCTION (missing tables):
+  comm -23 local_tables.txt prod_tables.txt
+
+═══════════════════════════════════════════════════════════════════════════════
+
+TYPICAL MISSING TABLES IN PRODUCTION:
+
+If running the comparison, you might find these missing:
+  - visitors
+  - push_subscriptions
+  - newsletter_subscribers
+  - promotional_banners
+  - pending_broadcasts
+  - subscription_delivery_logs
+  - admin_settings
+  - delivery_areas
+  - roti_settings
+  - delivery_time_slots
+
+These are newer additions that may not exist in older production databases.
+
+═══════════════════════════════════════════════════════════════════════════════
+
+TOTAL SCHEMA STATISTICS:
+
+Tables:          31
+Indexes:         40+
+Enum Types:      8
+Primary Keys:    31
+Constraints:     100+ (unique, defaults, not nulls)
+Total Rows:      Variable (depends on data)
+
+Critical Tables by Row Count (typical):
+  - visitors         - 1M+ rows (analytics, can be archived)
+  - orders           - 100K+ rows
+  - wallet_transactions - 100K+ rows
+  - referrals        - 50K+ rows
+  - subscriptions    - 10K+ rows
+
+═══════════════════════════════════════════════════════════════════════════════
+
+PRODUCTION DATABASE UPGRADE CHECKLIST:
+
+BEFORE:
+  ☐ Backup production database
+  ☐ Inform team about downtime (if any)
+  ☐ Test migration on staging
+  ☐ Review changes
+
+DURING:
+  ☐ Run FULL_DATABASE_MIGRATION.sql
+  ☐ Monitor for errors
+  ☐ Run VERIFY_DATABASE.sql
+  ☐ Check all 31 tables exist
+
+AFTER:
+  ☐ Test application
+  ☐ Monitor logs for errors
+  ☐ Verify data integrity
+  ☐ Document completion
+
+═══════════════════════════════════════════════════════════════════════════════
+
+KEY INDEXES CREATED:
+
+Performance Indexes:
+  idx_orders_user_id              - Fast order lookup by user
+  idx_users_phone                 - User lookup by phone
+  idx_subscriptions_user_id       - Subscription lookup by user
+  idx_wallet_user_created         - Wallet transaction filtering
+  idx_delivery_settings_pincode   - Delivery zone lookup
+  idx_subscription_delivery_logs_date - Date range queries
+  idx_delivery_time_slots_is_active - Active slots query
+  idx_payout_chef                 - Chef payment lookup
+  idx_visitors_user_id            - Analytics queries
+
++ 30+ more indexes for optimal query performance
+
+═══════════════════════════════════════════════════════════════════════════════
+
+PRODUCTION SYNC SCRIPT TEMPLATE:
+
+#!/bin/bash
+# Quick sync to update production with latest schema
+
+set -e
+
+DB_URL="$DATABASE_URL"
+BACKUP_FILE="backup_$(date +%Y%m%d_%H%M%S).sql"
+
+echo "Creating backup..."
+pg_dump "$DB_URL" > "$BACKUP_FILE"
+
+echo "Applying migration..."
+psql "$DB_URL" -f FULL_DATABASE_MIGRATION.sql
+
+echo "Verifying..."
+psql "$DB_URL" -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public';"
+
+echo "Backup saved to: $BACKUP_FILE"
+echo "✓ Migration complete"
+
+═══════════════════════════════════════════════════════════════════════════════
+
+TROUBLESHOOTING:
+
+Problem: Still see fewer tables after migration
+Solution: 
+  1. Check for errors: psql "$DB_URL" -f FULL_DATABASE_MIGRATION.sql 2>&1 | grep -i error
+  2. Verify specific table: psql "$DB_URL" -c "\d orders"
+  3. Rerun migration: psql "$DB_URL" -f FULL_DATABASE_MIGRATION.sql
+
+Problem: Connection timeout
+Solution:
+  1. Verify host is correct: psql -h your_host -c "SELECT 1"
+  2. Check IP whitelist in Neon console
+  3. Ensure SSL if required: ?sslmode=require
+
+Problem: Permission denied
+Solution:
+  1. Check user role: psql "$DB_URL" -c "SELECT current_user;"
+  2. Grant permissions if needed
+  3. Use correct DATABASE_URL
+
+═══════════════════════════════════════════════════════════════════════════════
+
+RELATIONSHIP DIAGRAM:
+
+users (Customer)
+  ├── orders (1 user → many orders)
+  ├── subscriptions (1 user → many subscriptions)  
+  ├── wallet_transactions (transaction history)
+  ├── referrals (referrer & referred)
+  └── coupon_usages (coupon history)
+
+chefs (Restaurant/Partner)
+  ├── products (1 chef → many products)
+  ├── orders (assigned to chef)
+  ├── subscriptions (assigned to chef)
+  ├── payout_transactions (chef earnings)
+  └── partner_users (chef login)
+
+subscriptions
+  ├── subscription_plans (links to plan template)
+  ├── subscription_delivery_logs (scheduled deliveries)
+  ├── delivery_time_slots (delivery windows)
+  └── wallet_transactions (payment linked)
+
+orders
+  ├── payment_verification_log (payment tracking)
+  ├── payout_transactions (chef payment)
+  ├── delivery_personnel (assigned delivery)
+  └── coupons (discount used)
+
+═══════════════════════════════════════════════════════════════════════════════
+
+REFERENCES:
+
+Full scripts location:
+  - FULL_DATABASE_MIGRATION.sql    - Main migration (run this to fix)
+  - VERIFY_DATABASE.sql             - Run after migration to verify
+  - COMPARE_DATABASES.sql           - Compare local vs production
+  - DATABASE_MIGRATION_GUIDE.md      - Detailed instructions
+  - DATABASE_README.md              - Complete documentation
+
+═══════════════════════════════════════════════════════════════════════════════
+
+Last Updated: 2025-12-15
+Schema Version: 1.0
+All 31 tables included and documented
