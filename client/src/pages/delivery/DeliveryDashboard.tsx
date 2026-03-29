@@ -60,11 +60,19 @@ const getSlotInfo = (slotId: string, slots: any[]): { label: string; startTime: 
 
 export default function DeliveryDashboard() {
   const deliveryPersonName = localStorage.getItem("deliveryPersonName");
+  const deliveryToken = localStorage.getItem("deliveryToken");
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
   const { wsConnected, newAssignmentsCount, requestNotificationPermission, clearNewAssignmentsCount } = useDeliveryNotifications();
   const [selectedTab, setSelectedTab] = useState("dashboard");
+
+  // Redirect to login if no token exists
+  useEffect(() => {
+    if (!deliveryToken) {
+      setLocation("/delivery/login");
+    }
+  }, [deliveryToken, setLocation]);
 
   useEffect(() => {
     requestNotificationPermission();
@@ -75,24 +83,31 @@ export default function DeliveryDashboard() {
   // If refresh is needed in future, ensure refreshToken is stored and sent in request body
 
 
+  const hasDeliveryToken = !!localStorage.getItem("deliveryToken");
+
   const { data: orders = [] } = useQuery<any[]>({
     queryKey: ["/api/delivery/orders"],
+    enabled: hasDeliveryToken,
   });
 
   const { data: availableOrders = [] } = useQuery<any[]>({
     queryKey: ["/api/delivery/available-orders"],
+    enabled: hasDeliveryToken,
   });
 
   const { data: deliverySlots = [] } = useQuery<any[]>({
     queryKey: ["/api/delivery-slots"],
+    enabled: hasDeliveryToken,
   });
 
   const { data: earnings } = useQuery<any>({
     queryKey: ["/api/delivery/earnings"],
+    enabled: hasDeliveryToken,
   });
 
   const { data: stats } = useQuery<any>({
     queryKey: ["/api/delivery/stats"],
+    enabled: hasDeliveryToken,
   });
 
   const claimOrderMutation = useMutation({
