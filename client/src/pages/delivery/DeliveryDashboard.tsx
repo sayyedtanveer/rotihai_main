@@ -11,6 +11,7 @@ import { useLocation } from "wouter";
 import { useDeliveryNotifications } from "@/hooks/useDeliveryNotifications";
 import { formatTime12Hour, formatSlotRange } from "@shared/timeFormatter";
 import { useEffect, useState } from "react";
+import DeliveryNotificationBell from "@/components/DeliveryNotificationBell";
 
 // Helper function to calculate time until delivery
 const getTimeUntilDelivery = (deliveryTime: string): { display: string; minutes: number; isPrompt: boolean } | null => {
@@ -288,18 +289,21 @@ export default function DeliveryDashboard() {
             </div>
           </div>
           
-          {/* Status Row - Hidden on md and above */}
-          <div className="md:hidden flex items-center gap-2 text-xs">
+          {/* Status Row - Desktop view with full bell and network status */}
+          <div className="hidden md:flex items-center justify-between">
+            <div></div>
+            <DeliveryNotificationBell wsConnected={wsConnected} />
+          </div>
+
+          {/* Status Row - Mobile view simplified */}
+          <div className="md:hidden flex items-center gap-2 text-xs justify-between">
             {newAssignmentsCount > 0 && (
               <Badge variant="destructive" className="text-xs flex items-center gap-1">
                 <Bell className="h-2.5 w-2.5" />
                 {newAssignmentsCount} New
               </Badge>
             )}
-            <div className={`flex items-center gap-1 ${wsConnected ? "text-green-600" : "text-red-600"}`}>
-              {wsConnected ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
-              <span>{wsConnected ? "Live" : "Offline"}</span>
-            </div>
+            <DeliveryNotificationBell wsConnected={wsConnected} />
           </div>
         </div>
       </header>

@@ -2,10 +2,12 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { getWebSocketURL } from "@/lib/fetchClient";
 import { queryClient } from "@/lib/queryClient";
 import { toast } from "@/hooks/use-toast";
+import { useDeliveryNotificationStore } from "@/store/deliveryNotificationStore";
 
 export function useDeliveryNotifications() {
   const [wsConnected, setWsConnected] = useState(false);
   const [newAssignmentsCount, setNewAssignmentsCount] = useState(0);
+  const addNotification = useDeliveryNotificationStore((s) => s.addNotification);
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -56,15 +58,25 @@ export function useDeliveryNotifications() {
                   broadcast.eventType === "new_prepared_order" ? "New Order Available!" :
                     "New Delivery Assignment!";
 
+              const notificationMessage = broadcast.payload?.message || `Order #${order.id.slice(0, 8)}`;
+
+              // Add to notification store for bell dropdown
+              addNotification({
+                id: `recovered_${order.id}`,
+                orderId: order.id,
+                status: broadcast.eventType === "order_confirmed" ? "ready" : "assigned",
+                message: notificationMessage,
+              });
+
               toast({
                 title: `Recovered: ${notificationTitle}`,
-                description: broadcast.payload?.message || `Order #${order.id.slice(0, 8)}`,
+                description: notificationMessage,
                 duration: 10000,
               });
 
               if (Notification.permission === "granted") {
                 new Notification(notificationTitle, {
-                  body: broadcast.payload?.message || `Order #${order.id.slice(0, 8)}`,
+                  body: notificationMessage,
                   icon: "/favicon.png",
                   tag: order.id,
                 });
@@ -168,15 +180,25 @@ export function useDeliveryNotifications() {
                 data.type === "new_prepared_order" ? "New Order Available!" :
                   "New Delivery Assignment!";
 
+            const notificationMessage = data.message || `Order #${order.id.slice(0, 8)}`;
+
+            // Add to notification store for bell dropdown
+            addNotification({
+              id: `${data.type}_${order.id}`,
+              orderId: order.id,
+              status: data.type === "order_confirmed" ? "ready" : "assigned",
+              message: notificationMessage,
+            });
+
             toast({
               title: notificationTitle,
-              description: data.message || `Order #${order.id.slice(0, 8)}`,
+              description: notificationMessage,
               duration: 10000,
             });
 
             if (Notification.permission === "granted") {
               new Notification(notificationTitle, {
-                body: data.message || `Order #${order.id.slice(0, 8)}`,
+                body: notificationMessage,
                 icon: "/favicon.png",
                 tag: order.id,
               });
