@@ -67,23 +67,47 @@ export default function DeliveryDashboard() {
   const { wsConnected, newAssignmentsCount, requestNotificationPermission, clearNewAssignmentsCount } = useDeliveryNotifications();
   const [selectedTab, setSelectedTab] = useState("dashboard");
 
-  // Check auth on mount only
+  // ✅ Check auth on mount only and ensure dependencies are included
   useEffect(() => {
+    console.log("[DASHBOARD] 🔐 Step 1: Auth check effect running");
+    
     const token = localStorage.getItem("deliveryToken");
-    if (!token) {
-      console.log("[DELIVERY] No token found, redirecting to login");
+    const personId = localStorage.getItem("deliveryPersonId");
+    const personName = localStorage.getItem("deliveryPersonName");
+    
+    console.log("[DASHBOARD] 🔍 Step 2: Checking stored data:", { 
+      hasToken: !!token, 
+      tokenLength: token?.length || 0,
+      hasPersonId: !!personId, 
+      personId: personId || "MISSING",
+      hasPersonName: !!personName, 
+      personName: personName || "MISSING"
+    });
+    
+    if (!token || !personId || !personName) {
+      console.log("[DASHBOARD] ❌ Step 3: Auth check FAILED - missing data");
+      console.log("[DASHBOARD] ❌ Step 4: Setting isAuthenticated = false");
+      setIsAuthenticated(false);
+      console.log("[DASHBOARD] ❌ Step 5: Redirecting to /delivery/login");
       setLocation("/delivery/login");
     } else {
-      console.log("[DELIVERY] Token found, authenticated");
+      console.log("[DASHBOARD] ✅ Step 3: Auth check PASSED - all data present");
+      console.log("[DASHBOARD] ✅ Step 4: Setting isAuthenticated = true");
       setIsAuthenticated(true);
+      console.log("[DASHBOARD] ✅ Step 5: Dashboard ready for user:", personName);
     }
-  }, []);
+  }, [setLocation]);
 
   useEffect(() => {
+    console.log("[DASHBOARD] 📲 Step 6: isAuthenticated changed:", isAuthenticated);
     if (isAuthenticated) {
+      console.log("[DASHBOARD] 📲 Step 7: Requesting notification permission");
       requestNotificationPermission();
+      console.log("[DASHBOARD] ✅ Notification permission requested");
+    } else {
+      console.log("[DASHBOARD] ⏸️ Step 7: Skipping notifications (not authenticated)");
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, requestNotificationPermission]);
 
   // Note: Token refresh disabled because delivery tokens are set to 90d (long-lived sessions)
   // No need to refresh before expiry - user will only logout on explicit logout action
@@ -181,10 +205,29 @@ export default function DeliveryDashboard() {
   });
 
   const handleLogout = () => {
+    console.log("[DASHBOARD] 🚪 Step 1: Logout clicked");
+    
+    console.log("[DASHBOARD] 🗑️ Step 2: Removing deliveryToken from localStorage");
     localStorage.removeItem("deliveryToken");
+    console.log("[DASHBOARD] ✅ Token removed");
+    
+    console.log("[DASHBOARD] 🗑️ Step 3: Removing deliveryPersonId from localStorage");
     localStorage.removeItem("deliveryPersonId");
+    console.log("[DASHBOARD] ✅ PersonId removed");
+    
+    console.log("[DASHBOARD] 🗑️ Step 4: Removing deliveryPersonName from localStorage");
     localStorage.removeItem("deliveryPersonName");
+    console.log("[DASHBOARD] ✅ PersonName removed");
+    
+    console.log("[DASHBOARD] 🔍 Step 5: Verifying all data was removed:", {
+      token: localStorage.getItem("deliveryToken"),
+      personId: localStorage.getItem("deliveryPersonId"),
+      personName: localStorage.getItem("deliveryPersonName")
+    });
+    
+    console.log("[DASHBOARD] 🚀 Step 6: Redirecting to /delivery/login");
     setLocation("/delivery/login");
+    console.log("[DASHBOARD] ✅ Logout complete");
   };
 
   const getStatusColor = (status: string) => {
@@ -212,6 +255,7 @@ export default function DeliveryDashboard() {
 
   // Guard: Don't render dashboard until authenticated
   if (!isAuthenticated) {
+    console.log("[DASHBOARD] 🛑 Render guard triggered: Not authenticated - showing loading screen");
     return (
       <div className="min-h-screen bg-white dark:bg-slate-950 flex items-center justify-center">
         <div className="text-center">
@@ -220,6 +264,8 @@ export default function DeliveryDashboard() {
       </div>
     );
   }
+
+  console.log("[DASHBOARD] ✅ Render guard passed: Rendering dashboard for", deliveryPersonName);
 
   return (
     <div className="min-h-screen bg-white dark:bg-slate-950">

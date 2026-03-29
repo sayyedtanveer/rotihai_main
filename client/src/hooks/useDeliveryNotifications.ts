@@ -15,10 +15,16 @@ export function useDeliveryNotifications() {
   const fetchPendingBroadcasts = useCallback(async () => {
     try {
       const token = localStorage.getItem("deliveryToken");
-      if (!token) return;
+      console.log("[NOTIFICATIONS] 📥 Fetching pending broadcasts - token exists:", !!token);
+      if (!token) {
+        console.log("[NOTIFICATIONS] ⏸️ No token, skipping fetch");
+        return;
+      }
 
+      console.log("[NOTIFICATIONS] 📡 Calling /api/notifications/pending");
       const { default: api } = await import("@/lib/apiClient");
       const { data: pending } = await api.get("/api/notifications/pending");
+      console.log("[NOTIFICATIONS] ✅ Received response, count:", pending?.length || 0);
 
       if (Array.isArray(pending) && pending.length > 0) {
         console.log(`📥 Recovered ${pending.length} pending broadcasts`);
@@ -74,8 +80,13 @@ export function useDeliveryNotifications() {
           await api.post("/api/notifications/mark-delivered", { ids: processedIds });
         }
       }
-    } catch (error) {
-      console.error("Failed to fetch pending delivery broadcasts:", error);
+    } catch (error: any) {
+      console.error("[NOTIFICATIONS] ❌ Failed to fetch pending delivery broadcasts:", error);
+      console.error("[NOTIFICATIONS] Error status:", error?.response?.status);
+      console.error("[NOTIFICATIONS] Error message:", error?.message);
+      if (error?.response?.status === 401) {
+        console.error("[NOTIFICATIONS] 🔴 Got 401 - Session likely expired");
+      }
     }
   }, []);
 
@@ -83,7 +94,11 @@ export function useDeliveryNotifications() {
     if (isUnmountedRef.current) return;
 
     const token = localStorage.getItem("deliveryToken");
-    if (!token) return;
+    if (!token) {
+      console.log("[WS-DELIVERY] No token found, skipping connection");
+      setWsConnected(false);
+      return;
+    }
 
     if (wsRef.current) {
       wsRef.current.onclose = null;
@@ -101,7 +116,10 @@ export function useDeliveryNotifications() {
       if (isUnmountedRef.current) return;
       console.log("✅ Delivery WebSocket connected");
       setWsConnected(true);
-      fetchPendingBroadcasts();
+      // ✅ Only fetch pending broadcasts if we're still mounted
+      if (!isUnmountedRef.current) {
+        fetchPendingBroadcasts();
+      }
 
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current);
@@ -111,12 +129,14 @@ export function useDeliveryNotifications() {
 
     ws.onmessage = (event) => {
       if (isUnmountedRef.current) return;
-      const data = JSON.parse(event.data);
-      console.log("📨 Delivery WS message:", data.type);
+      try {
+        const data = JSON.parse(event.data);
+        console.log("📨 Delivery WS message:", data.type);
 
-      if (["order_assigned", "order_confirmed", "order_update", "new_prepared_order"].includes(data.type)) {
-        queryClient.invalidateQueries({ queryKey: ["/api/delivery/orders"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/delivery/available-orders"] });
+        if (["order_assigned", "order_confirmed", "order_update", "new_prepared_order"].includes(data.type)) {
+          queryClient.invalidateQueries({ queryKey: ["/api/delivery/orders"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/delivery/available-orders"] });
+        }
 
         if (["order_assigned", "order_confirmed", "new_prepared_order"].includes(data.type)) {
           const order = data.data || data.order;
@@ -149,6 +169,8 @@ export function useDeliveryNotifications() {
             } catch (_) { }
           }
         }
+      } catch (error) {
+        console.error("[WS-MESSAGE] Error processing WebSocket message:", error);
       }
     };
 
@@ -163,12 +185,14 @@ export function useDeliveryNotifications() {
     };
 
     ws.onclose = () => {
-      console.log("❌ Delivery WebSocket disconnected");
+      console.log("❌ [WS-DELIVERY] WebSocket disconnected");
+      console.log("[WS-DELIVERY] Checking if token still exists:", !!localStorage.getItem("deliveryToken"));
       scheduleReconnect();
     };
 
     ws.onerror = (error) => {
-      console.error("⚠️ Delivery WebSocket error:", error);
+      console.error("⚠️ [WS-DELIVERY] WebSocket error:", error);
+      console.error("[WS-DELIVERY] Token state:", !!localStorage.getItem("deliveryToken"));
     };
   }, [fetchPendingBroadcasts]);
 
@@ -191,6 +215,12 @@ export function useDeliveryNotifications() {
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
         console.log("📱 App returned to foreground (Delivery)");
+        // ✅ Check token still exists before attempting operations
+        const token = localStorage.getItem("deliveryToken");
+        if (!token) {
+          console.log("[DELIVERY-VISIBILITY] Token missing, not reconnecting");
+          return;
+        }
         if (!wsRef.current || wsRef.current.readyState === WebSocket.CLOSED) {
           connect();
           fetchPendingBroadcasts();
@@ -202,6 +232,12 @@ export function useDeliveryNotifications() {
 
     const handleOnline = () => {
       console.log("📶 Network back ONLINE (Delivery) — triggering recovery...");
+      // ✅ Check token still exists before attempting operations
+      const token = localStorage.getItem("deliveryToken");
+      if (!token) {
+        console.log("[DELIVERY-ONLINE] Token missing, not recovering");
+        return;
+      }
       connect();
       fetchPendingBroadcasts();
       queryClient.invalidateQueries({ queryKey: ["/api/delivery/orders"] });
