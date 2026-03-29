@@ -70,7 +70,6 @@ export default function DeliveryDashboard() {
   // ✅ Check auth on mount only (SINGLE RUN)
   useEffect(() => {
     console.log("[DASHBOARD] 🔐 Step 1: Auth check effect running");
-    alert("[DASHBOARD] 🔐 Step 1: Auth check effect running");
     
     const token = localStorage.getItem("deliveryToken");
     const personId = localStorage.getItem("deliveryPersonId");
@@ -84,34 +83,25 @@ export default function DeliveryDashboard() {
       hasPersonName: !!personName, 
       personName: personName || "MISSING"
     });
-    alert(`[DASHBOARD] 🔍 Step 2: Token=${!!token}, PersonId=${!!personId}, PersonName=${!!personName}`);
     
     if (!token || !personId || !personName) {
       console.log("[DASHBOARD] ❌ Step 3: Auth check FAILED - missing data");
-      alert("[DASHBOARD] ❌ Step 3: Auth check FAILED - missing data");
       console.log("[DASHBOARD] ❌ Step 4: Setting isAuthenticated = false");
       setIsAuthenticated(false);
       console.log("[DASHBOARD] ❌ Step 5: Redirecting to /delivery/login");
       setLocation("/delivery/login");
     } else {
       console.log("[DASHBOARD] ✅ Step 3: Auth check PASSED - all data present");
-      alert("[DASHBOARD] ✅ Step 3: Auth check PASSED - all data present");
       console.log("[DASHBOARD] ✅ Step 4: Setting isAuthenticated = true");
       setIsAuthenticated(true);
-      alert("[DASHBOARD] ✅ Step 4: isAuthenticated = true");
-      
       console.log("[DASHBOARD] ✅ Step 5: Dashboard ready for user:", personName);
-      alert(`[DASHBOARD] ✅ Step 5: Dashboard ready for ${personName}`);
       
       // ✅ Request notification permission ONLY after auth confirmed
       console.log("[DASHBOARD] 📲 Step 6: Requesting notification permission");
-      alert("[DASHBOARD] 📲 Step 6: About to request notification permission");
       requestNotificationPermission();
       console.log("[DASHBOARD] ✅ Notification permission requested");
-      alert("[DASHBOARD] ✅ Notification permission requested");
       
-      console.log("[DASHBOARD] 🎉 All auth steps complete - dashboard should be visible now");
-      alert("[DASHBOARD] 🎉 All auth steps complete - dashboard should be visible now");
+      console.log("[DASHBOARD] 🎉 All auth steps complete - dashboard is ready");
     }
   }, [setLocation]);
 
@@ -262,7 +252,6 @@ export default function DeliveryDashboard() {
   // Guard: Don't render dashboard until authenticated
   if (!isAuthenticated) {
     console.log("[DASHBOARD] 🛑 Render guard triggered: Not authenticated - showing loading screen");
-    alert("[DASHBOARD] 🛑 Render guard triggered: NOT authenticated - showing Loading... screen");
     return (
       <div className="min-h-screen bg-white dark:bg-slate-950 flex items-center justify-center">
         <div className="text-center">
@@ -273,7 +262,6 @@ export default function DeliveryDashboard() {
   }
 
   console.log("[DASHBOARD] ✅ Render guard passed: Rendering dashboard for", deliveryPersonName);
-  alert(`[DASHBOARD] ✅ Render guard PASSED - Rendering dashboard for ${deliveryPersonName}`);
 
   return (
     <div className="min-h-screen bg-white dark:bg-slate-950">

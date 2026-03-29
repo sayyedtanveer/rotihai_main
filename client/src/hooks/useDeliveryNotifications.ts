@@ -16,11 +16,9 @@ export function useDeliveryNotifications() {
     try {
       const token = localStorage.getItem("deliveryToken");
       console.log("[NOTIFICATIONS] 📥 Fetching pending broadcasts - token exists:", !!token);
-      alert(`[NOTIFICATIONS] About to fetch pending broadcasts. Token exists: ${!!token}`);
       
       if (!token) {
         console.log("[NOTIFICATIONS] ⏸️ No token, skipping fetch");
-        alert("[NOTIFICATIONS] ⏸️ No token, skipping fetch");
         return;
       }
 
@@ -29,7 +27,6 @@ export function useDeliveryNotifications() {
         tokenStart: token.substring(0, 20) + "...",
         tokenEnd: "..." + token.substring(token.length - 20)
       });
-      alert(`[NOTIFICATIONS] 🔍 Token length: ${token.length}, starts with: ${token.substring(0, 20)}...`);
 
       console.log("[NOTIFICATIONS] 📡 Calling /api/notifications/pending with token");
       const { default: api } = await import("@/lib/apiClient");
@@ -37,7 +34,6 @@ export function useDeliveryNotifications() {
       try {
         const { data: pending } = await api.get("/api/notifications/pending");
         console.log("[NOTIFICATIONS] ✅ Received response, count:", pending?.length || 0);
-        alert(`[NOTIFICATIONS] ✅ Successfully fetched pending broadcasts: ${pending?.length || 0} items`);
 
         if (Array.isArray(pending) && pending.length > 0) {
           console.log(`📥 Recovered ${pending.length} pending broadcasts`);
@@ -95,23 +91,18 @@ export function useDeliveryNotifications() {
         }
       } catch (apiError: any) {
         if (apiError?.response?.status === 401) {
-          console.error("[NOTIFICATIONS] ⚠️ Got 401 on notifications endpoint - NOT logging out globally");
-          alert(`[NOTIFICATIONS] ⚠️ 401 Error on notifications: ${apiError.response?.data?.message}`);
+          console.error("[NOTIFICATIONS] ⚠️ Got 401 on notifications endpoint");
+          console.error("[NOTIFICATIONS] Token might be invalid on backend, but dashboard will continue working");
           console.error("[NOTIFICATIONS] Error details:", apiError.response?.data);
-          // Don't rethrow - this allows the dashboard to stay loaded even if notifications fail
+          // Silently return - dashboard continues working even without notifications
           return;
         }
         throw apiError; // Rethrow other errors
       }
     } catch (error: any) {
-      console.error("[NOTIFICATIONS] ❌ Failed to fetch pending delivery broadcasts:", error);
-      alert(`[NOTIFICATIONS] ❌ Error: ${error?.message}`);
-      console.error("[NOTIFICATIONS] Error status:", error?.response?.status);
-      console.error("[NOTIFICATIONS] Error message:", error?.message);
-      if (error?.response?.status === 401) {
-        console.error("[NOTIFICATIONS] 🔴 Got 401 - Session likely expired");
-        alert("[NOTIFICATIONS] 🔴 Got 401 error on notifications");
-      }
+      console.error("[NOTIFICATIONS] ❌ Failed to fetch pending delivery broadcasts:", error?.message);
+      console.error("[NOTIFICATIONS] Error will not affect dashboard - dashboard stays loaded");
+      // Silently catch all errors - notifications are non-critical
     }
   }, []);
 

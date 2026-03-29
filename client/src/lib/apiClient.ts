@@ -69,7 +69,6 @@ api.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       console.error("[API-CLIENT] 🔴 401 Unauthorized error detected!");
-      alert(`[API-CLIENT] 🔴 401 UNAUTHORIZED ERROR!\n\nURL: ${error.config?.url}\n\nMessage: ${error.response?.data?.message}`);
       console.error("[API-CLIENT] Request URL:", error.config?.url);
       console.error("[API-CLIENT] Error message:", error.response?.data?.message);
       
@@ -84,7 +83,6 @@ api.interceptors.response.use(
       if (url.includes('/api/notifications/pending') || url.includes('/api/notifications/mark-delivered')) {
         console.warn("[API-CLIENT] ⚠️ 401 on notifications endpoint - NOT auto-redirecting");
         console.warn("[API-CLIENT] Letting the notifications handler deal with this");
-        alert("[API-CLIENT] ⚠️ Got 401 on notifications - dashboard will continue working");
         return Promise.reject(error); // Return error without redirecting
       }
       
@@ -108,7 +106,6 @@ api.interceptors.response.use(
           window.location.href = '/partner/login';
         } else if (path.startsWith('/delivery')) {
           console.log("[API-CLIENT] 🚪 Logging out delivery - clearing deliveryToken");
-          alert("[API-CLIENT] 🚪 DELIVERY LOGOUT TRIGGERED by 401");
           console.log("[API-CLIENT] Before removal:", {
             token: !!localStorage.getItem('deliveryToken'),
             personId: !!localStorage.getItem('deliveryPersonId'),
@@ -123,7 +120,6 @@ api.interceptors.response.use(
             personName: !!localStorage.getItem('deliveryPersonName')
           });
           console.log("[API-CLIENT] Redirecting to /delivery/login");
-          alert("[API-CLIENT] Redirecting to /delivery/login due to 401");
           window.location.href = '/delivery/login';
         } else {
           console.log("[API-CLIENT] 🚪 Logging out user - clearing userToken");
