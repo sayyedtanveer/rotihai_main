@@ -59,55 +59,64 @@ const getSlotInfo = (slotId: string, slots: any[]): { label: string; startTime: 
 };
 
 export default function DeliveryDashboard() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const deliveryPersonName = localStorage.getItem("deliveryPersonName");
-  const deliveryToken = localStorage.getItem("deliveryToken");
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
   const { wsConnected, newAssignmentsCount, requestNotificationPermission, clearNewAssignmentsCount } = useDeliveryNotifications();
   const [selectedTab, setSelectedTab] = useState("dashboard");
 
-  // Redirect to login if no token exists
+  // Check auth on mount only
   useEffect(() => {
-    if (!deliveryToken) {
+    const token = localStorage.getItem("deliveryToken");
+    if (!token) {
+      console.log("[DELIVERY] No token found, redirecting to login");
       setLocation("/delivery/login");
+    } else {
+      console.log("[DELIVERY] Token found, authenticated");
+      setIsAuthenticated(true);
     }
-  }, [deliveryToken, setLocation]);
+  }, []);
 
   useEffect(() => {
-    requestNotificationPermission();
-  }, []);
+    if (isAuthenticated) {
+      requestNotificationPermission();
+    }
+  }, [isAuthenticated]);
 
   // Note: Token refresh disabled because delivery tokens are set to 90d (long-lived sessions)
   // No need to refresh before expiry - user will only logout on explicit logout action
   // If refresh is needed in future, ensure refreshToken is stored and sent in request body
 
-
-  const hasDeliveryToken = !!localStorage.getItem("deliveryToken");
-
   const { data: orders = [] } = useQuery<any[]>({
     queryKey: ["/api/delivery/orders"],
-    enabled: hasDeliveryToken,
+    enabled: isAuthenticated,
+    retry: 1,
   });
 
   const { data: availableOrders = [] } = useQuery<any[]>({
     queryKey: ["/api/delivery/available-orders"],
-    enabled: hasDeliveryToken,
+    enabled: isAuthenticated,
+    retry: 1,
   });
 
   const { data: deliverySlots = [] } = useQuery<any[]>({
     queryKey: ["/api/delivery-slots"],
-    enabled: hasDeliveryToken,
+    enabled: isAuthenticated,
+    retry: 1,
   });
 
   const { data: earnings } = useQuery<any>({
     queryKey: ["/api/delivery/earnings"],
-    enabled: hasDeliveryToken,
+    enabled: isAuthenticated,
+    retry: 1,
   });
 
   const { data: stats } = useQuery<any>({
     queryKey: ["/api/delivery/stats"],
-    enabled: hasDeliveryToken,
+    enabled: isAuthenticated,
+    retry: 1,
   });
 
   const claimOrderMutation = useMutation({
@@ -200,6 +209,17 @@ export default function DeliveryDashboard() {
   const pendingOrders = orders.filter((o: any) => o.assignedTo && !["accepted_by_delivery", "out_for_delivery", "delivered"].includes(o.status));
   const activeOrders = orders.filter((o: any) => ["accepted_by_delivery", "out_for_delivery"].includes(o.status));
   const completedOrders = orders.filter((o: any) => o.status === "delivered");
+
+  // Guard: Don't render dashboard until authenticated
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-white dark:bg-slate-950 flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-white dark:bg-slate-950">
