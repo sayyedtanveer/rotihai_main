@@ -75,7 +75,18 @@ api.interceptors.response.use(
       
       // Handle unauthorized - redirect to appropriate login
       const path = window.location.pathname;
+      const url = error.config?.url || '';
       console.log("[API-CLIENT] Current path:", path);
+      console.log("[API-CLIENT] Request URL:", url);
+      
+      // ⚠️ IMPORTANT: Don't auto-redirect for non-critical endpoints
+      // If it's just notifications, let the component handle it gracefully
+      if (url.includes('/api/notifications/pending') || url.includes('/api/notifications/mark-delivered')) {
+        console.warn("[API-CLIENT] ⚠️ 401 on notifications endpoint - NOT auto-redirecting");
+        console.warn("[API-CLIENT] Letting the notifications handler deal with this");
+        alert("[API-CLIENT] ⚠️ Got 401 on notifications - dashboard will continue working");
+        return Promise.reject(error); // Return error without redirecting
+      }
       
       // Don't redirect if already on a login/auth page
       const isOnLoginPage = 

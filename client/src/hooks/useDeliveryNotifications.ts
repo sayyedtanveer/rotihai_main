@@ -16,76 +16,101 @@ export function useDeliveryNotifications() {
     try {
       const token = localStorage.getItem("deliveryToken");
       console.log("[NOTIFICATIONS] 📥 Fetching pending broadcasts - token exists:", !!token);
+      alert(`[NOTIFICATIONS] About to fetch pending broadcasts. Token exists: ${!!token}`);
+      
       if (!token) {
         console.log("[NOTIFICATIONS] ⏸️ No token, skipping fetch");
+        alert("[NOTIFICATIONS] ⏸️ No token, skipping fetch");
         return;
       }
 
-      console.log("[NOTIFICATIONS] 📡 Calling /api/notifications/pending");
+      console.log("[NOTIFICATIONS] 🔍 Token details:", {
+        tokenLength: token.length,
+        tokenStart: token.substring(0, 20) + "...",
+        tokenEnd: "..." + token.substring(token.length - 20)
+      });
+      alert(`[NOTIFICATIONS] 🔍 Token length: ${token.length}, starts with: ${token.substring(0, 20)}...`);
+
+      console.log("[NOTIFICATIONS] 📡 Calling /api/notifications/pending with token");
       const { default: api } = await import("@/lib/apiClient");
-      const { data: pending } = await api.get("/api/notifications/pending");
-      console.log("[NOTIFICATIONS] ✅ Received response, count:", pending?.length || 0);
+      
+      try {
+        const { data: pending } = await api.get("/api/notifications/pending");
+        console.log("[NOTIFICATIONS] ✅ Received response, count:", pending?.length || 0);
+        alert(`[NOTIFICATIONS] ✅ Successfully fetched pending broadcasts: ${pending?.length || 0} items`);
 
-      if (Array.isArray(pending) && pending.length > 0) {
-        console.log(`📥 Recovered ${pending.length} pending broadcasts`);
+        if (Array.isArray(pending) && pending.length > 0) {
+          console.log(`📥 Recovered ${pending.length} pending broadcasts`);
 
-        let newOrdersCountLocal = 0;
-        const processedIds: string[] = [];
+          let newOrdersCountLocal = 0;
+          const processedIds: string[] = [];
 
-        pending.forEach((broadcast: any) => {
-          if (["order_assigned", "order_confirmed", "new_prepared_order"].includes(broadcast.eventType)) {
-            const order = broadcast.payload?.data || broadcast.payload?.order;
-            if (order && !processedOrderIds.current.has(order.id)) {
-              processedOrderIds.current.add(order.id);
-              newOrdersCountLocal++;
+          pending.forEach((broadcast: any) => {
+            if (["order_assigned", "order_confirmed", "new_prepared_order"].includes(broadcast.eventType)) {
+              const order = broadcast.payload?.data || broadcast.payload?.order;
+              if (order && !processedOrderIds.current.has(order.id)) {
+                processedOrderIds.current.add(order.id);
+                newOrdersCountLocal++;
 
-              const notificationTitle =
-                broadcast.eventType === "order_confirmed" ? "Order Ready for Pickup!" :
-                  broadcast.eventType === "new_prepared_order" ? "New Order Available!" :
-                    "New Delivery Assignment!";
+                const notificationTitle =
+                  broadcast.eventType === "order_confirmed" ? "Order Ready for Pickup!" :
+                    broadcast.eventType === "new_prepared_order" ? "New Order Available!" :
+                      "New Delivery Assignment!";
 
-              toast({
-                title: `Recovered: ${notificationTitle}`,
-                description: broadcast.payload?.message || `Order #${order.id.slice(0, 8)}`,
-                duration: 10000,
-              });
-
-              if (Notification.permission === "granted") {
-                new Notification(notificationTitle, {
-                  body: broadcast.payload?.message || `Order #${order.id.slice(0, 8)}`,
-                  icon: "/favicon.png",
-                  tag: order.id,
+                toast({
+                  title: `Recovered: ${notificationTitle}`,
+                  description: broadcast.payload?.message || `Order #${order.id.slice(0, 8)}`,
+                  duration: 10000,
                 });
+
+                if (Notification.permission === "granted") {
+                  new Notification(notificationTitle, {
+                    body: broadcast.payload?.message || `Order #${order.id.slice(0, 8)}`,
+                    icon: "/favicon.png",
+                    tag: order.id,
+                  });
+                }
               }
             }
+
+            if (["order_assigned", "order_confirmed", "order_update", "new_prepared_order"].includes(broadcast.eventType)) {
+              queryClient.invalidateQueries({ queryKey: ["/api/delivery/orders"] });
+              queryClient.invalidateQueries({ queryKey: ["/api/delivery/available-orders"] });
+            }
+
+            processedIds.push(broadcast.id);
+          });
+
+          if (newOrdersCountLocal > 0) {
+            setNewAssignmentsCount(prev => prev + newOrdersCountLocal);
+            try {
+              const alertAudio = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBTGH0fPTgjMGHm7A7+OZURE=");
+              alertAudio.play().catch(() => { });
+            } catch (_) { }
           }
 
-          if (["order_assigned", "order_confirmed", "order_update", "new_prepared_order"].includes(broadcast.eventType)) {
-            queryClient.invalidateQueries({ queryKey: ["/api/delivery/orders"] });
-            queryClient.invalidateQueries({ queryKey: ["/api/delivery/available-orders"] });
+          if (processedIds.length > 0) {
+            await api.post("/api/notifications/mark-delivered", { ids: processedIds });
           }
-
-          processedIds.push(broadcast.id);
-        });
-
-        if (newOrdersCountLocal > 0) {
-          setNewAssignmentsCount(prev => prev + newOrdersCountLocal);
-          try {
-            const alertAudio = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBTGH0fPTgjMGHm7A7+OZURE=");
-            alertAudio.play().catch(() => { });
-          } catch (_) { }
         }
-
-        if (processedIds.length > 0) {
-          await api.post("/api/notifications/mark-delivered", { ids: processedIds });
+      } catch (apiError: any) {
+        if (apiError?.response?.status === 401) {
+          console.error("[NOTIFICATIONS] ⚠️ Got 401 on notifications endpoint - NOT logging out globally");
+          alert(`[NOTIFICATIONS] ⚠️ 401 Error on notifications: ${apiError.response?.data?.message}`);
+          console.error("[NOTIFICATIONS] Error details:", apiError.response?.data);
+          // Don't rethrow - this allows the dashboard to stay loaded even if notifications fail
+          return;
         }
+        throw apiError; // Rethrow other errors
       }
     } catch (error: any) {
       console.error("[NOTIFICATIONS] ❌ Failed to fetch pending delivery broadcasts:", error);
+      alert(`[NOTIFICATIONS] ❌ Error: ${error?.message}`);
       console.error("[NOTIFICATIONS] Error status:", error?.response?.status);
       console.error("[NOTIFICATIONS] Error message:", error?.message);
       if (error?.response?.status === 401) {
         console.error("[NOTIFICATIONS] 🔴 Got 401 - Session likely expired");
+        alert("[NOTIFICATIONS] 🔴 Got 401 error on notifications");
       }
     }
   }, []);
