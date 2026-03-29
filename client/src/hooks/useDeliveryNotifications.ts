@@ -253,15 +253,15 @@ export function useDeliveryNotifications() {
     };
   }, [connect, fetchPendingBroadcasts]);
 
-  const requestNotificationPermission = async () => {
+  const requestNotificationPermission = useCallback(async () => {
     if ("Notification" in window && Notification.permission === "default") {
       await Notification.requestPermission();
     }
-  };
+  }, []);
 
-  const clearNewAssignmentsCount = () => {
+  const clearNewAssignmentsCount = useCallback(() => {
     setNewAssignmentsCount(0);
-  };
+  }, []);
 
   return {
     wsConnected,

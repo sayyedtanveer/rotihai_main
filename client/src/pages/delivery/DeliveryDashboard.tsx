@@ -67,7 +67,7 @@ export default function DeliveryDashboard() {
   const { wsConnected, newAssignmentsCount, requestNotificationPermission, clearNewAssignmentsCount } = useDeliveryNotifications();
   const [selectedTab, setSelectedTab] = useState("dashboard");
 
-  // ✅ Check auth on mount only and ensure dependencies are included
+  // ✅ Check auth on mount only (SINGLE RUN)
   useEffect(() => {
     console.log("[DASHBOARD] 🔐 Step 1: Auth check effect running");
     
@@ -95,19 +95,13 @@ export default function DeliveryDashboard() {
       console.log("[DASHBOARD] ✅ Step 4: Setting isAuthenticated = true");
       setIsAuthenticated(true);
       console.log("[DASHBOARD] ✅ Step 5: Dashboard ready for user:", personName);
-    }
-  }, [setLocation]);
-
-  useEffect(() => {
-    console.log("[DASHBOARD] 📲 Step 6: isAuthenticated changed:", isAuthenticated);
-    if (isAuthenticated) {
-      console.log("[DASHBOARD] 📲 Step 7: Requesting notification permission");
+      
+      // ✅ Request notification permission ONLY after auth confirmed
+      console.log("[DASHBOARD] 📲 Step 6: Requesting notification permission");
       requestNotificationPermission();
       console.log("[DASHBOARD] ✅ Notification permission requested");
-    } else {
-      console.log("[DASHBOARD] ⏸️ Step 7: Skipping notifications (not authenticated)");
     }
-  }, [isAuthenticated, requestNotificationPermission]);
+  }, [setLocation]);
 
   // Note: Token refresh disabled because delivery tokens are set to 90d (long-lived sessions)
   // No need to refresh before expiry - user will only logout on explicit logout action
