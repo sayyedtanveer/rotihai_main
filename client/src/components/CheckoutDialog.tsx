@@ -2038,6 +2038,19 @@ export default function CheckoutDialog({
       return;
     }
 
+    // ✅ Validate email if provided (optional field but must be valid if entered)
+    if (email.trim()) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email.trim())) {
+        toast({
+          title: "Invalid email",
+          description: "Please enter a valid email address",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
     // ✅ NEW: Validate all 4 address fields are mandatory
     if (!addressBuilding.trim()) {
       toast({

@@ -1,22 +1,14 @@
-import nodemailer from "nodemailer";
-import type { Transporter } from "nodemailer";
+import { Resend } from "resend";
 
-let transporter: Transporter | null = null;
+let resend: Resend | null = null;
 
-// Initialize transporter
-if (process.env.GMAIL_APP_PASSWORD && process.env.GMAIL_USER) {
-  transporter = nodemailer.createTransport({
-    service: "gmail",
-    auth: {
-      user: process.env.GMAIL_USER,
-      pass: process.env.GMAIL_APP_PASSWORD,
-    },
-  });
-
-  console.log("✅ Email service initialized with Gmail:", process.env.GMAIL_USER);
+// Initialize Resend transporter
+if (process.env.RESEND_API_KEY) {
+  resend = new Resend(process.env.RESEND_API_KEY);
+  console.log("✅ Email service initialized with Resend");
 } else {
   console.warn(
-    "⚠️ Email service not configured. Set GMAIL_USER and GMAIL_APP_PASSWORD."
+    "⚠️ Email service not configured. Set RESEND_API_KEY environment variable."
   );
 }
 
@@ -30,20 +22,25 @@ export interface EmailTemplate {
    SEND EMAIL (COMMON FUNCTION)
 ============================================ */
 export async function sendEmail({ to, subject, html }: EmailTemplate) {
-  if (!transporter) {
+  if (!resend) {
     console.warn("⚠️ Email service not configured. Skipping email:", to);
     return false;
   }
 
   try {
-    const info = await transporter.sendMail({
-      from: `"RotiHai - घर की रोटी" <${process.env.GMAIL_USER}>`,
+    const response = await resend.emails.send({
+      from: `RotiHai <onboarding@resend.dev>`,
       to,
       subject,
       html,
     });
 
-    console.log(`✅ Email sent to ${to} (Message ID: ${info.messageId})`);
+    if (response.error) {
+      console.error("❌ Email send failed:", response.error);
+      return false;
+    }
+
+    console.log(`✅ Email sent to ${to} (ID: ${response.data?.id})`);
     return true;
   } catch (err) {
     console.error("❌ Email send failed:", err);
