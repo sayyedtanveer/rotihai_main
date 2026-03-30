@@ -22,6 +22,7 @@ const loadVite = async () => {
   }
 
   if (!viteConfig) {
+    // @ts-ignore - vite.config only exists in dev, not in production
     const config = await import("../../vite.config");
     viteConfig = config.default;
   }
