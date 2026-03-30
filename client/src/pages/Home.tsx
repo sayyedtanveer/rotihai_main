@@ -657,6 +657,27 @@ export default function Home() {
     }
 
     return true;
+  }).sort((a, b) => {
+    // ✅ SORTING: By displayOrder first, then by availability
+    // 1. Sort by category displayOrder (lower value = higher priority)
+    const categoryA = categories.find(c => c.id === a.categoryId);
+    const categoryB = categories.find(c => c.id === b.categoryId);
+    const orderA = categoryA?.displayOrder ?? 999;
+    const orderB = categoryB?.displayOrder ?? 999;
+    
+    if (orderA !== orderB) {
+      return orderA - orderB; // Categories with lower displayOrder come first
+    }
+
+    // 2. Within same category, sort by availability (available chefs first)
+    const isActiveA = chefStatuses[a.id] !== undefined ? chefStatuses[a.id] : (a.isActive !== false);
+    const isActiveB = chefStatuses[b.id] !== undefined ? chefStatuses[b.id] : (b.isActive !== false);
+    
+    if (isActiveA !== isActiveB) {
+      return isActiveA ? -1 : 1; // Available chefs come first (true = -1, false = 1)
+    }
+
+    return 0; // Maintain original order if both conditions are equal
   });
 
   // Filter products when showing "all" categories
