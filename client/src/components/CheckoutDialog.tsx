@@ -3115,20 +3115,7 @@ export default function CheckoutDialog({
                           )}
                         </div>
 
-                        {/* Debugging Ghost 0 */}
-                        {/* Debugging Ghost 0 */}
-                        {(function () {
-                          console.log("[RENDER DEBUG] Zero Check:", {
-                            itemDiscountSavings,
-                            discount,
-                            pendingBonus,
-                            walletBalance: user?.walletBalance,
-                            isBelowDeliveryMinimum,
-                            deliveryFee,
-                            "wallet_cond_check": isAuthenticated && user?.walletBalance
-                          });
-                          return null;
-                        })()}
+                        {/* Summary section continues below */}
 
                         {/* Item Discount Savings from offer percentages */}
                         {typeof itemDiscountSavings === 'number' && itemDiscountSavings > 0 && (

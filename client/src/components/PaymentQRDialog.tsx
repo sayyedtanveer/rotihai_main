@@ -807,40 +807,42 @@ export default function PaymentQRDialog({
             </div>
           )}
 
-          {/* ✅ SECTION 4: PAY WITH APP BUTTONS - COMPACT */}
+          {/* ✅ SECTION 4: PAY WITH APP BUTTONS - SUBTLE & COMPACT */}
           {upiIntent && (
-            <div className="bg-gradient-to-r from-green-600 to-emerald-600 dark:from-green-700 dark:to-emerald-700 rounded-lg p-2 space-y-2">
-              <p className="text-xs font-bold text-white text-center">🚀 Quick Payment Apps</p>
+            <div className="bg-slate-50 dark:bg-slate-900/30 rounded-lg p-2.5 border border-slate-200 dark:border-slate-700 space-y-1.5">
+              <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 text-center">💳 Quick Payment</p>
               
-              <div className="flex gap-1">
+              <div className="flex gap-1.5 justify-center">
                 <Button
                   variant="default"
-                  className="flex-1 flex items-center justify-center gap-1 h-10 bg-white hover:bg-gray-100 text-green-700 font-semibold border-0 transition-all text-xs"
+                  className="flex flex-col items-center justify-center gap-0.5 h-14 w-20 bg-blue-600 hover:bg-blue-700 text-white font-semibold border-0 transition-all rounded-lg"
                   onClick={() => handlePayWithApp("gpay")}
                   data-testid="button-pay-gpay"
                 >
-                  💳
+                  <span className="text-base">💳</span>
+                  <span className="text-xs">Google Pay</span>
                 </Button>
                 <Button
                   variant="outline"
                   disabled
-                  className="flex-1 flex items-center justify-center gap-1 h-10 opacity-40 cursor-not-allowed text-xs"
+                  className="flex flex-col items-center justify-center gap-0.5 h-14 w-20 opacity-35 cursor-not-allowed rounded-lg"
                   data-testid="button-pay-phonepe"
                   title="Coming soon"
                 >
-                  📱
+                  <span className="text-base">📱</span>
+                  <span className="text-xs">PhonePe</span>
                 </Button>
                 <Button
                   variant="outline"
                   disabled
-                  className="flex-1 flex items-center justify-center gap-1 h-10 opacity-40 cursor-not-allowed text-xs"
+                  className="flex flex-col items-center justify-center gap-0.5 h-14 w-20 opacity-35 cursor-not-allowed rounded-lg"
                   data-testid="button-pay-paytm"
                   title="Coming soon"
                 >
-                  💰
+                  <span className="text-base">💰</span>
+                  <span className="text-xs">Paytm</span>
                 </Button>
               </div>
-              <p className="text-xs text-green-100 text-center leading-tight">Google Pay • PhonePe • Paytm (coming)</p>
             </div>
           )}
 

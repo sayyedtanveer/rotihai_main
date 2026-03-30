@@ -216,7 +216,6 @@ export default function Home() {
 
         // FIRST: Check if address was already validated in checkout (from Context)
         if (deliveryLocation.isInZone && deliveryLocation.address) {
-          console.log("[LOCATION-DETECTION] ✅ Using previously validated address from Context:", deliveryLocation.address);
           setUserInDeliveryZone(true);
           setDeliveryZoneDetected(true);
           setIsDetectingLocation(false);
@@ -225,12 +224,6 @@ export default function Home() {
 
         // SECOND: Check if pincode was entered (PRIORITY OVER GPS)
         if (deliveryLocation.pincode && deliveryLocation.latitude && deliveryLocation.longitude) {
-          console.log("[LOCATION-DETECTION] ✅ Using pincode coordinates (PRIORITY):", {
-            pincode: deliveryLocation.pincode,
-            lat: deliveryLocation.latitude,
-            lng: deliveryLocation.longitude,
-            reason: "Pincode coords more reliable than GPS for delivery zones"
-          });
 
 
           // Store pincode coordinates in localStorage for chef loading
@@ -242,23 +235,13 @@ export default function Home() {
           setDeliveryZoneDetected(true);
           setIsDetectingLocation(false);
 
-          // Safari-specific: Log state for debugging
-          console.log("[SAFARI-DEBUG] Pincode coordinates set:", {
-            latitude: deliveryLocation.latitude,
-            longitude: deliveryLocation.longitude,
-            pincode: deliveryLocation.pincode,
-            userAgent: navigator.userAgent
-          });
-
           return; // Pincode is authoritative - no need for GPS
         }
 
         // THIRD: Only if NO PINCODE, require manual input
-        console.log("[LOCATION-DETECTION] No pincode found, skipping GPS fallback to require Pincode input...");
         setDeliveryZoneDetected(true);
         setUserInDeliveryZone(false);
       } catch (error) {
-        console.error("[LOCATION-DETECTION] Error detecting location:", error);
         setDeliveryZoneDetected(true);
         setUserInDeliveryZone(false); // BLOCK categories on error
       } finally {

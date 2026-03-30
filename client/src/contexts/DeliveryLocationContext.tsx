@@ -63,11 +63,6 @@ export function DeliveryLocationProvider({ children }: { children: ReactNode }) 
         const twentyFourHours = 24 * 60 * 60 * 1000;
 
         if (now - validatedTime < twentyFourHours) {
-          console.log("[DELIVERY-CONTEXT] Restored location from localStorage:", {
-            pincode: parsed.pincode,
-            address: parsed.address,
-            source: parsed.source
-          });
           return {
             latitude: parsed.latitude || null,
             longitude: parsed.longitude || null,
@@ -81,7 +76,7 @@ export function DeliveryLocationProvider({ children }: { children: ReactNode }) 
           };
         }
       } catch (e) {
-        console.warn("[DELIVERY-CONTEXT] Error restoring from localStorage:", e);
+        // Silently fail - will use default state
       }
     }
 
@@ -107,8 +102,7 @@ export function DeliveryLocationProvider({ children }: { children: ReactNode }) 
   useEffect(() => {
     // Load delivery areas in background (no blocking)
     getDeliveryAreas().catch((error) => {
-      console.warn("[DELIVERY-CONTEXT] Failed to load areas:", error);
-      // Will use fallback - not a critical error
+      // Silently fail - will use fallback
     });
   }, []);
 
@@ -133,19 +127,7 @@ export function DeliveryLocationProvider({ children }: { children: ReactNode }) 
           source: updated.source,
         };
         localStorage.setItem("lastValidatedDeliveryAddress", JSON.stringify(toStore));
-        console.log("[DELIVERY-CONTEXT] Saved location to localStorage:", {
-          pincode: updated.pincode,
-          address: updated.address,
-          source: updated.source
-        });
       }
-
-      console.log("[DELIVERY-CONTEXT] Updated location:", {
-        address: updated.address,
-        isInZone: updated.isInZone,
-        distance: updated.distance,
-        source: updated.source,
-      });
 
       return updated;
     });
@@ -167,7 +149,6 @@ export function DeliveryLocationProvider({ children }: { children: ReactNode }) 
       source: null,
     });
     localStorage.removeItem("lastValidatedDeliveryAddress");
-    console.log("[DELIVERY-CONTEXT] Cleared location");
   };
 
   const value: DeliveryLocationContextType = {
