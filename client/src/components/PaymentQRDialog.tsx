@@ -186,41 +186,21 @@ export default function PaymentQRDialog({
     try {
       const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
       
-      // Get merchant phone number from settings
-      const merchantPhone = paymentSettings.merchantPhone || "";
-      
       if (app === "gpay") {
         if (isIOS) {
-          // iOS: Use UPI deeplink with payee name to auto-fill recipient search
-          // The 'pn' (payee name) parameter helps iOS pre-populate the recipient field
-          if (merchantPhone) {
-            const upiId = `${merchantPhone}@okhdfcbank`;
-            // Add payee name to help pre-populate recipient in search
-            const payeeName = paymentSettings.merchantName || "Roti Vilas";
-            window.location.href = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(payeeName)}&tr=RotiVilasPayment`;
-          } else {
-            window.location.href = "upi://";
-          }
+          // iOS: Open Google Pay app from App Store
+          // Using app scheme to open the app if installed, otherwise goes to App Store
+          window.location.href = "https://apps.apple.com/in/app/google-pay-a-safe-way-to-pay/id1193357744";
         } else {
-          // Android: Use Intent URI to specifically target Google Pay app
-          // This ensures Google Pay opens, not any other UPI app
-          if (merchantPhone) {
-            const upiId = `${merchantPhone}@okhdfcbank`;
-            // Use intent:// URI to target Google Pay package specifically
-            // Format: intent://send?pa=UPI_ID#Intent;scheme=upi;package=com.google.android.apps.nbu.paisa.user;end
-            const intentUri = `intent://send?pa=${upiId}#Intent;scheme=upi;package=com.google.android.apps.nbu.paisa.user;action=android.intent.action.SENDTO;end`;
-            window.location.href = intentUri;
-          } else {
-            window.location.href = "https://play.google.com/store/apps/details?id=com.google.android.apps.nbu.paisa.user";
-          }
+          // Android: Open Google Pay app from Play Store
+          // Users will manually enter UPI ID and amount in Google Pay
+          window.location.href = "https://play.google.com/store/apps/details?id=com.google.android.apps.nbu.paisa.user";
         }
       }
 
       toast({
         title: "Opening Google Pay",
-        description: merchantPhone 
-          ? `Recipient: ${merchantPhone}\nAmount: ₹${amount}\nVerify and complete`
-          : `Enter amount: ₹${amount}\nVerify and complete`,
+        description: `Open Google Pay and send ₹${amount} to ${paymentSettings.merchantPhone || "merchant"}`,
       });
     } catch (error) {
       console.error("[PAYMENT QR] Error opening payment app:", error);
