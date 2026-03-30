@@ -5881,70 +5881,86 @@ function log(message, source = "express") {
   console.log(`${formattedTime} [${source}] ${message}`);
 }
 async function setupVite(app2, server) {
-  if (process.env.NODE_ENV === "production") {
+  if (!isDev) {
     return;
   }
-  await loadVite();
-  const viteLogger = await getViteLogger();
-  const serverOptions = {
-    middlewareMode: true,
-    hmr: { server },
-    allowedHosts: true
-  };
-  const vite = await createViteServer({
-    ...viteConfig,
-    configFile: false,
-    customLogger: {
-      ...viteLogger,
-      error: (msg, options) => {
-        viteLogger.error(msg, options);
-        process.exit(1);
-      }
-    },
-    server: serverOptions,
-    appType: "custom"
-  });
-  app2.use(vite.middlewares);
-  app2.use("*", async (req, res, next) => {
-    const url = req.originalUrl;
-    try {
-      const clientTemplate = path2.resolve(
-        import.meta.dirname,
-        "..",
-        "client",
-        "index.html"
-      );
-      let template = await fs2.promises.readFile(clientTemplate, "utf-8");
-      template = template.replace(
-        `src="/src/main.tsx"`,
-        `src="/src/main.tsx?v=${nanoid2()}"`
-      );
-      const page = await vite.transformIndexHtml(url, template);
-      res.status(200).set({ "Content-Type": "text/html" }).end(page);
-    } catch (e) {
-      vite.ssrFixStacktrace(e);
-      next(e);
+  try {
+    await loadVite();
+    const viteLogger = await getViteLogger();
+    const serverOptions = {
+      middlewareMode: true,
+      hmr: { server },
+      allowedHosts: true
+    };
+    if (!createViteServer) {
+      throw new Error("Vite server was not loaded correctly");
     }
-  });
+    const vite = await createViteServer({
+      ...viteConfig,
+      configFile: false,
+      customLogger: {
+        ...viteLogger,
+        error: (msg, options) => {
+          viteLogger.error(msg, options);
+          process.exit(1);
+        }
+      },
+      server: serverOptions,
+      appType: "custom"
+    });
+    app2.use(vite.middlewares);
+    app2.use("*", async (req, res, next) => {
+      const url = req.originalUrl;
+      try {
+        const clientTemplate = path2.resolve(
+          import.meta.dirname,
+          "..",
+          "client",
+          "index.html"
+        );
+        let template = await fs2.promises.readFile(clientTemplate, "utf-8");
+        template = template.replace(
+          `src="/src/main.tsx"`,
+          `src="/src/main.tsx?v=${nanoid2()}"`
+        );
+        const page = await vite.transformIndexHtml(url, template);
+        res.status(200).set({ "Content-Type": "text/html" }).end(page);
+      } catch (e) {
+        vite.ssrFixStacktrace(e);
+        next(e);
+      }
+    });
+  } catch (error) {
+    console.error("\u274C Failed to setup Vite:", error);
+    throw error;
+  }
 }
 function serveStatic(app2) {
   const distPath = path2.resolve(import.meta.dirname, "..", "dist", "public");
   if (!fs2.existsSync(distPath)) {
-    throw new Error(
-      `Could not find the build directory: ${distPath}, make sure to build the client first`
-    );
+    const errorMsg = `\u274C CRITICAL: Frontend build not found: ${distPath}
+    
+    Cause: 'npm run build:client' was not run before deployment
+    Fix: Build frontend before deploying to production
+    
+    Steps:
+      1. npm run build:client
+      2. Redeploy`;
+    console.error(errorMsg);
+    if (isDev) {
+      console.warn("\u26A0\uFE0F  Continuing without frontend (dev mode)");
+      return;
+    }
+    throw new Error(errorMsg);
   }
+  console.log("\u2705 Serving static frontend from:", distPath);
   app2.use(express.static(distPath, {
     maxAge: "1d",
-    // Browser can cache for 1 day
     etag: true,
-    // Enable ETag for cache validation
     lastModified: true,
-    // Enable Last-Modified header
     immutable: false,
-    // Files might change, allow revalidation
-    setHeaders: (res, path3) => {
-      if (path3.match(/\.[a-f0-9]{8}\./i)) {
+    setHeaders: (res, filePath) => {
+      if (filePath.match(/\.[a-f0-9]{8}\./i)) {
         res.set("Cache-Control", "public, max-age=31536000, immutable");
       }
     }
@@ -5953,27 +5969,45 @@ function serveStatic(app2) {
     res.sendFile(path2.resolve(distPath, "index.html"));
   });
 }
-var createViteServer, createLogger, viteConfig, loadVite, getViteLogger;
+var isDev, createViteServer, createLogger, viteConfig, loadVite, getViteLogger;
 var init_vite = __esm({
   "server/vite.ts"() {
     "use strict";
+    isDev = process.env.NODE_ENV === "development";
+    createViteServer = null;
+    createLogger = null;
+    viteConfig = null;
     loadVite = async () => {
-      if (process.env.NODE_ENV === "production") {
+      if (!isDev) {
         return;
       }
       if (!createViteServer) {
-        const viteModule = await import("vite");
-        createViteServer = viteModule.createServer;
-        createLogger = viteModule.createLogger;
+        try {
+          const viteModule = await import("vite");
+          createViteServer = viteModule.createServer;
+          createLogger = viteModule.createLogger;
+        } catch (error) {
+          console.error("\u274C Failed to load vite module:", error);
+          throw new Error("Vite must be installed in development mode");
+        }
       }
       if (!viteConfig) {
-        const config = await import("../../vite.config");
-        viteConfig = config.default;
+        try {
+          const config = await import("../../vite.config");
+          viteConfig = config.default;
+        } catch (error) {
+          console.error("\u274C Failed to load vite.config:", error);
+          throw new Error("vite.config must exist and be valid in development mode");
+        }
       }
     };
     getViteLogger = async () => {
       await loadVite();
-      return createLogger ? createLogger() : { error: console.error, info: console.log, warn: console.warn };
+      return createLogger ? createLogger() : {
+        error: console.error,
+        info: console.log,
+        warn: console.warn
+      };
     };
   }
 });
@@ -16397,7 +16431,8 @@ var imageExists = (filename) => {
 };
 
 // server/index.ts
-if (process.env.NODE_ENV === "development") {
+var isDev2 = process.env.NODE_ENV === "development";
+if (isDev2) {
   const dbUrl = process.env.DATABASE_URL || "";
   if (dbUrl.includes("rotihai_prod")) {
     console.error("\u274C \u274C \u274C CRITICAL ERROR \u274C \u274C \u274C");
@@ -16438,7 +16473,7 @@ app.use(express2.json({
 app.use(express2.urlencoded({ extended: false }));
 app.use(cookieParser());
 app.use((req, res, next) => {
-  if (process.env.NODE_ENV === "development") {
+  if (isDev2) {
     res.set({
       "Cache-Control": "no-cache, no-store, must-revalidate",
       "Pragma": "no-cache",
@@ -16796,12 +16831,24 @@ app.use((req, res, next) => {
     res.setHeader("Content-Type", "application/json");
     res.status(404).json({ message: "API endpoint not found" });
   });
-  if (process.env.NODE_ENV === "development") {
-    const { setupVite: setupVite2 } = await Promise.resolve().then(() => (init_vite(), vite_exports));
-    await setupVite2(app, server);
-  } else if (process.env.SERVE_CLIENT === "true") {
-    const { serveStatic: serveStatic2 } = await Promise.resolve().then(() => (init_vite(), vite_exports));
-    serveStatic2(app);
+  if (isDev2) {
+    try {
+      const { setupVite: setupVite2 } = await Promise.resolve().then(() => (init_vite(), vite_exports));
+      await setupVite2(app, server);
+      console.log("\u2705 Vite dev server initialized");
+    } catch (error) {
+      console.error("\u274C Failed to setup Vite dev server:", error);
+      throw error;
+    }
+  } else {
+    try {
+      const { serveStatic: serveStatic2 } = await Promise.resolve().then(() => (init_vite(), vite_exports));
+      serveStatic2(app);
+      console.log("\u2705 Static file server initialized");
+    } catch (error) {
+      console.error("\u274C CRITICAL: Failed to serve static files:", error);
+      throw error;
+    }
   }
   try {
     const { startCronJobs: startCronJobs2 } = await Promise.resolve().then(() => (init_cronJobs(), cronJobs_exports));

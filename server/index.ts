@@ -9,8 +9,11 @@ import { generateAccessToken, generateRefreshToken, verifyPassword, hashPassword
 import { storage } from "./storage";
 import { saveImageFile, getImagePath, imageExists, deleteImageFile } from "./imageService";
 
+// ⚠️ CRITICAL: Environment flag at module level
+const isDev = process.env.NODE_ENV === "development";
+
 // 🔒 DATABASE SAFETY CHECK: Prevent dev from using prod database
-if (process.env.NODE_ENV === "development") {
+if (isDev) {
   const dbUrl = process.env.DATABASE_URL || "";
   if (dbUrl.includes("rotihai_prod")) {
     console.error("❌ ❌ ❌ CRITICAL ERROR ❌ ❌ ❌");
@@ -62,7 +65,7 @@ app.use(cookieParser());
 
 // Set Cache-Control headers based on environment
 app.use((req, res, next) => {
-  if (process.env.NODE_ENV === 'development') {
+  if (isDev) {
     // Development: Never cache - always fresh
     res.set({
       'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -529,13 +532,26 @@ app.use((req, res, next) => {
   // importantly only setup vite in development and after
   // setting up all the other routes so the catch-all route
   // doesn't interfere with the other routes
-  if (process.env.NODE_ENV === "development") {
-    const { setupVite } = await import("./vite.js");
-    await setupVite(app, server);
-
-  } else if (process.env.SERVE_CLIENT === "true") {
-    const { serveStatic } = await import("./vite.js");
-    serveStatic(app);
+  if (isDev) {
+    // ✅ DEVELOPMENT: Setup Vite dev server with HMR
+    try {
+      const { setupVite } = await import("./vite.js");
+      await setupVite(app, server);
+      console.log("✅ Vite dev server initialized");
+    } catch (error) {
+      console.error("❌ Failed to setup Vite dev server:", error);
+      throw error;
+    }
+  } else {
+    // 🚀 PRODUCTION: Serve pre-built static files
+    try {
+      const { serveStatic } = await import("./vite.js");
+      serveStatic(app);
+      console.log("✅ Static file server initialized");
+    } catch (error) {
+      console.error("❌ CRITICAL: Failed to serve static files:", error);
+      throw error;
+    }
   }
 
   // ✅ Initialize cron jobs (payment verification, subscriptions, etc.)
