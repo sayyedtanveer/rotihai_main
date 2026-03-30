@@ -6,6 +6,7 @@ let resend: Resend | null = null;
 if (process.env.RESEND_API_KEY) {
   resend = new Resend(process.env.RESEND_API_KEY);
   console.log("✅ Email service initialized with Resend");
+  console.log("[EMAIL] API Key configured: " + (process.env.RESEND_API_KEY?.substring(0, 10) + "..."));
 } else {
   console.warn(
     "⚠️ Email service not configured. Set RESEND_API_KEY environment variable."
@@ -27,7 +28,13 @@ export async function sendEmail({ to, subject, html }: EmailTemplate) {
     return false;
   }
 
+  console.log("[EMAIL-DEBUG] 📧 Sending email...");
+  console.log("[EMAIL-DEBUG] To:", to);
+  console.log("[EMAIL-DEBUG] Subject:", subject);
+  console.log("[EMAIL-DEBUG] HTML length:", html.length, "chars");
+
   try {
+    console.log("[EMAIL-DEBUG] Calling Resend API...");
     const response = await resend.emails.send({
       from: `RotiHai <onboarding@resend.dev>`,
       to,
@@ -35,15 +42,23 @@ export async function sendEmail({ to, subject, html }: EmailTemplate) {
       html,
     });
 
+    console.log("[EMAIL-DEBUG] Resend response:", JSON.stringify(response));
+
     if (response.error) {
-      console.error("❌ Email send failed:", response.error);
+      console.error("❌ Email send failed. Resend Error:", response.error);
       return false;
     }
 
-    console.log(`✅ Email sent to ${to} (ID: ${response.data?.id})`);
+    console.log(`✅ Email sent successfully!`);
+    console.log(`[EMAIL-DEBUG] Message ID: ${response.data?.id}`);
+    console.log(`[EMAIL-DEBUG] To: ${to}`);
+    console.log(`[EMAIL-DEBUG] Subject: ${subject}`);
     return true;
-  } catch (err) {
-    console.error("❌ Email send failed:", err);
+  } catch (err: any) {
+    console.error("❌ Email send exception:", err);
+    console.error("[EMAIL-ERROR] Error type:", err?.name);
+    console.error("[EMAIL-ERROR] Error message:", err?.message);
+    console.error("[EMAIL-ERROR] Full error:", JSON.stringify(err));
     return false;
   }
 }

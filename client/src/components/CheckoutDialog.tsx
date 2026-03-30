@@ -868,6 +868,15 @@ export default function CheckoutDialog({
     }
   }, [isOpen, isAuthenticated, cart?.chefId]);
 
+  // ✅ FIX: Auto-check prefilled phone number for existing users (non-authenticated only)
+  // This ensures that when phone is restored from localStorage, we check if it exists
+  useEffect(() => {
+    if (isOpen && !isAuthenticated && phone && phone.length === 10 && phoneExists === null) {
+      console.log("[CHECKOUT] Auto-checking prefilled phone number:", phone);
+      handlePhoneChange(phone);
+    }
+  }, [isOpen, phone]);
+
   // 🛡️ FIX BUG 1: Save form data to localStorage whenever values change (for non-authenticated users)
   useEffect(() => {
     if (!isAuthenticated && (customerName || phone || email)) {

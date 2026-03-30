@@ -2,9 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Separator } from "@/components/ui/separator";
-import { Loader2, Copy, Smartphone, AlertCircle, CheckCircle2, ChevronDown } from "lucide-react";
+import { Loader2, Copy, Smartphone, CheckCircle2 } from "lucide-react";
 // import { SiGooglepay, SiPhonepe, SiPaytm } from "react-icons/si";
 import { useToast } from "@/hooks/use-toast";
 import QRCode from "qrcode";
@@ -78,7 +76,6 @@ export default function PaymentQRDialog({
   const [hasPaid, setHasPaid] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
   const [upiIntent, setUpiIntent] = useState("");
-  const [showQRCode, setShowQRCode] = useState(false);
   const [accountCreatedAfterPayment, setAccountCreatedAfterPayment] = useState(false);
   const [createdAccountPassword, setCreatedAccountPassword] = useState<string | null>(null);
   const [showAccountDialog, setShowAccountDialog] = useState(false);
@@ -119,7 +116,6 @@ export default function PaymentQRDialog({
       console.log("[PAYMENT QR] Dialog closed - resetting state");
       setIsConfirming(false);
       setHasPaid(false);
-      setShowQRCode(false); // Reset to false
     }
   }, [isOpen]);
 
@@ -141,10 +137,11 @@ export default function PaymentQRDialog({
   }, [isOpen, paymentSettings.upiId, paymentSettings.merchantName, amount, orderId, isOptionA]);
 
   // Render QR code to canvas separately after intent is set
+  // QR code is always visible (not collapsible) for better UX
   useEffect(() => {
-    if (upiIntent && canvasRef.current && showQRCode) {
+    if (upiIntent && canvasRef.current) {
       console.log("[PAYMENT QR] Rendering QR code to canvas");
-      const qrSize = window.innerWidth < 768 ? 200 : 256;
+      const qrSize = 140; // Compact size for new design
 
       QRCode.toCanvas(
         canvasRef.current,
@@ -169,7 +166,7 @@ export default function PaymentQRDialog({
         }
       );
     }
-  }, [upiIntent, toast, showQRCode]);
+  }, [upiIntent, toast]);
 
   useEffect(() => {
     console.log("[PAYMENT QR] upiIntent state changed:", upiIntent ? "SET (buttons should render)" : "NOT SET (buttons hidden)");
@@ -718,218 +715,155 @@ export default function PaymentQRDialog({
         }}
       >
       <DialogContent
-        className="w-full max-w-md mx-auto max-h-[90vh] overflow-y-auto"
+        className="w-full max-w-md mx-auto max-h-[95vh] overflow-y-auto"
         {...handlePaymentQRDialogContentProps}
       >
         <DialogHeader>
           <DialogTitle>Complete Payment</DialogTitle>
-          <DialogDescription>Scan QR code to pay with any UPI app</DialogDescription>
+          <DialogDescription>Choose your preferred payment method</DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 sm:space-y-6">
-          {/* Payment Options Highlight Section */}
+        <div className="space-y-3">
+          {/* ✅ SECTION 1: UPI ID - TOP, HIGHLIGHTED IN GREEN */}
           {upiIntent && (
-            <div className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 border-2 border-blue-200 dark:border-blue-800 rounded-lg p-4 space-y-3">
-              <div className="flex items-center gap-2">
-                <div className="bg-blue-600 text-white p-2 rounded-full">
-                  <Smartphone className="h-5 w-5" />
+            <div className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-950/40 dark:to-emerald-950/40 border-2 border-green-400 dark:border-green-600 rounded-lg p-3 space-y-2">
+              <p className="text-xs font-semibold text-green-700 dark:text-green-300 uppercase tracking-wide">💚 UPI Payment Ready</p>
+              <div className="bg-white dark:bg-slate-800 rounded p-3 flex items-center justify-between">
+                <div className="flex flex-col">
+                  <span className="text-xs text-muted-foreground">UPI ID</span>
+                  <span className="font-mono font-bold text-sm text-green-600 dark:text-green-400">{paymentSettings.upiId}</span>
                 </div>
-                <div>
-                  <p className="font-bold text-sm text-foreground">Multiple Payment Options Available</p>
-                  <p className="text-xs text-muted-foreground">Choose any method below</p>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={copyUpiId}
+                  data-testid="button-copy-upi"
+                  className="hover:bg-green-100 dark:hover:bg-green-900/30"
+                >
+                  <Copy className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* ✅ SECTION 2: PAYMENT NUMBER - IMMEDIATELY BELOW UPI ID */}
+          {upiIntent && paymentSettings.merchantPhone && (
+            <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-300 dark:border-blue-700 rounded-lg p-3">
+              <div className="flex items-start gap-3">
+                <Smartphone className="h-5 w-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-xs font-semibold text-blue-700 dark:text-blue-300">Pay Directly to This Number</p>
+                  <p className="font-mono font-bold text-sm text-blue-900 dark:text-blue-100 mt-1">{paymentSettings.merchantPhone}</p>
+                  <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">Send payment directly from any UPI app</p>
                 </div>
               </div>
             </div>
           )}
 
-          {/* Payment App Button - Opens UPI App */}
+          {/* ✅ SECTION 3: QR CODE - COMPACT, VISIBLE */}
           {upiIntent && (
-            <div className="space-y-3 bg-slate-50 dark:bg-slate-900/20 p-4 rounded-lg border border-slate-200 dark:border-slate-700">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-bold text-foreground">Pay with Your UPI App</span>
-                <span className="inline-block px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded text-xs font-semibold">Recommended</span>
+            <div className="bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-900/30 dark:to-slate-900/50 rounded-lg border border-slate-300 dark:border-slate-600 p-3">
+              <div className="flex flex-col items-center space-y-2">
+                <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">Scan to Pay (QR Code)</p>
+                <div className="bg-white dark:bg-slate-800 p-2 rounded-lg shadow-sm">
+                  <canvas ref={canvasRef} data-testid="payment-qr-canvas" className="w-[140px] h-[140px]" />
+                </div>
+                <p className="text-xs text-slate-600 dark:text-slate-400 text-center">Use any UPI app to scan</p>
               </div>
-              <div className="flex gap-2">
-                <Button
-                  variant="default"
-                  className="flex-1 flex flex-col items-center gap-2 h-auto py-4 bg-green-600 hover:bg-green-700 text-white border-0 transition-all"
-                  onClick={() => handlePayWithApp("gpay")}
-                  data-testid="button-pay-gpay"
-                >
-                  <span className="text-2xl">💳</span>
-                  <span className="text-xs font-semibold">Google Pay</span>
-                </Button>
-                <Button
-                  variant="outline"
-                  disabled
-                  className="flex-1 flex flex-col items-center gap-2 h-auto py-4 opacity-50 cursor-not-allowed"
-                  data-testid="button-pay-phonepe"
-                  title="Coming soon"
-                >
-                  <span className="text-2xl">📱</span>
-                  <span className="text-xs font-semibold">PhonePe</span>
-                </Button>
-                <Button
-                  variant="outline"
-                  disabled
-                  className="flex-1 flex flex-col items-center gap-2 h-auto py-4 opacity-50 cursor-not-allowed"
-                  data-testid="button-pay-paytm"
-                  title="Coming soon"
-                >
-                  <span className="text-2xl">💰</span>
-                  <span className="text-xs font-semibold">Paytm</span>
-                </Button>
-              </div>
-              <p className="text-xs text-slate-600 dark:text-slate-400">
-                <strong>Steps:</strong><br/>
-                1. Click "Google Pay" button (auto-searches our number)<br/>
-                2. Verify our phone: <strong>{paymentSettings.merchantPhone}</strong><br/>
-                3. Enter amount: <strong>₹{amount}</strong><br/>
-                4. Complete payment and return to confirm
-              </p>
             </div>
           )}
 
-          {/* Collapsible QR Code Section - Alternative Payment Option */}
-          <div className="border-2 border-slate-300 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-900/20">
-            <button
-              onClick={() => setShowQRCode(!showQRCode)}
-              className="w-full flex items-center justify-between p-4 hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-colors"
-            >
-              <div className="flex items-center gap-3">
-                <div className="flex flex-col items-start">
-                  <span className="font-bold text-sm text-foreground">Scan QR Code</span>
-                  <span className="text-xs text-muted-foreground">Open any UPI app & scan</span>
-                </div>
+          {/* ✅ SECTION 4: PAY WITH APP BUTTON - SMALL ICON */}
+          {upiIntent && (
+            <div className="bg-gradient-to-r from-green-600 to-emerald-600 dark:from-green-700 dark:to-emerald-700 rounded-lg p-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-white uppercase tracking-wide">Quick Payment</span>
+                <span className="text-xs bg-white text-green-600 px-2 py-1 rounded font-semibold">Fastest</span>
               </div>
-              <ChevronDown
-                className={`h-5 w-5 transition-transform ${showQRCode ? 'rotate-180' : ''}`}
-              />
-            </button>
-
-            {showQRCode && (
-              <>
-                <Separator />
-                <div className="flex flex-col items-center justify-center space-y-3 sm:space-y-4 p-3 sm:p-4 bg-muted/30">
-                  <div className="bg-white p-3 sm:p-4 rounded-lg shadow-sm">
-                    <canvas ref={canvasRef} data-testid="payment-qr-canvas" className="w-full max-w-[200px] h-auto" />
-                  </div>
-
-                  <div className="text-center space-y-1 sm:space-y-2">
-                    <p className="text-lg sm:text-xl font-bold">₹{amount}</p>
-                    <p className="text-xs sm:text-sm text-muted-foreground">
-                      {isOptionA ? "Temporary Order" : `Order #${(orderId || "TXN").slice(0, 8)}`}
-                    </p>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* Order Summary Card */}
-          <div className="bg-slate-50 dark:bg-slate-900/30 p-3 sm:p-4 rounded-lg border">
-            <div className="space-y-2">
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-muted-foreground">Amount to Pay:</span>
-                <span className="font-bold text-base sm:text-lg">₹{amount}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-muted-foreground">Reference:</span>
-                <span className="font-mono text-xs sm:text-sm">
-                  {isOptionA ? "Pending" : (orderId || "TXN").slice(0, 8)}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div className="border-t pt-3 sm:pt-4 space-y-2 sm:space-y-3">
-            <div className="flex items-center justify-between bg-muted/50 p-2 sm:p-3 rounded-lg">
-              <span className="text-sm font-medium">UPI ID: {paymentSettings.upiId}</span>
               <Button
-                size="sm"
-                variant="ghost"
-                onClick={copyUpiId}
-                data-testid="button-copy-upi"
+                variant="default"
+                className="w-full flex items-center justify-center gap-2 h-12 bg-white hover:bg-gray-100 text-green-700 font-bold border-0 transition-all"
+                onClick={() => handlePayWithApp("gpay")}
+                data-testid="button-pay-gpay"
               >
-                <Copy className="h-4 w-4" />
+                <span className="text-lg">💳</span>
+                <span className="text-sm">Pay with Google Pay (₹{amount})</span>
               </Button>
+              <p className="text-xs text-green-100 mt-2 text-center">Will auto-fill our number and amount</p>
             </div>
+          )}
 
-            {/* Account Info - Show only after payment confirmed OR if already created */}
-            {(accountCreatedAfterPayment || (accountCreated && hasPaid)) && (
-              <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4 space-y-3">
-                <div className="flex items-center gap-2">
-                  <div className="h-8 w-8 rounded-full bg-green-100 dark:bg-green-800 flex items-center justify-center">
-                    <span className="text-green-600 dark:text-green-300 text-lg">✓</span>
-                  </div>
-                  <p className="text-sm font-semibold text-green-800 dark:text-green-200">
-                    Account Created Successfully!
-                  </p>
-                </div>
-
-                <div className="bg-white dark:bg-slate-800 rounded-lg p-3 border border-green-200 dark:border-green-700">
-                  <p className="text-xs text-muted-foreground mb-2">Your Login Credentials:</p>
-                  <div className="space-y-1">
-                    <div className="flex justify-between items-center">
-                      <span className="text-xs text-muted-foreground">Phone:</span>
-                      <span className="font-mono font-semibold text-sm">{phone}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-xs text-muted-foreground">Password:</span>
-                      <span className="font-mono font-bold text-sm text-green-600 dark:text-green-400">
-                        {createdAccountPassword || defaultPassword || phone?.slice(-6)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-blue-50 dark:bg-blue-900/20 rounded p-2">
-                  <p className="text-xs text-blue-700 dark:text-blue-300">
-                    💡 <strong>Tip:</strong> Your password is always the last 6 digits of your phone number. You can login anytime to track your orders!
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* Manual Payment Confirmation */}
-            <Alert>
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription className="text-xs">
-                <strong>Important:</strong> After completing payment, check the box below and click "Confirm Payment".
-              </AlertDescription>
-            </Alert>
-
-            <div className="flex items-start gap-3 p-4 bg-muted/30 rounded-lg">
-              <Checkbox
-                id="payment-confirm"
-                checked={hasPaid}
-                onCheckedChange={(checked) => {
-                  const newVal = checked as boolean;
-                  console.log("[PAYMENT QR] Payment confirmation checkbox changed:", newVal);
-                  setHasPaid(newVal);
-                }}
-                data-testid="checkbox-payment-confirmed"
-              />
-              <label
-                htmlFor="payment-confirm"
-                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
-              >
-                I have completed the payment of ₹{amount}
-              </label>
-            </div>
-
-            <div className="space-y-2 text-sm text-muted-foreground">
-              <p className="font-medium text-foreground">How to pay:</p>
-              <ol className="list-decimal list-inside space-y-1 text-xs">
-                <li>Open any UPI app (PhonePe, Google Pay, Paytm, etc.)</li>
-                <li>Scan the QR code above</li>
-                <li>Verify the amount and complete the payment</li>
-                <li>Wait for our confirmation (usually within 5 minutes)</li>
-              </ol>
+          {/* ✅ SECTION 5: AMOUNT SUMMARY - COMPACT */}
+          <div className="bg-slate-50 dark:bg-slate-900/30 p-3 rounded-lg border border-slate-200 dark:border-slate-700">
+            <div className="flex justify-between items-center">
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Total Amount:</span>
+              <span className="text-lg font-bold text-slate-900 dark:text-white">₹{amount}</span>
             </div>
           </div>
 
-          <div className="flex gap-2">
+          {/* ✅ SECTION 6: CONFIRMATION CHECKBOX - ALWAYS VISIBLE */}
+          <div className="flex items-start gap-3 p-3 bg-amber-50 dark:bg-amber-950/20 rounded-lg border border-amber-200 dark:border-amber-800">
+            <Checkbox
+              id="payment-confirm"
+              checked={hasPaid}
+              onCheckedChange={(checked) => {
+                const newVal = checked as boolean;
+                console.log("[PAYMENT QR] Payment confirmation checkbox changed:", newVal);
+                setHasPaid(newVal);
+              }}
+              data-testid="checkbox-payment-confirmed"
+              className="mt-1"
+            />
+            <label
+              htmlFor="payment-confirm"
+              className="text-xs font-medium leading-snug peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer text-amber-900 dark:text-amber-100"
+            >
+              ✓ I have paid ₹{amount} and want to confirm my order
+            </label>
+          </div>
+
+          {/* ✅ SECTION 7: PAYMENT INFO */}
+          <div className="bg-blue-50 dark:bg-blue-950/30 p-3 rounded-lg border border-blue-200 dark:border-blue-800">
+            <p className="text-xs text-blue-700 dark:text-blue-300">
+              <strong>📝 Payment Instructions:</strong><br/>
+              1️⃣ Open any UPI app (Google Pay, PhonePe, Paytm, etc.)<br/>
+              2️⃣ Pay using UPI ID or scan QR code or send to number<br/>
+              3️⃣ Check "I have paid" checkbox above<br/>
+              4️⃣ Click "Confirm Payment" button<br/>
+              ✅ Verification usually takes 2-5 minutes
+            </p>
+          </div>
+
+          {/* Account Info - Show only after payment confirmed OR if already created */}
+          {(accountCreatedAfterPayment || (accountCreated && hasPaid)) && (
+            <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-3 space-y-2">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />
+                <p className="text-xs font-semibold text-green-800 dark:text-green-200">
+                  Account Created Successfully!
+                </p>
+              </div>
+
+              <div className="bg-white dark:bg-slate-800 rounded-lg p-2 border border-green-200 dark:border-green-700">
+                <p className="text-xs text-muted-foreground mb-1">Login Credentials:</p>
+                <div className="space-y-1">
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs text-muted-foreground">Phone:</span>
+                    <span className="font-mono font-semibold text-xs">{phone}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs text-muted-foreground">Password:</span>
+                    <span className="font-mono font-bold text-xs text-green-600 dark:text-green-400">
+                      {createdAccountPassword || defaultPassword || phone?.slice(-6)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ✅ ACTION BUTTONS - ALWAYS VISIBLE */}
+          <div className="flex gap-2 pt-2">
             <Button
               variant="outline"
               onClick={handleCancelPayment}
@@ -941,7 +875,7 @@ export default function PaymentQRDialog({
             <Button
               onClick={handleConfirmPayment}
               disabled={!hasPaid || isConfirming || isSubmitting}
-              className="flex-1"
+              className="flex-1 bg-green-600 hover:bg-green-700 text-white"
               data-testid="button-confirm-payment"
             >
               {isConfirming || isSubmitting ? (
@@ -957,10 +891,6 @@ export default function PaymentQRDialog({
               )}
             </Button>
           </div>
-
-          <p className="text-xs text-center text-muted-foreground">
-            After confirmation, you'll be redirected to track your order. Our team will verify your payment within 5 minutes.
-          </p>
         </div>
       </DialogContent>
     </Dialog>
