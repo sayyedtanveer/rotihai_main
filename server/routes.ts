@@ -57,7 +57,7 @@ function checkRateLimitReferralValidation(ip: string): boolean {
 }
 
 // ⚡ Performance optimization: Disable email sending for subscriptions (can be enabled via env)
-const SEND_SUBSCRIPTION_EMAILS = false; // Emails disabled for performance
+const SEND_SUBSCRIPTION_EMAILS = true; // ✅ ENABLED: Sending order confirmation emails via Resend
 // Subscription status constants
 const SUBSCRIPTION_STATUS = {
   PENDING: "pending",

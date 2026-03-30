@@ -11,6 +11,7 @@ import { useLocation } from "wouter";
 import { useDeliveryNotifications } from "@/hooks/useDeliveryNotifications";
 import { formatTime12Hour, formatSlotRange } from "@shared/timeFormatter";
 import { useEffect, useState } from "react";
+import DeliveryNotificationBell from "@/components/DeliveryNotificationBell";
 
 // Helper function to calculate time until delivery
 const getTimeUntilDelivery = (deliveryTime: string): { display: string; minutes: number; isPrompt: boolean } | null => {
@@ -59,6 +60,7 @@ const getSlotInfo = (slotId: string, slots: any[]): { label: string; startTime: 
 };
 
 export default function DeliveryDashboard() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const deliveryPersonName = localStorage.getItem("deliveryPersonName");
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -66,33 +68,76 @@ export default function DeliveryDashboard() {
   const { wsConnected, newAssignmentsCount, requestNotificationPermission, clearNewAssignmentsCount } = useDeliveryNotifications();
   const [selectedTab, setSelectedTab] = useState("dashboard");
 
+  // ✅ Check auth on mount only (SINGLE RUN)
   useEffect(() => {
-    requestNotificationPermission();
-  }, []);
+    console.log("[DASHBOARD] 🔐 Step 1: Auth check effect running");
+    
+    const token = localStorage.getItem("deliveryToken");
+    const personId = localStorage.getItem("deliveryPersonId");
+    const personName = localStorage.getItem("deliveryPersonName");
+    
+    console.log("[DASHBOARD] 🔍 Step 2: Checking stored data:", { 
+      hasToken: !!token, 
+      tokenLength: token?.length || 0,
+      hasPersonId: !!personId, 
+      personId: personId || "MISSING",
+      hasPersonName: !!personName, 
+      personName: personName || "MISSING"
+    });
+    
+    if (!token || !personId || !personName) {
+      console.log("[DASHBOARD] ❌ Step 3: Auth check FAILED - missing data");
+      console.log("[DASHBOARD] ❌ Step 4: Setting isAuthenticated = false");
+      setIsAuthenticated(false);
+      console.log("[DASHBOARD] ❌ Step 5: Redirecting to /delivery/login");
+      setLocation("/delivery/login");
+    } else {
+      console.log("[DASHBOARD] ✅ Step 3: Auth check PASSED - all data present");
+      console.log("[DASHBOARD] ✅ Step 4: Setting isAuthenticated = true");
+      setIsAuthenticated(true);
+      console.log("[DASHBOARD] ✅ Step 5: Dashboard ready for user:", personName);
+      
+      // ✅ Request notification permission ONLY after auth confirmed
+      console.log("[DASHBOARD] 📲 Step 6: Requesting notification permission");
+      requestNotificationPermission();
+      console.log("[DASHBOARD] ✅ Notification permission requested");
+      
+      console.log("[DASHBOARD] 🎉 All auth steps complete - dashboard is ready");
+    }
+  }, [setLocation]);
 
   // Note: Token refresh disabled because delivery tokens are set to 90d (long-lived sessions)
   // No need to refresh before expiry - user will only logout on explicit logout action
   // If refresh is needed in future, ensure refreshToken is stored and sent in request body
 
-
   const { data: orders = [] } = useQuery<any[]>({
     queryKey: ["/api/delivery/orders"],
+    enabled: isAuthenticated,
+    retry: 1,
   });
 
   const { data: availableOrders = [] } = useQuery<any[]>({
     queryKey: ["/api/delivery/available-orders"],
+    enabled: isAuthenticated,
+    retry: 1,
   });
 
   const { data: deliverySlots = [] } = useQuery<any[]>({
     queryKey: ["/api/delivery-slots"],
+    enabled: isAuthenticated,
+    retry: 1,
   });
 
   const { data: earnings } = useQuery<any>({
     queryKey: ["/api/delivery/earnings"],
+    enabled: isAuthenticated,
+    retry: 1,
   });
 
   const { data: stats } = useQuery<any>({
     queryKey: ["/api/delivery/stats"],
+    enabled: isAuthenticated,
+    retry: 1,
   });
 
   const claimOrderMutation = useMutation({
@@ -157,10 +202,29 @@ export default function DeliveryDashboard() {
   });
 
   const handleLogout = () => {
+    console.log("[DASHBOARD] 🚪 Step 1: Logout clicked");
+    
+    console.log("[DASHBOARD] 🗑️ Step 2: Removing deliveryToken from localStorage");
     localStorage.removeItem("deliveryToken");
+    console.log("[DASHBOARD] ✅ Token removed");
+    
+    console.log("[DASHBOARD] 🗑️ Step 3: Removing deliveryPersonId from localStorage");
     localStorage.removeItem("deliveryPersonId");
+    console.log("[DASHBOARD] ✅ PersonId removed");
+    
+    console.log("[DASHBOARD] 🗑️ Step 4: Removing deliveryPersonName from localStorage");
     localStorage.removeItem("deliveryPersonName");
+    console.log("[DASHBOARD] ✅ PersonName removed");
+    
+    console.log("[DASHBOARD] 🔍 Step 5: Verifying all data was removed:", {
+      token: localStorage.getItem("deliveryToken"),
+      personId: localStorage.getItem("deliveryPersonId"),
+      personName: localStorage.getItem("deliveryPersonName")
+    });
+    
+    console.log("[DASHBOARD] 🚀 Step 6: Redirecting to /delivery/login");
     setLocation("/delivery/login");
+    console.log("[DASHBOARD] ✅ Logout complete");
   };
 
   const getStatusColor = (status: string) => {
@@ -185,6 +249,20 @@ export default function DeliveryDashboard() {
   const pendingOrders = orders.filter((o: any) => o.assignedTo && !["accepted_by_delivery", "out_for_delivery", "delivered"].includes(o.status));
   const activeOrders = orders.filter((o: any) => ["accepted_by_delivery", "out_for_delivery"].includes(o.status));
   const completedOrders = orders.filter((o: any) => o.status === "delivered");
+
+  // Guard: Don't render dashboard until authenticated
+  if (!isAuthenticated) {
+    console.log("[DASHBOARD] 🛑 Render guard triggered: Not authenticated - showing loading screen");
+    return (
+      <div className="min-h-screen bg-white dark:bg-slate-950 flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  console.log("[DASHBOARD] ✅ Render guard passed: Rendering dashboard for", deliveryPersonName);
 
   return (
     <div className="min-h-screen bg-white dark:bg-slate-950">
@@ -211,18 +289,21 @@ export default function DeliveryDashboard() {
             </div>
           </div>
           
-          {/* Status Row - Hidden on md and above */}
-          <div className="md:hidden flex items-center gap-2 text-xs">
+          {/* Status Row - Desktop view with full bell and network status */}
+          <div className="hidden md:flex items-center justify-between">
+            <div></div>
+            <DeliveryNotificationBell wsConnected={wsConnected} />
+          </div>
+
+          {/* Status Row - Mobile view simplified */}
+          <div className="md:hidden flex items-center gap-2 text-xs justify-between">
             {newAssignmentsCount > 0 && (
               <Badge variant="destructive" className="text-xs flex items-center gap-1">
                 <Bell className="h-2.5 w-2.5" />
                 {newAssignmentsCount} New
               </Badge>
             )}
-            <div className={`flex items-center gap-1 ${wsConnected ? "text-green-600" : "text-red-600"}`}>
-              {wsConnected ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
-              <span>{wsConnected ? "Live" : "Offline"}</span>
-            </div>
+            <DeliveryNotificationBell wsConnected={wsConnected} />
           </div>
         </div>
       </header>

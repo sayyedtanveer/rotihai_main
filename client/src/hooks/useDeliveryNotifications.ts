@@ -2,10 +2,12 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { getWebSocketURL } from "@/lib/fetchClient";
 import { queryClient } from "@/lib/queryClient";
 import { toast } from "@/hooks/use-toast";
+import { useDeliveryNotificationStore } from "@/store/deliveryNotificationStore";
 
 export function useDeliveryNotifications() {
   const [wsConnected, setWsConnected] = useState(false);
   const [newAssignmentsCount, setNewAssignmentsCount] = useState(0);
+  const addNotification = useDeliveryNotificationStore((s) => s.addNotification);
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -15,10 +17,28 @@ export function useDeliveryNotifications() {
   const fetchPendingBroadcasts = useCallback(async () => {
     try {
       const token = localStorage.getItem("deliveryToken");
-      if (!token) return;
+      console.log("[NOTIFICATIONS] Step 1️⃣ Token check:", !!token, `Length: ${token?.length || 0}`);
+      
+      if (!token) {
+        console.log("[NOTIFICATIONS] ⏸️ No token, skipping fetch");
+        return;
+      }
+
+      // Step 2: Log token structure
+      console.log("[NOTIFICATIONS] Step 2️⃣ Token structure valid:", {
+        startsWithEyJ: token.startsWith('eyJ'),
+        hasDots: token.includes('.'),
+        length: token.length
+      });
 
       const { default: api } = await import("@/lib/apiClient");
+      console.log("[NOTIFICATIONS] Step 3️⃣ API/axios imported successfully");
+      
+      // Step 4: Make the request - interceptor will add Authorization header
+      console.log("[NOTIFICATIONS] Step 4️⃣ Making request to /api/notifications/pending");
       const { data: pending } = await api.get("/api/notifications/pending");
+      
+      console.log("[NOTIFICATIONS] Step 5️⃣ ✅ SUCCESS! Received pending:", pending?.length || 0, 'items');
 
       if (Array.isArray(pending) && pending.length > 0) {
         console.log(`📥 Recovered ${pending.length} pending broadcasts`);
@@ -38,15 +58,25 @@ export function useDeliveryNotifications() {
                   broadcast.eventType === "new_prepared_order" ? "New Order Available!" :
                     "New Delivery Assignment!";
 
+              const notificationMessage = broadcast.payload?.message || `Order #${order.id.slice(0, 8)}`;
+
+              // Add to notification store for bell dropdown
+              addNotification({
+                id: `recovered_${order.id}`,
+                orderId: order.id,
+                status: broadcast.eventType === "order_confirmed" ? "ready" : "assigned",
+                message: notificationMessage,
+              });
+
               toast({
                 title: `Recovered: ${notificationTitle}`,
-                description: broadcast.payload?.message || `Order #${order.id.slice(0, 8)}`,
+                description: notificationMessage,
                 duration: 10000,
               });
 
               if (Notification.permission === "granted") {
                 new Notification(notificationTitle, {
-                  body: broadcast.payload?.message || `Order #${order.id.slice(0, 8)}`,
+                  body: notificationMessage,
                   icon: "/favicon.png",
                   tag: order.id,
                 });
@@ -74,8 +104,20 @@ export function useDeliveryNotifications() {
           await api.post("/api/notifications/mark-delivered", { ids: processedIds });
         }
       }
-    } catch (error) {
-      console.error("Failed to fetch pending delivery broadcasts:", error);
+    } catch (error: any) {
+      // Log all error details
+      console.error("[NOTIFICATIONS] ❌ ERROR at some step:");
+      console.error("[NOTIFICATIONS] Error type:", error?.name);
+      console.error("[NOTIFICATIONS] Error message:", error?.message);
+      console.error("[NOTIFICATIONS] Status code:", error?.response?.status);
+      console.error("[NOTIFICATIONS] Response data:", error?.response?.data);
+      console.error("[NOTIFICATIONS] URL:", error?.config?.url);
+      console.error("[NOTIFICATIONS] Request headers:", {
+        hasAuth: !!error?.config?.headers?.Authorization,
+        authStartsWith: error?.config?.headers?.Authorization?.substring(0, 20)
+      });
+      
+      // Silently catch - notifications are non-critical
     }
   }, []);
 
@@ -83,7 +125,11 @@ export function useDeliveryNotifications() {
     if (isUnmountedRef.current) return;
 
     const token = localStorage.getItem("deliveryToken");
-    if (!token) return;
+    if (!token) {
+      console.log("[WS-DELIVERY] No token found, skipping connection");
+      setWsConnected(false);
+      return;
+    }
 
     if (wsRef.current) {
       wsRef.current.onclose = null;
@@ -101,7 +147,10 @@ export function useDeliveryNotifications() {
       if (isUnmountedRef.current) return;
       console.log("✅ Delivery WebSocket connected");
       setWsConnected(true);
-      fetchPendingBroadcasts();
+      // ✅ Only fetch pending broadcasts if we're still mounted
+      if (!isUnmountedRef.current) {
+        fetchPendingBroadcasts();
+      }
 
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current);
@@ -111,12 +160,14 @@ export function useDeliveryNotifications() {
 
     ws.onmessage = (event) => {
       if (isUnmountedRef.current) return;
-      const data = JSON.parse(event.data);
-      console.log("📨 Delivery WS message:", data.type);
+      try {
+        const data = JSON.parse(event.data);
+        console.log("📨 Delivery WS message:", data.type);
 
-      if (["order_assigned", "order_confirmed", "order_update", "new_prepared_order"].includes(data.type)) {
-        queryClient.invalidateQueries({ queryKey: ["/api/delivery/orders"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/delivery/available-orders"] });
+        if (["order_assigned", "order_confirmed", "order_update", "new_prepared_order"].includes(data.type)) {
+          queryClient.invalidateQueries({ queryKey: ["/api/delivery/orders"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/delivery/available-orders"] });
+        }
 
         if (["order_assigned", "order_confirmed", "new_prepared_order"].includes(data.type)) {
           const order = data.data || data.order;
@@ -129,15 +180,25 @@ export function useDeliveryNotifications() {
                 data.type === "new_prepared_order" ? "New Order Available!" :
                   "New Delivery Assignment!";
 
+            const notificationMessage = data.message || `Order #${order.id.slice(0, 8)}`;
+
+            // Add to notification store for bell dropdown
+            addNotification({
+              id: `${data.type}_${order.id}`,
+              orderId: order.id,
+              status: data.type === "order_confirmed" ? "ready" : "assigned",
+              message: notificationMessage,
+            });
+
             toast({
               title: notificationTitle,
-              description: data.message || `Order #${order.id.slice(0, 8)}`,
+              description: notificationMessage,
               duration: 10000,
             });
 
             if (Notification.permission === "granted") {
               new Notification(notificationTitle, {
-                body: data.message || `Order #${order.id.slice(0, 8)}`,
+                body: notificationMessage,
                 icon: "/favicon.png",
                 tag: order.id,
               });
@@ -149,6 +210,8 @@ export function useDeliveryNotifications() {
             } catch (_) { }
           }
         }
+      } catch (error) {
+        console.error("[WS-MESSAGE] Error processing WebSocket message:", error);
       }
     };
 
@@ -163,12 +226,14 @@ export function useDeliveryNotifications() {
     };
 
     ws.onclose = () => {
-      console.log("❌ Delivery WebSocket disconnected");
+      console.log("❌ [WS-DELIVERY] WebSocket disconnected");
+      console.log("[WS-DELIVERY] Checking if token still exists:", !!localStorage.getItem("deliveryToken"));
       scheduleReconnect();
     };
 
     ws.onerror = (error) => {
-      console.error("⚠️ Delivery WebSocket error:", error);
+      console.error("⚠️ [WS-DELIVERY] WebSocket error:", error);
+      console.error("[WS-DELIVERY] Token state:", !!localStorage.getItem("deliveryToken"));
     };
   }, [fetchPendingBroadcasts]);
 
@@ -191,6 +256,12 @@ export function useDeliveryNotifications() {
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
         console.log("📱 App returned to foreground (Delivery)");
+        // ✅ Check token still exists before attempting operations
+        const token = localStorage.getItem("deliveryToken");
+        if (!token) {
+          console.log("[DELIVERY-VISIBILITY] Token missing, not reconnecting");
+          return;
+        }
         if (!wsRef.current || wsRef.current.readyState === WebSocket.CLOSED) {
           connect();
           fetchPendingBroadcasts();
@@ -202,6 +273,12 @@ export function useDeliveryNotifications() {
 
     const handleOnline = () => {
       console.log("📶 Network back ONLINE (Delivery) — triggering recovery...");
+      // ✅ Check token still exists before attempting operations
+      const token = localStorage.getItem("deliveryToken");
+      if (!token) {
+        console.log("[DELIVERY-ONLINE] Token missing, not recovering");
+        return;
+      }
       connect();
       fetchPendingBroadcasts();
       queryClient.invalidateQueries({ queryKey: ["/api/delivery/orders"] });
@@ -217,15 +294,15 @@ export function useDeliveryNotifications() {
     };
   }, [connect, fetchPendingBroadcasts]);
 
-  const requestNotificationPermission = async () => {
+  const requestNotificationPermission = useCallback(async () => {
     if ("Notification" in window && Notification.permission === "default") {
       await Notification.requestPermission();
     }
-  };
+  }, []);
 
-  const clearNewAssignmentsCount = () => {
+  const clearNewAssignmentsCount = useCallback(() => {
     setNewAssignmentsCount(0);
-  };
+  }, []);
 
   return {
     wsConnected,

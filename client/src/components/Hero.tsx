@@ -50,8 +50,6 @@ export default function Hero() {
           isInZone: true,
           source: "pincode"
         });
-
-        console.log("[HERO] ✅ Restored saved pincode on return visit:", savedPincode);
       }
     }
   }, [setUserLocation, setDeliveryLocation]);
@@ -66,7 +64,6 @@ export default function Hero() {
     }
 
     setIsValidatingPincode(true);
-    console.log("[HERO] Validating pincode:", pincode);
 
     try {
       const response = await fetch("/api/validate-pincode", {
@@ -86,12 +83,6 @@ export default function Hero() {
       }
 
       // Validation successful!
-      console.log("[HERO] ✅ Pincode validated successfully:", {
-        pincode: data.pincode,
-        area: data.area,
-        lat: data.latitude,
-        lon: data.longitude,
-      });
 
       // Save to localStorage (raw keys for Hero restore)
       localStorage.setItem('userPincode', data.pincode);

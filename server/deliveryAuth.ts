@@ -50,8 +50,16 @@ export function generateRefreshToken(deliveryPerson: DeliveryPersonnel): string 
 
 export function verifyToken(token: string): DeliveryTokenPayload | null {
   try {
-    return jwt.verify(token, JWT_SECRET) as DeliveryTokenPayload;
-  } catch (error) {
+    const payload = jwt.verify(token, JWT_SECRET) as DeliveryTokenPayload;
+    console.log("[DELIVERY-VERIFY-TOKEN] ✅ Token verified with JWT_SECRET:", JWT_SECRET.substring(0, 10) + "...");
+    return payload;
+  } catch (error: any) {
+    console.error("[DELIVERY-VERIFY-TOKEN] ❌ Token verification failed:", {
+      jwtSecret: JWT_SECRET.substring(0, 10) + "...",
+      errorName: error?.name,
+      errorMessage: error?.message,
+      tokenLength: token.length
+    });
     return null;
   }
 }
@@ -60,18 +68,43 @@ export function requireDeliveryAuth() {
   return (req: AuthenticatedDeliveryRequest, res: Response, next: NextFunction) => {
     const authHeader = req.headers.authorization;
 
+    console.log("[DELIVERY-AUTH] 🔐 Auth check:", {
+      url: req.path,
+      hasAuthHeader: !!authHeader,
+      authHeaderStart: authHeader?.substring(0, 20) || 'MISSING'
+    });
+
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      console.error("[DELIVERY-AUTH] ❌ No Bearer token found");
       res.status(401).json({ message: "No token provided" });
       return;
     }
 
     const token = authHeader.substring(7);
+    console.log("[DELIVERY-AUTH] 🔍 Token details:", {
+      url: req.path,
+      tokenLength: token.length,
+      tokenStart: token.substring(0, 20),
+      tokenEnd: token.substring(token.length - 20)
+    });
+
     const payload = verifyToken(token);
 
     if (!payload) {
+      console.error("[DELIVERY-AUTH] ❌ Token verification failed:", {
+        url: req.path,
+        tokenLength: token.length,
+        jwtSecret: process.env.JWT_SECRET ? "SET" : "USING DEFAULT"
+      });
       res.status(401).json({ message: "Invalid or expired token" });
       return;
     }
+
+    console.log("[DELIVERY-AUTH] ✅ Token verified successfully:", {
+      url: req.path,
+      deliveryId: payload.deliveryId,
+      name: payload.name
+    });
 
     req.delivery = payload;
     next();

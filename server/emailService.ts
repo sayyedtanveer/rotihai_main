@@ -1,22 +1,15 @@
-import nodemailer from "nodemailer";
-import type { Transporter } from "nodemailer";
+import { Resend } from "resend";
 
-let transporter: Transporter | null = null;
+let resend: Resend | null = null;
 
-// Initialize transporter
-if (process.env.GMAIL_APP_PASSWORD && process.env.GMAIL_USER) {
-  transporter = nodemailer.createTransport({
-    service: "gmail",
-    auth: {
-      user: process.env.GMAIL_USER,
-      pass: process.env.GMAIL_APP_PASSWORD,
-    },
-  });
-
-  console.log("✅ Email service initialized with Gmail:", process.env.GMAIL_USER);
+// Initialize Resend transporter
+if (process.env.RESEND_API_KEY) {
+  resend = new Resend(process.env.RESEND_API_KEY);
+  console.log("✅ Email service initialized with Resend");
+  console.log("[EMAIL] API Key configured: " + (process.env.RESEND_API_KEY?.substring(0, 10) + "..."));
 } else {
   console.warn(
-    "⚠️ Email service not configured. Set GMAIL_USER and GMAIL_APP_PASSWORD."
+    "⚠️ Email service not configured. Set RESEND_API_KEY environment variable."
   );
 }
 
@@ -30,23 +23,69 @@ export interface EmailTemplate {
    SEND EMAIL (COMMON FUNCTION)
 ============================================ */
 export async function sendEmail({ to, subject, html }: EmailTemplate) {
-  if (!transporter) {
+  if (!resend) {
     console.warn("⚠️ Email service not configured. Skipping email:", to);
     return false;
   }
 
+  // === STEP 1: Log email start ===
+  console.log("\n" + "=".repeat(60));
+  console.log("📧 [EMAIL] STEP 1️⃣ - Starting email send");
+  console.log("   To: " + to);
+  console.log("   Subject: " + subject);
+  console.log("   HTML Size: " + html.length + " chars");
+
   try {
-    const info = await transporter.sendMail({
-      from: `"RotiHai - घर की रोटी" <${process.env.GMAIL_USER}>`,
+    // === STEP 2: Call Resend API ===
+    console.log("📧 [EMAIL] STEP 2️⃣ - Calling Resend API...");
+    const response = await resend.emails.send({
+      from: `RotiHai <onboarding@resend.dev>`,
       to,
       subject,
       html,
     });
 
-    console.log(`✅ Email sent to ${to} (Message ID: ${info.messageId})`);
-    return true;
-  } catch (err) {
-    console.error("❌ Email send failed:", err);
+    // === STEP 3: Check response ===
+    console.log("📧 [EMAIL] STEP 3️⃣ - Resend API Response:");
+    console.log("   Status: " + (response.error ? "ERROR" : "OK"));
+    console.log("   Response: " + JSON.stringify(response));
+
+    if (response.error) {
+      // === EMAIL FAILED ===
+      console.error(
+        "❌ [EMAIL-FAILED] Email send failed for: " + to
+      );
+      console.error("❌ [EMAIL-ERROR] Error: " + JSON.stringify(response.error));
+      console.log("=".repeat(60) + "\n");
+      return false;
+    }
+
+    // === EMAIL SENT SUCCESSFULLY ===
+    if (response && !response.error) {
+      const messageId = (response as any).id;
+      console.log("✅ [EMAIL-SUCCESS] Email sent successfully!");
+      if (messageId) {
+        console.log("   Message ID: " + messageId);
+      }
+      console.log("   To: " + to);
+      console.log("   Subject: " + subject);
+      console.log("=".repeat(60) + "\n");
+      return true;
+    }
+
+    console.warn("⚠️ [EMAIL-WARNING] No message ID returned from Resend");
+    console.log("=".repeat(60) + "\n");
+    return false;
+  } catch (error: any) {
+    // === EMAIL EXCEPTION ===
+    console.error("❌ [EMAIL-EXCEPTION] Email send threw error");
+    console.error("❌ Error Type: " + error.constructor.name);
+    console.error("❌ Error Message: " + error.message);
+    console.error("❌ Error Stack: " + error.stack);
+    console.error(
+      "❌ Full Error: " + JSON.stringify(error, null, 2)
+    );
+    console.log("=".repeat(60) + "\n");
     return false;
   }
 }

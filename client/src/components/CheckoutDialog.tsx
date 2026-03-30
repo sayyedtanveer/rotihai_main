@@ -868,6 +868,15 @@ export default function CheckoutDialog({
     }
   }, [isOpen, isAuthenticated, cart?.chefId]);
 
+  // ✅ FIX: Auto-check prefilled phone number for existing users (non-authenticated only)
+  // This ensures that when phone is restored from localStorage, we check if it exists
+  useEffect(() => {
+    if (isOpen && !isAuthenticated && phone && phone.length === 10 && phoneExists === null) {
+      console.log("[CHECKOUT] Auto-checking prefilled phone number:", phone);
+      handlePhoneChange(phone);
+    }
+  }, [isOpen, phone]);
+
   // 🛡️ FIX BUG 1: Save form data to localStorage whenever values change (for non-authenticated users)
   useEffect(() => {
     if (!isAuthenticated && (customerName || phone || email)) {
@@ -2038,6 +2047,19 @@ export default function CheckoutDialog({
       return;
     }
 
+    // ✅ Validate email if provided (optional field but must be valid if entered)
+    if (email.trim()) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email.trim())) {
+        toast({
+          title: "Invalid email",
+          description: "Please enter a valid email address",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
     // ✅ NEW: Validate all 4 address fields are mandatory
     if (!addressBuilding.trim()) {
       toast({
@@ -3093,20 +3115,7 @@ export default function CheckoutDialog({
                           )}
                         </div>
 
-                        {/* Debugging Ghost 0 */}
-                        {/* Debugging Ghost 0 */}
-                        {(function () {
-                          console.log("[RENDER DEBUG] Zero Check:", {
-                            itemDiscountSavings,
-                            discount,
-                            pendingBonus,
-                            walletBalance: user?.walletBalance,
-                            isBelowDeliveryMinimum,
-                            deliveryFee,
-                            "wallet_cond_check": isAuthenticated && user?.walletBalance
-                          });
-                          return null;
-                        })()}
+                        {/* Summary section continues below */}
 
                         {/* Item Discount Savings from offer percentages */}
                         {typeof itemDiscountSavings === 'number' && itemDiscountSavings > 0 && (
