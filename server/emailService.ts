@@ -28,13 +28,16 @@ export async function sendEmail({ to, subject, html }: EmailTemplate) {
     return false;
   }
 
-  console.log("[EMAIL-DEBUG] 📧 Sending email...");
-  console.log("[EMAIL-DEBUG] To:", to);
-  console.log("[EMAIL-DEBUG] Subject:", subject);
-  console.log("[EMAIL-DEBUG] HTML length:", html.length, "chars");
+  // === STEP 1: Log email start ===
+  console.log("\n" + "=".repeat(60));
+  console.log("📧 [EMAIL] STEP 1️⃣ - Starting email send");
+  console.log("   To: " + to);
+  console.log("   Subject: " + subject);
+  console.log("   HTML Size: " + html.length + " chars");
 
   try {
-    console.log("[EMAIL-DEBUG] Calling Resend API...");
+    // === STEP 2: Call Resend API ===
+    console.log("📧 [EMAIL] STEP 2️⃣ - Calling Resend API...");
     const response = await resend.emails.send({
       from: `RotiHai <onboarding@resend.dev>`,
       to,
@@ -42,23 +45,47 @@ export async function sendEmail({ to, subject, html }: EmailTemplate) {
       html,
     });
 
-    console.log("[EMAIL-DEBUG] Resend response:", JSON.stringify(response));
+    // === STEP 3: Check response ===
+    console.log("📧 [EMAIL] STEP 3️⃣ - Resend API Response:");
+    console.log("   Status: " + (response.error ? "ERROR" : "OK"));
+    console.log("   Response: " + JSON.stringify(response));
 
     if (response.error) {
-      console.error("❌ Email send failed. Resend Error:", response.error);
+      // === EMAIL FAILED ===
+      console.error(
+        "❌ [EMAIL-FAILED] Email send failed for: " + to
+      );
+      console.error("❌ [EMAIL-ERROR] Error: " + JSON.stringify(response.error));
+      console.log("=".repeat(60) + "\n");
       return false;
     }
 
-    console.log(`✅ Email sent successfully!`);
-    console.log(`[EMAIL-DEBUG] Message ID: ${response.data?.id}`);
-    console.log(`[EMAIL-DEBUG] To: ${to}`);
-    console.log(`[EMAIL-DEBUG] Subject: ${subject}`);
-    return true;
-  } catch (err: any) {
-    console.error("❌ Email send exception:", err);
-    console.error("[EMAIL-ERROR] Error type:", err?.name);
-    console.error("[EMAIL-ERROR] Error message:", err?.message);
-    console.error("[EMAIL-ERROR] Full error:", JSON.stringify(err));
+    // === EMAIL SENT SUCCESSFULLY ===
+    if (response && !response.error) {
+      const messageId = (response as any).id;
+      console.log("✅ [EMAIL-SUCCESS] Email sent successfully!");
+      if (messageId) {
+        console.log("   Message ID: " + messageId);
+      }
+      console.log("   To: " + to);
+      console.log("   Subject: " + subject);
+      console.log("=".repeat(60) + "\n");
+      return true;
+    }
+
+    console.warn("⚠️ [EMAIL-WARNING] No message ID returned from Resend");
+    console.log("=".repeat(60) + "\n");
+    return false;
+  } catch (error: any) {
+    // === EMAIL EXCEPTION ===
+    console.error("❌ [EMAIL-EXCEPTION] Email send threw error");
+    console.error("❌ Error Type: " + error.constructor.name);
+    console.error("❌ Error Message: " + error.message);
+    console.error("❌ Error Stack: " + error.stack);
+    console.error(
+      "❌ Full Error: " + JSON.stringify(error, null, 2)
+    );
+    console.log("=".repeat(60) + "\n");
     return false;
   }
 }
