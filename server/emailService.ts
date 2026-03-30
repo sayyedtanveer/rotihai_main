@@ -39,7 +39,7 @@ export async function sendEmail({ to, subject, html }: EmailTemplate) {
     // === STEP 2: Call Resend API ===
     console.log("📧 [EMAIL] STEP 2️⃣ - Calling Resend API...");
     const response = await resend.emails.send({
-      from: `RotiHai <onboarding@resend.dev>`,
+      from: `RotiHai <noreply@rotihai.com>`,
       to,
       subject,
       html,
