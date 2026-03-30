@@ -9,6 +9,29 @@ import { generateAccessToken, generateRefreshToken, verifyPassword, hashPassword
 import { storage } from "./storage";
 import { saveImageFile, getImagePath, imageExists, deleteImageFile } from "./imageService";
 
+// 🔒 DATABASE SAFETY CHECK: Prevent dev from using prod database
+if (process.env.NODE_ENV === "development") {
+  const dbUrl = process.env.DATABASE_URL || "";
+  if (dbUrl.includes("rotihai_prod")) {
+    console.error("❌ ❌ ❌ CRITICAL ERROR ❌ ❌ ❌");
+    console.error("DEV SERVER IS USING PRODUCTION DATABASE!");
+    console.error(`DATABASE_URL: ${dbUrl}`);
+    console.error("This will corrupt production data!");
+    console.error("");
+    console.error("✅ FIX: Update .env to use rotihai_dev database");
+    console.error("   DATABASE_URL=postgresql://user:pass@host:5432/rotihai_dev");
+    console.error("");
+    console.error("Available databases:");
+    console.error("  📊 rotihai_prod - Production database (DO NOT USE IN DEV)");
+    console.error("  🧪 rotihai_dev  - Development database (USE THIS IN DEV)");
+    console.error("  🧪 rotihai_test - Test database (USE FOR TESTS)");
+    console.error("");
+    process.exit(1); // Exit immediately - do not start server
+  }
+  console.log("✅ Database safety check passed - using DEVELOPMENT database");
+  console.log(`   DATABASE: ${dbUrl.split("/").pop()}`);
+}
+
 // Simple logger function - avoid importing from vite which is dev-only
 const log = (message: string, source = "express") => {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
