@@ -8,15 +8,21 @@ let createViteServer: any;
 let createLogger: any;
 let viteConfig: any;
 
-// Lazy load vite only when needed
+// Lazy load vite only when needed (DEV ONLY)
 const loadVite = async () => {
+  // 🚀 Skip everything in production - vite.config doesn't exist
+  if (process.env.NODE_ENV === "production") {
+    return;
+  }
+
   if (!createViteServer) {
     const viteModule = await import("vite");
     createViteServer = viteModule.createServer;
     createLogger = viteModule.createLogger;
   }
+
   if (!viteConfig) {
-    const config = await import("../vite.config");
+    const config = await import("../../vite.config");
     viteConfig = config.default;
   }
 };
@@ -38,6 +44,11 @@ export function log(message: string, source = "express") {
 }
 
 export async function setupVite(app: Express, server: Server) {
+  // 🚀 DO NOT run vite in production
+  if (process.env.NODE_ENV === "production") {
+    return;
+  }
+
   // Lazy load vite only when actually needed
   await loadVite();
   
