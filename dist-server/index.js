@@ -5881,7 +5881,7 @@ function log(message, source = "express") {
   console.log(`${formattedTime} [${source}] ${message}`);
 }
 async function setupVite(app2, server) {
-  if (!isDev) {
+  if (!enableVite) {
     return;
   }
   try {
@@ -5941,14 +5941,17 @@ function serveStatic(app2) {
     const errorMsg = `\u274C CRITICAL: Frontend build not found: ${distPath}
     
     Cause: 'npm run build:client' was not run before deployment
-    Fix: Build frontend before deploying to production
     
-    Steps:
+    Fix in local environment:
       1. npm run build:client
-      2. Redeploy`;
+      2. npm run build:server
+      3. Redeploy
+    
+    For deployed environments (Render, Vercel, etc):
+      Ensure build step is configured in your deployment config`;
     console.error(errorMsg);
-    if (isDev) {
-      console.warn("\u26A0\uFE0F  Continuing without frontend (dev mode)");
+    if (enableVite) {
+      console.warn("\u26A0\uFE0F  Continuing without frontend build (Vite enabled)");
       return;
     }
     throw new Error(errorMsg);
@@ -5969,16 +5972,16 @@ function serveStatic(app2) {
     res.sendFile(path2.resolve(distPath, "index.html"));
   });
 }
-var isDev, createViteServer, createLogger, viteConfig, loadVite, getViteLogger;
+var enableVite, createViteServer, createLogger, viteConfig, loadVite, getViteLogger;
 var init_vite = __esm({
   "server/vite.ts"() {
     "use strict";
-    isDev = process.env.NODE_ENV === "development";
+    enableVite = process.env.ENABLE_VITE === "true";
     createViteServer = null;
     createLogger = null;
     viteConfig = null;
     loadVite = async () => {
-      if (!isDev) {
+      if (!enableVite) {
         return;
       }
       if (!createViteServer) {
@@ -5988,7 +5991,7 @@ var init_vite = __esm({
           createLogger = viteModule.createLogger;
         } catch (error) {
           console.error("\u274C Failed to load vite module:", error);
-          throw new Error("Vite must be installed in development mode");
+          throw new Error("Vite must be installed when ENABLE_VITE=true");
         }
       }
       if (!viteConfig) {
@@ -5997,7 +6000,7 @@ var init_vite = __esm({
           viteConfig = config.default;
         } catch (error) {
           console.error("\u274C Failed to load vite.config:", error);
-          throw new Error("vite.config must exist and be valid in development mode");
+          throw new Error("vite.config must exist and be valid when ENABLE_VITE=true");
         }
       }
     };
@@ -16431,8 +16434,8 @@ var imageExists = (filename) => {
 };
 
 // server/index.ts
-var isDev2 = process.env.NODE_ENV === "development";
-if (isDev2) {
+var enableVite2 = process.env.ENABLE_VITE === "true";
+if (enableVite2) {
   const dbUrl = process.env.DATABASE_URL || "";
   if (dbUrl.includes("rotihai_prod")) {
     console.error("\u274C \u274C \u274C CRITICAL ERROR \u274C \u274C \u274C");
@@ -16473,7 +16476,7 @@ app.use(express2.json({
 app.use(express2.urlencoded({ extended: false }));
 app.use(cookieParser());
 app.use((req, res, next) => {
-  if (isDev2) {
+  if (enableVite2) {
     res.set({
       "Cache-Control": "no-cache, no-store, must-revalidate",
       "Pragma": "no-cache",
@@ -16831,7 +16834,7 @@ app.use((req, res, next) => {
     res.setHeader("Content-Type", "application/json");
     res.status(404).json({ message: "API endpoint not found" });
   });
-  if (isDev2) {
+  if (enableVite2) {
     try {
       const { setupVite: setupVite2 } = await Promise.resolve().then(() => (init_vite(), vite_exports));
       await setupVite2(app, server);

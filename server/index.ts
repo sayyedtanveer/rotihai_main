@@ -9,11 +9,14 @@ import { generateAccessToken, generateRefreshToken, verifyPassword, hashPassword
 import { storage } from "./storage";
 import { saveImageFile, getImagePath, imageExists, deleteImageFile } from "./imageService";
 
-// ⚠️ CRITICAL: Environment flag at module level
-const isDev = process.env.NODE_ENV === "development";
+// ⚠️ CRITICAL: Use ENABLE_VITE flag instead of NODE_ENV
+// This ensures Vite is only used when explicitly enabled locally
+// ENABLE_VITE=true → local development with vite.config
+// ENABLE_VITE=false or undefined → deployed environments (no vite.config)
+const enableVite = process.env.ENABLE_VITE === "true";
 
 // 🔒 DATABASE SAFETY CHECK: Prevent dev from using prod database
-if (isDev) {
+if (enableVite) {
   const dbUrl = process.env.DATABASE_URL || "";
   if (dbUrl.includes("rotihai_prod")) {
     console.error("❌ ❌ ❌ CRITICAL ERROR ❌ ❌ ❌");
@@ -65,15 +68,15 @@ app.use(cookieParser());
 
 // Set Cache-Control headers based on environment
 app.use((req, res, next) => {
-  if (isDev) {
-    // Development: Never cache - always fresh
+  if (enableVite) {
+    // Development (Vite enabled): Never cache - always fresh
     res.set({
       'Cache-Control': 'no-cache, no-store, must-revalidate',
       'Pragma': 'no-cache',
       'Expires': '0',
     });
   }
-  // Production: Intelligent caching based on file type
+  // Production (Vite disabled): Intelligent caching based on file type
   else if (req.path === '/version.json') {
     // ✅ Version JSON: MUST NOT CACHE - used for deployment detection
     res.set({
@@ -532,8 +535,8 @@ app.use((req, res, next) => {
   // importantly only setup vite in development and after
   // setting up all the other routes so the catch-all route
   // doesn't interfere with the other routes
-  if (isDev) {
-    // ✅ DEVELOPMENT: Setup Vite dev server with HMR
+  if (enableVite) {
+    // ✅ VITE ENABLED (local dev): Setup Vite dev server with HMR
     try {
       const { setupVite } = await import("./vite.js");
       await setupVite(app, server);
@@ -543,7 +546,7 @@ app.use((req, res, next) => {
       throw error;
     }
   } else {
-    // 🚀 PRODUCTION: Serve pre-built static files
+    // 🚀 VITE DISABLED (deployed envs): Serve pre-built static files
     try {
       const { serveStatic } = await import("./vite.js");
       serveStatic(app);

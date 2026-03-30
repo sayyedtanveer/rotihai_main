@@ -4,25 +4,27 @@ import path from "path";
 import { type Server } from "http";
 import { nanoid } from "nanoid";
 
-// ⚠️ CRITICAL: Environment check at module level
-const isDev = process.env.NODE_ENV === "development";
+// ⚠️ CRITICAL: Use ENABLE_VITE flag instead of NODE_ENV
+// ENABLE_VITE=true → only for local dev with vite.config
+// ENABLE_VITE=false or undefined → for deployed environments (no vite.config)
+const enableVite = process.env.ENABLE_VITE === "true";
 
-// Only declare these if in development
+// Only declare these if Vite might be used
 let createViteServer: any = null;
 let createLogger: any = null;
 let viteConfig: any = null;
 
 /**
- * Load Vite and vite.config ONLY in development mode
- * This function is safe to call in production - it returns immediately
+ * Load Vite and vite.config ONLY when ENABLE_VITE=true
+ * This function is safe to call - it returns immediately if Vite is disabled
  */
 const loadVite = async () => {
-  if (!isDev) {
-    // 🚀 PRODUCTION: Do not attempt to load Vite or vite.config
+  if (!enableVite) {
+    // 🚀 Vite disabled: Do not attempt to load Vite or vite.config
     return;
   }
 
-  // ✅ DEVELOPMENT ONLY: Load Vite modules
+  // ✅ Vite enabled: Load Vite modules
   if (!createViteServer) {
     try {
       const viteModule = await import("vite");
@@ -30,18 +32,18 @@ const loadVite = async () => {
       createLogger = viteModule.createLogger;
     } catch (error) {
       console.error("❌ Failed to load vite module:", error);
-      throw new Error("Vite must be installed in development mode");
+      throw new Error("Vite must be installed when ENABLE_VITE=true");
     }
   }
 
   if (!viteConfig) {
     try {
-      // @ts-ignore - vite.config only exists in dev, not in production
+      // @ts-ignore - vite.config only exists when ENABLE_VITE=true
       const config = await import("../../vite.config");
       viteConfig = config.default;
     } catch (error) {
       console.error("❌ Failed to load vite.config:", error);
-      throw new Error("vite.config must exist and be valid in development mode");
+      throw new Error("vite.config must exist and be valid when ENABLE_VITE=true");
     }
   }
 };
@@ -69,18 +71,18 @@ export function log(message: string, source = "express") {
 }
 
 /**
- * Setup Vite dev server - DEVELOPMENT ONLY
+ * Setup Vite dev server - ONLY when ENABLE_VITE=true
  * 
- * In production: This function returns immediately, NO side effects
- * In development: Sets up Vite HMR and middleware
+ * When disabled: This function returns immediately, NO side effects
+ * When enabled: Sets up Vite HMR and middleware
  */
 export async function setupVite(app: Express, server: Server) {
-  if (!isDev) {
-    // 🚀 PRODUCTION: Skip all Vite setup
+  if (!enableVite) {
+    // 🚀 Vite disabled: Skip all Vite setup
     return;
   }
 
-  // ✅ DEVELOPMENT: Load and setup Vite
+  // ✅ Vite enabled: Load and setup Vite
   try {
     await loadVite();
     
@@ -141,10 +143,10 @@ export async function setupVite(app: Express, server: Server) {
 }
 
 /**
- * Serve static files - PRODUCTION ONLY
+ * Serve static files - for deployed environments
  * 
- * In development: Can be called but mainly for fallback
- * In production: Required for frontend delivery
+ * When Vite disabled: Required for frontend delivery
+ * When Vite enabled: Fallback for development
  */
 export function serveStatic(app: Express) {
   const distPath = path.resolve(import.meta.dirname, "..", "dist", "public");
@@ -153,20 +155,24 @@ export function serveStatic(app: Express) {
     const errorMsg = `❌ CRITICAL: Frontend build not found: ${distPath}
     
     Cause: 'npm run build:client' was not run before deployment
-    Fix: Build frontend before deploying to production
     
-    Steps:
+    Fix in local environment:
       1. npm run build:client
-      2. Redeploy`;
+      2. npm run build:server
+      3. Redeploy
+    
+    For deployed environments (Render, Vercel, etc):
+      Ensure build step is configured in your deployment config`;
     
     console.error(errorMsg);
     
-    if (isDev) {
-      console.warn("⚠️  Continuing without frontend (dev mode)");
+    // If Vite is enabled (local dev), we can continue without built files
+    if (enableVite) {
+      console.warn("⚠️  Continuing without frontend build (Vite enabled)");
       return;
     }
     
-    // 🚀 PRODUCTION: Cannot continue without built frontend
+    // 🚀 If Vite is disabled (deployed), we MUST have built files
     throw new Error(errorMsg);
   }
 
