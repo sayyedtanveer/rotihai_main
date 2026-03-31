@@ -535,6 +535,7 @@ export default function AdminChefs() {
                   />
                   <ImageUploader
                     onImageUpload={(url) => setFormData({ ...formData, image: url })}
+                    uploadType="logo"
                   />
                 </div>
                 {formData.image && (
@@ -892,6 +893,7 @@ export default function AdminChefs() {
                 />
                 <ImageUploader
                   onImageUpload={(url) => setFormData({ ...formData, image: url })}
+                  uploadType="logo"
                 />
               </div>
               {formData.image && (

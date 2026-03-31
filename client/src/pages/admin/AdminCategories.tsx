@@ -325,7 +325,7 @@ export default function AdminCategories() {
                         <FormControl>
                           <div className="flex gap-2">
                             <Input {...field} placeholder="https://..." data-testid="input-category-image" className="flex-1" />
-                            <ImageUploader onImageUpload={(url) => field.onChange(url)} disabled={field.disabled} />
+                            <ImageUploader onImageUpload={(url) => field.onChange(url)} disabled={field.disabled} uploadType="category" />
                           </div>
                         </FormControl>
                         <FormMessage />

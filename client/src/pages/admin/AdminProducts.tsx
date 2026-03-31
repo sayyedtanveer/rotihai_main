@@ -479,6 +479,7 @@ export default function AdminProducts() {
                               <ImageUploader
                                 onImageUpload={(url) => field.onChange(url)}
                                 disabled={field.disabled}
+                                uploadType="product"
                               />
                             </div>
                             {field.value && (
