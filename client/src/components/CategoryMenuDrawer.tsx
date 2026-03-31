@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import type { Category, Product } from "@shared/schema";
 import { useCustomerNotifications } from "@/hooks/useCustomerNotifications";
 import { getImageUrl, handleImageError } from "@/lib/imageUrl";
+import { groupProductsBySection } from "@/utils/productGrouping";
 
 interface CategoryMenuDrawerProps {
   isOpen: boolean;
@@ -158,22 +159,30 @@ export default function CategoryMenuDrawer({
                   No items available in this category
                 </p>
               ) : (
-                categoryProducts.map((product) => {
-                  const currentQuantity = getProductQuantity(product.id);
-                  const cartItem = cartItems.find(item => item.id === product.id);
+                groupProductsBySection(categoryProducts).map((group) => (
+                  <div key={group.section} className="space-y-3">
+                    {/* Section Header */}
+                    <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide px-1">
+                      {group.section}
+                    </h4>
+                    
+                    {/* Products in Section */}
+                    {group.products.map((product) => {
+                      const currentQuantity = getProductQuantity(product.id);
+                      const cartItem = cartItems.find(item => item.id === product.id);
 
-                  // Get real-time availability or fall back to product data
-                  const realtimeAvailability = productAvailability[product.id];
-                  const isProductAvailable = realtimeAvailability?.isAvailable ?? product.isAvailable ?? true;
-                  const productStock = realtimeAvailability?.stock ?? product.stockQuantity ?? 0;
+                      // Get real-time availability or fall back to product data
+                      const realtimeAvailability = productAvailability[product.id];
+                      const isProductAvailable = realtimeAvailability?.isAvailable ?? product.isAvailable ?? true;
+                      const productStock = realtimeAvailability?.stock ?? product.stockQuantity ?? 0;
 
-                  return (
-                    <div
-                      key={product.id}
-                      className={`border rounded-lg p-4 space-y-3 transition-shadow ${isProductAvailable ? "hover:shadow-md" : "opacity-60 bg-muted/30"
-                        }`}
-                      data-testid={`product-card-${product.id}`}
-                    >
+                      return (
+                        <div
+                          key={product.id}
+                          className={`border rounded-lg p-4 space-y-3 transition-shadow ${isProductAvailable ? "hover:shadow-md" : "opacity-60 bg-muted/30"
+                            }`}
+                          data-testid={`product-card-${product.id}`}
+                        >
                       <div className="flex gap-4">
                         <div className="relative">
                           <img
@@ -291,8 +300,10 @@ export default function CategoryMenuDrawer({
                         )}
                       </div>
                     </div>
-                  );
-                })
+                      );
+                    })}
+                  </div>
+                ))
               )}
             </div>
           </ScrollArea>
