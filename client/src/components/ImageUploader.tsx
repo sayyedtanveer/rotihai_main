@@ -9,6 +9,7 @@ import 'react-image-crop/dist/ReactCrop.css';
 interface ImageUploaderProps {
   onImageUpload: (url: string) => void;
   disabled?: boolean;
+  uploadType?: 'logo' | 'banner' | 'product' | 'category'; // NEW: Support different upload types
 }
 
 // Center the crop area perfectly in the image bounds initially
@@ -25,7 +26,39 @@ function centerAspectCrop(mediaWidth: number, mediaHeight: number, aspect: numbe
   )
 }
 
-export function ImageUploader({ onImageUpload, disabled = false }: ImageUploaderProps) {
+// NEW: Get aspect ratio based on upload type
+function getAspectRatioByType(uploadType?: 'logo' | 'banner' | 'product' | 'category'): number {
+  switch (uploadType) {
+    case 'logo': // Chef logo, category icon, etc. - square
+      return 1 / 1;
+    case 'banner': // Promotional banners - widescreen
+      return 16 / 9;
+    case 'product': // Product images - square
+      return 1 / 1;
+    case 'category': // Category cards
+      return 4 / 3;
+    default: // Default to 16:9 for banners
+      return 16 / 9;
+  }
+}
+
+// NEW: Get instruction text based on upload type
+function getInstructionText(uploadType?: 'logo' | 'banner' | 'product' | 'category'): string {
+  switch (uploadType) {
+    case 'logo':
+      return 'Adjust crop area. Square (1:1) aspect ratio is recommended for logos.';
+    case 'banner':
+      return 'Adjust crop area. Widescreen (16:9) aspect ratio recommended for banners.';
+    case 'product':
+      return 'Adjust crop area. Square (1:1) aspect ratio recommended for product images.';
+    case 'category':
+      return 'Adjust crop area. 4:3 aspect ratio recommended for category cards.';
+    default:
+      return 'Adjust crop area to match the recommended aspect ratio.';
+  }
+}
+
+export function ImageUploader({ onImageUpload, disabled = false, uploadType = 'banner' }: ImageUploaderProps) {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadedFileName, setUploadedFileName] = useState<string>();
   const { toast } = useToast();
@@ -38,7 +71,8 @@ export function ImageUploader({ onImageUpload, disabled = false }: ImageUploader
   const imgRef = useRef<HTMLImageElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const aspect = 16 / 9; // Enforce widescreen for chef cards
+  // NEW: Dynamic aspect ratio based on upload type
+  const aspect = getAspectRatioByType(uploadType);
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -174,7 +208,7 @@ export function ImageUploader({ onImageUpload, disabled = false }: ImageUploader
             <div className="p-4 sm:p-6 border-b border-border">
               <h2 className="text-lg font-semibold leading-none tracking-tight">Crop Image</h2>
               <p className="text-sm text-muted-foreground mt-2">
-                Adjust the crop area. The image must be a widescreen (16:9) aspect ratio to fit the Chef cards perfectly.
+                {getInstructionText(uploadType)}
               </p>
             </div>
 
