@@ -235,6 +235,144 @@ export async function sendWelcomeEmail(
 }
 
 /* ============================================
+   COMBINED WELCOME + ORDER CONFIRMATION EMAIL
+============================================ */
+export interface OrderEmailParams {
+  customerName: string;
+  phone: string;
+  password: string;
+  orderId: string;
+  items: Array<{ name: string; quantity: number; price: number }>;
+  subtotal: number;
+  deliveryFee: number;
+  total: number;
+  deliveryAddress: string;
+  estimatedDeliveryTime?: string;
+}
+
+export function createOrderConfirmationEmail(params: OrderEmailParams) {
+  const itemsHtml = params.items
+    .map(
+      (item) =>
+        `<tr style="border-bottom: 1px solid #eee;">
+          <td style="padding: 8px;">${item.name}</td>
+          <td style="text-align: center; padding: 8px;">x${item.quantity}</td>
+          <td style="text-align: right; padding: 8px;">₹${(item.price * item.quantity).toFixed(2)}</td>
+        </tr>`
+    )
+    .join("");
+
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        body { font-family: Arial; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: #ff6b35; color: white; padding: 20px; border-radius: 8px 8px 0 0; text-align: center; }
+        .section { background: #f9f9f9; padding: 15px; margin: 15px 0; border-radius: 6px; }
+        .account-info { background: #e8f5e9; padding: 15px; border-radius: 6px; margin: 15px 0; }
+        .password-box { background: white; border: 2px solid #4caf50; padding: 15px; border-radius: 6px; margin: 10px 0; }
+        table { width: 100%; border-collapse: collapse; }
+        .total-row { font-weight: bold; font-size: 16px; border-top: 2px solid #ff6b35; padding: 10px 0; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <!-- HEADER -->
+        <div class="header">
+          <h1 style="margin: 0;">🎉 Welcome to RotiHai!</h1>
+          <p style="margin: 5px 0;">Your Order is Confirmed</p>
+        </div>
+
+        <!-- ACCOUNT CREATION SECTION -->
+        <div class="account-info">
+          <h3 style="margin-top: 0;">👤 Your Account Created</h3>
+          <p>Hello <b>${params.customerName}</b>,</p>
+          <p>An account has been created for you with the following credentials:</p>
+          
+          <div class="password-box">
+            <strong>Phone:</strong> ${params.phone}<br>
+            <strong>Password:</strong> <span style="font-size: 18px; font-weight: bold; color: #4caf50;">${params.password}</span>
+          </div>
+          
+          <p style="font-size: 12px; color: #666;">
+            💡 Save this password. You'll need it to login and track your orders.
+          </p>
+        </div>
+
+        <!-- ORDER CONFIRMATION SECTION -->
+        <div class="section">
+          <h3 style="margin-top: 0;">📦 Your Order Details</h3>
+          
+          <p><strong>Order ID:</strong> ${params.orderId}</p>
+          
+          <table>
+            <thead>
+              <tr style="background: #f0f0f0; border-bottom: 2px solid #ff6b35;">
+                <th style="text-align: left; padding: 10px;">Item</th>
+                <th style="text-align: center; padding: 10px;">Qty</th>
+                <th style="text-align: right; padding: 10px;">Price</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${itemsHtml}
+            </tbody>
+          </table>
+
+          <table style="margin-top: 15px;">
+            <tr>
+              <td style="text-align: right; padding: 8px;">Subtotal:</td>
+              <td style="text-align: right; padding: 8px; width: 100px;">₹${params.subtotal.toFixed(2)}</td>
+            </tr>
+            <tr>
+              <td style="text-align: right; padding: 8px;">Delivery Fee:</td>
+              <td style="text-align: right; padding: 8px;">₹${params.deliveryFee.toFixed(2)}</td>
+            </tr>
+            <tr class="total-row">
+              <td style="text-align: right; padding: 10px;">Total Amount:</td>
+              <td style="text-align: right; padding: 10px; color: #ff6b35;">₹${params.total.toFixed(2)}</td>
+            </tr>
+          </table>
+        </div>
+
+        <!-- DELIVERY DETAILS -->
+        <div class="section">
+          <h3 style="margin-top: 0;">🏠 Delivery Address</h3>
+          <p>${params.deliveryAddress}</p>
+          ${
+            params.estimatedDeliveryTime
+              ? `<p><strong>⏱️ Estimated Delivery:</strong> ${params.estimatedDeliveryTime}</p>`
+              : ""
+          }
+        </div>
+
+        <!-- FOOTER -->
+        <div style="text-align: center; padding: 20px; color: #666; font-size: 12px;">
+          <p>Thank you for ordering with RotiHai! 🙏</p>
+          <p>Questions? Contact us or check your account dashboard.</p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+}
+
+/* ============================================
+   SEND ORDER CONFIRMATION EMAIL
+============================================ */
+export async function sendOrderConfirmationEmail(
+  email: string,
+  params: OrderEmailParams
+) {
+  return sendEmail({
+    to: email,
+    subject: `🎉 Welcome & Order Confirmation - Order #${params.orderId}`,
+    html: createOrderConfirmationEmail(params),
+  });
+}
+
+/* ============================================
    MISSED DELIVERY EMAIL TEMPLATE
 ============================================ */
 export function createMissedDeliveryEmail(

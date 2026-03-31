@@ -9,6 +9,35 @@ import { generateAccessToken, generateRefreshToken, verifyPassword, hashPassword
 import { storage } from "./storage";
 import { saveImageFile, getImagePath, imageExists, deleteImageFile } from "./imageService";
 
+// ⚠️ CRITICAL: Use ENABLE_VITE flag instead of NODE_ENV
+// This ensures Vite is only used when explicitly enabled locally
+// ENABLE_VITE=true → local development with vite.config
+// ENABLE_VITE=false or undefined → deployed environments (no vite.config)
+const enableVite = process.env.ENABLE_VITE === "true";
+
+// 🔒 DATABASE SAFETY CHECK: Prevent dev from using prod database
+if (enableVite) {
+  const dbUrl = process.env.DATABASE_URL || "";
+  if (dbUrl.includes("rotihai_prod")) {
+    console.error("❌ ❌ ❌ CRITICAL ERROR ❌ ❌ ❌");
+    console.error("DEV SERVER IS USING PRODUCTION DATABASE!");
+    console.error(`DATABASE_URL: ${dbUrl}`);
+    console.error("This will corrupt production data!");
+    console.error("");
+    console.error("✅ FIX: Update .env to use rotihai_dev database");
+    console.error("   DATABASE_URL=postgresql://user:pass@host:5432/rotihai_dev");
+    console.error("");
+    console.error("Available databases:");
+    console.error("  📊 rotihai_prod - Production database (DO NOT USE IN DEV)");
+    console.error("  🧪 rotihai_dev  - Development database (USE THIS IN DEV)");
+    console.error("  🧪 rotihai_test - Test database (USE FOR TESTS)");
+    console.error("");
+    process.exit(1); // Exit immediately - do not start server
+  }
+  console.log("✅ Database safety check passed - using DEVELOPMENT database");
+  console.log(`   DATABASE: ${dbUrl.split("/").pop()}`);
+}
+
 // Simple logger function - avoid importing from vite which is dev-only
 const log = (message: string, source = "express") => {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -39,15 +68,15 @@ app.use(cookieParser());
 
 // Set Cache-Control headers based on environment
 app.use((req, res, next) => {
-  if (process.env.NODE_ENV === 'development') {
-    // Development: Never cache - always fresh
+  if (enableVite) {
+    // Development (Vite enabled): Never cache - always fresh
     res.set({
       'Cache-Control': 'no-cache, no-store, must-revalidate',
       'Pragma': 'no-cache',
       'Expires': '0',
     });
   }
-  // Production: Intelligent caching based on file type
+  // Production (Vite disabled): Intelligent caching based on file type
   else if (req.path === '/version.json') {
     // ✅ Version JSON: MUST NOT CACHE - used for deployment detection
     res.set({
@@ -506,13 +535,26 @@ app.use((req, res, next) => {
   // importantly only setup vite in development and after
   // setting up all the other routes so the catch-all route
   // doesn't interfere with the other routes
-  if (process.env.NODE_ENV === "development") {
-    const { setupVite } = await import("./vite.js");
-    await setupVite(app, server);
-
-  } else if (process.env.SERVE_CLIENT === "true") {
-    const { serveStatic } = await import("./vite.js");
-    serveStatic(app);
+  if (enableVite) {
+    // ✅ VITE ENABLED (local dev): Setup Vite dev server with HMR
+    try {
+      const { setupVite } = await import("./vite.js");
+      await setupVite(app, server);
+      console.log("✅ Vite dev server initialized");
+    } catch (error) {
+      console.error("❌ Failed to setup Vite dev server:", error);
+      throw error;
+    }
+  } else {
+    // 🚀 VITE DISABLED (deployed envs): Serve pre-built static files
+    try {
+      const { serveStatic } = await import("./vite.js");
+      serveStatic(app);
+      console.log("✅ Static file server initialized");
+    } catch (error) {
+      console.error("❌ CRITICAL: Failed to serve static files:", error);
+      throw error;
+    }
   }
 
   // ✅ Initialize cron jobs (payment verification, subscriptions, etc.)

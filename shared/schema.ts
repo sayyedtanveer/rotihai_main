@@ -114,6 +114,10 @@ export const products = pgTable("products", {
   chefId: text("chef_id"),
   offerPercentage: integer("offer_percentage").notNull().default(0),
   marginPercent: decimal("margin_percent", { precision: 5, scale: 2 }).default("0"), // ← NEW: Auto-calculated margin %
+  // Menu Sections Support (for grouping products within a category)
+  section: text("section"), // NEW: Section name (e.g., "Aloo & Noodle Frankies"), NULL for ungrouped
+  sectionOrder: integer("section_order").notNull().default(0), // NEW: Controls section display order (lower = first)
+  sortOrder: integer("sort_order").notNull().default(0), // NEW: Controls product order within section (lower = first)
 });
 
 export const paymentStatusEnum = pgEnum("payment_status", ["pending", "paid", "confirmed"]);

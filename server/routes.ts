@@ -10,7 +10,7 @@ import { setupWebSocket, broadcastNewOrder, broadcastOrderUpdate, broadcastSubsc
 import { hashPassword, verifyPassword, generateAccessToken, generateRefreshToken, requireUser, type AuthenticatedUserRequest } from "./userAuth";
 import { verifyToken as verifyUserToken } from "./userAuth";
 import { requireAdmin } from "./adminAuth";
-import { sendEmail, createWelcomeEmail, createPasswordResetEmail, createPasswordChangeConfirmationEmail } from "./emailService";
+import { sendEmail, createWelcomeEmail, createPasswordResetEmail, createPasswordChangeConfirmationEmail, sendOrderConfirmationEmail } from "./emailService";
 import { sendOrderPlacedAdminNotification } from "./whatsappService";
 import { db, subscriptions, orders, walletSettings, referralRewards, newsletterSubscribers, users } from "@shared/db";
 import { eq } from "drizzle-orm";
@@ -2183,20 +2183,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.log(`✅ New user created on payment confirmation: ${user.id} - Phone: ${order.phone}`);
           userCreated = true;
 
-          // Send welcome email if email provided - disabled for performance
+          // Send combined welcome + order confirmation email if email provided
           if (SEND_SUBSCRIPTION_EMAILS && order.email) {
-            const emailHtml = createWelcomeEmail(order.customerName, order.phone, generatedPassword);
-            const emailSent = await sendEmail({
-              to: order.email,
-              subject: '🍽️ Welcome to RotiHai - Your Account Details',
-              html: emailHtml,
+            const itemsForEmail = ((order.items as any[]) || []).map((item: any) => ({
+              name: item.name,
+              quantity: item.quantity,
+              price: item.hotelPrice || item.price,
+            }));
+
+            const emailSent = await sendOrderConfirmationEmail(order.email, {
+              customerName: order.customerName,
+              phone: order.phone,
+              password: generatedPassword,
+              orderId: order.id,
+              items: itemsForEmail,
+              subtotal: order.subtotal as number,
+              deliveryFee: order.deliveryFee as number,
+              total: order.total as number,
+              deliveryAddress: order.address as string,
+              estimatedDeliveryTime: "30-45 minutes",
             });
 
             if (emailSent) {
-              console.log(`✅ Welcome email sent to ${order.email}`);
+              console.log(`✅ Order confirmation email sent to ${order.email}`);
             }
           } else if (order.email) {
-            console.log(`📧 Subscription email disabled for performance. Email sending skipped for ${order.email}`);
+            console.log(`📧 Subscription email disabled. Order confirmation skipped for ${order.email}`);
           }
 
           // Update order with new userId

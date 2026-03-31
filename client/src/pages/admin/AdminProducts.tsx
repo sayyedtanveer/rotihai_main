@@ -71,6 +71,9 @@ export default function AdminProducts() {
       stockQuantity: 100,
       lowStockThreshold: 20,
       offerPercentage: 0,
+      section: "",
+      sectionOrder: 0,
+      sortOrder: 0,
     },
   });
 
@@ -164,6 +167,9 @@ export default function AdminProducts() {
       lowStockThreshold: product.lowStockThreshold || 20,
       offerPercentage: product.offerPercentage || 0,
       hotelPrice: product.hotelPrice || 0, // ← NEW: Reset hotel price
+      section: product.section || "",
+      sectionOrder: product.sectionOrder ?? 0,
+      sortOrder: product.sortOrder ?? 0,
     });
     setIsDialogOpen(true);
   };
@@ -380,6 +386,81 @@ export default function AdminProducts() {
                         </FormItem>
                       )}
                     />
+
+                    {/* ===== MENU SECTIONS FIELDS ===== */}
+                    <div className="border-t pt-4 mt-4">
+                      <h3 className="text-sm font-semibold mb-3 text-slate-700 dark:text-slate-300">Menu Sections (Optional)</h3>
+                      
+                      <FormField
+                        control={form.control}
+                        name="section"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Section Name</FormLabel>
+                            <FormControl>
+                              <Input 
+                                {...field} 
+                                value={field.value || ""}
+                                placeholder="e.g., Aloo & Noodle Frankies" 
+                                data-testid="input-product-section"
+                              />
+                            </FormControl>
+                            <FormDescription>
+                              Group products within the same category. Leave empty for "Others" section.
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <div className="grid grid-cols-2 gap-4 mt-4">
+                        <FormField
+                          control={form.control}
+                          name="sectionOrder"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Section Order</FormLabel>
+                              <FormControl>
+                                <Input 
+                                  {...field} 
+                                  type="number" 
+                                  placeholder="0" 
+                                  onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
+                                  data-testid="input-section-order"
+                                />
+                              </FormControl>
+                              <FormDescription>
+                                Lower = appears first (0, 10, 20, ...)
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="sortOrder"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Product Order in Section</FormLabel>
+                              <FormControl>
+                                <Input 
+                                  {...field} 
+                                  type="number" 
+                                  placeholder="0" 
+                                  onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
+                                  data-testid="input-sort-order"
+                                />
+                              </FormControl>
+                              <FormDescription>
+                                Lower = appears first within section
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                    </div>
+                    {/* ===== END MENU SECTIONS ===== */}
                     <FormField
                       control={form.control}
                       name="image"
@@ -570,6 +651,7 @@ export default function AdminProducts() {
                     <TableRow>
                       <TableHead>Name</TableHead>
                       <TableHead>Category</TableHead>
+                      <TableHead>Section</TableHead>
                       <TableHead>Chef</TableHead>
                       <TableHead>Hotel Cost</TableHead>
                       <TableHead>RotiHai Price</TableHead>
@@ -603,6 +685,11 @@ export default function AdminProducts() {
                         </TableCell>
                         <TableCell>
                           <Badge variant="outline">{getCategoryName(product.categoryId)}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="secondary" className="text-xs">
+                            {product.section || "Others"}
+                          </Badge>
                         </TableCell>
                         <TableCell>
                           <span className="text-sm">{getChefName(product.chefId)}</span>
