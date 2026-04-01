@@ -27,6 +27,12 @@ export default function AdminProducts() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [viewMode, setViewMode] = useState<"grid" | "table">("table");
+  
+  // Search and filter states
+  const [searchQuery, setSearchQuery] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState<string>("");
+  const [chefFilter, setChefFilter] = useState<string>("");
+  const [sortBy, setSortBy] = useState<"name" | "price" | "stock">("name");
 
   const { data: products, isLoading } = useQuery<Product[]>({
     queryKey: ["/api/admin", "products"],
@@ -214,6 +220,42 @@ export default function AdminProducts() {
     const category = categories?.find(c => c.id === categoryId);
     return category?.name || "Unknown";
   };
+
+  // Filter and sort products
+  const filteredProducts = (() => {
+    if (!products) return [];
+    
+    let filtered = products.filter((product) => {
+      // Search filter - match by name or description
+      const matchesSearch = searchQuery === "" || 
+        product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        product.description.toLowerCase().includes(searchQuery.toLowerCase());
+      
+      // Category filter
+      const matchesCategory = categoryFilter === "" || product.categoryId === categoryFilter;
+      
+      // Chef filter
+      const matchesChef = chefFilter === "" || product.chefId === chefFilter;
+      
+      return matchesSearch && matchesCategory && matchesChef;
+    });
+
+    // Sort
+    filtered.sort((a, b) => {
+      switch (sortBy) {
+        case "name":
+          return a.name.localeCompare(b.name);
+        case "price":
+          return a.price - b.price;
+        case "stock":
+          return (b.stockQuantity || 0) - (a.stockQuantity || 0);
+        default:
+          return 0;
+      }
+    });
+
+    return filtered;
+  })();
 
   return (
     <AdminLayout>
@@ -628,6 +670,68 @@ export default function AdminProducts() {
           </div>
         </div>
 
+        {/* Search and Filter Controls */}
+        <Card>
+          <CardContent className="pt-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+              {/* Search Input */}
+              <Input
+                placeholder="Search products..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="lg:col-span-2"
+              />
+              
+              {/* Category Filter */}
+              <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Category" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">All Categories</SelectItem>
+                  {categories?.map((cat) => (
+                    <SelectItem key={cat.id} value={cat.id}>
+                      {cat.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              
+              {/* Chef Filter */}
+              <Select value={chefFilter} onValueChange={setChefFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Chef" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">All Chefs</SelectItem>
+                  {chefs?.map((chef) => (
+                    <SelectItem key={chef.id} value={chef.id}>
+                      {chef.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              
+              {/* Sort By */}
+              <Select value={sortBy} onValueChange={(value) => setSortBy(value as "name" | "price" | "stock")}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Sort" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="name">Sort: Name</SelectItem>
+                  <SelectItem value="price">Sort: Price</SelectItem>
+                  <SelectItem value="stock">Sort: Stock</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {filteredProducts.length < (products?.length || 0) && (
+              <p className="text-sm text-slate-600 dark:text-slate-400 mt-3">
+                Showing {filteredProducts.length} of {products?.length || 0} products
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
         {isLoading ? (
           <Card>
             <CardContent className="text-center py-12">
@@ -638,6 +742,12 @@ export default function AdminProducts() {
           <Card>
             <CardContent className="text-center py-12">
               <p className="text-slate-600 dark:text-slate-400">No products found. Add your first product to get started!</p>
+            </CardContent>
+          </Card>
+        ) : filteredProducts.length === 0 ? (
+          <Card>
+            <CardContent className="text-center py-12">
+              <p className="text-slate-600 dark:text-slate-400">No products match your filters. Try adjusting your search or filters.</p>
             </CardContent>
           </Card>
         ) : viewMode === "table" ? (
@@ -666,7 +776,7 @@ export default function AdminProducts() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {products.map((product) => (
+                    {filteredProducts.map((product) => (
                       <TableRow key={product.id}>
                         <TableCell>
                           <div className="flex items-center gap-3">
@@ -766,7 +876,7 @@ export default function AdminProducts() {
           </Card>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {products.map((product) => (
+            {filteredProducts.map((product) => (
               <Card 
                 key={product.id} 
                 data-testid={`card-product-${product.id}`}
