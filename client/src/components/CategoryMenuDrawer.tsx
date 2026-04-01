@@ -1,4 +1,4 @@
-import { X, Star, Plus, Minus, Leaf, BadgeCheck, ChevronDown, Search } from "lucide-react";
+import { X, Star, Plus, Minus, Leaf, BadgeCheck, ChevronDown, Search, Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
@@ -6,7 +6,7 @@ import type { Category, Product } from "@shared/schema";
 import { useCustomerNotifications } from "@/hooks/useCustomerNotifications";
 import { getImageUrl, handleImageError } from "@/lib/imageUrl";
 import { groupProductsBySection } from "@/utils/productGrouping";
-import { useState } from "react";
+import { useState, useRef } from "react";
 
 interface CategoryMenuDrawerProps {
   isOpen: boolean;
@@ -36,6 +36,8 @@ export default function CategoryMenuDrawer({
   const { productAvailability, chefStatuses } = useCustomerNotifications();
   const [searchQuery, setSearchQuery] = useState("");
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
+  const [showSectionNav, setShowSectionNav] = useState(false);
+  const sectionRefsMap = useRef<Record<string, HTMLDivElement | null>>({});
 
   if (!isOpen || !category || !chef) return null;
 
@@ -78,6 +80,18 @@ export default function CategoryMenuDrawer({
   // Calculate total items and total price for the "Proceed to Cart" button
   const totalItems = cartItems.reduce((sum, item) => sum + item.quantity, 0);
   const totalPrice = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+
+  // Helper: Scroll to section smoothly
+  const scrollToSection = (sectionName: string) => {
+    const sectionRef = sectionRefsMap.current[sectionName];
+    if (sectionRef) {
+      sectionRef.scrollIntoView({ behavior: "smooth", block: "start" });
+      // Expand the section if collapsed
+      setOpenSections(prev => ({ ...prev, [sectionName]: true }));
+      // Close the navigation modal
+      setShowSectionNav(false);
+    }
+  };
 
   return (
     <>
@@ -183,7 +197,7 @@ export default function CategoryMenuDrawer({
                 </p>
               ) : (
                 groupedSections.map((group) => (
-                  <div key={group.section} className="space-y-2">
+                  <div key={group.section} className="space-y-2" ref={(el) => { if (el) sectionRefsMap.current[group.section] = el; }}>
                     {/* Collapsible Section Header - Sticky */}
                     <button
                       onClick={() => toggleSection(group.section)}
@@ -383,6 +397,58 @@ export default function CategoryMenuDrawer({
           </div>
         </div>
       </div>
+
+      {/* Floating Section Navigation Button */}
+      {categoryProducts.length > 0 && (
+        <>
+          <Button
+            size="icon"
+            className="fixed bottom-24 right-6 rounded-full shadow-lg z-40 h-12 w-12"
+            onClick={() => setShowSectionNav(true)}
+            data-testid="button-section-nav"
+            title="Jump to section"
+          >
+            <Menu className="h-5 w-5" />
+          </Button>
+
+          {/* Section Navigation Modal */}
+          {showSectionNav && (
+            <div className="fixed inset-0 bg-black/50 z-50 sm:hidden flex items-end">
+              <div className="bg-background w-full rounded-t-lg shadow-lg max-h-96 overflow-y-auto">
+                <div className="sticky top-0 bg-background border-b p-4 flex items-center justify-between">
+                  <h3 className="font-semibold text-lg">Jump to Section</h3>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setShowSectionNav(false)}
+                  >
+                    <X className="h-5 w-5" />
+                  </Button>
+                </div>
+                <div className="p-4 space-y-2">
+                  {groupedSections.length === 0 ? (
+                    <p className="text-center text-muted-foreground py-4">No sections available</p>
+                  ) : (
+                    groupedSections.map((section) => (
+                      <button
+                        key={section.section}
+                        onClick={() => scrollToSection(section.section)}
+                        className="w-full text-left px-4 py-3 rounded-lg hover:bg-muted transition-colors flex items-center justify-between group"
+                      >
+                        <div>
+                          <p className="font-medium text-foreground">{section.section}</p>
+                          <p className="text-sm text-muted-foreground">{section.products.length} items</p>
+                        </div>
+                        <ChevronDown className="h-5 w-5 text-muted-foreground group-hover:text-foreground transition-colors" />
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </>
   );
 }
