@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Route, Switch, Redirect } from "wouter";
 import api from "@/lib/apiClient";
 import { preloadBuildVersion } from "@/lib/buildVersion";
@@ -7,6 +7,8 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@radix-ui/react-tooltip";
 import { DeliveryLocationProvider } from "@/contexts/DeliveryLocationContext";
+import { GlobalLoadingSpinner } from "@/components/GlobalLoadingSpinner";
+import { startKeepAlive } from "@/lib/keepAlive";
 import { useAuth } from "@/hooks/useAuth";
 import { useOrderNotifications } from "@/hooks/useOrderNotifications";
 import { useVersionCheck } from "@/hooks/useVersionCheck";
@@ -172,12 +174,28 @@ function NotificationsWrapper() {
 
 // 🔔 Wrapper component for notifications (must be inside QueryClientProvider)
 function AppContent() {
+  const [showLoadingSpinner, setShowLoadingSpinner] = useState(false);
+  
   // ✅ Check for new app versions and prompt refresh
   useVersionCheck();
 
   // 🚀 Cache-busting: Preload build version on app startup
   useEffect(() => {
     preloadBuildVersion();
+  }, []);
+
+  // 🔄 Start keep-alive to prevent server spindown on Render free tier
+  useEffect(() => {
+    startKeepAlive(10); // Ping every 10 minutes
+  }, []);
+
+  // 🌐 Show loading spinner when making initial API requests
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowLoadingSpinner(false);
+    }, 3000); // Hide spinner after 3 seconds
+
+    return () => clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -216,6 +234,7 @@ function AppContent() {
 
   return (
     <TooltipProvider>
+      <GlobalLoadingSpinner isVisible={showLoadingSpinner} />
       <Toaster />
       <NotificationsWrapper />
       <Router />

@@ -512,6 +512,11 @@ app.use((req, res, next) => {
     }
   });
 
+  // ✅ Health check endpoint for keep-alive (prevents Render free tier spindown)
+  app.get("/api/health", (_req: Request, res: Response) => {
+    res.json({ status: "ok", timestamp: new Date().toISOString() });
+  });
+
   const server = await registerRoutes(app);
 
   // Global error handler - MUST set JSON content-type
