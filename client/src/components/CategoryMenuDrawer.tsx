@@ -222,17 +222,18 @@ export default function CategoryMenuDrawer({
                     {/* Products in Section - Collapsible */}
                     {openSections[group.section] && (
                       <div className="space-y-3 pl-2" data-testid={`section-products-${group.section}`}>
-                      const currentQuantity = getProductQuantity(product.id);
-                      const cartItem = cartItems.find(item => item.id === product.id);
+                        {group.products.map((product) => {
+                          const currentQuantity = getProductQuantity(product.id);
+                          const cartItem = cartItems.find(item => item.id === product.id);
 
-                      // Get real-time availability or fall back to product data
-                      const realtimeAvailability = productAvailability[product.id];
-                      const isProductAvailable = realtimeAvailability?.isAvailable ?? product.isAvailable ?? true;
-                      const productStock = realtimeAvailability?.stock ?? product.stockQuantity ?? 0;
+                          // Get real-time availability or fall back to product data
+                          const realtimeAvailability = productAvailability[product.id];
+                          const isProductAvailable = realtimeAvailability?.isAvailable ?? product.isAvailable ?? true;
+                          const productStock = realtimeAvailability?.stock ?? product.stockQuantity ?? 0;
 
-                      return (
-                        <div
-                          key={product.id}
+                          return (
+                            <div
+                              key={product.id}
                           className={`border rounded-lg p-4 space-y-3 transition-shadow ${isProductAvailable ? "hover:shadow-md" : "opacity-60 bg-muted/30"
                             }`}
                           data-testid={`product-card-${product.id}`}
@@ -344,7 +345,7 @@ export default function CategoryMenuDrawer({
                               size="icon"
                               variant="outline"
                               className="h-7 w-7"
-                              onClick={() => onAddToCart?.(product)} // <-- optional chaining
+                              onClick={() => onAddToCart?.(product)}
                               disabled={isChefClosed}
                               data-testid={`button-increase-${product.id}`}
                             >
@@ -353,10 +354,10 @@ export default function CategoryMenuDrawer({
                           </div>
                         )}
                       </div>
-                    </div>
-                      );
+                    );
                     })}
                       </div>
+                    )}
                     )}
                   </div>
                 ))
