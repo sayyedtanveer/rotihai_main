@@ -1,4 +1,4 @@
-import { X, Star, Plus, Minus, Leaf, BadgeCheck } from "lucide-react";
+import { X, Star, Plus, Minus, Leaf, BadgeCheck, ChevronDown, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
@@ -6,6 +6,7 @@ import type { Category, Product } from "@shared/schema";
 import { useCustomerNotifications } from "@/hooks/useCustomerNotifications";
 import { getImageUrl, handleImageError } from "@/lib/imageUrl";
 import { groupProductsBySection } from "@/utils/productGrouping";
+import { useState } from "react";
 
 interface CategoryMenuDrawerProps {
   isOpen: boolean;
@@ -33,7 +34,8 @@ export default function CategoryMenuDrawer({
   onProceedToCart,
 }: CategoryMenuDrawerProps) {
   const { productAvailability, chefStatuses } = useCustomerNotifications();
-  // Removed instructionProduct and specialInstruction state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
 
   if (!isOpen || !category || !chef) return null;
 
@@ -55,17 +57,23 @@ export default function CategoryMenuDrawer({
     return cartItem?.quantity || 0;
   };
 
-  const handleQuantityChange = (product: Product, newQuantity: number) => {
-    if (newQuantity < 0) return;
-
-    const currentQuantity = getProductQuantity(product.id);
-    if (newQuantity === currentQuantity) return;
-
-    if (onAddToCart) {
-      onAddToCart(product);
-      // Don't auto-close - let users continue browsing and adding items
-    }
+  const toggleSection = (sectionName: string) => {
+    setOpenSections((prev) => ({
+      ...prev,
+      [sectionName]: !prev[sectionName],
+    }));
   };
+
+  const filteredProducts = categoryProducts.filter((product) =>
+    product.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const groupedSections = groupProductsBySection(filteredProducts);
+
+  // Auto-expand first section on first render
+  if (Object.keys(openSections).length === 0 && groupedSections.length > 0) {
+    setOpenSections({ [groupedSections[0].section]: true });
+  }
 
   // Calculate total items and total price for the "Proceed to Cart" button
   const totalItems = cartItems.reduce((sum, item) => sum + item.quantity, 0);
@@ -154,20 +162,52 @@ export default function CategoryMenuDrawer({
             </div>
 
             <div className="p-4 space-y-4">
-              {categoryProducts.length === 0 ? (
+              {/* Search Bar */}
+              <div className="sticky top-0 bg-background z-10 pb-2">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <input
+                    type="text"
+                    placeholder="Search items..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 border rounded-lg bg-muted/30 focus:outline-none focus:ring-2 focus:ring-primary text-sm"
+                    data-testid="search-products-input"
+                  />
+                </div>
+              </div>
+
+              {filteredProducts.length === 0 ? (
                 <p className="text-center text-muted-foreground py-8" data-testid="text-no-products">
-                  No items available in this category
+                  {searchQuery ? "No items match your search" : "No items available in this category"}
                 </p>
               ) : (
-                groupProductsBySection(categoryProducts).map((group) => (
-                  <div key={group.section} className="space-y-3">
-                    {/* Section Header */}
-                    <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide px-1">
-                      {group.section}
-                    </h4>
+                groupedSections.map((group) => (
+                  <div key={group.section} className="space-y-2">
+                    {/* Collapsible Section Header - Sticky */}
+                    <button
+                      onClick={() => toggleSection(group.section)}
+                      className="sticky top-16 w-full flex items-center justify-between gap-2 px-1 py-2 rounded-md hover:bg-muted/50 transition-colors bg-background z-20"
+                      data-testid={`section-toggle-${group.section}`}
+                    >
+                      <div className="flex items-center gap-2 flex-1">
+                        <ChevronDown
+                          className={`h-5 w-5 text-primary transition-transform duration-200 ${
+                            openSections[group.section] ? "transform rotate-180" : ""
+                          }`}
+                        />
+                        <h4 className="text-base font-bold text-foreground">
+                          {group.section}
+                        </h4>
+                        <Badge variant="secondary" className="text-xs ml-2">
+                          {group.products.length}
+                        </Badge>
+                      </div>
+                    </button>
                     
-                    {/* Products in Section */}
-                    {group.products.map((product) => {
+                    {/* Products in Section - Collapsible */}
+                    {openSections[group.section] && (
+                      <div className="space-y-3 pl-2" data-testid={`section-products-${group.section}`}>
                       const currentQuantity = getProductQuantity(product.id);
                       const cartItem = cartItems.find(item => item.id === product.id);
 
@@ -302,6 +342,8 @@ export default function CategoryMenuDrawer({
                     </div>
                       );
                     })}
+                      </div>
+                    )}
                   </div>
                 ))
               )}
