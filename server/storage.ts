@@ -542,6 +542,10 @@ export class MemStorage implements IStorage {
       offerPercentage: insertProduct.offerPercentage ?? 0,
       hotelPrice: insertProduct.hotelPrice ?? 0,
       marginPercent,
+      // Normalise optional fields to their DB defaults (prevent undefined leaking into Product type)
+      section: insertProduct.section ?? null,
+      sectionOrder: insertProduct.sectionOrder ?? 0,
+      sortOrder: insertProduct.sortOrder ?? 0,
     };
     await db.insert(products).values(product);
     return product;
@@ -694,6 +698,11 @@ export class MemStorage implements IStorage {
       servicePincodes: (data as any).servicePincodes || null,
       maxDeliveryDistanceKm: (data as any).maxDeliveryDistanceKm ?? 5,
       isVerified: (data as any).isVerified === true,
+      // FSSAI / Compliance
+      fssaiNumber: (data as any).fssaiNumber || null,
+      fssaiVerified: (data as any).fssaiVerified === true,
+      chefType: (data as any).chefType || null,
+      complianceStatus: (data as any).complianceStatus || "pending",
     };
 
     await db.insert(chefs).values(chefData as any);
@@ -725,6 +734,11 @@ export class MemStorage implements IStorage {
     if ((data as any).maxDeliveryDistanceKm !== undefined) updateData.maxDeliveryDistanceKm = (data as any).maxDeliveryDistanceKm;
     if ((data as any).servicePincodes !== undefined) updateData.servicePincodes = (data as any).servicePincodes;
     if ((data as any).isVerified !== undefined) updateData.isVerified = (data as any).isVerified;
+    // FSSAI / Compliance fields
+    if ((data as any).fssaiNumber !== undefined) updateData.fssaiNumber = (data as any).fssaiNumber || null;
+    if ((data as any).fssaiVerified !== undefined) updateData.fssaiVerified = (data as any).fssaiVerified;
+    if ((data as any).chefType !== undefined) updateData.chefType = (data as any).chefType || null;
+    if ((data as any).complianceStatus !== undefined) updateData.complianceStatus = (data as any).complianceStatus;
 
     console.log("🔥 updateChef() - Received data:", { id, incomingMaxDeliveryDistanceKm: (data as any).maxDeliveryDistanceKm, servicePincodes: (data as any).servicePincodes, updateData });
 

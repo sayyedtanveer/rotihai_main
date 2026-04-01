@@ -457,7 +457,7 @@ export default function PartnerDashboard() {
 
       <main className="px-3 md:px-6 py-4 md:py-8">
         <Tabs value={selectedTab} onValueChange={setSelectedTab} className="space-y-4 md:space-y-6">
-          <TabsList className="grid w-full grid-cols-2 md:grid-cols-6 h-auto">
+          <TabsList className="grid w-full grid-cols-2 md:grid-cols-7 h-auto">
             <TabsTrigger value="dashboard" className="text-xs md:text-sm py-2">Dashboard</TabsTrigger>
             <TabsTrigger value="menu" className="text-xs md:text-sm py-2">Menu</TabsTrigger>
             <TabsTrigger value="scheduled" className="text-xs md:text-sm py-2 relative">
@@ -480,6 +480,7 @@ export default function PartnerDashboard() {
               )}
             </TabsTrigger>
             <TabsTrigger value="income" className="text-xs md:text-sm py-2">Income</TabsTrigger>
+            <TabsTrigger value="compliance" className="text-xs md:text-sm py-2">🛡️ <span className="hidden md:inline ml-1">Compliance</span></TabsTrigger>
           </TabsList>
 
           <TabsContent value="dashboard" className="space-y-4 md:space-y-6">
@@ -1533,6 +1534,85 @@ export default function PartnerDashboard() {
                   ) : (
                     <p className="text-center text-muted-foreground py-8 text-xs">No income data available</p>
                   )}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* ── Compliance Tab ─────────────────────────────────────────────── */}
+          <TabsContent value="compliance" className="space-y-4 md:space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm md:text-base flex items-center gap-2">
+                  🛡️ Compliance Info
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Your FSSAI &amp; compliance details as configured by the platform admin.
+                  All information is read-only – contact admin to update.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* FSSAI Number */}
+                <div className="flex items-start gap-3 p-3 rounded-lg bg-slate-50 dark:bg-slate-800 border border-border/50">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-0.5">FSSAI Licence Number</p>
+                    {(chefDetails as any)?.fssaiNumber ? (
+                      <p className="font-mono text-sm font-medium">{(chefDetails as any).fssaiNumber}</p>
+                    ) : (
+                      <p className="text-sm text-muted-foreground italic">Not provided yet</p>
+                    )}
+                  </div>
+                  <div className="flex-shrink-0">
+                    {(chefDetails as any)?.fssaiVerified ? (
+                      <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700 bg-green-100 dark:bg-green-900/30 dark:text-green-300 px-2 py-1 rounded-full">
+                        ✅ Verified
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 bg-amber-100 dark:bg-amber-900/30 dark:text-amber-300 px-2 py-1 rounded-full">
+                        ⏳ Pending
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Kitchen Type */}
+                <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800 border border-border/50">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-0.5">Kitchen Type</p>
+                  {(chefDetails as any)?.chefType ? (
+                    <p className="text-sm font-medium capitalize">
+                      {(chefDetails as any).chefType === "home" ? "🏠 Home Kitchen" : "🏢 Restaurant"}
+                    </p>
+                  ) : (
+                    <p className="text-sm text-muted-foreground italic">Not specified</p>
+                  )}
+                </div>
+
+                {/* Compliance Status */}
+                <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800 border border-border/50">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Compliance Status</p>
+                  {(() => {
+                    const status = (chefDetails as any)?.complianceStatus || "pending";
+                    const cfg: Record<string, { label: string; cls: string }> = {
+                      verified:  { label: "✅ Verified",  cls: "text-green-700 bg-green-100 dark:bg-green-900/30 dark:text-green-300" },
+                      rejected:  { label: "❌ Rejected",  cls: "text-red-700 bg-red-100 dark:bg-red-900/30 dark:text-red-300" },
+                      pending:   { label: "⏳ Pending",   cls: "text-amber-700 bg-amber-100 dark:bg-amber-900/30 dark:text-amber-300" },
+                    };
+                    const { label, cls } = cfg[status] ?? cfg.pending;
+                    return (
+                      <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-full ${cls}`}>
+                        {label}
+                      </span>
+                    );
+                  })()}
+                </div>
+
+                {/* Admin contact note */}
+                <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800">
+                  <AlertCircle className="h-4 w-4 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
+                  <p className="text-xs text-blue-700 dark:text-blue-300 leading-relaxed">
+                    <strong>Need to update compliance details?</strong>{" "}
+                    Contact your platform admin. Partners cannot edit compliance information directly.
+                  </p>
                 </div>
               </CardContent>
             </Card>

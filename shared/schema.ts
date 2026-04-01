@@ -93,6 +93,11 @@ export const chefs = pgTable("chefs", {
   // Service pincodes - which pincodes this chef serves (pincode-based filtering)
   servicePincodes: text("service_pincodes").array(), // Array of valid pincodes like ["400070", "400086", "400025"]
   isVerified: boolean("is_verified").notNull().default(false), // Verified chef badge (verified by platform)
+  // ── FSSAI & Compliance (admin-controlled, all optional) ─────────────────────
+  fssaiNumber: text("fssai_number"),                                         // FSSAI licence number
+  fssaiVerified: boolean("fssai_verified").notNull().default(false),          // Admin-confirmed licence
+  chefType: text("chef_type"),                                               // 'home' | 'restaurant' | null
+  complianceStatus: text("compliance_status").notNull().default("pending"),   // 'pending' | 'verified' | 'rejected'
 });
 
 
@@ -434,6 +439,11 @@ export const insertProductSchema = createInsertSchema(products).omit({
 
 export const insertChefSchema = createInsertSchema(chefs, {
   servicePincodes: z.array(z.string().regex(/^\d{5,6}$/, "Pincode must be 5-6 digits")).optional().nullable(),
+  // FSSAI / compliance fields – all optional so admin can save without them
+  fssaiNumber: z.string().optional().nullable(),
+  fssaiVerified: z.boolean().optional(),
+  chefType: z.enum(["home", "restaurant"]).optional().nullable(),
+  complianceStatus: z.enum(["pending", "verified", "rejected"]).optional(),
 }).omit({
   id: true,
 });

@@ -16,7 +16,7 @@ import { getImageUrl, handleImageError } from "@/lib/imageUrl";
 import { adminApiRequest } from "@/hooks/useAdminAuth";
 import { queryClient } from "@/lib/queryClient";
 import type { Chef, Category } from "@shared/schema";
-import { Star, Pencil, Trash2, Plus, Store, Loader2, MapPin, BadgeCheck } from "lucide-react";
+import { Star, Pencil, Trash2, Plus, Store, Loader2, MapPin, BadgeCheck, ShieldCheck, ShieldOff, Home, Building2 } from "lucide-react";
 import { ImageUploader } from "@/components/ImageUploader";
 import { getDeliveryAreas } from "@/lib/deliveryAreas";
 
@@ -44,6 +44,11 @@ export default function AdminChefs() {
     maxDeliveryDistanceKm: 5, // Default 5km delivery radius
     servicePincodes: null as string[] | null, // NEW: Service pincodes
     isVerified: false, // Verified chef badge (verified by us)
+    // FSSAI / Compliance (all optional)
+    fssaiNumber: "",
+    chefType: "" as "" | "home" | "restaurant",
+    fssaiVerified: false,
+    complianceStatus: "pending" as "pending" | "verified" | "rejected",
   });
 
   // Separate state for servicePincodes input display (allows partial typing)
@@ -198,6 +203,11 @@ export default function AdminChefs() {
       maxDeliveryDistanceKm: 5,
       servicePincodes: null, // NEW: Initialize service pincodes
       isVerified: false,
+      // FSSAI / Compliance
+      fssaiNumber: "",
+      chefType: "",
+      fssaiVerified: false,
+      complianceStatus: "pending",
     });
     setServicePincodesInput(""); // Reset display input
     setGeocodeError("");
@@ -317,6 +327,11 @@ export default function AdminChefs() {
       maxDeliveryDistanceKm: (chef as any).maxDeliveryDistanceKm || 5,
       servicePincodes: (chef as any).servicePincodes || null, // NEW: Load service pincodes
       isVerified: (chef as any).isVerified === true,
+      // FSSAI / Compliance
+      fssaiNumber: (chef as any).fssaiNumber || "",
+      chefType: (chef as any).chefType || "",
+      fssaiVerified: (chef as any).fssaiVerified === true,
+      complianceStatus: (chef as any).complianceStatus || "pending",
     });
     // Initialize servicePincodes input field with comma-separated values
     const servicePincodes = (chef as any).servicePincodes;
@@ -431,6 +446,22 @@ export default function AdminChefs() {
                         <Badge variant="secondary" className="gap-1 text-xs bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 border-0">
                           <BadgeCheck className="h-3.5 w-3.5" />
                           Verified by Roti Hai
+                        </Badge>
+                      )}
+                      {(chef as any).fssaiVerified && (
+                        <Badge variant="secondary" className="gap-1 text-xs bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border-0">
+                          🛡️ FSSAI
+                        </Badge>
+                      )}
+                      {(chef as any).complianceStatus && (chef as any).complianceStatus !== "pending" && (
+                        <Badge
+                          variant="secondary"
+                          className={`text-xs border-0 ${(chef as any).complianceStatus === "verified"
+                            ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300"
+                            : "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300"
+                          }`}
+                        >
+                          {(chef as any).complianceStatus === "verified" ? "✅ Compliant" : "❌ Rejected"}
                         </Badge>
                       )}
                     </div>
@@ -603,6 +634,83 @@ export default function AdminChefs() {
                 onCheckedChange={(checked) => setFormData({ ...formData, isVerified: checked })}
                 data-testid="switch-chef-verified"
               />
+            </div>
+
+            {/* ── FSSAI & Compliance Section ─────────────────────────────────── */}
+            <div className="space-y-3 border-t pt-4">
+              <Label className="flex items-center gap-2 font-semibold text-amber-700 dark:text-amber-400">
+                <ShieldCheck className="w-4 h-4" />
+                FSSAI &amp; Compliance
+              </Label>
+
+              {/* FSSAI Number */}
+              <div>
+                <Label htmlFor="fssaiNumber" className="text-xs text-gray-600">
+                  FSSAI Licence Number <span className="text-gray-400">(optional)</span>
+                </Label>
+                <Input
+                  id="fssaiNumber"
+                  value={formData.fssaiNumber}
+                  onChange={(e) => setFormData({ ...formData, fssaiNumber: e.target.value })}
+                  placeholder="e.g., 11224052000123"
+                  className="text-sm"
+                  data-testid="input-fssai-number"
+                />
+              </div>
+
+              {/* Chef Type */}
+              <div>
+                <Label htmlFor="chefType" className="text-xs text-gray-600">Chef Type</Label>
+                <Select
+                  value={formData.chefType || ""}
+                  onValueChange={(v) => setFormData({ ...formData, chefType: v as "" | "home" | "restaurant" })}
+                >
+                  <SelectTrigger data-testid="select-chef-type">
+                    <SelectValue placeholder="Select type (optional)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="home">
+                      <span className="flex items-center gap-2"><Home className="h-3.5 w-3.5" /> Home Kitchen</span>
+                    </SelectItem>
+                    <SelectItem value="restaurant">
+                      <span className="flex items-center gap-2"><Building2 className="h-3.5 w-3.5" /> Restaurant</span>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Compliance Status + FSSAI Verified toggle */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs text-gray-600">Compliance Status</Label>
+                  <Select
+                    value={formData.complianceStatus}
+                    onValueChange={(v) => setFormData({ ...formData, complianceStatus: v as "pending" | "verified" | "rejected" })}
+                  >
+                    <SelectTrigger data-testid="select-compliance-status">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="pending">⏳ Pending</SelectItem>
+                      <SelectItem value="verified">✅ Verified</SelectItem>
+                      <SelectItem value="rejected">❌ Rejected</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex flex-col justify-end">
+                  <div className="flex items-center justify-between rounded-lg border px-3 py-2">
+                    <div>
+                      <p className="text-xs font-medium">FSSAI Verified</p>
+                      <p className="text-xs text-muted-foreground">Licence confirmed</p>
+                    </div>
+                    <Switch
+                      checked={formData.fssaiVerified}
+                      onCheckedChange={(c) => setFormData({ ...formData, fssaiVerified: c })}
+                      data-testid="switch-fssai-verified"
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* Chef Address & Location - Structured */}
@@ -960,6 +1068,80 @@ export default function AdminChefs() {
                 onCheckedChange={(checked) => setFormData({ ...formData, isVerified: checked })}
                 data-testid="switch-edit-chef-verified"
               />
+            </div>
+
+            {/* ── FSSAI & Compliance Section (Edit) ──────────────────────────── */}
+            <div className="space-y-3 border-t pt-4">
+              <Label className="flex items-center gap-2 font-semibold text-amber-700 dark:text-amber-400">
+                <ShieldCheck className="w-4 h-4" />
+                FSSAI &amp; Compliance
+              </Label>
+
+              <div>
+                <Label htmlFor="edit-fssaiNumber" className="text-xs text-gray-600">
+                  FSSAI Licence Number <span className="text-gray-400">(optional)</span>
+                </Label>
+                <Input
+                  id="edit-fssaiNumber"
+                  value={formData.fssaiNumber}
+                  onChange={(e) => setFormData({ ...formData, fssaiNumber: e.target.value })}
+                  placeholder="e.g., 11224052000123"
+                  className="text-sm"
+                  data-testid="input-edit-fssai-number"
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="edit-chefType" className="text-xs text-gray-600">Chef Type</Label>
+                <Select
+                  value={formData.chefType || ""}
+                  onValueChange={(v) => setFormData({ ...formData, chefType: v as "" | "home" | "restaurant" })}
+                >
+                  <SelectTrigger data-testid="select-edit-chef-type">
+                    <SelectValue placeholder="Select type (optional)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="home">
+                      <span className="flex items-center gap-2"><Home className="h-3.5 w-3.5" /> Home Kitchen</span>
+                    </SelectItem>
+                    <SelectItem value="restaurant">
+                      <span className="flex items-center gap-2"><Building2 className="h-3.5 w-3.5" /> Restaurant</span>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs text-gray-600">Compliance Status</Label>
+                  <Select
+                    value={formData.complianceStatus}
+                    onValueChange={(v) => setFormData({ ...formData, complianceStatus: v as "pending" | "verified" | "rejected" })}
+                  >
+                    <SelectTrigger data-testid="select-edit-compliance-status">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="pending">⏳ Pending</SelectItem>
+                      <SelectItem value="verified">✅ Verified</SelectItem>
+                      <SelectItem value="rejected">❌ Rejected</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex flex-col justify-end">
+                  <div className="flex items-center justify-between rounded-lg border px-3 py-2">
+                    <div>
+                      <p className="text-xs font-medium">FSSAI Verified</p>
+                      <p className="text-xs text-muted-foreground">Licence confirmed</p>
+                    </div>
+                    <Switch
+                      checked={formData.fssaiVerified}
+                      onCheckedChange={(c) => setFormData({ ...formData, fssaiVerified: c })}
+                      data-testid="switch-edit-fssai-verified"
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* Chef Address & Location - Structured */}
