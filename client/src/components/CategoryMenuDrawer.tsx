@@ -192,176 +192,48 @@ export default function CategoryMenuDrawer({
               </div>
 
               {filteredProducts.length === 0 ? (
-                <p className="text-center text-muted-foreground py-8" data-testid="text-no-products">
-                  {searchQuery ? "No items match your search" : "No items available in this category"}
-                </p>
+                 <p className="text-center text-muted-foreground py-8" data-testid="text-no-products">
+    {searchQuery ? "No items match your search" : "No items available in this category"}
+                 </p>
               ) : (
-                groupedSections.map((group) => (
-                  <div key={group.section} className="space-y-2" ref={(el) => { if (el) sectionRefsMap.current[group.section] = el; }}>
-                    {/* Collapsible Section Header - Sticky */}
-                    <button
-                      onClick={() => toggleSection(group.section)}
-                      className="sticky top-16 w-full flex items-center justify-between gap-2 px-1 py-2 rounded-md hover:bg-muted/50 transition-colors bg-background z-20"
-                      data-testid={`section-toggle-${group.section}`}
-                    >
-                      <div className="flex items-center gap-2 flex-1">
-                        <ChevronDown
-                          className={`h-5 w-5 text-primary transition-transform duration-200 ${
-                            openSections[group.section] ? "transform rotate-180" : ""
-                          }`}
-                        />
-                        <h4 className="text-base font-bold text-foreground">
-                          {group.section}
-                        </h4>
-                        <Badge variant="secondary" className="text-xs ml-2">
-                          {group.products.length}
-                        </Badge>
-                      </div>
-                    </button>
-                    
-                    {/* Products in Section - Collapsible */}
-                    {openSections[group.section] && (
-                      <div className="space-y-3 pl-2" data-testid={`section-products-${group.section}`}>
-                        {group.products.map((product) => {
-                          const currentQuantity = getProductQuantity(product.id);
-                          const cartItem = cartItems.find(item => item.id === product.id);
-
-                          // Get real-time availability or fall back to product data
-                          const realtimeAvailability = productAvailability[product.id];
-                          const isProductAvailable = realtimeAvailability?.isAvailable ?? product.isAvailable ?? true;
-                          const productStock = realtimeAvailability?.stock ?? product.stockQuantity ?? 0;
-
-                          return (
-                            <div
-                              key={product.id}
-                          className={`border rounded-lg p-4 space-y-3 transition-shadow ${isProductAvailable ? "hover:shadow-md" : "opacity-60 bg-muted/30"
-                            }`}
-                          data-testid={`product-card-${product.id}`}
+                   groupedSections.map((group) => {
+                      return (
+                        <div
+                          key={group.section}
+                          className="space-y-2"
+                          ref={(el) => {
+                            if (el) sectionRefsMap.current[group.section] = el;
+                          }}
                         >
-                      <div className="flex gap-4">
-                        <div className="relative">
-                          <img
-                            src={getImageUrl(product.image)}
-                            alt={product.name}
-                            onError={handleImageError}
-                            className={`w-20 h-20 rounded-lg object-cover ${!isProductAvailable ? "grayscale" : ""}`}
-                            data-testid={`img-product-${product.id}`}
-                          />
-                          {!isProductAvailable && (
-                            <div className="absolute inset-0 bg-black/40 flex items-center justify-center rounded-lg">
-                              <Badge variant="destructive" className="text-xs">
-                                UNAVAILABLE
-                              </Badge>
+                          <button
+                            onClick={() => toggleSection(group.section)}
+                            className="sticky top-16 w-full flex items-center justify-between px-1 py-2 bg-background z-20"
+                          >
+                            <div className="flex items-center gap-2">
+                              <ChevronDown
+                                className={`h-5 w-5 ${
+                                  openSections[group.section] ? "rotate-180" : ""
+                                }`}
+                              />
+                              <h4 className="font-bold">{group.section}</h4>
+                              <Badge variant="secondary">{group.products.length}</Badge>
+                            </div>
+                          </button>
+
+                          {openSections[group.section] && (
+                            <div className="space-y-3 pl-2">
+                              {group.products.map((product) => (
+                                <div key={product.id} className="border rounded-lg p-4">
+                                  <h3 className="font-semibold">{product.name}</h3>
+                                  <p>₹{product.price}</p>
+                                </div>
+                              ))}
                             </div>
                           )}
                         </div>
-                        <div className="flex-1">
-                          <div className="flex items-start justify-between gap-2">
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <h3 className="font-semibold text-base" data-testid={`text-name-${product.id}`}>
-                                  {product.name}
-                                </h3>
-                                {product.isVeg && (
-                                  <Badge variant="outline" className="text-green-600 border-green-600">
-                                    <Leaf className="h-3 w-3 mr-1" />
-                                    Veg
-                                  </Badge>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-1 mt-1">
-                                <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                                <span className="text-sm font-medium" data-testid={`text-rating-${product.id}`}>
-                                  {product.rating}
-                                </span>
-                                <span className="text-xs text-muted-foreground" data-testid={`text-reviews-${product.id}`}>
-                                  ({product.reviewCount})
-                                </span>
-                              </div>
-                            </div>
-                            <div className="flex flex-col items-end gap-1">
-                              {product.offerPercentage && product.offerPercentage > 0 ? (
-                                <>
-                                  <span className="text-xs font-semibold text-red-600 bg-red-100 px-2 py-1 rounded">
-                                    {product.offerPercentage}% OFF
-                                  </span>
-                                  <span className="text-sm text-muted-foreground line-through">
-                                    ₹{product.price}
-                                  </span>
-                                  <p className="font-bold text-lg text-green-600" data-testid={`text-price-${product.id}`}>
-                                    ₹{Math.round(product.price * (1 - product.offerPercentage / 100))}
-                                  </p>
-                                </>
-                              ) : (
-                                <p className="font-bold text-lg" data-testid={`text-price-${product.id}`}>
-                                  ₹{product.price}
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                          <p className="text-sm text-muted-foreground mt-2 line-clamp-2" data-testid={`text-description-${product.id}`}>
-                            {product.description}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="flex justify-end">
-                        {currentQuantity === 0 ? (
-                          <Button
-                            size="sm"
-                            onClick={() => {
-                              onAddToCart?.(product);
-                              if (autoCloseOnAdd) {
-                                onClose();
-                              }
-                            }}
-                            disabled={isChefClosed || !isProductAvailable || productStock <= 0}
-                            data-testid={`button-add-${product.id}`}
-                          >
-                            <Plus className="h-4 w-4 mr-1" />
-                            {isChefClosed ? "Chef Closed" : !isProductAvailable ? "Unavailable" : productStock <= 0 ? "Out of Stock" : "Add"}
-                          </Button>
-                        ) : (
-                          <div className="flex items-center gap-1">
-                            <Button
-                              size="icon"
-                              variant="outline"
-                              className="h-7 w-7"
-                              onClick={() => {
-                                const currentQuantity = cartItem?.quantity || 0;
-                                if (currentQuantity > 0 && category && onUpdateQuantity) {
-                                  onUpdateQuantity(category.id, product.id, currentQuantity - 1);
-                                }
-                              }}
-                              disabled={isChefClosed}
-                              data-testid={`button-decrease-${product.id}`}
-                            >
-                              <Minus className="h-3 w-3" />
-                            </Button>
-                            <span className="w-8 text-center text-sm font-medium">
-                              {cartItem?.quantity || 0}
-                            </span>
-                            <Button
-                              size="icon"
-                              variant="outline"
-                              className="h-7 w-7"
-                              onClick={() => onAddToCart?.(product)}
-                              disabled={isChefClosed}
-                              data-testid={`button-increase-${product.id}`}
-                            >
-                              <Plus className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        )}
-                      </div>
-                    );
-                    })}
-                      </div>
-                    )}
-                    )}
-                  </div>
-                ))
-              )}
+                      );
+                    })
+                  )}
             </div>
           </ScrollArea>
 
