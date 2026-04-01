@@ -30,8 +30,8 @@ export default function AdminProducts() {
   
   // Search and filter states
   const [searchQuery, setSearchQuery] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState<string>("");
-  const [chefFilter, setChefFilter] = useState<string>("");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [chefFilter, setChefFilter] = useState<string>("all");
   const [sortBy, setSortBy] = useState<"name" | "price" | "stock">("name");
 
   const { data: products, isLoading } = useQuery<Product[]>({
@@ -231,11 +231,11 @@ export default function AdminProducts() {
         product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         product.description.toLowerCase().includes(searchQuery.toLowerCase());
       
-      // Category filter
-      const matchesCategory = categoryFilter === "" || product.categoryId === categoryFilter;
+      // Category filter ("all" means no filter)
+      const matchesCategory = categoryFilter === "all" || categoryFilter === "" || product.categoryId === categoryFilter;
       
-      // Chef filter
-      const matchesChef = chefFilter === "" || product.chefId === chefFilter;
+      // Chef filter ("all" means no filter)
+      const matchesChef = chefFilter === "all" || chefFilter === "" || product.chefId === chefFilter;
       
       return matchesSearch && matchesCategory && matchesChef;
     });
@@ -688,7 +688,7 @@ export default function AdminProducts() {
                   <SelectValue placeholder="Category" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All Categories</SelectItem>
+                  <SelectItem value="all">All Categories</SelectItem>
                   {categories?.map((cat) => (
                     <SelectItem key={cat.id} value={cat.id}>
                       {cat.name}
@@ -703,7 +703,7 @@ export default function AdminProducts() {
                   <SelectValue placeholder="Chef" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All Chefs</SelectItem>
+                  <SelectItem value="all">All Chefs</SelectItem>
                   {chefs?.map((chef) => (
                     <SelectItem key={chef.id} value={chef.id}>
                       {chef.name}
