@@ -1488,7 +1488,7 @@ export default function Home() {
         onClose={() => setIsCategoryMenuOpen(false)}
         category={selectedCategoryForMenu}
         chef={selectedChefForMenu}
-        products={products}
+        products={products.filter(p => chefsFilteredByPincode.some(chef => chef.id === p.chefId))}
         onAddToCart={handleAddToCart}
         onUpdateQuantity={updateQuantity}
         cartItems={

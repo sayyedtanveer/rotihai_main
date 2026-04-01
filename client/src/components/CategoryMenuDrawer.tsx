@@ -1,4 +1,4 @@
-import { X, Star, Plus, Minus, Leaf, BadgeCheck } from "lucide-react";
+import { X, Star, Plus, Minus, Leaf, BadgeCheck, ChevronDown, Search, Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
@@ -6,6 +6,7 @@ import type { Category, Product } from "@shared/schema";
 import { useCustomerNotifications } from "@/hooks/useCustomerNotifications";
 import { getImageUrl, handleImageError } from "@/lib/imageUrl";
 import { groupProductsBySection } from "@/utils/productGrouping";
+import { useState, useRef } from "react";
 
 interface CategoryMenuDrawerProps {
   isOpen: boolean;
@@ -33,7 +34,10 @@ export default function CategoryMenuDrawer({
   onProceedToCart,
 }: CategoryMenuDrawerProps) {
   const { productAvailability, chefStatuses } = useCustomerNotifications();
-  // Removed instructionProduct and specialInstruction state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
+  const [showSectionNav, setShowSectionNav] = useState(false);
+  const sectionRefsMap = useRef<Record<string, HTMLDivElement | null>>({});
 
   if (!isOpen || !category || !chef) return null;
 
@@ -55,21 +59,39 @@ export default function CategoryMenuDrawer({
     return cartItem?.quantity || 0;
   };
 
-  const handleQuantityChange = (product: Product, newQuantity: number) => {
-    if (newQuantity < 0) return;
-
-    const currentQuantity = getProductQuantity(product.id);
-    if (newQuantity === currentQuantity) return;
-
-    if (onAddToCart) {
-      onAddToCart(product);
-      // Don't auto-close - let users continue browsing and adding items
-    }
+  const toggleSection = (sectionName: string) => {
+    setOpenSections((prev) => ({
+      ...prev,
+      [sectionName]: !prev[sectionName],
+    }));
   };
+
+  const filteredProducts = categoryProducts.filter((product) =>
+    product.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const groupedSections = groupProductsBySection(filteredProducts);
+
+  // Auto-expand first section on first render
+  if (Object.keys(openSections).length === 0 && groupedSections.length > 0) {
+    setOpenSections({ [groupedSections[0].section]: true });
+  }
 
   // Calculate total items and total price for the "Proceed to Cart" button
   const totalItems = cartItems.reduce((sum, item) => sum + item.quantity, 0);
   const totalPrice = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+
+  // Helper: Scroll to section smoothly
+  const scrollToSection = (sectionName: string) => {
+    const sectionRef = sectionRefsMap.current[sectionName];
+    if (sectionRef) {
+      sectionRef.scrollIntoView({ behavior: "smooth", block: "start" });
+      // Expand the section if collapsed
+      setOpenSections(prev => ({ ...prev, [sectionName]: true }));
+      // Close the navigation modal
+      setShowSectionNav(false);
+    }
+  };
 
   return (
     <>
@@ -154,157 +176,64 @@ export default function CategoryMenuDrawer({
             </div>
 
             <div className="p-4 space-y-4">
-              {categoryProducts.length === 0 ? (
-                <p className="text-center text-muted-foreground py-8" data-testid="text-no-products">
-                  No items available in this category
-                </p>
+              {/* Search Bar */}
+              <div className="sticky top-0 bg-background z-10 pb-2">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <input
+                    type="text"
+                    placeholder="Search items..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 border rounded-lg bg-muted/30 focus:outline-none focus:ring-2 focus:ring-primary text-sm"
+                    data-testid="search-products-input"
+                  />
+                </div>
+              </div>
+
+              {filteredProducts.length === 0 ? (
+                 <p className="text-center text-muted-foreground py-8" data-testid="text-no-products">
+    {searchQuery ? "No items match your search" : "No items available in this category"}
+                 </p>
               ) : (
-                groupProductsBySection(categoryProducts).map((group) => (
-                  <div key={group.section} className="space-y-3">
-                    {/* Section Header */}
-                    <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide px-1">
-                      {group.section}
-                    </h4>
-                    
-                    {/* Products in Section */}
-                    {group.products.map((product) => {
-                      const currentQuantity = getProductQuantity(product.id);
-                      const cartItem = cartItems.find(item => item.id === product.id);
-
-                      // Get real-time availability or fall back to product data
-                      const realtimeAvailability = productAvailability[product.id];
-                      const isProductAvailable = realtimeAvailability?.isAvailable ?? product.isAvailable ?? true;
-                      const productStock = realtimeAvailability?.stock ?? product.stockQuantity ?? 0;
-
+                   groupedSections.map((group) => {
                       return (
                         <div
-                          key={product.id}
-                          className={`border rounded-lg p-4 space-y-3 transition-shadow ${isProductAvailable ? "hover:shadow-md" : "opacity-60 bg-muted/30"
-                            }`}
-                          data-testid={`product-card-${product.id}`}
+                          key={group.section}
+                          className="space-y-2"
+                          ref={(el) => {
+                            if (el) sectionRefsMap.current[group.section] = el;
+                          }}
                         >
-                      <div className="flex gap-4">
-                        <div className="relative">
-                          <img
-                            src={getImageUrl(product.image)}
-                            alt={product.name}
-                            onError={handleImageError}
-                            className={`w-20 h-20 rounded-lg object-cover ${!isProductAvailable ? "grayscale" : ""}`}
-                            data-testid={`img-product-${product.id}`}
-                          />
-                          {!isProductAvailable && (
-                            <div className="absolute inset-0 bg-black/40 flex items-center justify-center rounded-lg">
-                              <Badge variant="destructive" className="text-xs">
-                                UNAVAILABLE
-                              </Badge>
+                          <button
+                            onClick={() => toggleSection(group.section)}
+                            className="sticky top-16 w-full flex items-center justify-between px-1 py-2 bg-background z-20"
+                          >
+                            <div className="flex items-center gap-2">
+                              <ChevronDown
+                                className={`h-5 w-5 ${
+                                  openSections[group.section] ? "rotate-180" : ""
+                                }`}
+                              />
+                              <h4 className="font-bold">{group.section}</h4>
+                              <Badge variant="secondary">{group.products.length}</Badge>
+                            </div>
+                          </button>
+
+                          {openSections[group.section] && (
+                            <div className="space-y-3 pl-2">
+                              {group.products.map((product) => (
+                                <div key={product.id} className="border rounded-lg p-4">
+                                  <h3 className="font-semibold">{product.name}</h3>
+                                  <p>₹{product.price}</p>
+                                </div>
+                              ))}
                             </div>
                           )}
                         </div>
-                        <div className="flex-1">
-                          <div className="flex items-start justify-between gap-2">
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <h3 className="font-semibold text-base" data-testid={`text-name-${product.id}`}>
-                                  {product.name}
-                                </h3>
-                                {product.isVeg && (
-                                  <Badge variant="outline" className="text-green-600 border-green-600">
-                                    <Leaf className="h-3 w-3 mr-1" />
-                                    Veg
-                                  </Badge>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-1 mt-1">
-                                <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                                <span className="text-sm font-medium" data-testid={`text-rating-${product.id}`}>
-                                  {product.rating}
-                                </span>
-                                <span className="text-xs text-muted-foreground" data-testid={`text-reviews-${product.id}`}>
-                                  ({product.reviewCount})
-                                </span>
-                              </div>
-                            </div>
-                            <div className="flex flex-col items-end gap-1">
-                              {product.offerPercentage && product.offerPercentage > 0 ? (
-                                <>
-                                  <span className="text-xs font-semibold text-red-600 bg-red-100 px-2 py-1 rounded">
-                                    {product.offerPercentage}% OFF
-                                  </span>
-                                  <span className="text-sm text-muted-foreground line-through">
-                                    ₹{product.price}
-                                  </span>
-                                  <p className="font-bold text-lg text-green-600" data-testid={`text-price-${product.id}`}>
-                                    ₹{Math.round(product.price * (1 - product.offerPercentage / 100))}
-                                  </p>
-                                </>
-                              ) : (
-                                <p className="font-bold text-lg" data-testid={`text-price-${product.id}`}>
-                                  ₹{product.price}
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                          <p className="text-sm text-muted-foreground mt-2 line-clamp-2" data-testid={`text-description-${product.id}`}>
-                            {product.description}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="flex justify-end">
-                        {currentQuantity === 0 ? (
-                          <Button
-                            size="sm"
-                            onClick={() => {
-                              onAddToCart?.(product);
-                              if (autoCloseOnAdd) {
-                                onClose();
-                              }
-                            }}
-                            disabled={isChefClosed || !isProductAvailable || productStock <= 0}
-                            data-testid={`button-add-${product.id}`}
-                          >
-                            <Plus className="h-4 w-4 mr-1" />
-                            {isChefClosed ? "Chef Closed" : !isProductAvailable ? "Unavailable" : productStock <= 0 ? "Out of Stock" : "Add"}
-                          </Button>
-                        ) : (
-                          <div className="flex items-center gap-1">
-                            <Button
-                              size="icon"
-                              variant="outline"
-                              className="h-7 w-7"
-                              onClick={() => {
-                                const currentQuantity = cartItem?.quantity || 0;
-                                if (currentQuantity > 0 && category && onUpdateQuantity) {
-                                  onUpdateQuantity(category.id, product.id, currentQuantity - 1);
-                                }
-                              }}
-                              disabled={isChefClosed}
-                              data-testid={`button-decrease-${product.id}`}
-                            >
-                              <Minus className="h-3 w-3" />
-                            </Button>
-                            <span className="w-8 text-center text-sm font-medium">
-                              {cartItem?.quantity || 0}
-                            </span>
-                            <Button
-                              size="icon"
-                              variant="outline"
-                              className="h-7 w-7"
-                              onClick={() => onAddToCart?.(product)} // <-- optional chaining
-                              disabled={isChefClosed}
-                              data-testid={`button-increase-${product.id}`}
-                            >
-                              <Plus className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
                       );
-                    })}
-                  </div>
-                ))
-              )}
+                    })
+                  )}
             </div>
           </ScrollArea>
 
@@ -341,6 +270,58 @@ export default function CategoryMenuDrawer({
           </div>
         </div>
       </div>
+
+      {/* Floating Section Navigation Button */}
+      {categoryProducts.length > 0 && (
+        <>
+          <Button
+            size="icon"
+            className="fixed bottom-24 right-6 rounded-full shadow-lg z-40 h-12 w-12"
+            onClick={() => setShowSectionNav(true)}
+            data-testid="button-section-nav"
+            title="Jump to section"
+          >
+            <Menu className="h-5 w-5" />
+          </Button>
+
+          {/* Section Navigation Modal */}
+          {showSectionNav && (
+            <div className="fixed inset-0 bg-black/50 z-50 sm:hidden flex items-end">
+              <div className="bg-background w-full rounded-t-lg shadow-lg max-h-96 overflow-y-auto">
+                <div className="sticky top-0 bg-background border-b p-4 flex items-center justify-between">
+                  <h3 className="font-semibold text-lg">Jump to Section</h3>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setShowSectionNav(false)}
+                  >
+                    <X className="h-5 w-5" />
+                  </Button>
+                </div>
+                <div className="p-4 space-y-2">
+                  {groupedSections.length === 0 ? (
+                    <p className="text-center text-muted-foreground py-4">No sections available</p>
+                  ) : (
+                    groupedSections.map((section) => (
+                      <button
+                        key={section.section}
+                        onClick={() => scrollToSection(section.section)}
+                        className="w-full text-left px-4 py-3 rounded-lg hover:bg-muted transition-colors flex items-center justify-between group"
+                      >
+                        <div>
+                          <p className="font-medium text-foreground">{section.section}</p>
+                          <p className="text-sm text-muted-foreground">{section.products.length} items</p>
+                        </div>
+                        <ChevronDown className="h-5 w-5 text-muted-foreground group-hover:text-foreground transition-colors" />
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </>
   );
 }
