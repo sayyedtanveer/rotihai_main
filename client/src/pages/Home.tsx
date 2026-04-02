@@ -15,6 +15,7 @@ import SubscriptionDrawer from "@/components/SubscriptionDrawer";
 import LoginDialog from "@/components/LoginDialog";
 import Footer from "@/components/Footer";
 import PromotionalBannersSection from "@/components/PromotionalBannersSection";
+import ActiveOrderBanner from "@/components/ActiveOrderBanner";
 
 import { DeliveryAddressSelector } from "@/components/DeliveryAddressSelector";
 import { getImageUrl, handleImageError } from "@/lib/imageUrl";
@@ -1709,6 +1710,7 @@ export default function Home() {
           </div>
         </DialogContent>
       </Dialog>
+      <ActiveOrderBanner />
     </div>
   );
 }
