@@ -1,4 +1,4 @@
-﻿
+
 import { useQuery } from "@tanstack/react-query";
 import React, { useState } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
@@ -154,7 +154,7 @@ export default function AdminReports() {
     queryFn: async () => {
       const token = localStorage.getItem("adminToken");
       const response = await fetch(
-        `/api/admin/reports/sales?from=${dateRange.from.toISOString()}&to=${dateRange.to.toISOString()}`,
+        getApiUrl(`/api/admin/reports/sales?from=${dateRange.from.toISOString()}&to=${dateRange.to.toISOString()}`),
         { headers: { Authorization: `Bearer ${token}` } }
       );
       if (!response.ok) throw new Error("Failed to fetch sales report");
@@ -167,7 +167,7 @@ export default function AdminReports() {
     queryFn: async () => {
       const token = localStorage.getItem("adminToken");
       const response = await fetch(
-        `/api/admin/reports/users?from=${dateRange.from.toISOString()}&to=${dateRange.to.toISOString()}`,
+        getApiUrl(`/api/admin/reports/users?from=${dateRange.from.toISOString()}&to=${dateRange.to.toISOString()}`),
         { headers: { Authorization: `Bearer ${token}` } }
       );
       if (!response.ok) throw new Error("Failed to fetch user report");
@@ -192,7 +192,7 @@ export default function AdminReports() {
     queryFn: async () => {
       const token = localStorage.getItem("adminToken");
       const response = await fetch(
-        `/api/admin/reports/subscriptions?from=${dateRange.from.toISOString()}&to=${dateRange.to.toISOString()}`,
+        getApiUrl(`/api/admin/reports/subscriptions?from=${dateRange.from.toISOString()}&to=${dateRange.to.toISOString()}`),
         { headers: { Authorization: `Bearer ${token}` } }
       );
       if (!response.ok) throw new Error("Failed to fetch subscription report");
@@ -208,7 +208,7 @@ export default function AdminReports() {
       if (selectedChefId && selectedChefId !== "all") {
         url += `&chefId=${selectedChefId}`;
       }
-      const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      const response = await fetch(getApiUrl(url), { headers: { Authorization: `Bearer ${token}` } });
       if (!response.ok) throw new Error("Failed to fetch chef report");
       return response.json();
     },
@@ -219,7 +219,7 @@ export default function AdminReports() {
     queryFn: async () => {
       const token = localStorage.getItem("adminToken");
       const response = await fetch(
-        `/api/admin/reports/rotihai-earnings?from=${dateRange.from.toISOString()}&to=${dateRange.to.toISOString()}`,
+        getApiUrl(`/api/admin/reports/rotihai-earnings?from=${dateRange.from.toISOString()}&to=${dateRange.to.toISOString()}`),
         { headers: { Authorization: `Bearer ${token}` } }
       );
       if (!response.ok) throw new Error("Failed to fetch rotihai earnings report");
@@ -236,7 +236,7 @@ export default function AdminReports() {
         url += `&chefId=${selectedChefId}`;
       }
       console.log("[Payout Report] Fetching:", url);
-      const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      const response = await fetch(getApiUrl(url), { headers: { Authorization: `Bearer ${token}` } });
       if (!response.ok) throw new Error("Failed to fetch chef payout details");
       const data = await response.json();
       console.log("[Payout Report] Data received:", data);
@@ -259,7 +259,7 @@ export default function AdminReports() {
   const handleExportCSV = (reportType: string) => {
     const token = localStorage.getItem("adminToken");
     window.open(
-      `/api/admin/reports/export/${reportType}?from=${dateRange.from.toISOString()}&to=${dateRange.to.toISOString()}&token=${token}`,
+      getApiUrl(`/api/admin/reports/export/${reportType}?from=${dateRange.from.toISOString()}&to=${dateRange.to.toISOString()}&token=${token}`),
       '_blank'
     );
   };
