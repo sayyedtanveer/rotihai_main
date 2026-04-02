@@ -2227,7 +2227,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               // linked to the brand-new user (userId was null before this payment confirmation).
               // The userOrders check would see length=1 and incorrectly reject the referral.
               // All other fraud guards (self-referral, referrer age, duplicate, caps) still apply.
-              await storage.applyReferralBonus(order.referralCode, user.id, { skipFirstOrderCheck: true });
+              await storage.applyReferralBonus(order.referralCode, user.id, order.total, { skipFirstOrderCheck: true });
               // Get the bonus amount from settings
               const settings = await storage.getActiveReferralReward();
               appliedReferralBonus = settings?.referredBonus || 50;
