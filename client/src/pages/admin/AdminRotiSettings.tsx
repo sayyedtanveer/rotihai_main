@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+﻿import { useState, useEffect } from "react";
+import { getApiUrl } from "@/lib/apiBase";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -56,7 +57,7 @@ export default function AdminRotiSettings() {
   const updateSettingsMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
       const token = localStorage.getItem("adminToken");
-      const response = await fetch("/api/admin/roti-settings", {
+      const response = await fetch(getApiUrl("/api/admin/roti-settings"), {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",

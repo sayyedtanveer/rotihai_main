@@ -14,7 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 import { Megaphone, Plus, Pencil, Trash2 } from "lucide-react";
 import type { PromotionalBanner } from "@shared/schema";
-
+import { getApiUrl } from "@/lib/apiBase";
 export default function AdminPromotionalBanners() {
   const { toast } = useToast();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -39,7 +39,7 @@ export default function AdminPromotionalBanners() {
     queryKey: ["/api/admin/promotional-banners"],
     queryFn: async () => {
       const token = localStorage.getItem("adminToken");
-      const response = await fetch("/api/admin/promotional-banners", {
+      const response = await fetch(getApiUrl("/api/admin/promotional-banners"), {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!response.ok) throw new Error("Failed to fetch banners");
@@ -50,7 +50,7 @@ export default function AdminPromotionalBanners() {
   const createMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
       const token = localStorage.getItem("adminToken");
-      const response = await fetch("/api/admin/promotional-banners", {
+      const response = await fetch(getApiUrl("/api/admin/promotional-banners"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -73,7 +73,7 @@ export default function AdminPromotionalBanners() {
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: typeof formData }) => {
       const token = localStorage.getItem("adminToken");
-      const response = await fetch(`/api/admin/promotional-banners/${id}`, {
+      const response = await fetch(getApiUrl(`/api/admin/promotional-banners/${id}`), {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -97,7 +97,7 @@ export default function AdminPromotionalBanners() {
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
       const token = localStorage.getItem("adminToken");
-      const response = await fetch(`/api/admin/promotional-banners/${id}`, {
+      const response = await fetch(getApiUrl(`/api/admin/promotional-banners/${id}`), {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });

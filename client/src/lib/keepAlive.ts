@@ -1,8 +1,8 @@
-/**
+﻿/**
  * Keep-alive utility to prevent Render free tier app spindown
  * Pings the health endpoint periodically to keep the server warm
  */
-
+import { getApiUrl } from "@/lib/apiBase";
 let keepAliveIntervalId: NodeJS.Timeout | null = null;
 
 export function startKeepAlive(intervalMinutes: number = 10): void {
@@ -25,7 +25,7 @@ export function startKeepAlive(intervalMinutes: number = 10): void {
 
 async function pingServer(): Promise<void> {
   try {
-    const response = await fetch("/api/health");
+    const response = await fetch(getApiUrl("/api/health"));
     if (response.ok) {
       const data = await response.json();
       console.log("✅ Keep-alive ping successful", data.timestamp);

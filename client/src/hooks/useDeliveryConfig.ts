@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Hook to fetch and cache delivery configuration
  * This replaces hardcoded coordinates throughout the app
  * Ready for mobile app and multi-city support
@@ -40,7 +40,7 @@ export function useDeliveryConfig() {
     queryFn: async () => {
       try {
         console.log("[DELIVERY-CONFIG] Fetching delivery configuration...");
-        const res = await fetch("/api/delivery-config");
+        const res = await fetch(getApiUrl("/api/delivery-config"));
         
         if (!res.ok) {
           console.warn("[DELIVERY-CONFIG] API returned error, using fallback:", res.status);

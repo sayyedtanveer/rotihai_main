@@ -10,7 +10,7 @@
 // and use Google Maps API directly.
 
 import api from "./apiClient";
-
+import { getApiUrl } from "./apiBase";
 // Fallback areas (used when API unavailable)
 const FALLBACK_DELIVERY_AREAS = [
   "Kurla West",
@@ -57,22 +57,22 @@ export const getDeliveryAreas = async (): Promise<string[]> => {
     if (response.data?.areas && Array.isArray(response.data.areas) && response.data.areas.length > 0) {
       const rawAreas = response.data.areas;
       console.log("[DELIVERY-AREAS] Loaded from API:", rawAreas);
-      
+
       // Extract just the area names (API returns full objects now with pincodes)
-      const areas = rawAreas.map((area: any) => 
+      const areas = rawAreas.map((area: any) =>
         typeof area === 'string' ? area : area.name
       );
-      
+
       // Cache in memory
       dynamicAreasCache = areas;
       cacheTimestamp = Date.now();
-      
+
       // Also cache in localStorage as backup
       localStorage.setItem(DELIVERY_AREAS_CACHE_KEY, JSON.stringify({
         areas,
         timestamp: Date.now(),
       }));
-      
+
       return areas;
     }
   } catch (error) {
@@ -152,13 +152,13 @@ export const getDefaultCoordinates = async (): Promise<{ latitude: number; longi
         longitude: response.data.longitude,
       };
       defaultCoordsTimestamp = Date.now();
-      
+
       // Also cache in localStorage as backup
       localStorage.setItem(DEFAULT_COORDINATES_CACHE_KEY, JSON.stringify({
         ...defaultCoordinatesCache,
         timestamp: Date.now(),
       }));
-      
+
       console.log("[DEFAULT-COORDS] Loaded from API:", defaultCoordinatesCache);
       return defaultCoordinatesCache;
     }
@@ -242,7 +242,7 @@ export const getValidatedAddress = () => {
       const validatedTime = new Date(parsed.validatedAt).getTime();
       const now = new Date().getTime();
       const twentyFourHours = 24 * 60 * 60 * 1000;
-      
+
       if (now - validatedTime < twentyFourHours) {
         console.log("[DELIVERY-STORE] Retrieved valid cached address:", parsed.address);
         return parsed;
@@ -268,7 +268,7 @@ export const clearValidatedAddress = () => {
 // Filter areas by search query for suggestions
 export const getAreaSuggestions = (query: string, areas?: string[]): string[] => {
   const areasList = areas || getDeliveryAreasCached();
-  
+
   if (!query.trim()) return areasList.slice(0, 5);
 
   const lowerQuery = query.toLowerCase();
@@ -313,14 +313,14 @@ async function detectAreaFromAddress(address: string): Promise<DetectedArea | nu
   }
 
   const area = address.split(",")[0].trim();
-  
+
   if (area.length < 2) {
     return null;
   }
 
   try {
     // Verify area exists by checking if chefs are available
-    const response = await fetch(`/api/chefs/by-area/${encodeURIComponent(area)}`);
+    const response = await fetch(getApiUrl(`/api/chefs/by-area/${encodeURIComponent(area)}`));
     if (response.ok) {
       const chefs = await response.json();
       if (Array.isArray(chefs) && chefs.length > 0) {
@@ -353,9 +353,9 @@ async function detectAreaFromGPS(
 
   try {
     const response = await fetch(
-      `/api/areas/by-coordinates?latitude=${latitude}&longitude=${longitude}`
+      getApiUrl(`/api/areas/by-coordinates?latitude=${latitude}&longitude=${longitude}`)
     );
-    
+
     if (response.ok) {
       const data = await response.json();
       if (data.area) {
@@ -394,7 +394,7 @@ export async function detectDeliveryArea(
   latitude: number | null,
   longitude: number | null
 ): Promise<DetectedArea | null> {
-  
+
   // ============ TIER 1: ADDRESS-BASED DETECTION ============
   if (address) {
     const detected = await detectAreaFromAddress(address);
@@ -402,7 +402,7 @@ export async function detectDeliveryArea(
       return detected;
     }
   }
-  
+
   // ============ TIER 2: GPS-BASED DETECTION ============
   if (latitude !== null && longitude !== null) {
     const detected = await detectAreaFromGPS(latitude, longitude);
@@ -410,7 +410,7 @@ export async function detectDeliveryArea(
       return detected;
     }
   }
-  
+
   // ============ TIER 3: FALLBACK ============
   console.log("⚠️ Tier 3 FALLBACK: No area detected, will show area selector");
   return null;

@@ -1,4 +1,4 @@
-
+﻿
 import { useQuery } from "@tanstack/react-query";
 import React, { useState } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
@@ -10,13 +10,13 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { format, subDays, startOfDay, endOfDay } from "date-fns";
-import { 
-  CalendarIcon, 
-  TrendingUp, 
-  TrendingDown, 
-  DollarSign, 
-  ShoppingBag, 
-  Users, 
+import {
+  CalendarIcon,
+  TrendingUp,
+  TrendingDown,
+  DollarSign,
+  ShoppingBag,
+  Users,
   Package,
   Download,
   BarChart3,
@@ -36,7 +36,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-
+import { getApiUrl } from "@/lib/apiBase";
 interface SalesReport {
   totalRevenue: number;
   totalOrders: number;
@@ -179,7 +179,7 @@ export default function AdminReports() {
     queryKey: ["/api/admin/reports/inventory"],
     queryFn: async () => {
       const token = localStorage.getItem("adminToken");
-      const response = await fetch("/api/admin/reports/inventory", {
+      const response = await fetch(getApiUrl("/api/admin/reports/inventory"), {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!response.ok) throw new Error("Failed to fetch inventory report");
@@ -248,7 +248,7 @@ export default function AdminReports() {
     queryKey: ["/api/admin/chefs"],
     queryFn: async () => {
       const token = localStorage.getItem("adminToken");
-      const response = await fetch("/api/admin/chefs", {
+      const response = await fetch(getApiUrl("/api/admin/chefs"), {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!response.ok) throw new Error("Failed to fetch chefs");
@@ -272,7 +272,7 @@ export default function AdminReports() {
     try {
       console.log("[Mark as Paid] Starting with payoutIds:", orderIds);
       const token = localStorage.getItem("adminToken");
-      const response = await fetch("/api/admin/payouts/mark-paid-bulk", {
+      const response = await fetch(getApiUrl("/api/admin/payouts/mark-paid-bulk"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -289,10 +289,10 @@ export default function AdminReports() {
 
       const result = await response.json();
       console.log("[Mark as Paid] Success:", result);
-      
+
       setPayoutSuccess(`Successfully marked ${orderIds.length} order(s) as paid!`);
       setSelectedOrders(new Set());
-      
+
       // Refetch chef payout report using React Query
       console.log("[Mark as Paid] Refetching payout report...");
       await refetchPayoutReport();
@@ -683,7 +683,7 @@ export default function AdminReports() {
                     </SelectContent>
                   </Select>
                 </div>
-                
+
                 <div>
                   <label className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 block">
                     Search Chef
@@ -755,67 +755,67 @@ export default function AdminReports() {
               <CardContent>
                 <div className="space-y-4 max-h-[600px] overflow-y-auto">
                   {chefReport?.chefStats
-                    ?.filter(chef => 
-                      searchChef === "" || 
+                    ?.filter(chef =>
+                      searchChef === "" ||
                       chef.name?.toLowerCase().includes(searchChef.toLowerCase())
                     )
                     ?.map((chef, index) => (
-                    <div key={chef.id} className="border rounded-lg p-4 hover:bg-slate-50 dark:hover:bg-slate-900 transition">
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-3">
-                          <Badge variant="outline">{index + 1}</Badge>
-                          <div>
-                            <p className="font-semibold">{chef.name}</p>
-                            <div className="flex items-center gap-2 mt-1">
-                              {chef.isVerified && (
-                                <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900">
-                                  ✓ Verified
-                                </Badge>
-                              )}
-                              {(Number(chef.rating) || 0) > 0 && (
-                                <div className="flex items-center gap-1 text-xs">
-                                  <Star className="w-3 h-3 fill-yellow-400 text-yellow-400" />
-                                  <span>{Number(chef.rating).toFixed(1)}</span>
-                                </div>
-                              )}
+                      <div key={chef.id} className="border rounded-lg p-4 hover:bg-slate-50 dark:hover:bg-slate-900 transition">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-3">
+                            <Badge variant="outline">{index + 1}</Badge>
+                            <div>
+                              <p className="font-semibold">{chef.name}</p>
+                              <div className="flex items-center gap-2 mt-1">
+                                {chef.isVerified && (
+                                  <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900">
+                                    ✓ Verified
+                                  </Badge>
+                                )}
+                                {(Number(chef.rating) || 0) > 0 && (
+                                  <div className="flex items-center gap-1 text-xs">
+                                    <Star className="w-3 h-3 fill-yellow-400 text-yellow-400" />
+                                    <span>{Number(chef.rating).toFixed(1)}</span>
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-2xl font-bold text-green-600">₹{chef.chefEarnings}</p>
-                          <p className="text-sm text-muted-foreground">{chef.totalOrders} orders</p>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-3 gap-3 mb-3 text-sm">
-                        <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded">
-                          <p className="text-muted-foreground">Avg Earning</p>
-                          <p className="font-semibold">₹{chef.averageEarning}</p>
-                        </div>
-                        <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded">
-                          <p className="text-muted-foreground">Total Orders</p>
-                          <p className="font-semibold">{chef.totalOrders}</p>
-                        </div>
-                        <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded">
-                          <p className="text-muted-foreground">Total Earnings</p>
-                          <p className="font-semibold">₹{chef.chefEarnings}</p>
-                        </div>
-                      </div>
-
-                      {chef.topProducts?.length > 0 && (
-                        <div className="border-t pt-3">
-                          <p className="text-xs font-semibold text-slate-600 dark:text-slate-400 mb-2">Top Products</p>
-                          <div className="flex flex-wrap gap-2">
-                            {chef.topProducts?.map((product, pidx) => (
-                              <Badge key={product.id} variant="secondary" className="text-xs">
-                                {product.name} ({product.quantity} × ₹{product.revenue})
-                              </Badge>
-                            ))}
+                          <div className="text-right">
+                            <p className="text-2xl font-bold text-green-600">₹{chef.chefEarnings}</p>
+                            <p className="text-sm text-muted-foreground">{chef.totalOrders} orders</p>
                           </div>
                         </div>
-                      )}
-                    </div>
-                  ))}
+
+                        <div className="grid grid-cols-3 gap-3 mb-3 text-sm">
+                          <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded">
+                            <p className="text-muted-foreground">Avg Earning</p>
+                            <p className="font-semibold">₹{chef.averageEarning}</p>
+                          </div>
+                          <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded">
+                            <p className="text-muted-foreground">Total Orders</p>
+                            <p className="font-semibold">{chef.totalOrders}</p>
+                          </div>
+                          <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded">
+                            <p className="text-muted-foreground">Total Earnings</p>
+                            <p className="font-semibold">₹{chef.chefEarnings}</p>
+                          </div>
+                        </div>
+
+                        {chef.topProducts?.length > 0 && (
+                          <div className="border-t pt-3">
+                            <p className="text-xs font-semibold text-slate-600 dark:text-slate-400 mb-2">Top Products</p>
+                            <div className="flex flex-wrap gap-2">
+                              {chef.topProducts?.map((product, pidx) => (
+                                <Badge key={product.id} variant="secondary" className="text-xs">
+                                  {product.name} ({product.quantity} × ₹{product.revenue})
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
                 </div>
               </CardContent>
             </Card>
@@ -1039,8 +1039,8 @@ export default function AdminReports() {
                           return sum + (order?.totalChefEarning || 0);
                         }, 0)} total
                       </span>
-                      <Button 
-                        size="sm" 
+                      <Button
+                        size="sm"
                         onClick={() => handleMarkAsPaid(Array.from(selectedOrders))}
                         disabled={isMarkingPaid}
                         className="gap-2"
@@ -1048,8 +1048,8 @@ export default function AdminReports() {
                         {isMarkingPaid ? <Loader className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
                         Mark as Paid
                       </Button>
-                      <Button 
-                        size="sm" 
+                      <Button
+                        size="sm"
                         variant="outline"
                         onClick={() => setSelectedOrders(new Set())}
                       >
@@ -1079,129 +1079,129 @@ export default function AdminReports() {
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b">
-                        <th className="text-left py-3 px-4 w-10">
-                          <input 
-                            type="checkbox"
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedOrders(new Set(chefPayoutReport?.orders?.filter(o => o.payoutId && !o.paidToChef).map(o => o.payoutId!) || []));
-                              } else {
-                                setSelectedOrders(new Set());
-                              }
-                            }}
-                            checked={selectedOrders.size === (chefPayoutReport?.orders?.filter(o => !o.paidToChef).length || 0) && (chefPayoutReport?.orders?.filter(o => !o.paidToChef).length || 0) > 0}
-                            className="rounded"
-                          />
-                        </th>
-                        <th className="text-left py-3 px-4">Order ID</th>
-                        <th className="text-left py-3 px-4">Date & Time</th>
-                        <th className="text-left py-3 px-4">Chef</th>
-                        <th className="text-left py-3 px-4">Customer</th>
-                        <th className="text-left py-3 px-4">Items</th>
-                        <th className="text-right py-3 px-4">Price/Unit</th>
-                        <th className="text-right py-3 px-4">Hotel Cost</th>
-                        <th className="text-right py-3 px-4">Qty</th>
-                        <th className="text-right py-3 px-4">Chef Earning</th>
-                        <th className="text-left py-3 px-4">Payment Status</th>
-                        <th className="text-left py-3 px-4">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {chefPayoutReport?.orders?.map((order) => (
-                        <React.Fragment key={order.id}>
-                          {/* Order Header Row */}
-                          <tr className={`bg-slate-50 dark:bg-slate-900 border-b ${selectedOrders.has(order.payoutId || '') ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}>
-                            <td className="py-2 px-4">
-                              <input 
-                                type="checkbox"
-                                checked={order.payoutId ? selectedOrders.has(order.payoutId) : false}
-                                onChange={(e) => {
-                                  if (!order.payoutId) return;
-                                  const newSelected = new Set(selectedOrders);
-                                  if (e.target.checked) {
-                                    newSelected.add(order.payoutId);
-                                  } else {
-                                    newSelected.delete(order.payoutId);
-                                  }
-                                  setSelectedOrders(newSelected);
-                                }}
-                                disabled={order.paidToChef || !order.payoutId}
-                                className="rounded"
-                              />
-                            </td>
-                            <td className="py-2 px-4 font-semibold text-blue-600">{order.id.slice(0, 8)}</td>
-                            <td className="py-2 px-4">{new Date(order.createdAt).toLocaleString()}</td>
-                            <td className="py-2 px-4">
-                              <Badge variant="outline" className="text-xs">
-                                {order.chefName}
-                              </Badge>
-                            </td>
-                            <td className="py-2 px-4">
-                              <div>
-                                <p className="font-medium">{order.customerName}</p>
-                                <p className="text-xs text-muted-foreground">{order.phone}</p>
-                              </div>
-                            </td>
-                            <td className="py-2 px-4 text-muted-foreground text-xs">{order.items.length} items</td>
-                            <td className="text-right py-2 px-4"></td>
-                            <td className="text-right py-2 px-4"></td>
-                            <td className="text-right py-2 px-4"></td>
-                            <td className="text-right py-2 px-4 font-bold text-green-600">₹{order.totalChefEarning}</td>
-                            <td className="py-2 px-4">
-                              {order.paidToChef ? (
-                                <Badge className="bg-green-600 text-white gap-1">
-                                  <Check className="h-3 w-3" />
-                                  Paid {order.paidAt && `on ${new Date(order.paidAt).toLocaleDateString()}`}
-                                </Badge>
-                              ) : (
-                                <Badge variant="outline" className="gap-1 border-yellow-300 text-yellow-700 dark:text-yellow-400">
-                                  <Clock className="h-3 w-3" />
-                                  Pending
-                                </Badge>
-                              )}
-                            </td>
-                            <td className="py-2 px-4">
-                              {!order.paidToChef && order.payoutId && (
-                                <Button 
-                                  size="sm" 
-                                  variant="outline"
-                                  onClick={() => handleMarkAsPaid([order.payoutId!])}
-                                  disabled={isMarkingPaid}
-                                  className="h-8 text-xs"
-                                >
-                                  {isMarkingPaid ? <Loader className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
-                                </Button>
-                              )}
-                            </td>
-                          </tr>
-                          
-                          {/* Item Rows */}
-                          {order.items.map((item, idx) => (
-                            <tr key={`${order.id}-${idx}`} className={`border-b hover:bg-slate-50 dark:hover:bg-slate-900/50 ${order.payoutId && selectedOrders.has(order.payoutId) ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''}`}>
-                              <td className="py-2 px-4"></td>
-                              <td className="py-2 px-4"></td>
-                              <td className="py-2 px-4"></td>
-                              <td className="py-2 px-4"></td>
-                              <td className="py-2 px-4"></td>
-                              <td className="py-2 px-4 font-medium text-slate-900 dark:text-slate-100">{item.name}</td>
-                              <td className="text-right py-2 px-4">₹{item.price}</td>
-                              <td className="text-right py-2 px-4 font-semibold text-slate-700 dark:text-slate-300">₹{item.hotelPrice}</td>
-                              <td className="text-right py-2 px-4">{item.quantity}</td>
-                              <td className="text-right py-2 px-4 font-bold text-green-600">₹{item.chefEarning}</td>
+                      <thead>
+                        <tr className="border-b">
+                          <th className="text-left py-3 px-4 w-10">
+                            <input
+                              type="checkbox"
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedOrders(new Set(chefPayoutReport?.orders?.filter(o => o.payoutId && !o.paidToChef).map(o => o.payoutId!) || []));
+                                } else {
+                                  setSelectedOrders(new Set());
+                                }
+                              }}
+                              checked={selectedOrders.size === (chefPayoutReport?.orders?.filter(o => !o.paidToChef).length || 0) && (chefPayoutReport?.orders?.filter(o => !o.paidToChef).length || 0) > 0}
+                              className="rounded"
+                            />
+                          </th>
+                          <th className="text-left py-3 px-4">Order ID</th>
+                          <th className="text-left py-3 px-4">Date & Time</th>
+                          <th className="text-left py-3 px-4">Chef</th>
+                          <th className="text-left py-3 px-4">Customer</th>
+                          <th className="text-left py-3 px-4">Items</th>
+                          <th className="text-right py-3 px-4">Price/Unit</th>
+                          <th className="text-right py-3 px-4">Hotel Cost</th>
+                          <th className="text-right py-3 px-4">Qty</th>
+                          <th className="text-right py-3 px-4">Chef Earning</th>
+                          <th className="text-left py-3 px-4">Payment Status</th>
+                          <th className="text-left py-3 px-4">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {chefPayoutReport?.orders?.map((order) => (
+                          <React.Fragment key={order.id}>
+                            {/* Order Header Row */}
+                            <tr className={`bg-slate-50 dark:bg-slate-900 border-b ${selectedOrders.has(order.payoutId || '') ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}>
+                              <td className="py-2 px-4">
+                                <input
+                                  type="checkbox"
+                                  checked={order.payoutId ? selectedOrders.has(order.payoutId) : false}
+                                  onChange={(e) => {
+                                    if (!order.payoutId) return;
+                                    const newSelected = new Set(selectedOrders);
+                                    if (e.target.checked) {
+                                      newSelected.add(order.payoutId);
+                                    } else {
+                                      newSelected.delete(order.payoutId);
+                                    }
+                                    setSelectedOrders(newSelected);
+                                  }}
+                                  disabled={order.paidToChef || !order.payoutId}
+                                  className="rounded"
+                                />
+                              </td>
+                              <td className="py-2 px-4 font-semibold text-blue-600">{order.id.slice(0, 8)}</td>
+                              <td className="py-2 px-4">{new Date(order.createdAt).toLocaleString()}</td>
                               <td className="py-2 px-4">
                                 <Badge variant="outline" className="text-xs">
-                                  Markup: ₹{item.price - item.hotelPrice}
+                                  {order.chefName}
                                 </Badge>
                               </td>
-                              <td></td>
+                              <td className="py-2 px-4">
+                                <div>
+                                  <p className="font-medium">{order.customerName}</p>
+                                  <p className="text-xs text-muted-foreground">{order.phone}</p>
+                                </div>
+                              </td>
+                              <td className="py-2 px-4 text-muted-foreground text-xs">{order.items.length} items</td>
+                              <td className="text-right py-2 px-4"></td>
+                              <td className="text-right py-2 px-4"></td>
+                              <td className="text-right py-2 px-4"></td>
+                              <td className="text-right py-2 px-4 font-bold text-green-600">₹{order.totalChefEarning}</td>
+                              <td className="py-2 px-4">
+                                {order.paidToChef ? (
+                                  <Badge className="bg-green-600 text-white gap-1">
+                                    <Check className="h-3 w-3" />
+                                    Paid {order.paidAt && `on ${new Date(order.paidAt).toLocaleDateString()}`}
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="outline" className="gap-1 border-yellow-300 text-yellow-700 dark:text-yellow-400">
+                                    <Clock className="h-3 w-3" />
+                                    Pending
+                                  </Badge>
+                                )}
+                              </td>
+                              <td className="py-2 px-4">
+                                {!order.paidToChef && order.payoutId && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleMarkAsPaid([order.payoutId!])}
+                                    disabled={isMarkingPaid}
+                                    className="h-8 text-xs"
+                                  >
+                                    {isMarkingPaid ? <Loader className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                                  </Button>
+                                )}
+                              </td>
                             </tr>
-                          ))}
-                        </React.Fragment>
-                      ))}
-                    </tbody>
-                  </table>
+
+                            {/* Item Rows */}
+                            {order.items.map((item, idx) => (
+                              <tr key={`${order.id}-${idx}`} className={`border-b hover:bg-slate-50 dark:hover:bg-slate-900/50 ${order.payoutId && selectedOrders.has(order.payoutId) ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''}`}>
+                                <td className="py-2 px-4"></td>
+                                <td className="py-2 px-4"></td>
+                                <td className="py-2 px-4"></td>
+                                <td className="py-2 px-4"></td>
+                                <td className="py-2 px-4"></td>
+                                <td className="py-2 px-4 font-medium text-slate-900 dark:text-slate-100">{item.name}</td>
+                                <td className="text-right py-2 px-4">₹{item.price}</td>
+                                <td className="text-right py-2 px-4 font-semibold text-slate-700 dark:text-slate-300">₹{item.hotelPrice}</td>
+                                <td className="text-right py-2 px-4">{item.quantity}</td>
+                                <td className="text-right py-2 px-4 font-bold text-green-600">₹{item.chefEarning}</td>
+                                <td className="py-2 px-4">
+                                  <Badge variant="outline" className="text-xs">
+                                    Markup: ₹{item.price - item.hotelPrice}
+                                  </Badge>
+                                </td>
+                                <td></td>
+                              </tr>
+                            ))}
+                          </React.Fragment>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 )}
               </CardContent>

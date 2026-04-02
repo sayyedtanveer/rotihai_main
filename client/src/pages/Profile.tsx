@@ -1,4 +1,5 @@
-import { useState } from "react";
+﻿import { useState } from "react";
+import { getApiUrl } from "@/lib/apiBase";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import api from "@/lib/apiClient";
@@ -585,7 +586,7 @@ export default function Profile() {
                           <Button
                             onClick={async () => {
                               try {
-                                const res = await fetch("/api/user/generate-referral", {
+                                const res = await fetch(getApiUrl("/api/user/generate-referral"), {
                                   method: "POST",
                                   headers: { Authorization: `Bearer ${userToken}` },
                                 });

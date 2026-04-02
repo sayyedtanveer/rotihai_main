@@ -1,4 +1,5 @@
-import { Facebook, Instagram, Twitter, MessageCircle, User } from "lucide-react";
+﻿import { Facebook, Instagram, Twitter, MessageCircle, User } from "lucide-react";
+import { getApiUrl } from "@/lib/apiBase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useState } from "react";
@@ -45,7 +46,7 @@ export default function Footer() {
     }
     setSubscribing(true);
     try {
-      const res = await fetch("/api/newsletter/subscribe", {
+      const res = await fetch(getApiUrl("/api/newsletter/subscribe"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),

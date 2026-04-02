@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { getApiUrl } from "@/lib/apiBase";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import {
   Card,
@@ -62,7 +63,7 @@ export default function ChefPerformance() {
     queryKey: ["/api/admin/chef-performance"],
     queryFn: async () => {
       const token = localStorage.getItem("adminToken");
-      const response = await fetch("/api/admin/chef-performance", {
+      const response = await fetch(getApiUrl("/api/admin/chef-performance"), {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!response.ok) throw new Error("Failed to fetch leaderboard");
@@ -78,7 +79,7 @@ export default function ChefPerformance() {
       queryFn: async () => {
         if (!selectedChefId) throw new Error("No chef selected");
         const token = localStorage.getItem("adminToken");
-        const response = await fetch(`/api/admin/chef-performance/${selectedChefId}`, {
+        const response = await fetch(getApiUrl(`/api/admin/chef-performance/${selectedChefId}`), {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (!response.ok) throw new Error("Failed to fetch chef performance");

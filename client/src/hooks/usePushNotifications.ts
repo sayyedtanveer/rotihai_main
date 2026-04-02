@@ -1,9 +1,9 @@
-/**
+﻿/**
  * usePushNotifications Hook
  * Manages push notification registration and subscription lifecycle
  * Optional feature - gracefully handles when push is not available
  */
-
+import { getApiUrl } from "@/lib/apiBase";
 import { useEffect, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -79,7 +79,7 @@ export function usePushNotifications(userId: string | null, userType: "admin" | 
       }
 
       // Get VAPID public key from server
-      const vapidResponse = await fetch("/api/push/vapid-public-key");
+      const vapidResponse = await fetch(getApiUrl("/api/push/vapid-public-key"));
       if (!vapidResponse.ok) {
         throw new Error("Failed to fetch VAPID public key");
       }
@@ -105,7 +105,7 @@ export function usePushNotifications(userId: string | null, userType: "admin" | 
       console.log("✅ Push subscription created");
 
       // Send subscription to server
-      const response = await fetch("/api/push/subscribe", {
+      const response = await fetch(getApiUrl("/api/push/subscribe"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -174,7 +174,7 @@ export function usePushNotifications(userId: string | null, userType: "admin" | 
       }
 
       // Notify server
-      await fetch("/api/push/unsubscribe", {
+      await fetch(getApiUrl("/api/push/unsubscribe"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

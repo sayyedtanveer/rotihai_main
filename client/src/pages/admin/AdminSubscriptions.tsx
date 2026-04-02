@@ -1,4 +1,5 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { getApiUrl } from "@/lib/apiBase";
 import { useState, useEffect } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -54,7 +55,7 @@ export default function AdminSubscriptions() {
   const { data: categories } = useQuery<Category[]>({
     queryKey: ["/api/admin", "categories"],
     queryFn: async () => {
-      const response = await fetch("/api/admin/categories", {
+      const response = await fetch(getApiUrl("/api/admin/categories"), {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!response.ok) throw new Error("Failed to fetch categories");
@@ -66,7 +67,7 @@ export default function AdminSubscriptions() {
   const { data: plans, isLoading } = useQuery<SubscriptionPlan[]>({
     queryKey: ["/api/admin", "subscription-plans"],
     queryFn: async () => {
-      const response = await fetch("/api/admin/subscription-plans", {
+      const response = await fetch(getApiUrl("/api/admin/subscription-plans"), {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!response.ok) throw new Error("Failed to fetch subscription plans");
@@ -78,7 +79,7 @@ export default function AdminSubscriptions() {
   const { data: subscriptions = [], isLoading: subscriptionsLoading } = useQuery<any[]>({
     queryKey: ["/api/admin", "subscriptions"],
     queryFn: async () => {
-      const response = await fetch("/api/admin/subscriptions", {
+      const response = await fetch(getApiUrl("/api/admin/subscriptions"), {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!response.ok) throw new Error("Failed to fetch subscriptions");
@@ -91,7 +92,7 @@ export default function AdminSubscriptions() {
   const { data: overduePreparations = [] } = useQuery<any[]>({
     queryKey: ["/api/admin/subscriptions/overdue-preparations"],
     queryFn: async () => {
-      const response = await fetch("/api/admin/subscriptions/overdue-preparations", {
+      const response = await fetch(getApiUrl("/api/admin/subscriptions/overdue-preparations"), {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!response.ok) throw new Error("Failed to fetch overdue preparations");
@@ -111,7 +112,7 @@ export default function AdminSubscriptions() {
       if (missedDeliveriesFilter.dateTo) params.append("dateTo", missedDeliveriesFilter.dateTo);
       if (missedDeliveriesFilter.chefId) params.append("chefId", missedDeliveriesFilter.chefId);
       
-      const response = await fetch(`/api/admin/subscriptions/missed-deliveries?${params.toString()}`, {
+      const response = await fetch(getApiUrl(`/api/admin/subscriptions/missed-deliveries?${params.toString()}`), {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!response.ok) throw new Error("Failed to fetch missed deliveries");
@@ -125,7 +126,7 @@ export default function AdminSubscriptions() {
   const { data: todayOverview, isLoading: todayOverviewLoading } = useQuery<any>({
     queryKey: ["/api/admin/subscriptions/today"],
     queryFn: async () => {
-      const response = await fetch("/api/admin/subscriptions/today", {
+      const response = await fetch(getApiUrl("/api/admin/subscriptions/today"), {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!response.ok) throw new Error("Failed to fetch today's overview");
@@ -159,7 +160,7 @@ export default function AdminSubscriptions() {
   const { data: chefs } = useQuery<Array<{ id: string; name: string; isActive: boolean }>>({
     queryKey: ["/api/admin", "chefs"],
     queryFn: async () => {
-      const response = await fetch("/api/admin/chefs", {
+      const response = await fetch(getApiUrl("/api/admin/chefs"), {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!response.ok) throw new Error("Failed to fetch chefs");
@@ -184,7 +185,7 @@ export default function AdminSubscriptions() {
 
   const createMutation = useMutation({
     mutationFn: async (data: InsertSubscriptionPlan) => {
-      const response = await fetch("/api/admin/subscription-plans", {
+      const response = await fetch(getApiUrl("/api/admin/subscription-plans"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -209,7 +210,7 @@ export default function AdminSubscriptions() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: InsertSubscriptionPlan }) => {
-      const response = await fetch(`/api/admin/subscription-plans/${id}`, {
+      const response = await fetch(getApiUrl(`/api/admin/subscription-plans/${id}`), {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -235,7 +236,7 @@ export default function AdminSubscriptions() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const response = await fetch(`/api/admin/subscription-plans/${id}`, {
+      const response = await fetch(getApiUrl(`/api/admin/subscription-plans/${id}`), {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -254,7 +255,7 @@ export default function AdminSubscriptions() {
   // Subscription adjustment mutation
   const adjustSubscriptionMutation = useMutation({
     mutationFn: async ({ subscriptionId, data }: { subscriptionId: string; data: any }) => {
-      const response = await fetch(`/api/admin/subscriptions/${subscriptionId}/adjust`, {
+      const response = await fetch(getApiUrl(`/api/admin/subscriptions/${subscriptionId}/adjust`), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -283,7 +284,7 @@ export default function AdminSubscriptions() {
   // Assign chef/partner to subscription mutation
   const assignChefMutation = useMutation({
     mutationFn: async ({ subscriptionId, chefId }: { subscriptionId: string; chefId: string }) => {
-      const response = await fetch(`/api/admin/subscriptions/${subscriptionId}/assign-chef`, {
+      const response = await fetch(getApiUrl(`/api/admin/subscriptions/${subscriptionId}/assign-chef`), {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -310,7 +311,7 @@ export default function AdminSubscriptions() {
   // Status change mutation
   const changeStatusMutation = useMutation({
     mutationFn: async ({ subscriptionId, status }: { subscriptionId: string; status: string }) => {
-      const response = await fetch(`/api/admin/subscriptions/${subscriptionId}/status`, {
+      const response = await fetch(getApiUrl(`/api/admin/subscriptions/${subscriptionId}/status`), {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -333,7 +334,7 @@ export default function AdminSubscriptions() {
   // Delete subscription mutation
   const deleteSubscriptionMutation = useMutation({
     mutationFn: async (subscriptionId: string) => {
-      const response = await fetch(`/api/admin/subscriptions/${subscriptionId}`, {
+      const response = await fetch(getApiUrl(`/api/admin/subscriptions/${subscriptionId}`), {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -354,7 +355,7 @@ export default function AdminSubscriptions() {
   const { data: todaysDeliveries } = useQuery({
     queryKey: ["/api/admin", "subscriptions", "today-deliveries"],
     queryFn: async () => {
-      const response = await fetch(`/api/admin/subscriptions/today-deliveries`, {
+      const response = await fetch(getApiUrl(`/api/admin/subscriptions/today-deliveries`), {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!response.ok) throw new Error("Failed to fetch today's deliveries");
@@ -366,7 +367,7 @@ export default function AdminSubscriptions() {
   // Delivery status update mutation
   const updateDeliveryStatusMutation = useMutation({
     mutationFn: async ({ subscriptionId, status }: { subscriptionId: string; status: string }) => {
-      const response = await fetch(`/api/admin/subscriptions/${subscriptionId}/delivery-status`, {
+      const response = await fetch(getApiUrl(`/api/admin/subscriptions/${subscriptionId}/delivery-status`), {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -973,7 +974,7 @@ export default function AdminSubscriptions() {
 
                                   // Proceed with payment confirmation (chef already assigned)
                                   try {
-                                    const response = await fetch(`/api/admin/subscriptions/${sub.id}/confirm-payment`, {
+                                    const response = await fetch(getApiUrl(`/api/admin/subscriptions/${sub.id}/confirm-payment`), {
                                       method: "POST",
                                       headers: {
                                         "Content-Type": "application/json",

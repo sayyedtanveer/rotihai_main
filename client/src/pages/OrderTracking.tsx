@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { getApiUrl } from "@/lib/apiBase";
 import { getWebSocketURL } from "@/lib/fetchClient";
 import { useRoute } from "wouter";
 import { useQuery } from "@tanstack/react-query";
@@ -39,7 +40,7 @@ export default function OrderTracking() {
     queryKey: ["/api/orders", orderId],
     queryFn: async () => {
       // Don't send auth headers for order tracking - it's publicly accessible by order ID
-      const response = await fetch(`/api/orders/${orderId}`);
+      const response = await fetch(getApiUrl(`/api/orders/${orderId}`));
       if (!response.ok) {
         if (response.status === 404) {
           throw new Error("Order not found");
