@@ -156,6 +156,9 @@ export default function CheckoutDialog({
   const deliverySlotRef = useRef<HTMLDivElement>(null);
   const [shouldScrollToSlots, setShouldScrollToSlots] = useState(false);
 
+  // ✅ NEW: Ref for Pay button focus management
+  const payButtonRef = useRef<HTMLButtonElement>(null);
+
   // State for View/Edit mode
   const [isEditingAddress, setIsEditingAddress] = useState(true);
 
@@ -261,6 +264,20 @@ export default function CheckoutDialog({
       setShouldScrollToSlots(true);
     }
   }, [isOpen, addressZoneValidated, addressInDeliveryZone, addressPincode]);
+
+  // ============================================
+  // FOCUS PAY BUTTON WHEN READY
+  // When address is confirmed and Pay button becomes enabled,
+  // move focus to the Pay button for better UX
+  // ============================================
+  useEffect(() => {
+    if (addressConfirmed && !isEditingAddress && isOpen && payButtonRef.current) {
+      console.log("[FOCUS-PAY-BUTTON] Address confirmed - focusing Pay button");
+      setTimeout(() => {
+        payButtonRef.current?.focus();
+      }, 100); // Small delay to ensure DOM is ready
+    }
+  }, [addressConfirmed, isEditingAddress, isOpen]);
 
   // Area suggestions for autocomplete
   const [areaSuggestions, setAreaSuggestions] = useState<string[]>([]);
@@ -3482,6 +3499,7 @@ export default function CheckoutDialog({
                     </Button>
                   ) : (
                     <Button
+                      ref={payButtonRef}
                       type="button"
                       onClick={handleSubmit}
                       disabled={
