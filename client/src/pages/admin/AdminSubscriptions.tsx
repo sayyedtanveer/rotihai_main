@@ -485,11 +485,8 @@ export default function AdminSubscriptions() {
     );
   };
 
-  const eligibleCategories = categories?.filter(c => 
-    c.name.toLowerCase().includes('roti') || 
-    c.name.toLowerCase().includes('lunch') ||
-    c.name.toLowerCase().includes('dinner')
-  ) || [];
+  // Show ALL categories — admin knows which ones apply to subscriptions
+  const eligibleCategories = categories || [];
 
   return (
     <AdminLayout>
