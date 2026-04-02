@@ -1,5 +1,6 @@
 import "./env";
 import express, { type Request, Response, NextFunction } from "express";
+import { sql } from "drizzle-orm";
 import cookieParser from "cookie-parser";
 import multer from "multer";
 import path from "path";
@@ -512,9 +513,29 @@ app.use((req, res, next) => {
     }
   });
 
-  // ✅ Health check endpoint for keep-alive (prevents Render free tier spindown)
-  app.get("/api/health", (_req: Request, res: Response) => {
-    res.json({ status: "ok", timestamp: new Date().toISOString() });
+  // ✅ Health check endpoint — DB-aware (prevents Render spindown + catches DB failures)
+  // External monitors (UptimeRobot etc.) should ping this every 5 minutes.
+  app.get("/api/health", async (_req: Request, res: Response) => {
+    try {
+      // Lightweight DB liveness check — single row query, < 1ms
+      const { db } = await import("@shared/db");
+      await db.execute(sql`SELECT 1`);
+      res.json({
+        status: "ok",
+        db: "connected",
+        timestamp: new Date().toISOString(),
+        uptime: Math.floor(process.uptime()) + "s",
+      });
+    } catch (err: any) {
+      console.error("❌ Health check DB ping failed:", err?.message);
+      // Return 503 so monitors alert on DB connectivity issues too
+      res.status(503).json({
+        status: "degraded",
+        db: "unreachable",
+        timestamp: new Date().toISOString(),
+        error: err?.message,
+      });
+    }
   });
 
   const server = await registerRoutes(app);
@@ -583,11 +604,34 @@ app.use((req, res, next) => {
     reusePort: true,
   }, () => {
     log(`serving on port ${port}`);
-    
+
     // ✅ Diagnostics: Show JWT configuration on startup
     console.log("\n🔐 ===== JWT CONFIGURATION =====");
     console.log("JWT_SECRET env var is:", process.env.JWT_SECRET ? "SET ✅" : "NOT SET (using fallback) ⚠️");
     console.log("All auth modules will use:", process.env.JWT_SECRET ? `process.env.JWT_SECRET` : `fallback 'mysecretkey123'`);
     console.log("================================\n");
+
+    // ✅ LAYER 2: Self-ping keep-alive (defensive backup to UptimeRobot)
+    // Only activates on Render (RENDER_EXTERNAL_URL is set by Render automatically).
+    // Fires every 14 min — just under the 15-min Render spindown threshold.
+    // Primary keep-alive is UptimeRobot (every 5 min) — this is the fallback.
+    const renderUrl = process.env.RENDER_EXTERNAL_URL;
+    if (renderUrl && !process.env.ENABLE_VITE) {
+      const pingUrl = `${renderUrl}/api/health`;
+      console.log(`\n🏓 Keep-alive self-ping enabled → ${pingUrl} (every 14 min)`);
+      setInterval(async () => {
+        try {
+          const res = await fetch(pingUrl);
+          const body = await res.json() as any;
+          if (body?.status === "ok") {
+            console.log(`🏓 [keep-alive] Self-ping OK — ${new Date().toISOString()}`);
+          } else {
+            console.warn(`⚠️ [keep-alive] Self-ping returned degraded status:`, body);
+          }
+        } catch (e: any) {
+          console.warn(`⚠️ [keep-alive] Self-ping failed: ${e?.message}`);
+        }
+      }, 14 * 60 * 1000); // 14 minutes
+    }
   });
 })();
