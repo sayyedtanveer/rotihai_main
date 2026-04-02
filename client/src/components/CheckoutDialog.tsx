@@ -257,6 +257,8 @@ export default function CheckoutDialog({
       console.log("[RESTORE-ADDRESS] Dialog reopened with validated address. Auto-confirming.");
       setAddressConfirmed(true);
       setIsEditingAddress(false); // Show view mode
+      // Scroll down to order summary / Pay & Confirm so user sees totals immediately
+      setShouldScrollToSlots(true);
     }
   }, [isOpen, addressZoneValidated, addressInDeliveryZone, addressPincode]);
 
