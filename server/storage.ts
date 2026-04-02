@@ -2263,13 +2263,19 @@ export class MemStorage implements IStorage {
     return created;
   }
 
-  async applyReferralBonus(referralCode: string, newUserId: string, options?: { skipFirstOrderCheck?: boolean }): Promise<void> {
+  async applyReferralBonus(referralCode: string, newUserId: string, orderAmount?: number, options?: { skipFirstOrderCheck?: boolean }): Promise<void> {
     // Execute entire referral bonus application in a database transaction
     await db.transaction(async (tx) => {
       // Check if system is enabled first
       const settings = await this.getActiveReferralReward();
       if (!settings?.isActive) {
         throw new Error("Referral system is currently disabled");
+      }
+
+      // ✅ CRITICAL: Validate minimum order amount if provided
+      const minOrderAmount = settings?.minOrderAmount || 0;
+      if (orderAmount !== undefined && orderAmount < minOrderAmount) {
+        throw new Error(`Minimum order amount ₹${minOrderAmount} required to use referral code. Current order: ₹${orderAmount}`);
       }
 
       const referrer = await tx.query.users.findFirst({
