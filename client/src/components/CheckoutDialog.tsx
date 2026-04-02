@@ -1197,8 +1197,12 @@ export default function CheckoutDialog({
 
     setIsCheckingBonusEligibility(true);
     try {
+      // ✅ FIX: Use subtotal (food-only cost), NOT total (which includes delivery fee).
+      // minOrderAmount is configured by admin expecting food cost only.
+      // Using total caused mobile/desktop inconsistency (different delivery fees = different totals).
+      const orderAmount = Number(subtotal || 0);
       const response = await api.post("/api/user/check-bonus-eligibility", {
-        orderTotal: total,
+        orderTotal: orderAmount,
       });
 
       const result = response.data;
@@ -1206,14 +1210,43 @@ export default function CheckoutDialog({
       if (result.eligible) {
         setBonusEligibilityMsg(`✓ You can claim ₹${result.bonus} bonus!`);
       } else {
-        setBonusEligibilityMsg(
-          result.reason ||
-          `Minimum order of ₹${result.minOrderAmount} required for bonus`,
-        );
+        // Show actionable shortfall message if minOrderAmount is known
+        if (result.minOrderAmount && result.minOrderAmount > 0) {
+          const shortfall = Math.max(0, result.minOrderAmount - orderAmount);
+          if (shortfall > 0) {
+            setBonusEligibilityMsg(
+              `Add ₹${shortfall.toFixed(0)} more to unlock ₹${result.bonus || pendingBonus} referral bonus 🎁`,
+            );
+          } else {
+            setBonusEligibilityMsg(
+              result.reason ||
+              `Minimum order of ₹${result.minOrderAmount} required for bonus`,
+            );
+          }
+        } else {
+          setBonusEligibilityMsg(
+            result.reason || "Minimum order amount not met for referral bonus",
+          );
+        }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error checking bonus eligibility:", error);
       setBonusEligible(false);
+      // ✅ FIX: Show friendly message instead of raw HTTP error string
+      const serverMsg = error?.response?.data?.message;
+      const minAmt = error?.response?.data?.minOrderAmount;
+      if (minAmt && minAmt > 0) {
+        const shortfall = Math.max(0, minAmt - Number(subtotal || 0));
+        setBonusEligibilityMsg(
+          shortfall > 0
+            ? `Add ₹${shortfall.toFixed(0)} more to unlock referral bonus 🎁`
+            : serverMsg || "Minimum order amount not met for referral bonus",
+        );
+      } else {
+        setBonusEligibilityMsg(
+          serverMsg || "Minimum order amount not met for referral bonus",
+        );
+      }
     } finally {
       setIsCheckingBonusEligibility(false);
     }

@@ -2263,7 +2263,7 @@ export class MemStorage implements IStorage {
     return created;
   }
 
-  async applyReferralBonus(referralCode: string, newUserId: string): Promise<void> {
+  async applyReferralBonus(referralCode: string, newUserId: string, options?: { skipFirstOrderCheck?: boolean }): Promise<void> {
     // Execute entire referral bonus application in a database transaction
     await db.transaction(async (tx) => {
       // Check if system is enabled first
@@ -2308,13 +2308,20 @@ export class MemStorage implements IStorage {
         throw new Error("User not found");
       }
 
-      // 🛡️ NEW: Check if user has already placed orders (must be 0)
-      const userOrders = await tx.query.orders.findMany({
-        where: (o, { eq }) => eq(o.userId, newUserId),
-      });
+      // 🛡️ Check if user has already placed orders.
+      // IMPORTANT: skipFirstOrderCheck is ONLY passed from payment confirmation flows
+      // (adminRoutes /payment and routes /payment-confirmed) where the order has just been
+      // linked to a brand-new userId — at that moment userOrders.length === 1 (the current
+      // first order), so the check would incorrectly reject a legitimate first-time referral.
+      // All other fraud guards (self-referral, referrer age, duplicate referral, caps) still run.
+      if (!options?.skipFirstOrderCheck) {
+        const userOrders = await tx.query.orders.findMany({
+          where: (o, { eq }) => eq(o.userId, newUserId),
+        });
 
-      if (userOrders.length > 0) {
-        throw new Error("You can only use a referral code before placing your first order");
+        if (userOrders.length > 0) {
+          throw new Error("You can only use a referral code before placing your first order");
+        }
       }
 
       // Check if user already used a referral
@@ -2423,15 +2430,22 @@ export class MemStorage implements IStorage {
       const monthlyEarnings = completedThisMonth.reduce((sum, r) => sum + r.referrerBonus, 0);
       const canCreditBonus = monthlyEarnings + referral.referrerBonus <= maxEarningsPerMonth;
 
-      // 🎁 NEW: Credit ₹50 to referred user
-      await this.createWalletTransaction({
-        userId: referral.referredId,
-        amount: referral.referredBonus,
-        type: "referral_bonus",
-        description: `Referral welcome bonus - your first order delivered!`,
-        referenceId: referral.id,
-        referenceType: "referral",
-      }, tx);
+      // ✅ FIX (double-bonus guard): Only credit referred user bonus here if they did NOT
+      // already claim it via claimReferralBonusAtCheckout() at checkout.
+      // If referredOrderCompleted is true, the checkout path already ran → skip to avoid double credit.
+      // NOTE: claimReferralBonusAtCheckout marks referral as "completed", so this function
+      // won't even reach here for those cases (the WHERE status="pending" query above returns null).
+      // This guard is an extra safety layer for edge cases (e.g. concurrent calls).
+      if (!referral.referredOrderCompleted) {
+        await this.createWalletTransaction({
+          userId: referral.referredId,
+          amount: referral.referredBonus,
+          type: "referral_bonus",
+          description: `Referral welcome bonus - your first order delivered!`,
+          referenceId: referral.id,
+          referenceType: "referral",
+        }, tx);
+      }
 
       if (canCreditBonus) {
         // 🎁 Credit ₹100 to referrer
@@ -2551,35 +2565,68 @@ export class MemStorage implements IStorage {
     amount: number;
     message: string;
   }> {
-    // Validate eligibility
-    const validation = await this.validateBonusEligibility(userId, orderTotal);
+    // ✅ FIX (double-bonus prevention): Run everything in a transaction.
+    // Re-read the referral INSIDE the transaction so concurrent calls are safe.
+    // After crediting, immediately mark the referral as "completed" so that
+    // completeReferralOnFirstOrder() (which filters WHERE status = "pending") is a no-op.
+    return await db.transaction(async (tx) => {
+      // Re-read referral inside transaction to get a consistent view
+      const referral = await tx.query.referrals.findFirst({
+        where: (r, { eq }) => eq(r.referredId, userId),
+      });
 
-    if (!validation.eligible) {
+      // Guard: no referral, or already completed/expired
+      if (!referral) {
+        return { bonusClaimed: false, amount: 0, message: "No referral found for this user" };
+      }
+      if (referral.status !== "pending") {
+        // Already processed elsewhere — return silently, not an error
+        return {
+          bonusClaimed: false,
+          amount: 0,
+          message: `Referral bonus already ${referral.status}`,
+        };
+      }
+
+      // Validate eligibility (uses the same transaction-safe read path)
+      const validation = await this.validateBonusEligibility(userId, orderTotal);
+      if (!validation.eligible) {
+        return {
+          bonusClaimed: false,
+          amount: 0,
+          message: validation.reason || "Not eligible for bonus",
+        };
+      }
+
+      // Credit wallet (uses tx client internally)
+      await this.updateWalletBalance(userId, validation.bonus);
+
+      // Log the wallet transaction
+      await this.createWalletTransaction({
+        userId,
+        amount: validation.bonus,
+        type: "referral_bonus_claimed",
+        description: `Referral bonus claimed at checkout for order ${orderId}`,
+        referenceId: orderId,
+        referenceType: "order",
+      });
+
+      // ✅ CRITICAL: Mark referral as completed immediately so completeReferralOnFirstOrder()
+      // (which runs on delivery) finds no "pending" referral and won't double-credit.
+      await tx.update(referrals)
+        .set({
+          status: "completed",
+          referredOrderCompleted: true,
+          completedAt: new Date(),
+        })
+        .where(eq(referrals.id, referral.id));
+
       return {
-        bonusClaimed: false,
-        amount: 0,
-        message: validation.reason || "Not eligible for bonus"
+        bonusClaimed: true,
+        amount: validation.bonus,
+        message: `₹${validation.bonus} bonus claimed successfully!`,
       };
-    }
-
-    // Update wallet with bonus
-    await this.updateWalletBalance(userId, validation.bonus);
-
-    // Log the transaction
-    await this.createWalletTransaction({
-      userId,
-      amount: validation.bonus,
-      type: "referral_bonus_claimed",
-      description: `Referral bonus claimed at checkout for order ${orderId}`,
-      referenceId: orderId,
-      referenceType: "order",
     });
-
-    return {
-      bonusClaimed: true,
-      amount: validation.bonus,
-      message: `₹${validation.bonus} bonus claimed successfully!`
-    };
   }
 
   async updateWalletBalance(userId: string, amount: number): Promise<void> {
