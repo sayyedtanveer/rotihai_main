@@ -1736,7 +1736,7 @@ export default function AdminSubscriptions() {
                 try {
                   // First assign the chef
                   const assignResponse = await fetch(
-                    `/api/admin/subscriptions/${subscriptionForChefAssignment.id}/assign-chef`,
+                    getApiUrl(`/api/admin/subscriptions/${subscriptionForChefAssignment.id}/assign-chef`),
                     {
                       method: "PUT",
                       headers: {
@@ -1753,7 +1753,7 @@ export default function AdminSubscriptions() {
 
                   // Then confirm the payment
                   const paymentResponse = await fetch(
-                    `/api/admin/subscriptions/${subscriptionForChefAssignment.id}/confirm-payment`,
+                    getApiUrl(`/api/admin/subscriptions/${subscriptionForChefAssignment.id}/confirm-payment`),
                     {
                       method: "POST",
                       headers: {
