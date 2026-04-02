@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { getApiUrl } from "@/lib/apiBase";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -73,7 +74,7 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
   const { data: availableSlots = [] } = useQuery({
     queryKey: ["/api/delivery-slots"],
     queryFn: async () => {
-      const response = await fetch("/api/delivery-slots");
+      const response = await fetch(getApiUrl("/api/delivery-slots"));
       if (!response.ok) throw new Error("Failed to fetch delivery slots");
       return response.json();
     },
@@ -83,7 +84,7 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
   const { data: categoryList } = useQuery({
     queryKey: ["/api/categories"],
     queryFn: async () => {
-      const response = await fetch("/api/categories");
+      const response = await fetch(getApiUrl("/api/categories"));
       if (!response.ok) throw new Error("Failed to fetch categories");
       return response.json();
     },
@@ -136,7 +137,7 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
   const { data: plans, isLoading: plansLoading, error: plansError } = useQuery<SubscriptionPlan[]>({
     queryKey: ["/api/subscription-plans"],
     queryFn: async () => {
-      const response = await fetch("/api/subscription-plans");
+      const response = await fetch(getApiUrl("/api/subscription-plans"));
       if (!response.ok) throw new Error("Failed to fetch subscription plans");
       return response.json();
     },
@@ -156,7 +157,7 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
   const { data: userProfile } = useQuery({
     queryKey: ["/api/user/profile"],
     queryFn: async () => {
-      const response = await fetch("/api/user/profile", {
+      const response = await fetch(getApiUrl("/api/user/profile"), {
         headers: getAuthHeaders(),
       });
       if (!response.ok) throw new Error("Failed to fetch profile");
@@ -176,7 +177,7 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
   const { data: mySubscriptions } = useQuery<Subscription[]>({
     queryKey: ["/api/subscriptions"],
     queryFn: async () => {
-      const response = await fetch("/api/subscriptions", {
+      const response = await fetch(getApiUrl("/api/subscriptions"), {
         headers: getAuthHeaders(),
       });
       if (!response.ok) {
@@ -205,7 +206,7 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
         body.longitude = address.longitude;
       }
 
-      const response = await fetch("/api/subscriptions", {
+      const response = await fetch(getApiUrl("/api/subscriptions"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -280,7 +281,7 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
       email: string;
       address: SubscriptionAddress;
     }) => {
-      const response = await fetch("/api/subscriptions/public", {
+      const response = await fetch(getApiUrl("/api/subscriptions/public"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -372,7 +373,7 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
         throw new Error("Transaction ID is required");
       }
 
-      const response = await fetch(`/api/subscriptions/${subscriptionId}/payment-confirmed`, {
+      const response = await fetch(getApiUrl(`/api/subscriptions/${subscriptionId}/payment-confirmed`), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -407,7 +408,7 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
 
       // Auto-login for guest users if accountCreated and defaultPassword are present
       if (paymentDetails?.accountCreated && paymentDetails?.defaultPassword && paymentDetails?.phone) {
-        fetch("/api/user/login", {
+        fetch(getApiUrl("/api/user/login"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ phone: paymentDetails.phone, password: paymentDetails.defaultPassword })
@@ -464,7 +465,7 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
       pauseStartDate?: string;
       pauseResumeDate?: string;
     }) => {
-      const response = await fetch(`/api/subscriptions/${subscriptionId}/pause`, {
+      const response = await fetch(getApiUrl(`/api/subscriptions/${subscriptionId}/pause`), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -495,7 +496,7 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
 
   const updateDeliveryTimeMutation = useMutation({
     mutationFn: async ({ subscriptionId, deliveryTime }: { subscriptionId: string; deliveryTime: string }) => {
-      const response = await fetch(`/api/subscriptions/${subscriptionId}/delivery-time`, {
+      const response = await fetch(getApiUrl(`/api/subscriptions/${subscriptionId}/delivery-time`), {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -521,7 +522,7 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
   const { data: deliveryHistory, isLoading: historyLoading, isError: historyError } = useQuery({
     queryKey: ["/api/subscriptions", historySubscriptionId, "delivery-logs"],
     queryFn: async () => {
-      const response = await fetch(`/api/subscriptions/${historySubscriptionId}/delivery-logs`, {
+      const response = await fetch(getApiUrl(`/api/subscriptions/${historySubscriptionId}/delivery-logs`), {
         headers: getAuthHeaders(),
       });
       if (!response.ok) throw new Error("Failed to fetch delivery history");
@@ -535,7 +536,7 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
   // Renewal mutation
   const renewalMutation = useMutation({
     mutationFn: async (subscriptionId: string) => {
-      const response = await fetch(`/api/subscriptions/${subscriptionId}/renew`, {
+      const response = await fetch(getApiUrl(`/api/subscriptions/${subscriptionId}/renew`), {
         method: "POST",
         headers: getAuthHeaders(),
       });
@@ -589,7 +590,7 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
 
   const resumeMutation = useMutation({
     mutationFn: async (subscriptionId: string) => {
-      const response = await fetch(`/api/subscriptions/${subscriptionId}/resume`, {
+      const response = await fetch(getApiUrl(`/api/subscriptions/${subscriptionId}/resume`), {
         method: "POST",
         headers: getAuthHeaders(),
       });
@@ -871,7 +872,7 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
 
     // Check if phone already exists — if so, ask user to login instead of creating duplicate account
     try {
-      const resp = await fetch(`/api/users/exists?phone=${encodeURIComponent(guestFormData.phone.trim())}`);
+      const resp = await fetch(getApiUrl(`/api/users/exists?phone=${encodeURIComponent(guestFormData.phone.trim())}`));
       if (resp.ok) {
         const body = await resp.json();
         if (body.exists) {
@@ -1718,7 +1719,7 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
                   if (!phone || !/^\d{10}$/.test(phone)) return;
                   try {
                     setGuestPhoneChecking(true);
-                    const resp = await fetch(`/api/users/exists?phone=${encodeURIComponent(phone)}`);
+                    const resp = await fetch(getApiUrl(`/api/users/exists?phone=${encodeURIComponent(phone)}`));
                     if (resp.ok) {
                       const body = await resp.json();
                       setGuestPhoneExists(!!body.exists);

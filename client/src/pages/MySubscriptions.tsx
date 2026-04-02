@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { getApiUrl } from "@/lib/apiBase";
 import { useQuery } from "@tanstack/react-query";
 import { Redirect, useLocation } from "wouter";
 import Header from "@/components/Header";
@@ -104,7 +105,7 @@ export default function MySubscriptions() {
     queryFn: async () => {
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (userToken) headers.Authorization = `Bearer ${userToken}`;
-      const res = await fetch("/api/subscriptions", { headers, credentials: "include" });
+      const res = await fetch(getApiUrl("/api/subscriptions"), { headers, credentials: "include" });
       if (res.status === 401) {
         localStorage.removeItem("userToken");
         localStorage.removeItem("userData");
@@ -120,7 +121,7 @@ export default function MySubscriptions() {
   const { data: plans = [] } = useQuery<SubscriptionPlan[]>({
     queryKey: ["/api/subscription-plans"],
     queryFn: async () => {
-      const res = await fetch("/api/subscription-plans");
+      const res = await fetch(getApiUrl("/api/subscription-plans"));
       if (!res.ok) throw new Error("Failed to fetch plans");
       return res.json();
     },
@@ -129,7 +130,7 @@ export default function MySubscriptions() {
   const { data: categories = [] } = useQuery<Category[]>({
     queryKey: ["/api/categories"],
     queryFn: async () => {
-      const res = await fetch("/api/categories");
+      const res = await fetch(getApiUrl("/api/categories"));
       if (!res.ok) throw new Error("Failed to fetch categories");
       return res.json();
     },
@@ -138,7 +139,7 @@ export default function MySubscriptions() {
   const { data: chefs = [] } = useQuery<Chef[]>({
     queryKey: ["/api/chefs"],
     queryFn: async () => {
-      const res = await fetch("/api/chefs");
+      const res = await fetch(getApiUrl("/api/chefs"));
       if (!res.ok) throw new Error("Failed to fetch chefs");
       return res.json();
     },
@@ -147,7 +148,7 @@ export default function MySubscriptions() {
   const { data: deliverySlots = [] } = useQuery<{ id: string; name: string; startTime: string; endTime: string }[]>({
     queryKey: ["/api/delivery-slots"],
     queryFn: async () => {
-      const res = await fetch("/api/delivery-slots");
+      const res = await fetch(getApiUrl("/api/delivery-slots"));
       if (!res.ok) throw new Error("Failed to fetch delivery slots");
       return res.json();
     },
@@ -567,7 +568,7 @@ function SubscriptionCard({
     
     try {
       setIsSkipping(true);
-      const response = await fetch(`/api/subscriptions/${subscription.id}/skip-delivery`, {
+      const response = await fetch(getApiUrl(`/api/subscriptions/${subscription.id}/skip-delivery`), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

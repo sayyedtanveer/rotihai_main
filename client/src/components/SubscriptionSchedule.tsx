@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Calendar, Clock, Package, CheckCircle2 } from "lucide-react";
 import { format } from "date-fns";
 import type { Subscription, SubscriptionPlan } from "@shared/schema";
-
+import { getApiUrl } from "@/lib/apiBase";
 interface SubscriptionScheduleProps {
   subscriptionId: string;
 }
@@ -36,7 +36,7 @@ export function SubscriptionSchedule({ subscriptionId }: SubscriptionSchedulePro
   const { data, isLoading } = useQuery<ScheduleData>({
     queryKey: ["/api/subscriptions", subscriptionId, "schedule"],
     queryFn: async () => {
-      const response = await fetch(`/api/subscriptions/${subscriptionId}/schedule`, {
+      const response = await fetch(getApiUrl(`/api/subscriptions/${subscriptionId}/schedule`), {
         headers: getAuthHeaders(),
       });
       if (!response.ok) throw new Error("Failed to fetch schedule");
@@ -106,12 +106,12 @@ export function SubscriptionSchedule({ subscriptionId }: SubscriptionSchedulePro
                 {schedule.slice(0, 10).map((item, idx) => {
                   // Parse date string to Date object
                   const itemDate = typeof item.date === 'string' ? new Date(item.date) : item.date;
-                  
+
                   // Determine styling based on status
                   let bgClass = "bg-background";
                   let statusIcon = null;
                   let statusText = "";
-                  
+
                   if (item.status === "delivered") {
                     bgClass = "bg-green-50 border-green-200";
                     statusIcon = <CheckCircle2 className="w-5 h-5 text-green-600" />;
@@ -121,9 +121,9 @@ export function SubscriptionSchedule({ subscriptionId }: SubscriptionSchedulePro
                   } else if (item.status === "scheduled") {
                     bgClass = "bg-blue-50 border-blue-200";
                   }
-                  
+
                   return (
-                    <div 
+                    <div
                       key={idx}
                       className={`flex items-center justify-between p-3 rounded-lg border ${bgClass}`}
                     >

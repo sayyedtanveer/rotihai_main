@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { getApiUrl } from "@/lib/apiBase";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Header from "@/components/Header";
 import Hero from "@/components/Hero";
@@ -63,7 +64,7 @@ function ReferEarnBanner({ user }: { user: any }) {
     queryFn: async () => {
       const token = localStorage.getItem("userToken");
       if (!token) return [];
-      const res = await fetch("/api/orders", { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch(getApiUrl("/api/orders"), { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) return [];
       return res.json();
     },
@@ -293,7 +294,7 @@ export default function Home() {
           source: deliveryLocation.pincode ? "pincode (authoritative)" : "gps (fallback)",
           pincode: deliveryLocation.pincode || "none"
         });
-        const res = await fetch(`/api/chefs/by-location?latitude=${userLatitude}&longitude=${userLongitude}&maxDistance=15`);
+        const res = await fetch(getApiUrl(`/api/chefs/by-location?latitude=${userLatitude}&longitude=${userLongitude}&maxDistance=15`));
         if (!res.ok) throw new Error("Failed to fetch chefs by location");
         const data = await res.json();
         console.log(`✅ Loaded ${data.length} nearby chefs using coordinates`);
@@ -303,7 +304,7 @@ export default function Home() {
       // Fallback: Area-based filtering if location not available
       if (selectedArea) {
         console.log(`📍 Loading chefs for delivery area: ${selectedArea}`);
-        const res = await fetch(`/api/chefs/by-area/${encodeURIComponent(selectedArea)}`);
+        const res = await fetch(getApiUrl(`/api/chefs/by-area/${encodeURIComponent(selectedArea)}`));
         if (!res.ok) throw new Error("Failed to fetch chefs for area");
         const data = await res.json();
         console.log(`✅ Loaded ${data.length} chefs for ${selectedArea}`);
@@ -312,7 +313,7 @@ export default function Home() {
 
       // Last resort: all chefs (should rarely happen)
       console.log("⚠️ Loading all chefs (no location or area specified)");
-      const res = await fetch("/api/chefs");
+      const res = await fetch(getApiUrl("/api/chefs"));
       if (!res.ok) throw new Error("Failed to fetch chefs");
       return res.json();
     },
@@ -1631,7 +1632,7 @@ export default function Home() {
 
                   try {
                     // Geocode the entered address
-                    const response = await fetch("/api/geocode", {
+                    const response = await fetch(getApiUrl("/api/geocode"), {
                       method: "POST",
                       headers: { "Content-Type": "application/json" },
                       body: JSON.stringify({ address: manualAddress }),

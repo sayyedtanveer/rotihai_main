@@ -1,4 +1,5 @@
-import { Button } from "@/components/ui/button";
+﻿import { Button } from "@/components/ui/button";
+import { getApiUrl } from "@/lib/apiBase";
 import { Input } from "@/components/ui/input";
 import { MapPin, Search, Loader2, ChevronDown, AlertCircle, CheckCircle2, ArrowRight } from "lucide-react";
 import { useState, useEffect } from "react";
@@ -66,7 +67,7 @@ export default function Hero() {
     setIsValidatingPincode(true);
 
     try {
-      const response = await fetch("/api/validate-pincode", {
+      const response = await fetch(getApiUrl("/api/validate-pincode"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pincode: pincode.trim() }),

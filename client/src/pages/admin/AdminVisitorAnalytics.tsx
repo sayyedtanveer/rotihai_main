@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
+﻿import { useQuery } from "@tanstack/react-query";
+import { getApiUrl } from "@/lib/apiBase";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -18,7 +19,7 @@ export default function AdminVisitorAnalytics() {
     queryKey: ["/api/admin/reports/visitors"],
     queryFn: async () => {
       const token = localStorage.getItem("adminToken");
-      const response = await fetch("/api/admin/reports/visitors", {
+      const response = await fetch(getApiUrl("/api/admin/reports/visitors"), {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!response.ok) throw new Error("Failed to fetch visitor report");

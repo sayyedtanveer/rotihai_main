@@ -1,4 +1,5 @@
-import { useState } from "react";
+﻿import { useState } from "react";
+import { getApiUrl } from "@/lib/apiBase";
 import { AlertCircle, MapPin, CheckCircle2, Loader } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -38,7 +39,7 @@ export function DeliveryAddressSelector({
 
     try {
       // Call the API to validate pincode
-      const response = await fetch("/api/validate-pincode", {
+      const response = await fetch(getApiUrl("/api/validate-pincode"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pincode: pincode.trim() }),

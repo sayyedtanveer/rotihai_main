@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { getApiUrl } from "@/lib/apiBase";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -90,7 +91,7 @@ export default function PaymentQRDialog({
   useEffect(() => {
     const fetchPaymentSettings = async () => {
       try {
-        const response = await fetch("/api/payment-settings");
+        const response = await fetch(getApiUrl("/api/payment-settings"));
         if (response.ok) {
           const settings = await response.json();
           setPaymentSettings(settings);
@@ -237,7 +238,7 @@ export default function PaymentQRDialog({
         console.log("[PAYMENT QR] OPTION NEW: Confirming existing order...", orderIdFromCheckout);
         
         // Confirm payment for existing order
-        const paymentResponse = await fetch(`/api/orders/${orderIdFromCheckout}/payment-confirmed`, {
+        const paymentResponse = await fetch(getApiUrl(`/api/orders/${orderIdFromCheckout}/payment-confirmed`), {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -363,7 +364,7 @@ export default function PaymentQRDialog({
         const newOrderId = orderResult.id;
 
         // Step 2: Confirm payment for the newly created order
-        const paymentResponse = await fetch(`/api/orders/${newOrderId}/payment-confirmed`, {
+        const paymentResponse = await fetch(getApiUrl(`/api/orders/${newOrderId}/payment-confirmed`), {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -479,7 +480,7 @@ export default function PaymentQRDialog({
       else {
         console.log("[PAYMENT QR] Legacy flow: Confirming payment for order ID:", orderId);
         
-        const response = await fetch(`/api/orders/${orderId}/payment-confirmed`, {
+        const response = await fetch(getApiUrl(`/api/orders/${orderId}/payment-confirmed`), {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
