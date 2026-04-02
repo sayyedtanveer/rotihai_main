@@ -516,7 +516,11 @@ export function registerAdminRoutes(app: Express) {
           if (order.referralCode && userCreated) {
             console.log(`🎁 [REFERRAL] Attempting to apply referral code: ${order.referralCode} for new user ${user.id}`);
             try {
-              await storage.applyReferralBonus(order.referralCode, user.id);
+              // ✅ FIX: Pass skipFirstOrderCheck=true because at this point the order has just been
+              // linked to the brand-new user (userId was null before this payment confirmation).
+              // The userOrders check would see length=1 and incorrectly reject the referral.
+              // All other fraud guards (self-referral, referrer age, duplicate, caps) still apply.
+              await storage.applyReferralBonus(order.referralCode, user.id, { skipFirstOrderCheck: true });
               // Get the bonus amount from settings
               const settings = await storage.getActiveReferralReward();
               appliedReferralBonus = settings?.referredBonus || 50;
