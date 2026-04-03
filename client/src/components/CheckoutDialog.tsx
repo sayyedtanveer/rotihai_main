@@ -163,8 +163,18 @@ export default function CheckoutDialog({
   // ✅ NEW: Ref for Pay button focus management
   const payButtonRef = useRef<HTMLButtonElement>(null);
 
+  // ✅ NEW: Ref for first input (Name field) - for initial focus on incomplete address
+  const firstInputRef = useRef<HTMLInputElement>(null);
+
   // State for View/Edit mode
   const [isEditingAddress, setIsEditingAddress] = useState(true);
+
+  // ✅ HELPER: Check if all 4 required address fields are complete
+  const isAddressComplete =
+    addressBuilding?.trim() &&
+    addressStreet?.trim() &&
+    addressArea?.trim() &&
+    addressPincode?.trim();
 
   // Log when cart changes
   useEffect(() => {
@@ -192,12 +202,23 @@ export default function CheckoutDialog({
     }
   }, [cart?.chefId]);
 
+  // ✅ NEW: Focus on first input when dialog opens with incomplete address
+  useEffect(() => {
+    if (!isOpen) return;
+
+    if (!isAddressComplete) {
+      // Address incomplete - focus on first input field
+      firstInputRef.current?.focus();
+    }
+  }, [isOpen, isAddressComplete]);
+
   // NOTE: Auto-validation removed — validation only occurs via explicit
   // "Validate Address" button click (handleValidateAddressClick)
 
   // Handle smooth scrolling to delivery slots upon validation success
   useEffect(() => {
-    if (shouldScrollToSlots) {
+    if (shouldScrollToSlots && isAddressComplete) {
+      // ✅ FIX: Only scroll if address is complete
       // Timeout to ensure DOM has completely updated and the section is mounted
       const timer = setTimeout(() => {
         const container = document.getElementById("checkout-scroll-container");
@@ -215,7 +236,7 @@ export default function CheckoutDialog({
       }, 300); // increased to 300ms for safety
       return () => clearTimeout(timer);
     }
-  }, [shouldScrollToSlots]);
+  }, [shouldScrollToSlots, isAddressComplete]);
 
   // ============================================
   // AUTO-SYNC STORED PINCODE FROM HERO
@@ -242,12 +263,20 @@ export default function CheckoutDialog({
       setAddressArea(storedPincode.area);
       setCustomerLatitude(storedPincode.latitude);
       setCustomerLongitude(storedPincode.longitude);
-      setAddressZoneValidated(true);
-      setAddressInDeliveryZone(true);
+      
+      // ✅ FIX: Only set validated if ALL required fields will be present
+      // Note: This will be validated on next check when other fields are filled
+      if (addressBuilding?.trim() && addressStreet?.trim()) {
+        setAddressZoneValidated(true);
+        setAddressInDeliveryZone(true);
+      } else {
+        // Still auto-fill but don't validate until user fills remaining fields
+        setAddressZoneValidated(false);
+      }
 
       console.log("[AUTO-SYNC-PINCODE] ✅ Pre-filled checkout form with stored pincode");
     }
-  }, [isOpen, cart?.chefId, addressPincode]);
+  }, [isOpen, cart?.chefId, addressPincode, addressBuilding, addressStreet]);
 
   // ============================================
   // RESTORE ADDRESS CONFIRMATION ON DIALOG REOPEN
@@ -259,15 +288,15 @@ export default function CheckoutDialog({
       return;
     }
 
-    // If address is validated and fields are populated, auto-confirm
-    if (addressZoneValidated && addressInDeliveryZone && addressPincode && !addressConfirmed) {
-      console.log("[RESTORE-ADDRESS] Dialog reopened with validated address. Auto-confirming.");
+    // ✅ FIX: Only confirm if ALL 4 address fields are complete AND validated
+    if (addressZoneValidated && addressInDeliveryZone && isAddressComplete && !addressConfirmed) {
+      console.log("[RESTORE-ADDRESS] Dialog reopened with fully validated address. Auto-confirming.");
       setAddressConfirmed(true);
       setIsEditingAddress(false); // Show view mode
       // Scroll down to order summary / Pay & Confirm so user sees totals immediately
       setShouldScrollToSlots(true);
     }
-  }, [isOpen, addressZoneValidated, addressInDeliveryZone, addressPincode]);
+  }, [isOpen, addressZoneValidated, addressInDeliveryZone, isAddressComplete]);
 
   // ============================================
   // FOCUS PAY BUTTON WHEN READY
@@ -275,13 +304,17 @@ export default function CheckoutDialog({
   // move focus to the Pay button for better UX
   // ============================================
   useEffect(() => {
-    if (addressConfirmed && !isEditingAddress && isOpen && payButtonRef.current) {
-      console.log("[FOCUS-PAY-BUTTON] Address confirmed - focusing Pay button");
-      setTimeout(() => {
-        payButtonRef.current?.focus();
-      }, 100); // Small delay to ensure DOM is ready
+    // ✅ FIX: Only focus Pay button if address is COMPLETE, confirmed, AND not editing
+    // SAFE GUARD: Don't steal focus if user is actively in an input field
+    if (addressConfirmed && !isEditingAddress && isOpen && isAddressComplete && payButtonRef.current) {
+      if (document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "TEXTAREA") {
+        console.log("[FOCUS-PAY-BUTTON] Address confirmed and complete - focusing Pay button");
+        setTimeout(() => {
+          payButtonRef.current?.focus();
+        }, 100); // Small delay to ensure DOM is ready
+      }
     }
-  }, [addressConfirmed, isEditingAddress, isOpen]);
+  }, [addressConfirmed, isEditingAddress, isOpen, isAddressComplete]);
 
   // Area suggestions for autocomplete
   const [areaSuggestions, setAreaSuggestions] = useState<string[]>([]);
@@ -1706,9 +1739,16 @@ export default function CheckoutDialog({
           setAddressInDeliveryZone(true);
           setAddressZoneValidated(true);
           setIsEditingAddress(false); // Collapsed View mode
-          setAddressConfirmed(true);  // Allow viewing payment immediately since they already pushed validate
+          
+          // ✅ CRITICAL FIX: Only confirm address if ALL 4 fields are complete
+          if (isAddressComplete) {
+            setAddressConfirmed(true);  // Allow viewing payment immediately since they already pushed validate
+            setShouldScrollToSlots(true); // ✅ Trigger auto-scroll
+          } else {
+            setAddressConfirmed(false);  // Prevent premature confirmation
+          }
+          
           setLocationError("");
-          setShouldScrollToSlots(true); // ✅ Trigger auto-scroll
 
           // Update Context
           setDeliveryLocation({
@@ -2580,6 +2620,7 @@ export default function CheckoutDialog({
                         Full Name *
                       </Label>
                       <Input
+                        ref={firstInputRef}
                         id="customerName"
                         value={customerName}
                         onChange={(e) => setCustomerName(e.target.value)}
