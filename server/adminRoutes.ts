@@ -431,8 +431,37 @@ export function registerAdminRoutes(app: Express) {
       // Complete referral when order is delivered
       if (status === "delivered" && order.userId) {
         try {
-          await storage.completeReferralOnFirstOrder(order.userId, id);
-          console.log(`✅ Referral completion triggered for order ${id}`);
+          const creditedUsers = await storage.completeReferralOnFirstOrder(order.userId, id);
+          
+          if (creditedUsers) {
+            console.log(`✅ Referral completion triggered for order ${id}`, {
+              referredUser: {
+                id: creditedUsers.referredUserId,
+                bonus: creditedUsers.referredUserBonus
+              },
+              referrerUser: {
+                id: creditedUsers.referrerUserId,
+                bonus: creditedUsers.referrerUserBonus
+              }
+            });
+
+            // ✅ NEW: Broadcast wallet updates to both users so their balance refreshes in real-time
+            if (creditedUsers.referredUserBonus > 0) {
+              const referredUser = await storage.getUser(creditedUsers.referredUserId);
+              if (referredUser) {
+                broadcastWalletUpdate(creditedUsers.referredUserId, referredUser.walletBalance);
+              }
+            }
+            
+            if (creditedUsers.referrerUserBonus > 0) {
+              const referrerUser = await storage.getUser(creditedUsers.referrerUserId);
+              if (referrerUser) {
+                broadcastWalletUpdate(creditedUsers.referrerUserId, referrerUser.walletBalance);
+              }
+            }
+          } else {
+            console.log(`ℹ️ No referral bonus to process for order ${id}`);
+          }
         } catch (referralError: any) {
           console.warn(`⚠️ Error completing referral: ${referralError.message}`);
           // Don't fail the order status update if referral completion fails

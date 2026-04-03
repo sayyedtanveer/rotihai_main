@@ -1095,7 +1095,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const { referralCode } = req.body;
+      const { referralCode, orderAmount } = req.body;
 
       if (!referralCode) {
         return res.status(400).json({ valid: false, message: "Referral code is required" });
@@ -1107,6 +1107,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ valid: false, message: "Referral system is currently disabled" });
       }
 
+      // ✅ NEW: Validate minimum order amount if provided
+      const minOrderAmount = settings?.minOrderAmount || 0;
+      if (orderAmount !== undefined && orderAmount !== null && orderAmount < minOrderAmount) {
+        console.log(`⚠️ [REFERRAL-VALIDATE] Minimum order check failed. Required: ₹${minOrderAmount}, Current: ₹${orderAmount}`);
+        return res.status(400).json({
+          valid: false,
+          message: `Minimum order amount ₹${minOrderAmount} is required to use a referral code. Current order: ₹${orderAmount}`,
+          minOrderAmount,
+          currentOrder: orderAmount
+        });
+      }
+
       // Check if referral code exists
       const referrer = await db.query.users.findFirst({
         where: (u, { eq: eqOp }) => eqOp(u.referralCode, referralCode.trim().toUpperCase()),
@@ -1116,11 +1128,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ valid: false, message: "Invalid referral code" });
       }
 
-      // Code is valid
+      // ✅ Code is valid and meets minimum order requirement
+      const bonus = settings.referredBonus || 50;
+      console.log(`✅ [REFERRAL-VALIDATE] Code valid. User will get ₹${bonus} bonus. Min required: ₹${minOrderAmount}, Order total: ₹${orderAmount || "not specified"}`);
       res.json({
         valid: true,
-        message: "Valid referral code!",
-        bonus: settings.referredBonus || 50,
+        message: `Valid referral code! You'll get ₹${bonus} bonus after your first order is delivered`,
+        bonus,
+        minOrderAmount,
         bonusNote: "Bonus will be credited after your first order is delivered",
         referrerName: referrer.name || "Friend"
       });
@@ -2267,18 +2282,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
             userCreated = true;  // Signal frontend to show account dialog
             console.log(`[DROPDOWN USER] First login detected - showing account dialog`);
           }
+
+          // 🎯 Apply referral bonus if order has referral code (for existing users too!)
+          // This handles the case where an existing user enters a referralCode but skips the Verify button
+          if (order.referralCode && !userCreated) {
+            console.log(`🎁 [REFERRAL] Attempting to apply referral code: ${order.referralCode} for existing user ${user.id}`);
+            try {
+              await storage.applyReferralBonus(order.referralCode, user.id, order.total);
+              // Get the bonus amount from settings
+              const settings = await storage.getActiveReferralReward();
+              appliedReferralBonus = settings?.referredBonus || 50;
+              console.log(`✅ [REFERRAL] Bonus applied successfully for code: ${order.referralCode} - Amount: ₹${appliedReferralBonus}`);
+            } catch (referralError: any) {
+              console.warn(`⚠️ [REFERRAL] Failed to apply referral bonus (non-blocking):`, referralError.message);
+              // Don't fail order confirmation if referral application fails
+            }
+          }
         }
       } else {
-        // ✅ SCENARIO: User already exists on order (e.g., admin created earlier on THIS order)
-        // Generate tokens so we can auto-login the user if they're not logged in
         console.log(`👤 User already linked to order ${id} (userId: ${order.userId}). Generating tokens for potential auto-login.`);
-        const existingUser = await storage.getUser(order.userId);
-        if (existingUser) {
-          accessToken = generateAccessToken(existingUser);
-          refreshToken = generateRefreshToken(existingUser);
-          console.log(`✅ Tokens generated for existing user: ${existingUser.id}`);
+          const existingUser = await storage.getUser(order.userId);
+          if (existingUser) {
+            accessToken = generateAccessToken(existingUser);
+            refreshToken = generateRefreshToken(existingUser);
+            console.log(`✅ Tokens generated for existing user: ${existingUser.id}`);
+          }
+
+          // 🎯 Apply referral bonus for existing user who is already linked to order
+          // (e.g., admin linked them earlier)
+          if (order.referralCode) {
+            console.log(`🎁 [REFERRAL] Attempting to apply referral code: ${order.referralCode} for existing user ${order.userId}`);
+            try {
+              await storage.applyReferralBonus(order.referralCode, order.userId, order.total);
+              // Get the bonus amount from settings
+              const settings = await storage.getActiveReferralReward();
+              appliedReferralBonus = settings?.referredBonus || 50;
+              console.log(`✅ [REFERRAL] Bonus applied successfully for code: ${order.referralCode} - Amount: ₹${appliedReferralBonus}`);
+            } catch (referralError: any) {
+              console.warn(`⚠️ [REFERRAL] Failed to apply referral bonus (non-blocking):`, referralError.message);
+              // Don't fail order confirmation if referral application fails
+            }
+          }
         }
-      }
 
       // Check if order was already paid (for idempotency)
       const orderBefore = await storage.getOrderById(id);

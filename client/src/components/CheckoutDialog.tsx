@@ -94,6 +94,10 @@ export default function CheckoutDialog({
     message: string;
     bonus?: number;
     referrerName?: string;
+    minOrderAmount?: number; // ✅ Minimum order amount from backend
+    bonusNote?: string; // ✅ Note about when bonus is credited
+    minRequired?: number; // ✅ Used when validation fails (min required from error)
+    currentAmount?: number; // ✅ Current order amount
   } | null>(null);
   const [subtotal, setSubtotal] = useState(0);
   const [originalSubtotal, setOriginalSubtotal] = useState(0); // Original price before item discounts
@@ -305,6 +309,43 @@ export default function CheckoutDialog({
       // Note: we don't need a page reload, the state in useAuth already reflects !isAuthenticated
     }
   }, [isUserLoading, isAuthenticated, userToken]);
+
+  // 🎁 AUTO-VALIDATE REFERRAL CODE with minimum order check
+  // When user enters/pastes a referral code, auto-validate against their current order total
+  useEffect(() => {
+    if (!referralCode.trim()) {
+      // Clear validation if code is empty
+      setReferralValidation(null);
+      return;
+    }
+
+    // Debounce validation to avoid too many API calls while user is typing
+    const validationTimeout = setTimeout(async () => {
+      setIsValidatingReferral(true);
+      try {
+        // Auto-validate with current order total
+        const result = await validateReferralMutation.mutateAsync({
+          referralCode: referralCode.trim(),
+          orderAmount: total // Use current order total
+        });
+        setReferralValidation(result);
+      } catch (error: any) {
+        // Extract error message and include minimum order info if available
+        const errorMessage = error.message || "Invalid referral code";
+        setReferralValidation({
+          valid: false,
+          message: errorMessage,
+          // Extract minimum order requirement from error response
+          minRequired: error.minOrderAmount,
+          currentAmount: total
+        });
+      } finally {
+        setIsValidatingReferral(false);
+      }
+    }, 500); // Debounce for 500ms while user types
+
+    return () => clearTimeout(validationTimeout);
+  }, [referralCode, total, validateReferralMutation]);
 
   // Listen for wallet updates via WebSocket
   useWalletUpdates();
@@ -2112,6 +2153,40 @@ export default function CheckoutDialog({
       }
     }
 
+    // 🎁 Validate referral code if entered
+    // If user entered a code, it must be validated and valid with sufficient order amount
+    if (!isAuthenticated && referralCode.trim()) {
+      // Still validating
+      if (isValidatingReferral) {
+        toast({
+          title: "Please Wait",
+          description: "Validating your referral code...",
+          variant: "default",
+        });
+        return;
+      }
+
+      // Code entered but never validated
+      if (!referralValidation) {
+        toast({
+          title: "Referral Code Not Validated",
+          description: "Please wait for the referral code validation to complete.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Code is invalid or doesn't meet minimum order amount
+      if (!referralValidation.valid) {
+        toast({
+          title: "Referral Code Invalid or Insufficient Order",
+          description: referralValidation.message,
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
     // ✅ NEW: Validate all 4 address fields are mandatory
     if (!addressBuilding.trim()) {
       toast({
@@ -2997,7 +3072,7 @@ export default function CheckoutDialog({
                         </div>
                       )}
 
-                      {/* Referral Code Input - for new users only (not logged in) */}
+                      {/* Referral Code Input - Auto-verify as user types */}
                       {!isAuthenticated && (
                         <div>
                           <Label
@@ -3009,90 +3084,97 @@ export default function CheckoutDialog({
                               (Optional)
                             </span>
                           </Label>
-                          <div className="flex gap-2">
-                            <Input
-                              id="referralCode"
-                              type="text"
-                              placeholder="Enter friend's referral code"
-                              value={referralCode}
-                              onChange={(e) => {
-                                setReferralCode(e.target.value.toUpperCase());
-                                // Clear validation when user changes the code
-                                if (referralValidation) {
-                                  setReferralValidation(null);
-                                }
-                              }}
-                              className="font-mono uppercase"
-                              maxLength={20}
-                              data-testid="input-checkout-referral-code"
-                            />
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={async () => {
-                                if (!referralCode.trim()) {
-                                  setReferralValidation({
-                                    valid: false,
-                                    message: "Enter a referral code first"
-                                  });
-                                  return;
-                                }
-                                setIsValidatingReferral(true);
-                                try {
-                                  const result = await validateReferralMutation.mutateAsync({
-                                    referralCode: referralCode.trim(),
-                                  });
-                                  setReferralValidation(result);
-                                } catch (error: any) {
-                                  setReferralValidation({
-                                    valid: false,
-                                    message: error.message
-                                  });
-                                } finally {
-                                  setIsValidatingReferral(false);
-                                }
-                              }}
-                              disabled={isValidatingReferral || !referralCode.trim()}
-                              className="whitespace-nowrap"
-                            >
-                              {isValidatingReferral ? (
-                                <>
-                                  <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-                                  Checking...
-                                </>
-                              ) : (
-                                "Verify"
-                              )}
-                            </Button>
-                          </div>
-                          {referralValidation && (
-                            <div className={`text-xs mt-2 p-2 rounded ${
-                              referralValidation.valid 
-                                ? "bg-green-50 text-green-700 border border-green-200" 
-                                : "bg-red-50 text-red-700 border border-red-200"
-                            }`}>
-                              <div className="flex items-center gap-1">
-                                {referralValidation.valid && (
-                                  <CheckCircle2 className="w-4 h-4" />
-                                )}
-                                <span className="font-medium">{referralValidation.message}</span>
-                              </div>
-                              {referralValidation.valid && referralValidation.bonus && (
-                                <p className="mt-1">✅ You'll get ₹{referralValidation.bonus} bonus after your first order is delivered (from {referralValidation.referrerName})</p>
-                              )}
+                          <div className="space-y-2">
+                            <div className="flex gap-2">
+                              <Input
+                                id="referralCode"
+                                type="text"
+                                placeholder="Enter friend's referral code"
+                                value={referralCode}
+                                onChange={(e) => {
+                                  const newCode = e.target.value.toUpperCase();
+                                  setReferralCode(newCode);
+                                  // Trigger auto-validation with debounce
+                                  // If code is empty, clear validation
+                                  if (!newCode.trim()) {
+                                    setReferralValidation(null);
+                                  }
+                                }}
+                                className="font-mono uppercase"
+                                maxLength={20}
+                                data-testid="input-checkout-referral-code"
+                              />
                             </div>
-                          )}
-                          {!referralValidation && referralCode.trim() && (
-                            <p className="text-xs text-muted-foreground mt-1">
-                              Click "Verify" to confirm your referral code before placing order
-                            </p>
-                          )}
-                          {!referralCode.trim() && !referralValidation && (
-                            <p className="text-xs text-muted-foreground mt-1">
-                              Have a referral code? Enter it to earn bonus rewards!
-                            </p>
-                          )}
+
+                            {/* Auto-validation message based on current order total */}
+                            {referralCode.trim() && (
+                              <div
+                                className={`text-xs p-2.5 rounded border ${
+                                  referralValidation?.valid
+                                    ? "bg-green-50 text-green-700 border-green-200"
+                                    : referralValidation?.valid === false
+                                    ? "bg-red-50 text-red-700 border-red-200"
+                                    : "bg-blue-50 text-blue-700 border-blue-200"
+                                }`}
+                              >
+                                {isValidatingReferral ? (
+                                  <div className="flex items-center gap-2">
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    Validating code...
+                                  </div>
+                                ) : referralValidation ? (
+                                  <>
+                                    {referralValidation.valid ? (
+                                      <>
+                                        <div className="flex items-center gap-1 mb-1">
+                                          <CheckCircle2 className="w-4 h-4" />
+                                          <span className="font-medium">
+                                            ✅ Code Valid! {referralValidation.bonus && `₹${referralValidation.bonus} bonus`}
+                                          </span>
+                                        </div>
+                                        {referralValidation.referrerName && (
+                                          <p className="text-xs">
+                                            From: <strong>{referralValidation.referrerName}</strong>
+                                          </p>
+                                        )}
+                                        <p className="text-xs mt-1">
+                                          💰 Bonus will be credited after your first order is delivered
+                                        </p>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <div className="font-medium mb-1">
+                                          ⚠️ {referralValidation.message}
+                                        </div>
+                                        {referralValidation.minRequired && referralValidation.currentAmount && (
+                                          <div className="text-xs mt-1 space-y-1">
+                                            <p>
+                                              Required: <strong>₹{referralValidation.minRequired}</strong> |
+                                              Your order: <strong>₹{referralValidation.currentAmount}</strong>
+                                            </p>
+                                            <p>
+                                              Add ₹{referralValidation.minRequired - referralValidation.currentAmount} more to use this code
+                                            </p>
+                                          </div>
+                                        )}
+                                      </>
+                                    )}
+                                  </>
+                                ) : (
+                                  <div className="flex items-center gap-2">
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    Checking referral code validity...
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {!referralCode.trim() && !referralValidation && (
+                              <p className="text-xs text-muted-foreground">
+                                💝 Have a referral code? Enter it to unlock bonus rewards!
+                              </p>
+                            )}
+                          </div>
                         </div>
                       )}
 
