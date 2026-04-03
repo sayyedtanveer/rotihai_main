@@ -2485,7 +2485,17 @@ export class MemStorage implements IStorage {
         }, tx);
       }
 
-      if (canCreditBonus) {
+      // ✅ NEW: Check if referrer has completed at least one delivered order
+      const referrerOrders = await tx.query.orders.findMany({
+        where: (o, { and, eq: eqOp }) => and(
+          eqOp(o.userId, referral.referrerId),
+          eqOp(o.status, "delivered")
+        ),
+      });
+
+      const referrerHasCompletedFirstOrder = referrerOrders.length > 0;
+
+      if (canCreditBonus && referrerHasCompletedFirstOrder) {
         // 🎁 Credit ₹100 to referrer
         referrerUserBonus = referral.referrerBonus;
         await this.createWalletTransaction({
@@ -2496,6 +2506,9 @@ export class MemStorage implements IStorage {
           referenceId: referral.id,
           referenceType: "referral",
         }, tx);
+      } else if (canCreditBonus && !referrerHasCompletedFirstOrder) {
+        // Referrer must complete their own first order before earning bonus
+        console.log(`[REFERRAL] Referrer ${referral.referrerId} has not completed first order. Skipping bonus.`);
       }
 
       // Mark referral as completed
@@ -2504,7 +2517,7 @@ export class MemStorage implements IStorage {
           status: "completed",
           referredOrderCompleted: true,
           completedAt: new Date(),
-          referrerBonus: canCreditBonus ? referral.referrerBonus : 0,
+          referrerBonus: (canCreditBonus && referrerHasCompletedFirstOrder) ? referral.referrerBonus : 0,
         })
         .where(eq(referrals.id, referral.id));
 
