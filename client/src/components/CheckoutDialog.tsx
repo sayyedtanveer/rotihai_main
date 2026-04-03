@@ -345,134 +345,80 @@ export default function CheckoutDialog({
     }
   }, [isUserLoading, isAuthenticated, userToken]);
 
-  // 🎁 AUTO-VALIDATE REFERRAL CODE with minimum order check
-  // When user enters/pastes a referral code, auto-validate against FOOD SUBTOTAL ONLY (no delivery/wallet)
-  useEffect(() => {
-    console.log('[CHECKOUT-VALIDATION-EFFECT] 🔄 Effect triggered:', { 
-      referralCode: referralCode.substring(0, 3) + '...',
-      subtotal,
-      codeLength: referralCode.length
-    });
-
-    // Increment run id to cancel any previous pending validations
-    validationRunRef.current += 1;
-    const thisRunId = validationRunRef.current;
-    console.log('[CHECKOUT-VALIDATION-EFFECT] Validation run #', thisRunId);
-
+  // 🎁 MANUAL VERIFY REFERRAL CODE on button click
+  const handleVerifyReferralCode = async () => {
     if (!referralCode.trim()) {
-      // Clear validation if code is empty and cancel previous runs
-      console.log('[CHECKOUT-VALIDATION-EFFECT] Code is empty, clearing validation');
-      setReferralValidation(null);
-      localStorage.removeItem("pendingReferralCode");
-      setIsValidatingReferral(false);
+      setReferralValidation({
+        valid: false,
+        message: "Please enter a referral code"
+      });
       return;
     }
 
-    // ✅ FIX: Declare safetyTimeout in effect scope so it can be cleared in cleanup
+    setIsValidatingReferral(true);
+    validationRunRef.current += 1;
+    const thisRunId = validationRunRef.current;
+    let validationCompleted = false;
     let safetyTimeout: NodeJS.Timeout | null = null;
 
-    // ✅ FIX: Set loading state IMMEDIATELY when effect runs (don't put inside setTimeout)
-    // This ensures UI shows "Validating..." while debounce waits
-    setIsValidatingReferral(true);
-
-    // Debounce validation to avoid too many API calls while user is typing
-    // Shorter debounce (300ms) for faster feedback since queries should be instant
-    const validationTimeout = setTimeout(async () => {
-      console.log('[CHECKOUT-VALIDATION-EFFECT] ⏳ Debounce completed, starting validation (run #' + thisRunId + ')');
-      let validationCompleted = false;
-      const runIdAtStart = thisRunId;
-      
-      // Safety timeout (5 seconds) - if validation takes this long, something is wrong
+    try {
+      // Safety timeout (5 seconds)
       safetyTimeout = setTimeout(() => {
-        if (!validationCompleted && runIdAtStart === validationRunRef.current) {
-          console.error('[VALIDATION] ⏰ Safety timeout triggered - validation took too long (run #' + runIdAtStart + ')');
+        if (!validationCompleted && thisRunId === validationRunRef.current) {
           setIsValidatingReferral(false);
           setReferralValidation({
             valid: false,
-            message: "Validation took too long. Please try again or proceed without code."
+            message: "Validation took too long. Please try again."
           });
           localStorage.removeItem("pendingReferralCode");
         }
-      }, 5000); // 5 second safety timeout (validation should happen in < 500ms)
+      }, 5000);
+
+      const codeToValidate = referralCode.trim();
       
-      try {
-        const codeToValidate = referralCode.trim();
-        console.log('[VALIDATION] 🔄 Calling mutation.mutateAsync with:', { 
-          code: codeToValidate.substring(0, 3) + '...',
-          subtotal,
-          runId: runIdAtStart
-        });
-        
-        // Auto-validate with food subtotal ONLY (no delivery fee, wallet deduction, etc.)
-        const result = await validateReferralMutation.mutateAsync({
-          referralCode: codeToValidate,
-          orderAmount: subtotal // ✅ Use SUBTOTAL ONLY for accurate referral eligibility
-        });
-        
-        validationCompleted = true;
-        if (safetyTimeout) clearTimeout(safetyTimeout);
-        console.log('[VALIDATION] ✅ Mutation completed successfully (run #' + runIdAtStart + ')');
-        
-        // Ignore if a newer validation run started or the code was cleared
-        if (runIdAtStart !== validationRunRef.current) {
-          console.log('[VALIDATION] ⚠️ Ignoring stale validation result for', codeToValidate, '(run #' + runIdAtStart + ' vs current #' + validationRunRef.current + ')');
-          return;
-        }
+      // Validate with food subtotal ONLY
+      const result = await validateReferralMutation.mutateAsync({
+        referralCode: codeToValidate,
+        orderAmount: subtotal // ✅ Use SUBTOTAL ONLY for accurate referral eligibility
+      });
 
-        console.log('[VALIDATION] ✅ Success', result);
-        console.log('[VALIDATION] ✅ Result received and stored (run #' + runIdAtStart + '):', result);
-        setReferralValidation(result);
-        if (result.valid) {
-          localStorage.setItem("pendingReferralCode", codeToValidate);
-        } else {
-          localStorage.removeItem("pendingReferralCode");
-        }
-      } catch (error: any) {
-        validationCompleted = true;
-        if (safetyTimeout) clearTimeout(safetyTimeout);
-        
-        console.error('[VALIDATION] ❌ Error caught (run #' + runIdAtStart + '):', {
-          message: error.message,
-          name: error.name,
-          code: error.code,
-          stack: error.stack?.split('\n').slice(0, 3).join('\n')
-        });
-        
-        // Ignore if a newer validation run started
-        if (runIdAtStart !== validationRunRef.current) {
-          console.log('[VALIDATION] ⚠️ Ignoring stale validation error (run #' + runIdAtStart + ' vs current #' + validationRunRef.current + ')');
-          return;
-        }
-
-        // Extract error message and include minimum order info if available
-        const errorMessage = error.message || "Invalid referral code";
-        console.log('[VALIDATION] 🎨 Setting error state with message:', errorMessage);
-        setReferralValidation({
-          valid: false,
-          message: errorMessage,
-          // Extract minimum order requirement from error response
-          minRequired: error.minOrderAmount,
-          currentAmount: subtotal // ✅ Show SUBTOTAL in feedback for accuracy
-        });
-        localStorage.removeItem("pendingReferralCode");
-      } finally {
-        // Only clear validating state for this run
-        if (thisRunId === validationRunRef.current) {
-          console.log('[VALIDATION] ✨ Finally block: clearing validating state (run #' + thisRunId + ')');
-          setIsValidatingReferral(false);
-        } else {
-          console.log('[VALIDATION] ⚠️ Finally block: skipping state clear, newer run in progress (run #' + thisRunId + ' vs current #' + validationRunRef.current + ')');
-        }
-      }
-    }, 300); // Debounce for 300ms (faster feedback than 500ms)
-
-    // ✅ FIX: Clear BOTH debounce timeout AND safety timeout on effect cleanup
-    return () => {
-      console.log('[VALIDATION] 🧹 Effect cleanup: clearing timeouts (run #' + thisRunId + ')');
-      clearTimeout(validationTimeout);
+      validationCompleted = true;
       if (safetyTimeout) clearTimeout(safetyTimeout);
-    };
-  }, [referralCode, subtotal, validateReferralMutation]); // ✅ Watch SUBTOTAL changes for re-validation
+
+      // Ignore if newer validation started
+      if (thisRunId !== validationRunRef.current) {
+        return;
+      }
+
+      setReferralValidation(result);
+      if (result.valid) {
+        localStorage.setItem("pendingReferralCode", codeToValidate);
+      } else {
+        localStorage.removeItem("pendingReferralCode");
+      }
+    } catch (error: any) {
+      validationCompleted = true;
+      if (safetyTimeout) clearTimeout(safetyTimeout);
+
+      // Ignore if newer validation started
+      if (thisRunId !== validationRunRef.current) {
+        return;
+      }
+
+      const errorMessage = error.message || "Invalid referral code";
+      setReferralValidation({
+        valid: false,
+        message: errorMessage,
+        minRequired: error.minOrderAmount,
+        currentAmount: subtotal
+      });
+      localStorage.removeItem("pendingReferralCode");
+    } finally {
+      if (thisRunId === validationRunRef.current) {
+        setIsValidatingReferral(false);
+      }
+    }
+  };
 
   // Listen for wallet updates via WebSocket
   useWalletUpdates();
@@ -2288,36 +2234,44 @@ export default function CheckoutDialog({
     }
 
     // 🎁 Validate referral code if entered
-    // If user entered a code, it must be validated and valid with sufficient order amount
-    if (!isAuthenticated && referralCode.trim()) {
-      // Still validating
+    // Initialize variable to track which code to use (null if invalid/cleared)
+    let referralCode_to_use = null;
+
+    if (referralCode.trim()) {
+      // Still validating - don't let them proceed yet
       if (isValidatingReferral) {
         toast({
           title: "Please Wait",
-          description: "Validating your referral code...",
+          description: "Referral code validation in progress...",
           variant: "default",
         });
         return;
       }
 
-      // Code entered but never validated
+      // Code entered but never validated (user didn't click Verify button)
       if (!referralValidation) {
         toast({
-          title: "Referral Code Not Validated",
-          description: "Please wait for the referral code validation to complete.",
+          title: "Referral Code Not Verified",
+          description: "Please click 'Verify' to validate your referral code, or remove it to proceed without referral benefit.",
           variant: "destructive",
         });
+        // ✅ BLOCK PAYMENT - User must verify or clear code
         return;
       }
-
-      // Code is invalid or doesn't meet minimum order amount
-      if (!referralValidation.valid) {
+      // Code is invalid or doesn't meet minimum order amount - allow payment but without code
+      else if (!referralValidation.valid) {
         toast({
-          title: "Referral Code Invalid or Insufficient Order",
-          description: referralValidation.message,
-          variant: "destructive",
+          title: "Referral Code Not Applied",
+          description: referralValidation.message + " Your order will proceed without referral benefit.",
+          variant: "default",
         });
-        return;
+        // Clear the code so it doesn't get sent to backend - proceed without it
+        referralCode_to_use = null;
+        localStorage.removeItem("pendingReferralCode");
+      }
+      // Code is valid - use it
+      else if (referralValidation.valid) {
+        referralCode_to_use = referralCode.trim();
       }
     }
 
@@ -2437,7 +2391,7 @@ export default function CheckoutDialog({
         customerLatitude: finalLatitude,
         customerLongitude: finalLongitude,
         couponCode: appliedCoupon?.code,
-        referralCode: localStorage.getItem("pendingReferralCode") || null,
+        referralCode: referralCode_to_use,
         total,
         chefId: validCart.chefId || validCart.items[0]?.chefId,
         categoryId: validCart.categoryId,
@@ -3208,7 +3162,7 @@ export default function CheckoutDialog({
                         </div>
                       )}
 
-                      {/* Referral Code Input - Auto-verify as user types */}
+                      {/* Referral Code Input - Manual verification with button */}
                       {/* Show for: (1) unauthenticated users OR (2) authenticated users without pending bonus */}
                       {(!isAuthenticated || (isAuthenticated && !user?.pendingBonus)) && (
                         <div>
@@ -3231,8 +3185,7 @@ export default function CheckoutDialog({
                                 onChange={(e) => {
                                   const newCode = e.target.value.toUpperCase();
                                   setReferralCode(newCode);
-                                  // Trigger auto-validation with debounce
-                                  // If code is empty, clear validation
+                                  // Clear validation when user modifies code
                                   if (!newCode.trim()) {
                                     setReferralValidation(null);
                                   }
@@ -3241,9 +3194,25 @@ export default function CheckoutDialog({
                                 maxLength={20}
                                 data-testid="input-checkout-referral-code"
                               />
+                              <Button
+                                onClick={handleVerifyReferralCode}
+                                disabled={!referralCode.trim() || isValidatingReferral}
+                                variant="outline"
+                                size="sm"
+                                className="whitespace-nowrap"
+                              >
+                                {isValidatingReferral ? (
+                                  <>
+                                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                                    Verifying...
+                                  </>
+                                ) : (
+                                  "Verify"
+                                )}
+                              </Button>
                             </div>
 
-                            {/* Auto-validation message based on current order total */}
+                            {/* Validation result message */}
                             {referralCode.trim() && (
                               <div
                                 className={`text-xs p-2.5 rounded border ${
@@ -3254,12 +3223,13 @@ export default function CheckoutDialog({
                                     : "bg-blue-50 text-blue-700 border-blue-200"
                                 }`}
                               >
-                                {isValidatingReferral ? (
+                                {isValidatingReferral && (
                                   <div className="flex items-center gap-2">
                                     <Loader2 className="w-4 h-4 animate-spin" />
                                     Validating code...
                                   </div>
-                                ) : referralValidation ? (
+                                )}
+                                {!isValidatingReferral && referralValidation && (
                                   <>
                                     {referralValidation.valid ? (
                                       <>
@@ -3297,11 +3267,6 @@ export default function CheckoutDialog({
                                       </>
                                     )}
                                   </>
-                                ) : (
-                                  <div className="flex items-center gap-2">
-                                    <Loader2 className="w-4 h-4 animate-spin" />
-                                    Checking referral code validity...
-                                  </div>
                                 )}
                               </div>
                             )}
