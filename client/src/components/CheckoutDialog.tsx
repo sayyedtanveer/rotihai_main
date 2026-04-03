@@ -344,7 +344,7 @@ export default function CheckoutDialog({
   }, [isUserLoading, isAuthenticated, userToken]);
 
   // 🎁 AUTO-VALIDATE REFERRAL CODE with minimum order check
-  // When user enters/pastes a referral code, auto-validate against their current order total
+  // When user enters/pastes a referral code, auto-validate against FOOD SUBTOTAL ONLY (no delivery/wallet)
   useEffect(() => {
     if (!referralCode.trim()) {
       // Clear validation if code is empty
@@ -357,10 +357,10 @@ export default function CheckoutDialog({
     const validationTimeout = setTimeout(async () => {
       setIsValidatingReferral(true);
       try {
-        // Auto-validate with current order total
+        // Auto-validate with food subtotal ONLY (no delivery fee, wallet deduction, etc.)
         const result = await validateReferralMutation.mutateAsync({
           referralCode: referralCode.trim(),
-          orderAmount: total // Use current order total
+          orderAmount: subtotal // ✅ Use SUBTOTAL ONLY for accurate referral eligibility
         });
         setReferralValidation(result);
         if (result.valid) {
@@ -376,7 +376,7 @@ export default function CheckoutDialog({
           message: errorMessage,
           // Extract minimum order requirement from error response
           minRequired: error.minOrderAmount,
-          currentAmount: total
+          currentAmount: subtotal // ✅ Show SUBTOTAL in feedback for accuracy
         });
         localStorage.removeItem("pendingReferralCode");
       } finally {
@@ -385,7 +385,7 @@ export default function CheckoutDialog({
     }, 500); // Debounce for 500ms while user types
 
     return () => clearTimeout(validationTimeout);
-  }, [referralCode, total, validateReferralMutation]);
+  }, [referralCode, subtotal, validateReferralMutation]); // ✅ Watch SUBTOTAL changes for re-validation
 
   // Listen for wallet updates via WebSocket
   useWalletUpdates();
@@ -3122,7 +3122,8 @@ export default function CheckoutDialog({
                       )}
 
                       {/* Referral Code Input - Auto-verify as user types */}
-                      {!isAuthenticated && (
+                      {/* Show for: (1) unauthenticated users OR (2) authenticated users without pending bonus */}
+                      {(!isAuthenticated || (isAuthenticated && !user?.pendingBonus)) && (
                         <div>
                           <Label
                             htmlFor="referralCode"
