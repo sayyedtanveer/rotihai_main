@@ -348,12 +348,20 @@ export default function CheckoutDialog({
   // 🎁 AUTO-VALIDATE REFERRAL CODE with minimum order check
   // When user enters/pastes a referral code, auto-validate against FOOD SUBTOTAL ONLY (no delivery/wallet)
   useEffect(() => {
+    console.log('[CHECKOUT-VALIDATION-EFFECT] 🔄 Effect triggered:', { 
+      referralCode: referralCode.substring(0, 3) + '...',
+      subtotal,
+      codeLength: referralCode.length
+    });
+
     // Increment run id to cancel any previous pending validations
     validationRunRef.current += 1;
     const thisRunId = validationRunRef.current;
+    console.log('[CHECKOUT-VALIDATION-EFFECT] Validation run #', thisRunId);
 
     if (!referralCode.trim()) {
       // Clear validation if code is empty and cancel previous runs
+      console.log('[CHECKOUT-VALIDATION-EFFECT] Code is empty, clearing validation');
       setReferralValidation(null);
       localStorage.removeItem("pendingReferralCode");
       setIsValidatingReferral(false);
@@ -363,17 +371,21 @@ export default function CheckoutDialog({
     // ✅ FIX: Declare safetyTimeout in effect scope so it can be cleared in cleanup
     let safetyTimeout: NodeJS.Timeout | null = null;
 
+    // ✅ FIX: Set loading state IMMEDIATELY when effect runs (don't put inside setTimeout)
+    // This ensures UI shows "Validating..." while debounce waits
+    setIsValidatingReferral(true);
+
     // Debounce validation to avoid too many API calls while user is typing
     // Shorter debounce (300ms) for faster feedback since queries should be instant
     const validationTimeout = setTimeout(async () => {
-      setIsValidatingReferral(true);
+      console.log('[CHECKOUT-VALIDATION-EFFECT] ⏳ Debounce completed, starting validation (run #' + thisRunId + ')');
       let validationCompleted = false;
       const runIdAtStart = thisRunId;
       
       // Safety timeout (5 seconds) - if validation takes this long, something is wrong
       safetyTimeout = setTimeout(() => {
         if (!validationCompleted && runIdAtStart === validationRunRef.current) {
-          console.error('[VALIDATION] Safety timeout triggered - validation took too long');
+          console.error('[VALIDATION] ⏰ Safety timeout triggered - validation took too long (run #' + runIdAtStart + ')');
           setIsValidatingReferral(false);
           setReferralValidation({
             valid: false,
@@ -384,23 +396,31 @@ export default function CheckoutDialog({
       }, 5000); // 5 second safety timeout (validation should happen in < 500ms)
       
       try {
-        console.log('[VALIDATION] Starting validation...', { code: referralCode.substring(0, 3) + '...', subtotal });
-        // Auto-validate with food subtotal ONLY (no delivery fee, wallet deduction, etc.)
         const codeToValidate = referralCode.trim();
+        console.log('[VALIDATION] 🔄 Calling mutation.mutateAsync with:', { 
+          code: codeToValidate.substring(0, 3) + '...',
+          subtotal,
+          runId: runIdAtStart
+        });
+        
+        // Auto-validate with food subtotal ONLY (no delivery fee, wallet deduction, etc.)
         const result = await validateReferralMutation.mutateAsync({
           referralCode: codeToValidate,
           orderAmount: subtotal // ✅ Use SUBTOTAL ONLY for accurate referral eligibility
         });
+        
         validationCompleted = true;
         if (safetyTimeout) clearTimeout(safetyTimeout);
+        console.log('[VALIDATION] ✅ Mutation completed successfully (run #' + runIdAtStart + ')');
         
         // Ignore if a newer validation run started or the code was cleared
         if (runIdAtStart !== validationRunRef.current) {
-          console.log('[VALIDATION] Ignoring stale validation result for', codeToValidate);
+          console.log('[VALIDATION] ⚠️ Ignoring stale validation result for', codeToValidate, '(run #' + runIdAtStart + ' vs current #' + validationRunRef.current + ')');
           return;
         }
 
         console.log('[VALIDATION] ✅ Success', result);
+        console.log('[VALIDATION] ✅ Result received and stored (run #' + runIdAtStart + '):', result);
         setReferralValidation(result);
         if (result.valid) {
           localStorage.setItem("pendingReferralCode", codeToValidate);
@@ -411,15 +431,22 @@ export default function CheckoutDialog({
         validationCompleted = true;
         if (safetyTimeout) clearTimeout(safetyTimeout);
         
+        console.error('[VALIDATION] ❌ Error caught (run #' + runIdAtStart + '):', {
+          message: error.message,
+          name: error.name,
+          code: error.code,
+          stack: error.stack?.split('\n').slice(0, 3).join('\n')
+        });
+        
         // Ignore if a newer validation run started
         if (runIdAtStart !== validationRunRef.current) {
-          console.log('[VALIDATION] Ignoring stale validation error');
+          console.log('[VALIDATION] ⚠️ Ignoring stale validation error (run #' + runIdAtStart + ' vs current #' + validationRunRef.current + ')');
           return;
         }
 
-        console.error('[VALIDATION] ❌ Error:', error);
         // Extract error message and include minimum order info if available
         const errorMessage = error.message || "Invalid referral code";
+        console.log('[VALIDATION] 🎨 Setting error state with message:', errorMessage);
         setReferralValidation({
           valid: false,
           message: errorMessage,
@@ -430,12 +457,18 @@ export default function CheckoutDialog({
         localStorage.removeItem("pendingReferralCode");
       } finally {
         // Only clear validating state for this run
-        if (thisRunId === validationRunRef.current) setIsValidatingReferral(false);
+        if (thisRunId === validationRunRef.current) {
+          console.log('[VALIDATION] ✨ Finally block: clearing validating state (run #' + thisRunId + ')');
+          setIsValidatingReferral(false);
+        } else {
+          console.log('[VALIDATION] ⚠️ Finally block: skipping state clear, newer run in progress (run #' + thisRunId + ' vs current #' + validationRunRef.current + ')');
+        }
       }
     }, 300); // Debounce for 300ms (faster feedback than 500ms)
 
     // ✅ FIX: Clear BOTH debounce timeout AND safety timeout on effect cleanup
     return () => {
+      console.log('[VALIDATION] 🧹 Effect cleanup: clearing timeouts (run #' + thisRunId + ')');
       clearTimeout(validationTimeout);
       if (safetyTimeout) clearTimeout(safetyTimeout);
     };
