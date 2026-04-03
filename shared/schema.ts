@@ -280,6 +280,8 @@ export const referrals = pgTable("referrals", {
   referrerBonus: integer("referrer_bonus").notNull().default(0), // Bonus amount for referrer
   referredBonus: integer("referred_bonus").notNull().default(0), // Bonus amount for referred user
   referredOrderCompleted: boolean("referred_order_completed").notNull().default(false),
+  firstOrderId: varchar("first_order_id"), // Link to user's first order after referral
+  expiresAt: timestamp("expires_at"), // Referral expiry date (if not used by then, it expires)
   adminNote: text("admin_note"), // Admin reason for approve/cancel
   fraudFlag: boolean("fraud_flag").notNull().default(false), // Soft fraud flag set by admin
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -287,6 +289,7 @@ export const referrals = pgTable("referrals", {
 }, (table) => [
   index("IDX_referrals_referrer").on(table.referrerId, table.status),
   index("IDX_referrals_referred").on(table.referredId),
+  index("IDX_referrals_expires").on(table.expiresAt),
 ]);
 
 export const transactionTypeEnum = pgEnum("transaction_type", ["credit", "debit", "referral_bonus", "order_discount"]);

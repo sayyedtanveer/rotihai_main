@@ -349,6 +349,7 @@ export default function CheckoutDialog({
     if (!referralCode.trim()) {
       // Clear validation if code is empty
       setReferralValidation(null);
+      localStorage.removeItem("pendingReferralCode");
       return;
     }
 
@@ -362,6 +363,11 @@ export default function CheckoutDialog({
           orderAmount: total // Use current order total
         });
         setReferralValidation(result);
+        if (result.valid) {
+          localStorage.setItem("pendingReferralCode", referralCode.trim());
+        } else {
+          localStorage.removeItem("pendingReferralCode");
+        }
       } catch (error: any) {
         // Extract error message and include minimum order info if available
         const errorMessage = error.message || "Invalid referral code";
@@ -372,6 +378,7 @@ export default function CheckoutDialog({
           minRequired: error.minOrderAmount,
           currentAmount: total
         });
+        localStorage.removeItem("pendingReferralCode");
       } finally {
         setIsValidatingReferral(false);
       }
@@ -2343,7 +2350,7 @@ export default function CheckoutDialog({
         customerLatitude: finalLatitude,
         customerLongitude: finalLongitude,
         couponCode: appliedCoupon?.code,
-        referralCode: referralCode ? referralCode.trim().toUpperCase() : undefined,
+        referralCode: localStorage.getItem("pendingReferralCode") || null,
         total,
         chefId: validCart.chefId || validCart.items[0]?.chefId,
         categoryId: validCart.categoryId,
@@ -2415,6 +2422,7 @@ export default function CheckoutDialog({
       setAddressPincode("");
       setCouponCode("");
       setReferralCode("");
+      localStorage.removeItem("pendingReferralCode"); // ✅ Clean up localStorage after successful order
       setAppliedCoupon(null);
       setPhoneExists(null);
       setSelectedDeliveryTime("");
