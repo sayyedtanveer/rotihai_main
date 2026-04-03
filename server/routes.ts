@@ -2234,21 +2234,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
           accessToken = generateAccessToken(user);
           refreshToken = generateRefreshToken(user);
           
-          // 🎯 Apply referral bonus if order has referral code (new user only)
+          // 🎯 Create pending referral if order has referral code (new user only)
           if (order.referralCode && userCreated) {
-            console.log(`🎁 [REFERRAL] Attempting to apply referral code: ${order.referralCode} for new user ${user.id}`);
+            console.log(`🎁 [REFERRAL] Attempting to link referral code: ${order.referralCode} for new user ${user.id}`);
             try {
-              // ✅ FIX: Pass skipFirstOrderCheck=true because at this point the order has just been
-              // linked to the brand-new user (userId was null before this payment confirmation).
-              // The userOrders check would see length=1 and incorrectly reject the referral.
-              // All other fraud guards (self-referral, referrer age, duplicate, caps) still apply.
-              await storage.applyReferralBonus(order.referralCode, user.id, order.total, { skipFirstOrderCheck: true });
-              // Get the bonus amount from settings
-              const settings = await storage.getActiveReferralReward();
-              appliedReferralBonus = settings?.referredBonus || 50;
-              console.log(`✅ [REFERRAL] Bonus applied successfully for code: ${order.referralCode} - Amount: ₹${appliedReferralBonus}`);
+              // Get referrer
+              const referrer = await storage.getUserByReferralCode(order.referralCode);
+              
+              // ❌ prevent self referral
+              if (referrer && referrer.phone !== user.phone) {
+                 const { referrals: referralsTable } = await import("@shared/db");
+                 const { eq } = await import("drizzle-orm");
+                 const userId = user.id; // Capture for closure
+                 // ❌ prevent duplicate referral
+                 const existing = await db.query.referrals.findFirst({
+                    where: (r, { eq: eqOp }) => eqOp(r.referredId, userId)
+                 });
+                 if (!existing) {
+                    // ✅ Create referral with firstOrderId to link user's first order
+                    const referral = await storage.createReferral(referrer.id, user.id, { firstOrderId: id });
+                    console.log(`✅ [REFERRAL] Referral properly linked for code: ${order.referralCode}, First Order: ${id}`);
+                 }
+              }
             } catch (referralError: any) {
-              console.warn(`⚠️ [REFERRAL] Failed to apply referral bonus (non-blocking):`, referralError.message);
+              console.warn(`⚠️ [REFERRAL] Failed to link referral (non-blocking):`, referralError.message);
               // Don't fail order creation if referral application fails
             }
           }
@@ -2283,18 +2292,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
             console.log(`[DROPDOWN USER] First login detected - showing account dialog`);
           }
 
-          // 🎯 Apply referral bonus if order has referral code (for existing users too!)
-          // This handles the case where an existing user enters a referralCode but skips the Verify button
+          // 🎯 Create pending referral if order has referral code (first login for existing user)
           if (order.referralCode && !userCreated) {
-            console.log(`🎁 [REFERRAL] Attempting to apply referral code: ${order.referralCode} for existing user ${user.id}`);
+            console.log(`🎁 [REFERRAL] Attempting to link referral code: ${order.referralCode} for existing user ${user.id}`);
             try {
-              await storage.applyReferralBonus(order.referralCode, user.id, order.total);
-              // Get the bonus amount from settings
-              const settings = await storage.getActiveReferralReward();
-              appliedReferralBonus = settings?.referredBonus || 50;
-              console.log(`✅ [REFERRAL] Bonus applied successfully for code: ${order.referralCode} - Amount: ₹${appliedReferralBonus}`);
+              const referrer = await storage.getUserByReferralCode(order.referralCode);
+              if (referrer && referrer.phone !== user.phone) {
+                 const { referrals: referralsTable } = await import("@shared/db");
+                 const { eq } = await import("drizzle-orm");
+                 const userId = user.id; // Capture for closure
+                 const existing = await db.query.referrals.findFirst({
+                    where: (r, { eq: eqOp }) => eqOp(r.referredId, userId)
+                 });
+                 if (!existing) {
+                    // ✅ Link first order to referral
+                    const referral = await storage.createReferral(referrer.id, user.id, { firstOrderId: id });
+                    console.log(`✅ [REFERRAL] Referral properly linked for code: ${order.referralCode}, First Order: ${id}`);
+                 }
+              }
             } catch (referralError: any) {
-              console.warn(`⚠️ [REFERRAL] Failed to apply referral bonus (non-blocking):`, referralError.message);
+              console.warn(`⚠️ [REFERRAL] Failed to link referral (non-blocking):`, referralError.message);
               // Don't fail order confirmation if referral application fails
             }
           }
@@ -2308,19 +2325,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
             console.log(`✅ Tokens generated for existing user: ${existingUser.id}`);
           }
 
-          // 🎯 Apply referral bonus for existing user who is already linked to order
+          // 🎯 Create pending referral for existing user who is already linked to order
           // (e.g., admin linked them earlier)
           if (order.referralCode) {
-            console.log(`🎁 [REFERRAL] Attempting to apply referral code: ${order.referralCode} for existing user ${order.userId}`);
+            console.log(`🎁 [REFERRAL] Attempting to link referral code: ${order.referralCode} for existing user ${order.userId}`);
             try {
-              await storage.applyReferralBonus(order.referralCode, order.userId, order.total);
-              // Get the bonus amount from settings
-              const settings = await storage.getActiveReferralReward();
-              appliedReferralBonus = settings?.referredBonus || 50;
-              console.log(`✅ [REFERRAL] Bonus applied successfully for code: ${order.referralCode} - Amount: ₹${appliedReferralBonus}`);
+              const referrer = await storage.getUserByReferralCode(order.referralCode);
+              if (referrer && referrer.phone !== order.phone) { // Ensure self-referral doesn't happen
+                 const { referrals: referralsTable } = await import("@shared/db");
+                 const { eq } = await import("drizzle-orm");
+                 const existing = await db.query.referrals.findFirst({
+                    where: (r, { eq }) => eq(r.referredId, order.userId!)
+                 });
+                 if (!existing) {
+                    // ✅ Link first order to referral
+                    const referral = await storage.createReferral(referrer.id, order.userId!, { firstOrderId: id });
+                    console.log(`✅ [REFERRAL] Referral properly linked for code: ${order.referralCode}, First Order: ${id}`);
+                 }
+              }
             } catch (referralError: any) {
-              console.warn(`⚠️ [REFERRAL] Failed to apply referral bonus (non-blocking):`, referralError.message);
-              // Don't fail order confirmation if referral application fails
+              console.warn(`⚠️ [REFERRAL] Failed to link referral (non-blocking):`, referralError.message);
             }
           }
         }

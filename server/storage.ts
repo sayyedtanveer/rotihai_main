@@ -147,10 +147,12 @@ export interface IStorage {
 
   // Referral methods
   generateReferralCode(userId: string): Promise<string>;
-  createReferral(referrerId: string, referredId: string): Promise<any>;
-  applyReferralBonus(referralCode: string, newUserId: string): Promise<void>;
+  createReferral(referrerId: string, referredId: string, options?: { expiresAt?: Date; firstOrderId?: string }): Promise<any>;
+  applyReferralBonus(referralCode: string, newUserId: string, orderAmount?: number, options?: any): Promise<void>;
   getReferralsByUser(userId: string): Promise<any[]>;
   getReferralByReferredId(referredId: string): Promise<any | null>;
+  getUserByReferralCode(referralCode: string): Promise<any | null>;
+  updateReferral(referralId: string, data: Partial<any>): Promise<any | undefined>;
   getUserWalletBalance(userId: string): Promise<number>;
   validateBonusEligibility(userId: string, orderTotal: number): Promise<{
     eligible: boolean;
@@ -2243,10 +2245,21 @@ export class MemStorage implements IStorage {
     return code;
   }
 
-  async createReferral(referrerId: string, referredId: string): Promise<any> {
+  async createReferral(referrerId: string, referredId: string, options?: { expiresAt?: Date; firstOrderId?: string }): Promise<any> {
     const referrer = await this.getUser(referrerId);
     if (!referrer?.referralCode) {
       throw new Error("Referrer does not have a referral code");
+    }
+
+    const settings = await this.getActiveReferralReward();
+    const referrerBonusAmount = settings?.referrerBonus || 100;
+    const referredBonusAmount = settings?.referredBonus || 50;
+
+    // Calculate expiry date if not provided (default 30 days)
+    let expiresAt = options?.expiresAt;
+    if (!expiresAt) {
+      expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + (settings?.expiryDays || 30));
     }
 
     const referral = {
@@ -2254,9 +2267,11 @@ export class MemStorage implements IStorage {
       referredId,
       referralCode: referrer.referralCode,
       status: "pending",
-      referrerBonus: 100, // ₹100 for referrer
-      referredBonus: 50,  // ₹50 for new user
+      referrerBonus: referrerBonusAmount,
+      referredBonus: referredBonusAmount,
       referredOrderCompleted: false,
+      expiresAt,
+      firstOrderId: options?.firstOrderId || null,
     };
 
     const [created] = await db.insert(referrals).values(referral).returning();
@@ -2518,6 +2533,21 @@ export class MemStorage implements IStorage {
       where: (r, { eq }) => eq(r.referredId, referredId),
     });
     return referral || null;
+  }
+
+  async getUserByReferralCode(referralCode: string): Promise<any | null> {
+    const user = await db.query.users.findFirst({
+      where: (u, { eq }) => eq(u.referralCode, referralCode.trim().toUpperCase()),
+    });
+    return user || null;
+  }
+
+  async updateReferral(referralId: string, data: Partial<any>): Promise<any | undefined> {
+    const [updated] = await db.update(referrals)
+      .set(data)
+      .where(eq(referrals.id, referralId))
+      .returning();
+    return updated;
   }
 
   // 🕐 Expire old pending referrals (daily cleanup job)
