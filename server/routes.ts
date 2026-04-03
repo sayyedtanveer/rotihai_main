@@ -1083,7 +1083,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Apply referral code during registration
   // Validate referral code (public endpoint - doesn't require authentication)
   app.post("/api/referral/validate", async (req: any, res) => {
+    const startTime = Date.now();
     try {
+      console.log('[REFERRAL-VALIDATE-ENDPOINT] REQUEST', {
+        timestamp: new Date().toISOString(),
+        referralCode: req.body.referralCode?.substring(0, 3) + '...',
+        orderAmount: req.body.orderAmount
+      });
+
       // 🛡️ Check rate limit for this IP
       const clientIp = req.ip || req.connection.remoteAddress || "unknown";
       if (!checkRateLimitReferralValidation(clientIp)) {
@@ -1098,19 +1105,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { referralCode, orderAmount } = req.body;
 
       if (!referralCode) {
+        console.log('[REFERRAL-VALIDATE-ENDPOINT] Missing referral code');
         return res.status(400).json({ valid: false, message: "Referral code is required" });
       }
 
-      // Check if system is enabled
+      // ✅ OPTIMIZATION: Check if code exists FIRST (indexed lookup should be instant)
+      const codeCheckStart = Date.now();
+      const referrer = await db.query.users.findFirst({
+        where: (u, { eq: eqOp }) => eqOp(u.referralCode, referralCode.trim().toUpperCase()),
+      });
+      const codeCheckTime = Date.now() - codeCheckStart;
+      console.log(`[REFERRAL-VALIDATE-ENDPOINT] Code lookup took ${codeCheckTime}ms`, { found: !!referrer });
+
+      if (!referrer) {
+        console.log('[REFERRAL-VALIDATE-ENDPOINT] Code not found', { duration: Date.now() - startTime });
+        return res.status(400).json({ valid: false, message: "Invalid referral code" });
+      }
+
+      // ✅ Only fetch settings if code is valid
+      const settingsStart = Date.now();
       const settings = await storage.getActiveReferralReward();
+      const settingsTime = Date.now() - settingsStart;
+      console.log(`[REFERRAL-VALIDATE-ENDPOINT] Settings lookup took ${settingsTime}ms`);
+
       if (!settings?.isActive) {
+        console.log('[REFERRAL-VALIDATE-ENDPOINT] Referral system disabled');
         return res.status(400).json({ valid: false, message: "Referral system is currently disabled" });
       }
 
       // ✅ NEW: Validate minimum order amount if provided
       const minOrderAmount = settings?.minOrderAmount || 0;
       if (orderAmount !== undefined && orderAmount !== null && orderAmount < minOrderAmount) {
-        console.log(`⚠️ [REFERRAL-VALIDATE] Minimum order check failed. Required: ₹${minOrderAmount}, Current: ₹${orderAmount}`);
+        console.log(`⚠️ [REFERRAL-VALIDATE] Minimum order check failed. Required: ₹${minOrderAmount}, Current: ₹${orderAmount}`, { duration: Date.now() - startTime });
         return res.status(400).json({
           valid: false,
           message: `Minimum order amount ₹${minOrderAmount} is required to use a referral code. Current order: ₹${orderAmount}`,
@@ -1119,19 +1145,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Check if referral code exists
-      const referrer = await db.query.users.findFirst({
-        where: (u, { eq: eqOp }) => eqOp(u.referralCode, referralCode.trim().toUpperCase()),
-      });
-
-      if (!referrer) {
-        return res.status(400).json({ valid: false, message: "Invalid referral code" });
-      }
-
       // ✅ Code is valid and meets minimum order requirement
       const bonus = settings.referredBonus || 50;
-      console.log(`✅ [REFERRAL-VALIDATE] Code valid. User will get ₹${bonus} bonus. Min required: ₹${minOrderAmount}, Order total: ₹${orderAmount || "not specified"}`);
-      res.json({
+      const totalTime = Date.now() - startTime;
+      console.log(`✅ [REFERRAL-VALIDATE] Code valid. Total response time: ${totalTime}ms`, {
+        referrerName: referrer.name,
+        bonus,
+        minOrderAmount,
+        orderAmount
+      });
+      
+      return res.json({
         valid: true,
         message: `Valid referral code! You'll get ₹${bonus} bonus after your first order is delivered`,
         bonus,
@@ -1140,7 +1164,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         referrerName: referrer.name || "Friend"
       });
     } catch (error: any) {
-      console.error("Error validating referral:", error);
+      const errorTime = Date.now() - startTime;
+      console.error(`❌ [REFERRAL-VALIDATE] Error after ${errorTime}ms:`, error.message);
+      console.error("Stack trace:", error.stack);
       res.status(500).json({ valid: false, message: "Error validating referral code" });
     }
   });

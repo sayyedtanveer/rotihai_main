@@ -163,6 +163,8 @@ export default function CheckoutDialog({
   // ✅ NEW: Ref for Pay button focus management
   const payButtonRef = useRef<HTMLButtonElement>(null);
 
+  // ✅ Validation run id to cancel stale validations when referral code changes
+  const validationRunRef = useRef(0);
   // ✅ NEW: Ref for first input (Name field) - for initial focus on incomplete address
   const firstInputRef = useRef<HTMLInputElement>(null);
 
@@ -346,29 +348,76 @@ export default function CheckoutDialog({
   // 🎁 AUTO-VALIDATE REFERRAL CODE with minimum order check
   // When user enters/pastes a referral code, auto-validate against FOOD SUBTOTAL ONLY (no delivery/wallet)
   useEffect(() => {
+    // Increment run id to cancel any previous pending validations
+    validationRunRef.current += 1;
+    const thisRunId = validationRunRef.current;
+
     if (!referralCode.trim()) {
-      // Clear validation if code is empty
+      // Clear validation if code is empty and cancel previous runs
       setReferralValidation(null);
       localStorage.removeItem("pendingReferralCode");
+      setIsValidatingReferral(false);
       return;
     }
 
+    // ✅ FIX: Declare safetyTimeout in effect scope so it can be cleared in cleanup
+    let safetyTimeout: NodeJS.Timeout | null = null;
+
     // Debounce validation to avoid too many API calls while user is typing
+    // Shorter debounce (300ms) for faster feedback since queries should be instant
     const validationTimeout = setTimeout(async () => {
       setIsValidatingReferral(true);
+      let validationCompleted = false;
+      const runIdAtStart = thisRunId;
+      
+      // Safety timeout (5 seconds) - if validation takes this long, something is wrong
+      safetyTimeout = setTimeout(() => {
+        if (!validationCompleted && runIdAtStart === validationRunRef.current) {
+          console.error('[VALIDATION] Safety timeout triggered - validation took too long');
+          setIsValidatingReferral(false);
+          setReferralValidation({
+            valid: false,
+            message: "Validation took too long. Please try again or proceed without code."
+          });
+          localStorage.removeItem("pendingReferralCode");
+        }
+      }, 5000); // 5 second safety timeout (validation should happen in < 500ms)
+      
       try {
+        console.log('[VALIDATION] Starting validation...', { code: referralCode.substring(0, 3) + '...', subtotal });
         // Auto-validate with food subtotal ONLY (no delivery fee, wallet deduction, etc.)
+        const codeToValidate = referralCode.trim();
         const result = await validateReferralMutation.mutateAsync({
-          referralCode: referralCode.trim(),
+          referralCode: codeToValidate,
           orderAmount: subtotal // ✅ Use SUBTOTAL ONLY for accurate referral eligibility
         });
+        validationCompleted = true;
+        if (safetyTimeout) clearTimeout(safetyTimeout);
+        
+        // Ignore if a newer validation run started or the code was cleared
+        if (runIdAtStart !== validationRunRef.current) {
+          console.log('[VALIDATION] Ignoring stale validation result for', codeToValidate);
+          return;
+        }
+
+        console.log('[VALIDATION] ✅ Success', result);
         setReferralValidation(result);
         if (result.valid) {
-          localStorage.setItem("pendingReferralCode", referralCode.trim());
+          localStorage.setItem("pendingReferralCode", codeToValidate);
         } else {
           localStorage.removeItem("pendingReferralCode");
         }
       } catch (error: any) {
+        validationCompleted = true;
+        if (safetyTimeout) clearTimeout(safetyTimeout);
+        
+        // Ignore if a newer validation run started
+        if (runIdAtStart !== validationRunRef.current) {
+          console.log('[VALIDATION] Ignoring stale validation error');
+          return;
+        }
+
+        console.error('[VALIDATION] ❌ Error:', error);
         // Extract error message and include minimum order info if available
         const errorMessage = error.message || "Invalid referral code";
         setReferralValidation({
@@ -380,11 +429,16 @@ export default function CheckoutDialog({
         });
         localStorage.removeItem("pendingReferralCode");
       } finally {
-        setIsValidatingReferral(false);
+        // Only clear validating state for this run
+        if (thisRunId === validationRunRef.current) setIsValidatingReferral(false);
       }
-    }, 500); // Debounce for 500ms while user types
+    }, 300); // Debounce for 300ms (faster feedback than 500ms)
 
-    return () => clearTimeout(validationTimeout);
+    // ✅ FIX: Clear BOTH debounce timeout AND safety timeout on effect cleanup
+    return () => {
+      clearTimeout(validationTimeout);
+      if (safetyTimeout) clearTimeout(safetyTimeout);
+    };
   }, [referralCode, subtotal, validateReferralMutation]); // ✅ Watch SUBTOTAL changes for re-validation
 
   // Listen for wallet updates via WebSocket
@@ -3636,6 +3690,7 @@ export default function CheckoutDialog({
                       onClick={handleSubmit}
                       disabled={
                         isLoading ||
+                        isValidatingReferral || // ✅ Disable while validating referral code (industry standard)
                         !isFormValid ||
                         (phoneExists && !userToken) ||
                         cart?.chefIsActive === false ||
@@ -3646,12 +3701,18 @@ export default function CheckoutDialog({
                       }
                       className="w-full sm:w-auto"
                       data-testid="button-checkout-submit"
-                      title={addressZoneValidated && !addressInDeliveryZone ? `${address.split(",")[0].trim()} is outside our service area` : ""}
+                      title={addressZoneValidated && !addressInDeliveryZone ? `${address.split(",")[0].trim()} is outside our service area` : isValidatingReferral ? "Validating referral code..." : ""}
                     >
                       {isLoading ? (
                         <>
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                           Processing...
+                        </>
+                      ) : isValidatingReferral ? (
+                        // ✅ Show validation spinner during referral code check (Zomato/Swiggy standard)
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Validating Code...
                         </>
                       ) : isRotiOrderBlocked ? (
                         "🚫 Roti Not Available Now"

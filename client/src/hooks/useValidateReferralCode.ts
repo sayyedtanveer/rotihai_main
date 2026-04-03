@@ -20,12 +20,30 @@ export function useValidateReferralCode() {
   return useMutation({
     mutationFn: async ({ referralCode, orderAmount }: ValidateReferralParams): Promise<ValidateReferralResponse> => {
       try {
+        console.log('[REFERRAL-VALIDATE] Starting validation...', { referralCode: referralCode.substring(0, 3) + '...', orderAmount });
+        
         const response = await api.post("/api/referral/validate", {
           referralCode,
           orderAmount // ✅ NEW: Send current order amount for validation
         });
+        
+        console.log('[REFERRAL-VALIDATE] ✅ Validation successful', response.data);
         return response.data;
       } catch (error: any) {
+        console.error('[REFERRAL-VALIDATE] ❌ Validation failed', {
+          status: error.response?.status,
+          message: error.message,
+          data: error.response?.data
+        });
+        
+        // ✅ Handle network/timeout errors
+        if (!error.response) {
+          const err = new Error("Network error - unable to validate code") as any;
+          err.minOrderAmount = undefined;
+          err.currentOrder = undefined;
+          throw err;
+        }
+        
         // ✅ Throw error object containing both message and minOrderAmount
         const errorData = error.response?.data || {};
         const errorMessage = errorData.message || "Invalid referral code";
@@ -35,5 +53,6 @@ export function useValidateReferralCode() {
         throw err;
       }
     },
+    retry: 0, // ✅ Don't retry validation - fail fast
   });
 }
