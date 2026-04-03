@@ -94,6 +94,10 @@ export default function CheckoutDialog({
     message: string;
     bonus?: number;
     referrerName?: string;
+    minOrderAmount?: number; // ✅ Minimum order amount from backend
+    bonusNote?: string; // ✅ Note about when bonus is credited
+    minRequired?: number; // ✅ Used when validation fails (min required from error)
+    currentAmount?: number; // ✅ Current order amount
   } | null>(null);
   const [subtotal, setSubtotal] = useState(0);
   const [originalSubtotal, setOriginalSubtotal] = useState(0); // Original price before item discounts
@@ -159,8 +163,18 @@ export default function CheckoutDialog({
   // ✅ NEW: Ref for Pay button focus management
   const payButtonRef = useRef<HTMLButtonElement>(null);
 
+  // ✅ NEW: Ref for first input (Name field) - for initial focus on incomplete address
+  const firstInputRef = useRef<HTMLInputElement>(null);
+
   // State for View/Edit mode
   const [isEditingAddress, setIsEditingAddress] = useState(true);
+
+  // ✅ HELPER: Check if all 4 required address fields are complete
+  const isAddressComplete =
+    addressBuilding?.trim() &&
+    addressStreet?.trim() &&
+    addressArea?.trim() &&
+    addressPincode?.trim();
 
   // Log when cart changes
   useEffect(() => {
@@ -188,12 +202,23 @@ export default function CheckoutDialog({
     }
   }, [cart?.chefId]);
 
+  // ✅ NEW: Focus on first input when dialog opens with incomplete address
+  useEffect(() => {
+    if (!isOpen) return;
+
+    if (!isAddressComplete) {
+      // Address incomplete - focus on first input field
+      firstInputRef.current?.focus();
+    }
+  }, [isOpen, isAddressComplete]);
+
   // NOTE: Auto-validation removed — validation only occurs via explicit
   // "Validate Address" button click (handleValidateAddressClick)
 
   // Handle smooth scrolling to delivery slots upon validation success
   useEffect(() => {
-    if (shouldScrollToSlots) {
+    if (shouldScrollToSlots && isAddressComplete) {
+      // ✅ FIX: Only scroll if address is complete
       // Timeout to ensure DOM has completely updated and the section is mounted
       const timer = setTimeout(() => {
         const container = document.getElementById("checkout-scroll-container");
@@ -211,7 +236,7 @@ export default function CheckoutDialog({
       }, 300); // increased to 300ms for safety
       return () => clearTimeout(timer);
     }
-  }, [shouldScrollToSlots]);
+  }, [shouldScrollToSlots, isAddressComplete]);
 
   // ============================================
   // AUTO-SYNC STORED PINCODE FROM HERO
@@ -238,12 +263,20 @@ export default function CheckoutDialog({
       setAddressArea(storedPincode.area);
       setCustomerLatitude(storedPincode.latitude);
       setCustomerLongitude(storedPincode.longitude);
-      setAddressZoneValidated(true);
-      setAddressInDeliveryZone(true);
+      
+      // ✅ FIX: Only set validated if ALL required fields will be present
+      // Note: This will be validated on next check when other fields are filled
+      if (addressBuilding?.trim() && addressStreet?.trim()) {
+        setAddressZoneValidated(true);
+        setAddressInDeliveryZone(true);
+      } else {
+        // Still auto-fill but don't validate until user fills remaining fields
+        setAddressZoneValidated(false);
+      }
 
       console.log("[AUTO-SYNC-PINCODE] ✅ Pre-filled checkout form with stored pincode");
     }
-  }, [isOpen, cart?.chefId, addressPincode]);
+  }, [isOpen, cart?.chefId, addressPincode, addressBuilding, addressStreet]);
 
   // ============================================
   // RESTORE ADDRESS CONFIRMATION ON DIALOG REOPEN
@@ -255,15 +288,15 @@ export default function CheckoutDialog({
       return;
     }
 
-    // If address is validated and fields are populated, auto-confirm
-    if (addressZoneValidated && addressInDeliveryZone && addressPincode && !addressConfirmed) {
-      console.log("[RESTORE-ADDRESS] Dialog reopened with validated address. Auto-confirming.");
+    // ✅ FIX: Only confirm if ALL 4 address fields are complete AND validated
+    if (addressZoneValidated && addressInDeliveryZone && isAddressComplete && !addressConfirmed) {
+      console.log("[RESTORE-ADDRESS] Dialog reopened with fully validated address. Auto-confirming.");
       setAddressConfirmed(true);
       setIsEditingAddress(false); // Show view mode
       // Scroll down to order summary / Pay & Confirm so user sees totals immediately
       setShouldScrollToSlots(true);
     }
-  }, [isOpen, addressZoneValidated, addressInDeliveryZone, addressPincode]);
+  }, [isOpen, addressZoneValidated, addressInDeliveryZone, isAddressComplete]);
 
   // ============================================
   // FOCUS PAY BUTTON WHEN READY
@@ -271,13 +304,17 @@ export default function CheckoutDialog({
   // move focus to the Pay button for better UX
   // ============================================
   useEffect(() => {
-    if (addressConfirmed && !isEditingAddress && isOpen && payButtonRef.current) {
-      console.log("[FOCUS-PAY-BUTTON] Address confirmed - focusing Pay button");
-      setTimeout(() => {
-        payButtonRef.current?.focus();
-      }, 100); // Small delay to ensure DOM is ready
+    // ✅ FIX: Only focus Pay button if address is COMPLETE, confirmed, AND not editing
+    // SAFE GUARD: Don't steal focus if user is actively in an input field
+    if (addressConfirmed && !isEditingAddress && isOpen && isAddressComplete && payButtonRef.current) {
+      if (document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "TEXTAREA") {
+        console.log("[FOCUS-PAY-BUTTON] Address confirmed and complete - focusing Pay button");
+        setTimeout(() => {
+          payButtonRef.current?.focus();
+        }, 100); // Small delay to ensure DOM is ready
+      }
     }
-  }, [addressConfirmed, isEditingAddress, isOpen]);
+  }, [addressConfirmed, isEditingAddress, isOpen, isAddressComplete]);
 
   // Area suggestions for autocomplete
   const [areaSuggestions, setAreaSuggestions] = useState<string[]>([]);
@@ -305,6 +342,43 @@ export default function CheckoutDialog({
       // Note: we don't need a page reload, the state in useAuth already reflects !isAuthenticated
     }
   }, [isUserLoading, isAuthenticated, userToken]);
+
+  // 🎁 AUTO-VALIDATE REFERRAL CODE with minimum order check
+  // When user enters/pastes a referral code, auto-validate against their current order total
+  useEffect(() => {
+    if (!referralCode.trim()) {
+      // Clear validation if code is empty
+      setReferralValidation(null);
+      return;
+    }
+
+    // Debounce validation to avoid too many API calls while user is typing
+    const validationTimeout = setTimeout(async () => {
+      setIsValidatingReferral(true);
+      try {
+        // Auto-validate with current order total
+        const result = await validateReferralMutation.mutateAsync({
+          referralCode: referralCode.trim(),
+          orderAmount: total // Use current order total
+        });
+        setReferralValidation(result);
+      } catch (error: any) {
+        // Extract error message and include minimum order info if available
+        const errorMessage = error.message || "Invalid referral code";
+        setReferralValidation({
+          valid: false,
+          message: errorMessage,
+          // Extract minimum order requirement from error response
+          minRequired: error.minOrderAmount,
+          currentAmount: total
+        });
+      } finally {
+        setIsValidatingReferral(false);
+      }
+    }, 500); // Debounce for 500ms while user types
+
+    return () => clearTimeout(validationTimeout);
+  }, [referralCode, total, validateReferralMutation]);
 
   // Listen for wallet updates via WebSocket
   useWalletUpdates();
@@ -1665,9 +1739,16 @@ export default function CheckoutDialog({
           setAddressInDeliveryZone(true);
           setAddressZoneValidated(true);
           setIsEditingAddress(false); // Collapsed View mode
-          setAddressConfirmed(true);  // Allow viewing payment immediately since they already pushed validate
+          
+          // ✅ CRITICAL FIX: Only confirm address if ALL 4 fields are complete
+          if (isAddressComplete) {
+            setAddressConfirmed(true);  // Allow viewing payment immediately since they already pushed validate
+            setShouldScrollToSlots(true); // ✅ Trigger auto-scroll
+          } else {
+            setAddressConfirmed(false);  // Prevent premature confirmation
+          }
+          
           setLocationError("");
-          setShouldScrollToSlots(true); // ✅ Trigger auto-scroll
 
           // Update Context
           setDeliveryLocation({
@@ -2112,6 +2193,40 @@ export default function CheckoutDialog({
       }
     }
 
+    // 🎁 Validate referral code if entered
+    // If user entered a code, it must be validated and valid with sufficient order amount
+    if (!isAuthenticated && referralCode.trim()) {
+      // Still validating
+      if (isValidatingReferral) {
+        toast({
+          title: "Please Wait",
+          description: "Validating your referral code...",
+          variant: "default",
+        });
+        return;
+      }
+
+      // Code entered but never validated
+      if (!referralValidation) {
+        toast({
+          title: "Referral Code Not Validated",
+          description: "Please wait for the referral code validation to complete.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Code is invalid or doesn't meet minimum order amount
+      if (!referralValidation.valid) {
+        toast({
+          title: "Referral Code Invalid or Insufficient Order",
+          description: referralValidation.message,
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
     // ✅ NEW: Validate all 4 address fields are mandatory
     if (!addressBuilding.trim()) {
       toast({
@@ -2505,6 +2620,7 @@ export default function CheckoutDialog({
                         Full Name *
                       </Label>
                       <Input
+                        ref={firstInputRef}
                         id="customerName"
                         value={customerName}
                         onChange={(e) => setCustomerName(e.target.value)}
@@ -2997,7 +3113,7 @@ export default function CheckoutDialog({
                         </div>
                       )}
 
-                      {/* Referral Code Input - for new users only (not logged in) */}
+                      {/* Referral Code Input - Auto-verify as user types */}
                       {!isAuthenticated && (
                         <div>
                           <Label
@@ -3009,90 +3125,97 @@ export default function CheckoutDialog({
                               (Optional)
                             </span>
                           </Label>
-                          <div className="flex gap-2">
-                            <Input
-                              id="referralCode"
-                              type="text"
-                              placeholder="Enter friend's referral code"
-                              value={referralCode}
-                              onChange={(e) => {
-                                setReferralCode(e.target.value.toUpperCase());
-                                // Clear validation when user changes the code
-                                if (referralValidation) {
-                                  setReferralValidation(null);
-                                }
-                              }}
-                              className="font-mono uppercase"
-                              maxLength={20}
-                              data-testid="input-checkout-referral-code"
-                            />
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={async () => {
-                                if (!referralCode.trim()) {
-                                  setReferralValidation({
-                                    valid: false,
-                                    message: "Enter a referral code first"
-                                  });
-                                  return;
-                                }
-                                setIsValidatingReferral(true);
-                                try {
-                                  const result = await validateReferralMutation.mutateAsync({
-                                    referralCode: referralCode.trim(),
-                                  });
-                                  setReferralValidation(result);
-                                } catch (error: any) {
-                                  setReferralValidation({
-                                    valid: false,
-                                    message: error.message
-                                  });
-                                } finally {
-                                  setIsValidatingReferral(false);
-                                }
-                              }}
-                              disabled={isValidatingReferral || !referralCode.trim()}
-                              className="whitespace-nowrap"
-                            >
-                              {isValidatingReferral ? (
-                                <>
-                                  <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-                                  Checking...
-                                </>
-                              ) : (
-                                "Verify"
-                              )}
-                            </Button>
-                          </div>
-                          {referralValidation && (
-                            <div className={`text-xs mt-2 p-2 rounded ${
-                              referralValidation.valid 
-                                ? "bg-green-50 text-green-700 border border-green-200" 
-                                : "bg-red-50 text-red-700 border border-red-200"
-                            }`}>
-                              <div className="flex items-center gap-1">
-                                {referralValidation.valid && (
-                                  <CheckCircle2 className="w-4 h-4" />
-                                )}
-                                <span className="font-medium">{referralValidation.message}</span>
-                              </div>
-                              {referralValidation.valid && referralValidation.bonus && (
-                                <p className="mt-1">✅ You'll get ₹{referralValidation.bonus} bonus after your first order is delivered (from {referralValidation.referrerName})</p>
-                              )}
+                          <div className="space-y-2">
+                            <div className="flex gap-2">
+                              <Input
+                                id="referralCode"
+                                type="text"
+                                placeholder="Enter friend's referral code"
+                                value={referralCode}
+                                onChange={(e) => {
+                                  const newCode = e.target.value.toUpperCase();
+                                  setReferralCode(newCode);
+                                  // Trigger auto-validation with debounce
+                                  // If code is empty, clear validation
+                                  if (!newCode.trim()) {
+                                    setReferralValidation(null);
+                                  }
+                                }}
+                                className="font-mono uppercase"
+                                maxLength={20}
+                                data-testid="input-checkout-referral-code"
+                              />
                             </div>
-                          )}
-                          {!referralValidation && referralCode.trim() && (
-                            <p className="text-xs text-muted-foreground mt-1">
-                              Click "Verify" to confirm your referral code before placing order
-                            </p>
-                          )}
-                          {!referralCode.trim() && !referralValidation && (
-                            <p className="text-xs text-muted-foreground mt-1">
-                              Have a referral code? Enter it to earn bonus rewards!
-                            </p>
-                          )}
+
+                            {/* Auto-validation message based on current order total */}
+                            {referralCode.trim() && (
+                              <div
+                                className={`text-xs p-2.5 rounded border ${
+                                  referralValidation?.valid
+                                    ? "bg-green-50 text-green-700 border-green-200"
+                                    : referralValidation?.valid === false
+                                    ? "bg-red-50 text-red-700 border-red-200"
+                                    : "bg-blue-50 text-blue-700 border-blue-200"
+                                }`}
+                              >
+                                {isValidatingReferral ? (
+                                  <div className="flex items-center gap-2">
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    Validating code...
+                                  </div>
+                                ) : referralValidation ? (
+                                  <>
+                                    {referralValidation.valid ? (
+                                      <>
+                                        <div className="flex items-center gap-1 mb-1">
+                                          <CheckCircle2 className="w-4 h-4" />
+                                          <span className="font-medium">
+                                            ✅ Code Valid! {referralValidation.bonus && `₹${referralValidation.bonus} bonus`}
+                                          </span>
+                                        </div>
+                                        {referralValidation.referrerName && (
+                                          <p className="text-xs">
+                                            From: <strong>{referralValidation.referrerName}</strong>
+                                          </p>
+                                        )}
+                                        <p className="text-xs mt-1">
+                                          💰 Bonus will be credited after your first order is delivered
+                                        </p>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <div className="font-medium mb-1">
+                                          ⚠️ {referralValidation.message}
+                                        </div>
+                                        {referralValidation.minRequired && referralValidation.currentAmount && (
+                                          <div className="text-xs mt-1 space-y-1">
+                                            <p>
+                                              Required: <strong>₹{referralValidation.minRequired}</strong> |
+                                              Your order: <strong>₹{referralValidation.currentAmount}</strong>
+                                            </p>
+                                            <p>
+                                              Add ₹{referralValidation.minRequired - referralValidation.currentAmount} more to use this code
+                                            </p>
+                                          </div>
+                                        )}
+                                      </>
+                                    )}
+                                  </>
+                                ) : (
+                                  <div className="flex items-center gap-2">
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    Checking referral code validity...
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {!referralCode.trim() && !referralValidation && (
+                              <p className="text-xs text-muted-foreground">
+                                💝 Have a referral code? Enter it to unlock bonus rewards!
+                              </p>
+                            )}
+                          </div>
                         </div>
                       )}
 

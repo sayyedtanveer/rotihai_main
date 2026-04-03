@@ -2388,7 +2388,19 @@ export class MemStorage implements IStorage {
   }
 
   // Complete referral when referred user places first order
-  async completeReferralOnFirstOrder(userId: string, orderId: string): Promise<void> {
+  async completeReferralOnFirstOrder(userId: string, orderId: string): Promise<{
+    referredUserBonus: number;
+    referredUserId: string;
+    referrerUserBonus: number;
+    referrerUserId: string;
+  } | null> {
+    let result: {
+      referredUserBonus: number;
+      referredUserId: string;
+      referrerUserBonus: number;
+      referrerUserId: string;
+    } | null = null;
+
     await db.transaction(async (tx) => {
       // Find pending referral for this user
       const referral = await tx.query.referrals.findFirst({
@@ -2436,6 +2448,10 @@ export class MemStorage implements IStorage {
       const monthlyEarnings = completedThisMonth.reduce((sum, r) => sum + r.referrerBonus, 0);
       const canCreditBonus = monthlyEarnings + referral.referrerBonus <= maxEarningsPerMonth;
 
+      // ✅ Track which users received bonuses for wallet broadcasts
+      let referredUserBonus = 0;
+      let referrerUserBonus = 0;
+
       // ✅ FIX (double-bonus guard): Only credit referred user bonus here if they did NOT
       // already claim it via claimReferralBonusAtCheckout() at checkout.
       // If referredOrderCompleted is true, the checkout path already ran → skip to avoid double credit.
@@ -2443,6 +2459,7 @@ export class MemStorage implements IStorage {
       // won't even reach here for those cases (the WHERE status="pending" query above returns null).
       // This guard is an extra safety layer for edge cases (e.g. concurrent calls).
       if (!referral.referredOrderCompleted) {
+        referredUserBonus = referral.referredBonus;
         await this.createWalletTransaction({
           userId: referral.referredId,
           amount: referral.referredBonus,
@@ -2455,6 +2472,7 @@ export class MemStorage implements IStorage {
 
       if (canCreditBonus) {
         // 🎁 Credit ₹100 to referrer
+        referrerUserBonus = referral.referrerBonus;
         await this.createWalletTransaction({
           userId: referral.referrerId,
           amount: referral.referrerBonus,
@@ -2474,7 +2492,19 @@ export class MemStorage implements IStorage {
           referrerBonus: canCreditBonus ? referral.referrerBonus : 0,
         })
         .where(eq(referrals.id, referral.id));
+
+      // Build result for wallet broadcast
+      if (referredUserBonus > 0 || referrerUserBonus > 0) {
+        result = {
+          referredUserBonus,
+          referredUserId: referral.referredId,
+          referrerUserBonus,
+          referrerUserId: referral.referrerId,
+        };
+      }
     });
+
+    return result;
   }
 
   async getReferralsByUser(userId: string): Promise<any[]> {
