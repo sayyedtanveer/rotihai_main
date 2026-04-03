@@ -371,11 +371,14 @@ export default function CheckoutDialog({
     // ✅ FIX: Declare safetyTimeout in effect scope so it can be cleared in cleanup
     let safetyTimeout: NodeJS.Timeout | null = null;
 
+    // ✅ FIX: Set loading state IMMEDIATELY when effect runs (don't put inside setTimeout)
+    // This ensures UI shows "Validating..." while debounce waits
+    setIsValidatingReferral(true);
+
     // Debounce validation to avoid too many API calls while user is typing
     // Shorter debounce (300ms) for faster feedback since queries should be instant
     const validationTimeout = setTimeout(async () => {
       console.log('[CHECKOUT-VALIDATION-EFFECT] ⏳ Debounce completed, starting validation (run #' + thisRunId + ')');
-      setIsValidatingReferral(true);
       let validationCompleted = false;
       const runIdAtStart = thisRunId;
       
