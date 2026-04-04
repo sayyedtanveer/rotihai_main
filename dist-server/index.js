@@ -185,8 +185,17 @@ var init_schema = __esm({
       // Service pincodes - which pincodes this chef serves (pincode-based filtering)
       servicePincodes: text("service_pincodes").array(),
       // Array of valid pincodes like ["400070", "400086", "400025"]
-      isVerified: boolean("is_verified").notNull().default(false)
+      isVerified: boolean("is_verified").notNull().default(false),
       // Verified chef badge (verified by platform)
+      // ── FSSAI & Compliance (admin-controlled, all optional) ─────────────────────
+      fssaiNumber: text("fssai_number"),
+      // FSSAI licence number
+      fssaiVerified: boolean("fssai_verified").notNull().default(false),
+      // Admin-confirmed licence
+      chefType: text("chef_type"),
+      // 'home' | 'restaurant' | null
+      complianceStatus: text("compliance_status").notNull().default("pending")
+      // 'pending' | 'verified' | 'rejected'
     });
     products = pgTable("products", {
       id: text("id").primaryKey(),
@@ -207,8 +216,15 @@ var init_schema = __esm({
       categoryId: varchar("category_id").notNull(),
       chefId: text("chef_id"),
       offerPercentage: integer("offer_percentage").notNull().default(0),
-      marginPercent: decimal("margin_percent", { precision: 5, scale: 2 }).default("0")
+      marginPercent: decimal("margin_percent", { precision: 5, scale: 2 }).default("0"),
       // ← NEW: Auto-calculated margin %
+      // Menu Sections Support (for grouping products within a category)
+      section: text("section"),
+      // NEW: Section name (e.g., "Aloo & Noodle Frankies"), NULL for ungrouped
+      sectionOrder: integer("section_order").notNull().default(0),
+      // NEW: Controls section display order (lower = first)
+      sortOrder: integer("sort_order").notNull().default(0)
+      // NEW: Controls product order within section (lower = first)
     });
     paymentStatusEnum = pgEnum("payment_status", ["pending", "paid", "confirmed"]);
     deliveryPersonnelStatusEnum = pgEnum("delivery_personnel_status", ["available", "busy", "offline"]);
@@ -371,6 +387,10 @@ var init_schema = __esm({
       referredBonus: integer("referred_bonus").notNull().default(0),
       // Bonus amount for referred user
       referredOrderCompleted: boolean("referred_order_completed").notNull().default(false),
+      firstOrderId: varchar("first_order_id"),
+      // Link to user's first order after referral
+      expiresAt: timestamp("expires_at"),
+      // Referral expiry date (if not used by then, it expires)
       adminNote: text("admin_note"),
       // Admin reason for approve/cancel
       fraudFlag: boolean("fraud_flag").notNull().default(false),
@@ -379,7 +399,8 @@ var init_schema = __esm({
       completedAt: timestamp("completed_at")
     }, (table) => [
       index("IDX_referrals_referrer").on(table.referrerId, table.status),
-      index("IDX_referrals_referred").on(table.referredId)
+      index("IDX_referrals_referred").on(table.referredId),
+      index("IDX_referrals_expires").on(table.expiresAt)
     ]);
     transactionTypeEnum = pgEnum("transaction_type", ["credit", "debit", "referral_bonus", "order_discount"]);
     walletTransactions = pgTable("wallet_transactions", {
@@ -548,7 +569,12 @@ var init_schema = __esm({
       updatedAt: z.date().or(z.string()).optional()
     });
     insertChefSchema = createInsertSchema(chefs, {
-      servicePincodes: z.array(z.string().regex(/^\d{5,6}$/, "Pincode must be 5-6 digits")).optional().nullable()
+      servicePincodes: z.array(z.string().regex(/^\d{5,6}$/, "Pincode must be 5-6 digits")).optional().nullable(),
+      // FSSAI / compliance fields – all optional so admin can save without them
+      fssaiNumber: z.string().optional().nullable(),
+      fssaiVerified: z.boolean().optional(),
+      chefType: z.enum(["home", "restaurant"]).optional().nullable(),
+      complianceStatus: z.enum(["pending", "verified", "rejected"]).optional()
     }).omit({
       id: true
     });
@@ -1331,7 +1357,11 @@ var init_storage = __esm({
           isAvailable: insertProduct.isAvailable !== void 0 ? insertProduct.isAvailable : true,
           offerPercentage: insertProduct.offerPercentage ?? 0,
           hotelPrice: insertProduct.hotelPrice ?? 0,
-          marginPercent
+          marginPercent,
+          // Normalise optional fields to their DB defaults (prevent undefined leaking into Product type)
+          section: insertProduct.section ?? null,
+          sectionOrder: insertProduct.sectionOrder ?? 0,
+          sortOrder: insertProduct.sortOrder ?? 0
         };
         await db.insert(products2).values(product);
         return product;
@@ -1452,7 +1482,12 @@ var init_storage = __esm({
           freeDeliveryThreshold: data.freeDeliveryThreshold ?? 200,
           servicePincodes: data.servicePincodes || null,
           maxDeliveryDistanceKm: data.maxDeliveryDistanceKm ?? 5,
-          isVerified: data.isVerified === true
+          isVerified: data.isVerified === true,
+          // FSSAI / Compliance
+          fssaiNumber: data.fssaiNumber || null,
+          fssaiVerified: data.fssaiVerified === true,
+          chefType: data.chefType || null,
+          complianceStatus: data.complianceStatus || "pending"
         };
         await db.insert(chefs2).values(chefData);
         const created = await this.getChefById(id);
@@ -1481,6 +1516,10 @@ var init_storage = __esm({
         if (data.maxDeliveryDistanceKm !== void 0) updateData.maxDeliveryDistanceKm = data.maxDeliveryDistanceKm;
         if (data.servicePincodes !== void 0) updateData.servicePincodes = data.servicePincodes;
         if (data.isVerified !== void 0) updateData.isVerified = data.isVerified;
+        if (data.fssaiNumber !== void 0) updateData.fssaiNumber = data.fssaiNumber || null;
+        if (data.fssaiVerified !== void 0) updateData.fssaiVerified = data.fssaiVerified;
+        if (data.chefType !== void 0) updateData.chefType = data.chefType || null;
+        if (data.complianceStatus !== void 0) updateData.complianceStatus = data.complianceStatus;
         console.log("\u{1F525} updateChef() - Received data:", { id, incomingMaxDeliveryDistanceKm: data.maxDeliveryDistanceKm, servicePincodes: data.servicePincodes, updateData });
         await db.update(chefs2).set(updateData).where(eq(chefs2.id, id));
         const chef = await this.getChefById(id);
@@ -2631,30 +2670,42 @@ var init_storage = __esm({
         await db.update(users2).set({ referralCode: code }).where(eq(users2.id, userId));
         return code;
       }
-      async createReferral(referrerId, referredId) {
+      async createReferral(referrerId, referredId, options) {
         const referrer = await this.getUser(referrerId);
         if (!referrer?.referralCode) {
           throw new Error("Referrer does not have a referral code");
+        }
+        const settings = await this.getActiveReferralReward();
+        const referrerBonusAmount = settings?.referrerBonus || 100;
+        const referredBonusAmount = settings?.referredBonus || 50;
+        let expiresAt = options?.expiresAt;
+        if (!expiresAt) {
+          expiresAt = /* @__PURE__ */ new Date();
+          expiresAt.setDate(expiresAt.getDate() + (settings?.expiryDays || 30));
         }
         const referral = {
           referrerId,
           referredId,
           referralCode: referrer.referralCode,
           status: "pending",
-          referrerBonus: 100,
-          // ₹100 for referrer
-          referredBonus: 50,
-          // ₹50 for new user
-          referredOrderCompleted: false
+          referrerBonus: referrerBonusAmount,
+          referredBonus: referredBonusAmount,
+          referredOrderCompleted: false,
+          expiresAt,
+          firstOrderId: options?.firstOrderId || null
         };
         const [created] = await db.insert(referrals2).values(referral).returning();
         return created;
       }
-      async applyReferralBonus(referralCode, newUserId) {
+      async applyReferralBonus(referralCode, newUserId, orderAmount, options) {
         await db.transaction(async (tx) => {
           const settings = await this.getActiveReferralReward();
           if (!settings?.isActive) {
             throw new Error("Referral system is currently disabled");
+          }
+          const minOrderAmount = settings?.minOrderAmount || 0;
+          if (orderAmount !== void 0 && orderAmount < minOrderAmount) {
+            throw new Error(`Minimum order amount \u20B9${minOrderAmount} required to use referral code. Current order: \u20B9${orderAmount}`);
           }
           const referrer = await tx.query.users.findFirst({
             where: (u, { eq: eq10 }) => eq10(u.referralCode, referralCode)
@@ -2681,11 +2732,13 @@ var init_storage = __esm({
           if (!newUser) {
             throw new Error("User not found");
           }
-          const userOrders = await tx.query.orders.findMany({
-            where: (o, { eq: eq10 }) => eq10(o.userId, newUserId)
-          });
-          if (userOrders.length > 0) {
-            throw new Error("You can only use a referral code before placing your first order");
+          if (!options?.skipFirstOrderCheck) {
+            const userOrders = await tx.query.orders.findMany({
+              where: (o, { eq: eq10 }) => eq10(o.userId, newUserId)
+            });
+            if (userOrders.length > 0) {
+              throw new Error("You can only use a referral code before placing your first order");
+            }
           }
           const existingReferral = await tx.query.referrals.findFirst({
             where: (r, { eq: eq10 }) => eq10(r.referredId, newUserId)
@@ -2728,6 +2781,7 @@ var init_storage = __esm({
       }
       // Complete referral when referred user places first order
       async completeReferralOnFirstOrder(userId, orderId) {
+        let result = null;
         await db.transaction(async (tx) => {
           const referral = await tx.query.referrals.findFirst({
             where: (r, { and: and5, eq: eqOp }) => and5(
@@ -2760,15 +2814,28 @@ var init_storage = __esm({
           });
           const monthlyEarnings = completedThisMonth.reduce((sum, r) => sum + r.referrerBonus, 0);
           const canCreditBonus = monthlyEarnings + referral.referrerBonus <= maxEarningsPerMonth;
-          await this.createWalletTransaction({
-            userId: referral.referredId,
-            amount: referral.referredBonus,
-            type: "referral_bonus",
-            description: `Referral welcome bonus - your first order delivered!`,
-            referenceId: referral.id,
-            referenceType: "referral"
-          }, tx);
-          if (canCreditBonus) {
+          let referredUserBonus = 0;
+          let referrerUserBonus = 0;
+          if (!referral.referredOrderCompleted) {
+            referredUserBonus = referral.referredBonus;
+            await this.createWalletTransaction({
+              userId: referral.referredId,
+              amount: referral.referredBonus,
+              type: "referral_bonus",
+              description: `Referral welcome bonus - your first order delivered!`,
+              referenceId: referral.id,
+              referenceType: "referral"
+            }, tx);
+          }
+          const referrerOrders = await tx.query.orders.findMany({
+            where: (o, { and: and5, eq: eqOp }) => and5(
+              eqOp(o.userId, referral.referrerId),
+              eqOp(o.status, "delivered")
+            )
+          });
+          const referrerHasCompletedFirstOrder = referrerOrders.length > 0;
+          if (canCreditBonus && referrerHasCompletedFirstOrder) {
+            referrerUserBonus = referral.referrerBonus;
             await this.createWalletTransaction({
               userId: referral.referrerId,
               amount: referral.referrerBonus,
@@ -2777,14 +2844,25 @@ var init_storage = __esm({
               referenceId: referral.id,
               referenceType: "referral"
             }, tx);
+          } else if (canCreditBonus && !referrerHasCompletedFirstOrder) {
+            console.log(`[REFERRAL] Referrer ${referral.referrerId} has not completed first order. Skipping bonus.`);
           }
           await tx.update(referrals2).set({
             status: "completed",
             referredOrderCompleted: true,
             completedAt: /* @__PURE__ */ new Date(),
-            referrerBonus: canCreditBonus ? referral.referrerBonus : 0
+            referrerBonus: canCreditBonus && referrerHasCompletedFirstOrder ? referral.referrerBonus : 0
           }).where(eq(referrals2.id, referral.id));
+          if (referredUserBonus > 0 || referrerUserBonus > 0) {
+            result = {
+              referredUserBonus,
+              referredUserId: referral.referredId,
+              referrerUserBonus,
+              referrerUserId: referral.referrerId
+            };
+          }
         });
+        return result;
       }
       async getReferralsByUser(userId) {
         return db.query.referrals.findMany({
@@ -2796,6 +2874,16 @@ var init_storage = __esm({
           where: (r, { eq: eq10 }) => eq10(r.referredId, referredId)
         });
         return referral || null;
+      }
+      async getUserByReferralCode(referralCode) {
+        const user = await db.query.users.findFirst({
+          where: (u, { eq: eq10 }) => eq10(u.referralCode, referralCode.trim().toUpperCase())
+        });
+        return user || null;
+      }
+      async updateReferral(referralId, data) {
+        const [updated] = await db.update(referrals2).set(data).where(eq(referrals2.id, referralId)).returning();
+        return updated;
       }
       // 🕐 Expire old pending referrals (daily cleanup job)
       async expireOldPendingReferrals() {
@@ -2848,28 +2936,48 @@ var init_storage = __esm({
         return { eligible: true, bonus: referredBonus, minOrderAmount };
       }
       async claimReferralBonusAtCheckout(userId, orderTotal, orderId) {
-        const validation = await this.validateBonusEligibility(userId, orderTotal);
-        if (!validation.eligible) {
+        return await db.transaction(async (tx) => {
+          const referral = await tx.query.referrals.findFirst({
+            where: (r, { eq: eq10 }) => eq10(r.referredId, userId)
+          });
+          if (!referral) {
+            return { bonusClaimed: false, amount: 0, message: "No referral found for this user" };
+          }
+          if (referral.status !== "pending") {
+            return {
+              bonusClaimed: false,
+              amount: 0,
+              message: `Referral bonus already ${referral.status}`
+            };
+          }
+          const validation = await this.validateBonusEligibility(userId, orderTotal);
+          if (!validation.eligible) {
+            return {
+              bonusClaimed: false,
+              amount: 0,
+              message: validation.reason || "Not eligible for bonus"
+            };
+          }
+          await this.updateWalletBalance(userId, validation.bonus);
+          await this.createWalletTransaction({
+            userId,
+            amount: validation.bonus,
+            type: "referral_bonus_claimed",
+            description: `Referral bonus claimed at checkout for order ${orderId}`,
+            referenceId: orderId,
+            referenceType: "order"
+          });
+          await tx.update(referrals2).set({
+            status: "completed",
+            referredOrderCompleted: true,
+            completedAt: /* @__PURE__ */ new Date()
+          }).where(eq(referrals2.id, referral.id));
           return {
-            bonusClaimed: false,
-            amount: 0,
-            message: validation.reason || "Not eligible for bonus"
+            bonusClaimed: true,
+            amount: validation.bonus,
+            message: `\u20B9${validation.bonus} bonus claimed successfully!`
           };
-        }
-        await this.updateWalletBalance(userId, validation.bonus);
-        await this.createWalletTransaction({
-          userId,
-          amount: validation.bonus,
-          type: "referral_bonus_claimed",
-          description: `Referral bonus claimed at checkout for order ${orderId}`,
-          referenceId: orderId,
-          referenceType: "order"
         });
-        return {
-          bonusClaimed: true,
-          amount: validation.bonus,
-          message: `\u20B9${validation.bonus} bonus claimed successfully!`
-        };
       }
       async updateWalletBalance(userId, amount) {
         await db.update(users2).set({ walletBalance: sql3`${users2.walletBalance} + ${amount}` }).where(eq(users2.id, userId));
@@ -5996,7 +6104,7 @@ var init_vite = __esm({
       }
       if (!viteConfig) {
         try {
-          const config = await import("../../vite.config");
+          const config = await import("../vite.config");
           viteConfig = config.default;
         } catch (error) {
           console.error("\u274C Failed to load vite.config:", error);
@@ -6496,6 +6604,7 @@ dotenv.config();
 
 // server/index.ts
 import express2 from "express";
+import { sql as sql4 } from "drizzle-orm";
 import cookieParser from "cookie-parser";
 import multer from "multer";
 
@@ -6847,8 +6956,33 @@ function registerAdminRoutes(app2) {
       }
       if (status === "delivered" && order.userId) {
         try {
-          await storage.completeReferralOnFirstOrder(order.userId, id);
-          console.log(`\u2705 Referral completion triggered for order ${id}`);
+          const creditedUsers = await storage.completeReferralOnFirstOrder(order.userId, id);
+          if (creditedUsers) {
+            console.log(`\u2705 Referral completion triggered for order ${id}`, {
+              referredUser: {
+                id: creditedUsers.referredUserId,
+                bonus: creditedUsers.referredUserBonus
+              },
+              referrerUser: {
+                id: creditedUsers.referrerUserId,
+                bonus: creditedUsers.referrerUserBonus
+              }
+            });
+            if (creditedUsers.referredUserBonus > 0) {
+              const referredUser = await storage.getUser(creditedUsers.referredUserId);
+              if (referredUser) {
+                broadcastWalletUpdate(creditedUsers.referredUserId, referredUser.walletBalance);
+              }
+            }
+            if (creditedUsers.referrerUserBonus > 0) {
+              const referrerUser = await storage.getUser(creditedUsers.referrerUserId);
+              if (referrerUser) {
+                broadcastWalletUpdate(creditedUsers.referrerUserId, referrerUser.walletBalance);
+              }
+            }
+          } else {
+            console.log(`\u2139\uFE0F No referral bonus to process for order ${id}`);
+          }
         } catch (referralError) {
           console.warn(`\u26A0\uFE0F Error completing referral: ${referralError.message}`);
         }
@@ -6911,7 +7045,7 @@ function registerAdminRoutes(app2) {
           if (order.referralCode && userCreated) {
             console.log(`\u{1F381} [REFERRAL] Attempting to apply referral code: ${order.referralCode} for new user ${user.id}`);
             try {
-              await storage.applyReferralBonus(order.referralCode, user.id);
+              await storage.applyReferralBonus(order.referralCode, user.id, order.total, { skipFirstOrderCheck: true });
               const settings = await storage.getActiveReferralReward();
               appliedReferralBonus = settings?.referredBonus || 50;
               console.log(`\u2705 [REFERRAL] Bonus applied successfully for code: ${order.referralCode} - Amount: \u20B9${appliedReferralBonus}`);
@@ -12668,7 +12802,13 @@ async function registerRoutes(app2) {
     }
   });
   app2.post("/api/referral/validate", async (req, res) => {
+    const startTime = Date.now();
     try {
+      console.log("[REFERRAL-VALIDATE-ENDPOINT] REQUEST", {
+        timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+        referralCode: req.body.referralCode?.substring(0, 3) + "...",
+        orderAmount: req.body.orderAmount
+      });
       const clientIp = req.ip || req.connection.remoteAddress || "unknown";
       if (!checkRateLimitReferralValidation(clientIp)) {
         console.warn(`\u26A0\uFE0F [RATE LIMIT] Referral validation rate limit exceeded for IP: ${clientIp}`);
@@ -12678,29 +12818,59 @@ async function registerRoutes(app2) {
           retryAfter: REFERRAL_RATE_LIMIT.windowMs / 1e3
         });
       }
-      const { referralCode } = req.body;
+      const { referralCode, orderAmount } = req.body;
       if (!referralCode) {
+        console.log("[REFERRAL-VALIDATE-ENDPOINT] Missing referral code");
         return res.status(400).json({ valid: false, message: "Referral code is required" });
       }
-      const settings = await storage.getActiveReferralReward();
-      if (!settings?.isActive) {
-        return res.status(400).json({ valid: false, message: "Referral system is currently disabled" });
-      }
+      const codeCheckStart = Date.now();
       const referrer = await db.query.users.findFirst({
         where: (u, { eq: eqOp }) => eqOp(u.referralCode, referralCode.trim().toUpperCase())
       });
+      const codeCheckTime = Date.now() - codeCheckStart;
+      console.log(`[REFERRAL-VALIDATE-ENDPOINT] Code lookup took ${codeCheckTime}ms`, { found: !!referrer });
       if (!referrer) {
+        console.log("[REFERRAL-VALIDATE-ENDPOINT] Code not found", { duration: Date.now() - startTime });
         return res.status(400).json({ valid: false, message: "Invalid referral code" });
       }
-      res.json({
+      const settingsStart = Date.now();
+      const settings = await storage.getActiveReferralReward();
+      const settingsTime = Date.now() - settingsStart;
+      console.log(`[REFERRAL-VALIDATE-ENDPOINT] Settings lookup took ${settingsTime}ms`);
+      if (!settings?.isActive) {
+        console.log("[REFERRAL-VALIDATE-ENDPOINT] Referral system disabled");
+        return res.status(400).json({ valid: false, message: "Referral system is currently disabled" });
+      }
+      const minOrderAmount = settings?.minOrderAmount || 0;
+      if (orderAmount !== void 0 && orderAmount !== null && orderAmount < minOrderAmount) {
+        console.log(`\u26A0\uFE0F [REFERRAL-VALIDATE] Minimum order check failed. Required: \u20B9${minOrderAmount}, Current: \u20B9${orderAmount}`, { duration: Date.now() - startTime });
+        return res.status(400).json({
+          valid: false,
+          message: `Minimum order amount \u20B9${minOrderAmount} is required to use a referral code. Current order: \u20B9${orderAmount}`,
+          minOrderAmount,
+          currentOrder: orderAmount
+        });
+      }
+      const bonus = settings.referredBonus || 50;
+      const totalTime = Date.now() - startTime;
+      console.log(`\u2705 [REFERRAL-VALIDATE] Code valid. Total response time: ${totalTime}ms`, {
+        referrerName: referrer.name,
+        bonus,
+        minOrderAmount,
+        orderAmount
+      });
+      return res.json({
         valid: true,
-        message: "Valid referral code!",
-        bonus: settings.referredBonus || 50,
+        message: `Valid referral code! You'll get \u20B9${bonus} bonus after your first order is delivered`,
+        bonus,
+        minOrderAmount,
         bonusNote: "Bonus will be credited after your first order is delivered",
         referrerName: referrer.name || "Friend"
       });
     } catch (error) {
-      console.error("Error validating referral:", error);
+      const errorTime = Date.now() - startTime;
+      console.error(`\u274C [REFERRAL-VALIDATE] Error after ${errorTime}ms:`, error.message);
+      console.error("Stack trace:", error.stack);
       res.status(500).json({ valid: false, message: "Error validating referral code" });
     }
   });
@@ -13358,6 +13528,7 @@ async function registerRoutes(app2) {
       (async () => {
         try {
           if (userId) {
+            console.log(`\u{1F50D} [REFERRAL-COMPLETION] Looking for pending referral for userId: ${userId}`);
             const { db: database } = await Promise.resolve().then(() => (init_db(), db_exports));
             const { referrals: referralsTable } = await Promise.resolve().then(() => (init_db(), db_exports));
             const { eq: eq10, and: and5 } = await import("drizzle-orm");
@@ -13367,7 +13538,13 @@ async function registerRoutes(app2) {
                 eq11(r.status, "pending")
               )
             });
+            console.log(`\u{1F4CA} [REFERRAL-COMPLETION] Pending referral lookup:`, {
+              found: !!pendingReferral,
+              referralId: pendingReferral?.id,
+              status: pendingReferral?.status
+            });
             if (pendingReferral) {
+              console.log(`\u2705 [REFERRAL-COMPLETION] Found pending referral, completing...`);
               await database.transaction(async (tx) => {
                 const referredUser = await tx.query.users.findFirst({
                   where: (u, { eq: eq11 }) => eq11(u.id, userId)
@@ -13385,7 +13562,14 @@ async function registerRoutes(app2) {
                   referenceId: pendingReferral.id,
                   referenceType: "referral"
                 }, tx);
+                console.log(`\u2705 [REFERRAL-COMPLETION] Bonus credited to referrer:`, {
+                  referrerId: pendingReferral.referrerId,
+                  amount: pendingReferral.referrerBonus,
+                  referralId: pendingReferral.id
+                });
               });
+            } else {
+              console.log(`\u{1F4CB} [REFERRAL-COMPLETION] No pending referral found for user ${userId}`);
             }
           }
         } catch (err) {
@@ -13478,6 +13662,13 @@ async function registerRoutes(app2) {
       let refreshToken;
       let userCreated = false;
       let appliedReferralBonus = 0;
+      console.log(`\u{1F4CA} [PAYMENT-CONFIRMED-DIAGNOSTICS] Order ${id}:`, {
+        userIdExists: !!order.userId,
+        hasReferralCode: !!order.referralCode,
+        referralCode: order.referralCode || "NULL",
+        phone: order.phone,
+        customerName: order.customerName
+      });
       if (!order.userId) {
         console.log(`\u{1F4DD} Payment confirmed for new user order ${id} - Creating user account`);
         let user = await storage.getUserByPhone(order.phone);
@@ -13526,18 +13717,45 @@ async function registerRoutes(app2) {
           accessToken = generateAccessToken2(user);
           refreshToken = generateRefreshToken2(user);
           if (order.referralCode && userCreated) {
-            console.log(`\u{1F381} [REFERRAL] Attempting to apply referral code: ${order.referralCode} for new user ${user.id}`);
+            console.log(`\u{1F381} [REFERRAL] Attempting to link referral code: ${order.referralCode} for new user ${user.id}`);
             try {
-              await storage.applyReferralBonus(order.referralCode, user.id);
-              const settings = await storage.getActiveReferralReward();
-              appliedReferralBonus = settings?.referredBonus || 50;
-              console.log(`\u2705 [REFERRAL] Bonus applied successfully for code: ${order.referralCode} - Amount: \u20B9${appliedReferralBonus}`);
+              const referrer = await storage.getUserByReferralCode(order.referralCode);
+              console.log(`\u{1F50D} [REFERRAL] Referrer lookup:`, { found: !!referrer, referrerPhone: referrer?.phone, newUserPhone: user.phone });
+              if (referrer && referrer.phone !== user.phone) {
+                const { referrals: referralsTable } = await Promise.resolve().then(() => (init_db(), db_exports));
+                const { eq: eq10 } = await import("drizzle-orm");
+                const userId = user.id;
+                const existing = await db.query.referrals.findFirst({
+                  where: (r, { eq: eqOp }) => eqOp(r.referredId, userId)
+                });
+                console.log(`\u{1F50D} [REFERRAL] Duplicate check:`, { existingReferral: !!existing });
+                if (!existing) {
+                  const referral = await storage.createReferral(referrer.id, user.id, { firstOrderId: id });
+                  console.log(`\u2705 [REFERRAL] Referral properly linked for code: ${order.referralCode}, First Order: ${id}, Referral ID: ${referral.id}`);
+                } else {
+                  console.log(`\u26A0\uFE0F [REFERRAL] Skipped - User already has referral`);
+                }
+              } else {
+                console.log(`\u26A0\uFE0F [REFERRAL] Skipped - Referrer not found or self-referral detected`);
+              }
             } catch (referralError) {
-              console.warn(`\u26A0\uFE0F [REFERRAL] Failed to apply referral bonus (non-blocking):`, referralError.message);
+              console.warn(`\u26A0\uFE0F [REFERRAL] Failed to link referral (non-blocking):`, referralError.message);
+              console.warn(`\u26A0\uFE0F [REFERRAL] Stack:`, referralError.stack);
             }
+          } else {
+            console.log(`\u{1F4CB} [REFERRAL] Skipped NEW USER referral:`, {
+              hasCode: !!order.referralCode,
+              userCreated,
+              reason: !order.referralCode ? "No referral code" : "Not a new user"
+            });
           }
         } else {
           console.log(`\u{1F464} User already exists with phone ${order.phone}, linking to order`);
+          console.log(`\u{1F4CA} [EXISTING-USER-DIAGNOSTICS]:`, {
+            userId: user.id,
+            hasReferralCode: !!order.referralCode,
+            referralCode: order.referralCode || "NULL"
+          });
           const userOrderCount = await db.select().from(orders2).where(eq8(orders2.userId, user.id)).then((rows) => rows.length);
           const isFirstLoginAfterAdminCreation = userOrderCount === 0 && user.createdAt && Date.now() - new Date(user.createdAt).getTime() < 36e5;
           console.log(`[DROPDOWN USER] User order count: ${userOrderCount}, isFirstLogin: ${isFirstLoginAfterAdminCreation}`);
@@ -13549,14 +13767,81 @@ async function registerRoutes(app2) {
             userCreated = true;
             console.log(`[DROPDOWN USER] First login detected - showing account dialog`);
           }
+          if (order.referralCode && !userCreated) {
+            console.log(`\u{1F381} [REFERRAL] Attempting to link referral code: ${order.referralCode} for existing user ${user.id}`);
+            try {
+              const referrer = await storage.getUserByReferralCode(order.referralCode);
+              console.log(`\u{1F50D} [REFERRAL] Referrer lookup:`, { found: !!referrer, referrerPhone: referrer?.phone, userPhone: user.phone });
+              if (referrer && referrer.phone !== user.phone) {
+                const { referrals: referralsTable } = await Promise.resolve().then(() => (init_db(), db_exports));
+                const { eq: eq10 } = await import("drizzle-orm");
+                const userId = user.id;
+                const existing = await db.query.referrals.findFirst({
+                  where: (r, { eq: eqOp }) => eqOp(r.referredId, userId)
+                });
+                console.log(`\u{1F50D} [REFERRAL] Duplicate check:`, { existingReferral: !!existing });
+                if (!existing) {
+                  const referral = await storage.createReferral(referrer.id, user.id, { firstOrderId: id });
+                  console.log(`\u2705 [REFERRAL] Referral properly linked for code: ${order.referralCode}, First Order: ${id}, Referral ID: ${referral.id}`);
+                } else {
+                  console.log(`\u26A0\uFE0F [REFERRAL] Skipped - User already has referral`);
+                }
+              } else {
+                console.log(`\u26A0\uFE0F [REFERRAL] Skipped - Referrer not found or self-referral detected`);
+              }
+            } catch (referralError) {
+              console.warn(`\u26A0\uFE0F [REFERRAL] Failed to link referral (non-blocking):`, referralError.message);
+              console.warn(`\u26A0\uFE0F [REFERRAL] Stack:`, referralError.stack);
+            }
+          } else {
+            console.log(`\u{1F4CB} [REFERRAL] Skipped EXISTING USER referral:`, {
+              hasCode: !!order.referralCode,
+              userCreated,
+              reason: !order.referralCode ? "No referral code" : "Not first login (userCreated=true)"
+            });
+          }
         }
       } else {
         console.log(`\u{1F464} User already linked to order ${id} (userId: ${order.userId}). Generating tokens for potential auto-login.`);
+        console.log(`\u{1F4CA} [PRE-LINKED-USER-DIAGNOSTICS]:`, {
+          userId: order.userId,
+          hasReferralCode: !!order.referralCode,
+          referralCode: order.referralCode || "NULL",
+          phone: order.phone
+        });
         const existingUser = await storage.getUser(order.userId);
         if (existingUser) {
           accessToken = generateAccessToken2(existingUser);
           refreshToken = generateRefreshToken2(existingUser);
           console.log(`\u2705 Tokens generated for existing user: ${existingUser.id}`);
+        }
+        if (order.referralCode) {
+          console.log(`\u{1F381} [REFERRAL] Attempting to link referral code: ${order.referralCode} for existing user ${order.userId}`);
+          try {
+            const referrer = await storage.getUserByReferralCode(order.referralCode);
+            console.log(`\u{1F50D} [REFERRAL] Referrer lookup:`, { found: !!referrer, referrerPhone: referrer?.phone, orderPhone: order.phone });
+            if (referrer && referrer.phone !== order.phone) {
+              const { referrals: referralsTable } = await Promise.resolve().then(() => (init_db(), db_exports));
+              const { eq: eq10 } = await import("drizzle-orm");
+              const existing = await db.query.referrals.findFirst({
+                where: (r, { eq: eq11 }) => eq11(r.referredId, order.userId)
+              });
+              console.log(`\u{1F50D} [REFERRAL] Duplicate check:`, { existingReferral: !!existing });
+              if (!existing) {
+                const referral = await storage.createReferral(referrer.id, order.userId, { firstOrderId: id });
+                console.log(`\u2705 [REFERRAL] Referral properly linked for code: ${order.referralCode}, First Order: ${id}, Referral ID: ${referral.id}`);
+              } else {
+                console.log(`\u26A0\uFE0F [REFERRAL] Skipped - User already has referral`);
+              }
+            } else {
+              console.log(`\u26A0\uFE0F [REFERRAL] Skipped - Referrer not found or self-referral detected`);
+            }
+          } catch (referralError) {
+            console.warn(`\u26A0\uFE0F [REFERRAL] Failed to link referral (non-blocking):`, referralError.message);
+            console.warn(`\u26A0\uFE0F [REFERRAL] Stack:`, referralError.stack);
+          }
+        } else {
+          console.log(`\u{1F4CB} [REFERRAL] Skipped PRE-LINKED USER referral - No referral code in order`);
         }
       }
       const orderBefore = await storage.getOrderById(id);
@@ -16437,24 +16722,37 @@ var imageExists = (filename) => {
 var enableVite2 = process.env.ENABLE_VITE === "true";
 if (enableVite2) {
   const dbUrl = process.env.DATABASE_URL || "";
-  if (dbUrl.includes("rotihai_prod")) {
+  const allowProdDb = process.env.ALLOW_PROD_DB_IN_DEV === "true";
+  if (dbUrl.includes("rotihai_prod") && !allowProdDb) {
     console.error("\u274C \u274C \u274C CRITICAL ERROR \u274C \u274C \u274C");
     console.error("DEV SERVER IS USING PRODUCTION DATABASE!");
     console.error(`DATABASE_URL: ${dbUrl}`);
     console.error("This will corrupt production data!");
     console.error("");
-    console.error("\u2705 FIX: Update .env to use rotihai_dev database");
+    console.error("\u2705 FIX #1: Update .env to use rotihai_dev database");
     console.error("   DATABASE_URL=postgresql://user:pass@host:5432/rotihai_dev");
     console.error("");
+    console.error("\u2705 FIX #2: Or, to RUN LOCALLY WITH PRODUCTION DB (for debugging):");
+    console.error("   Add to .env: ALLOW_PROD_DB_IN_DEV=true");
+    console.error("   \u26A0\uFE0F WARNING: This will use real production data locally!");
+    console.error("");
     console.error("Available databases:");
-    console.error("  \u{1F4CA} rotihai_prod - Production database (DO NOT USE IN DEV)");
+    console.error("  \u{1F4CA} rotihai_prod - Production database (DO NOT USE IN DEV unless ALLOW_PROD_DB_IN_DEV=true)");
     console.error("  \u{1F9EA} rotihai_dev  - Development database (USE THIS IN DEV)");
     console.error("  \u{1F9EA} rotihai_test - Test database (USE FOR TESTS)");
     console.error("");
     process.exit(1);
   }
-  console.log("\u2705 Database safety check passed - using DEVELOPMENT database");
-  console.log(`   DATABASE: ${dbUrl.split("/").pop()}`);
+  if (allowProdDb && dbUrl.includes("rotihai_prod")) {
+    console.warn("\u26A0\uFE0F  \u26A0\uFE0F  \u26A0\uFE0F  WARNING \u26A0\uFE0F  \u26A0\uFE0F  \u26A0\uFE0F");
+    console.warn("RUNNING LOCAL DEV SERVER WITH PRODUCTION DATABASE!");
+    console.warn("Any changes made will affect real production data.");
+    console.warn("DATABASE: " + dbUrl.split("/").pop());
+    console.warn("");
+  } else if (!dbUrl.includes("rotihai_prod")) {
+    console.log("\u2705 Database safety check passed - using DEVELOPMENT database");
+    console.log(`   DATABASE: ${dbUrl.split("/").pop()}`);
+  }
 }
 var log2 = (message, source = "express") => {
   const formattedTime = (/* @__PURE__ */ new Date()).toLocaleTimeString("en-US", {
@@ -16822,6 +17120,26 @@ app.use((req, res, next) => {
       res.status(500).json({ message: "Failed to serve image" });
     }
   });
+  app.get("/api/health", async (_req, res) => {
+    try {
+      const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      await db2.execute(sql4`SELECT 1`);
+      res.json({
+        status: "ok",
+        db: "connected",
+        timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+        uptime: Math.floor(process.uptime()) + "s"
+      });
+    } catch (err) {
+      console.error("\u274C Health check DB ping failed:", err?.message);
+      res.status(503).json({
+        status: "degraded",
+        db: "unreachable",
+        timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+        error: err?.message
+      });
+    }
+  });
   const server = await registerRoutes(app);
   app.use((err, _req, res, _next) => {
     console.error("Global error handler caught:", err);
@@ -16870,5 +17188,24 @@ app.use((req, res, next) => {
     console.log("JWT_SECRET env var is:", process.env.JWT_SECRET ? "SET \u2705" : "NOT SET (using fallback) \u26A0\uFE0F");
     console.log("All auth modules will use:", process.env.JWT_SECRET ? `process.env.JWT_SECRET` : `fallback 'mysecretkey123'`);
     console.log("================================\n");
+    const renderUrl = process.env.RENDER_EXTERNAL_URL;
+    if (renderUrl && !process.env.ENABLE_VITE) {
+      const pingUrl = `${renderUrl}/api/health`;
+      console.log(`
+\u{1F3D3} Keep-alive self-ping enabled \u2192 ${pingUrl} (every 14 min)`);
+      setInterval(async () => {
+        try {
+          const res = await fetch(pingUrl);
+          const body = await res.json();
+          if (body?.status === "ok") {
+            console.log(`\u{1F3D3} [keep-alive] Self-ping OK \u2014 ${(/* @__PURE__ */ new Date()).toISOString()}`);
+          } else {
+            console.warn(`\u26A0\uFE0F [keep-alive] Self-ping returned degraded status:`, body);
+          }
+        } catch (e) {
+          console.warn(`\u26A0\uFE0F [keep-alive] Self-ping failed: ${e?.message}`);
+        }
+      }, 14 * 60 * 1e3);
+    }
   });
 })();
