@@ -530,6 +530,16 @@ export function registerAdminRoutes(app: Express) {
             longitude: null,
           });
 
+          // ✅ Generate and assign referral code for new user
+          try {
+            const referralCode = await storage.generateReferralCode(user.id);
+            console.log(`✅ Referral code generated for new user ${user.id}: ${referralCode}`);
+            user.referralCode = referralCode;
+          } catch (error: any) {
+            console.warn(`⚠️ Failed to generate referral code: ${error.message}`);
+            // Non-blocking
+          }
+
           console.log(`✅ New user created on admin payment confirmation: ${user.id} - Phone: ${order.phone}`);
           userCreated = true;
 

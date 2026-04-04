@@ -726,6 +726,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         longitude: null,
       });
 
+      // ✅ Generate and assign referral code for new user
+      try {
+        const referralCode = await storage.generateReferralCode(user.id);
+        console.log(`✅ Referral code generated for new user ${user.id}: ${referralCode}`);
+        user.referralCode = referralCode;
+      } catch (error: any) {
+        console.warn(`⚠️ Failed to generate referral code: ${error.message}`);
+        // Non-blocking - user still created even if code generation fails
+      }
+
       const accessToken = generateAccessToken(user);
       const refreshToken = generateRefreshToken(user);
 
@@ -895,6 +905,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
         console.log("New user created:", user.id, "- Default password:", generatedPassword);
 
+        // ✅ Generate and assign referral code for new user
+        try {
+          const referralCode = await storage.generateReferralCode(user.id);
+          console.log(`✅ Referral code generated: ${referralCode}`);
+          user.referralCode = referralCode;
+        } catch (error: any) {
+          console.warn(`⚠️ Failed to generate referral code: ${error.message}`);
+          // Non-blocking
+        }
+
         // Send welcome email with password if email is provided
         if (email) {
           const emailHtml = createWelcomeEmail(customerName, phone, generatedPassword);
@@ -923,6 +943,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           phone: user.phone,
           email: user.email,
           address: user.address,
+          referralCode: user.referralCode,
         },
         accessToken,
         refreshToken,
@@ -2262,6 +2283,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
             longitude: null,
           });
 
+          // ✅ Generate and assign referral code for new user
+          try {
+            const referralCode = await storage.generateReferralCode(user.id);
+            console.log(`✅ Referral code generated for new user ${user.id}: ${referralCode}`);
+            user.referralCode = referralCode;
+          } catch (error: any) {
+            console.warn(`⚠️ Failed to generate referral code: ${error.message}`);
+            // Non-blocking - order still proceeds
+          }
+
           console.log(`✅ New user created on payment confirmation: ${user.id} - Phone: ${order.phone}`);
           userCreated = true;
 
@@ -3305,6 +3336,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
             latitude: latitude || null,
             longitude: longitude || null,
           });
+
+          // ✅ Generate and assign referral code for new user
+          try {
+            const referralCode = await storage.generateReferralCode(user.id);
+            console.log(`✅ Referral code generated: ${referralCode}`);
+            user.referralCode = referralCode;
+          } catch (error: any) {
+            console.warn(`⚠️ Failed to generate referral code: ${error.message}`);
+            // Non-blocking
+          }
 
           console.log(`✅ New account created during subscription with phone: ${sanitizedPhone}, Email: ${email || 'Not provided'}`);
 
