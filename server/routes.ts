@@ -1122,6 +1122,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ valid: false, message: "Invalid referral code" });
       }
 
+      // ✅ STRICT FRAUD CHECK: Referrer must have at least one delivered order
+      const firstReferrerOrder = await db.query.orders.findFirst({
+        where: (o, { and, eq: eqOp }) => and(
+          eqOp(o.userId, referrer.id),
+          eqOp(o.status, "delivered")
+        ),
+      });
+
+      if (!firstReferrerOrder) {
+        console.log(`⚠️ [REFERRAL-VALIDATE] Referrer has 0 delivered orders. Blocking usage of code: ${referralCode}`);
+        return res.status(400).json({ 
+          valid: false, 
+          message: "Referrer must have completed at least one delivered order before sharing referrals." 
+        });
+      }
+
       // ✅ Only fetch settings if code is valid
       const settingsStart = Date.now();
       const settings = await storage.getActiveReferralReward();

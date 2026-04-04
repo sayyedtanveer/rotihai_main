@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { storage } from "./storage";
 import { hashPassword, verifyPassword, generateDeliveryToken, generateRefreshToken, verifyToken, requireDeliveryAuth, type AuthenticatedDeliveryRequest } from "./deliveryAuth";
 import { deliveryPersonnelLoginSchema, insertDeliveryPersonnelSchema } from "@shared/schema";
-import { broadcastOrderUpdate, notifyDeliveryAssignment, cancelPreparedOrderTimeout } from "./websocket";
+import { broadcastOrderUpdate, notifyDeliveryAssignment, cancelPreparedOrderTimeout, broadcastWalletUpdate } from "./websocket";
 import { sendDeliveryCompletedNotification, sendMissedDeliveryNotification } from "./whatsappService";
 import { sendMissedDeliveryEmail } from "./emailService";
 import { db, orders } from "@shared/db";
@@ -434,6 +434,44 @@ export function registerDeliveryRoutes(app: Express) {
 
       if (updatedOrder) {
         broadcastOrderUpdate(updatedOrder);
+        
+        // Complete referral when order is delivered
+        if (updatedOrder.userId) {
+          try {
+            const creditedUsers = await storage.completeReferralOnFirstOrder(updatedOrder.userId, orderId);
+            
+            if (creditedUsers) {
+              console.log(`✅ Referral completion triggered by Delivery for order ${orderId}`, {
+                referredUser: {
+                  id: creditedUsers.referredUserId,
+                  bonus: creditedUsers.referredUserBonus
+                },
+                referrerUser: {
+                  id: creditedUsers.referrerUserId,
+                  bonus: creditedUsers.referrerUserBonus
+                }
+              });
+
+              if (creditedUsers.referredUserBonus > 0) {
+                const referredUser = await storage.getUser(creditedUsers.referredUserId);
+                if (referredUser) {
+                  broadcastWalletUpdate(creditedUsers.referredUserId, referredUser.walletBalance);
+                }
+              }
+              
+              if (creditedUsers.referrerUserBonus > 0) {
+                const referrerUser = await storage.getUser(creditedUsers.referrerUserId);
+                if (referrerUser) {
+                  broadcastWalletUpdate(creditedUsers.referrerUserId, referrerUser.walletBalance);
+                }
+              }
+            } else {
+              console.log(`ℹ️ No referral bonus to process for order ${orderId}`);
+            }
+          } catch (referralError: any) {
+            console.warn(`⚠️ Error completing referral during delivery: ${referralError.message}`);
+          }
+        }
       }
 
       res.json(updatedOrder);
