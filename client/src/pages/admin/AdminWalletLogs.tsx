@@ -33,10 +33,15 @@ export default function AdminWalletLogs() {
   const { data: transactions = [], isLoading, refetch } = useQuery<WalletTransaction[]>({
     queryKey: ["/api/admin/wallet-transactions", dateFilter],
     queryFn: async () => {
+      const token = localStorage.getItem("adminToken");
       const url = dateFilter 
         ? `/api/admin/wallet-transactions?date=${encodeURIComponent(dateFilter)}`
         : `/api/admin/wallet-transactions`;
-      const res = await fetch(url);
+      const res = await fetch(url, {
+        headers: {
+          "Authorization": `Bearer ${token}`,
+        },
+      });
       if (!res.ok) throw new Error("Failed to fetch transactions");
       return res.json();
     },
@@ -50,7 +55,12 @@ export default function AdminWalletLogs() {
   }>({
     queryKey: ["/api/admin/wallet-stats"],
     queryFn: async () => {
-      const res = await fetch("/api/admin/wallet-stats");
+      const token = localStorage.getItem("adminToken");
+      const res = await fetch("/api/admin/wallet-stats", {
+        headers: {
+          "Authorization": `Bearer ${token}`,
+        },
+      });
       if (!res.ok) throw new Error("Failed to fetch stats");
       return res.json();
     },

@@ -513,6 +513,9 @@ export default function Profile() {
                         </p>
                       </div>
 
+                      {/* 🎁 Latest Referral Bonus Highlight */}
+                      <ReferralBonusHighlight />
+
                       <Separator />
 
                       {/* Referral Code */}
@@ -794,6 +797,34 @@ export default function Profile() {
           queryClient.invalidateQueries({ queryKey: ["/api/user/wallet"] });
         }}
       />
+    </div>
+  );
+}
+
+// 🎁 Sub-component: Display latest referral bonus highlight
+function ReferralBonusHighlight() {
+  const { data: latestBonus } = useQuery<{
+    amount: number;
+    id: string;
+    createdAt: string;
+  } | null>({
+    queryKey: ["latestReferralBonus"],
+    enabled: false, // Only show if set by WebSocket
+  });
+
+  if (!latestBonus) {
+    return null;
+  }
+
+  return (
+    <div className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-950/40 dark:to-emerald-950/40 border-2 border-green-200 dark:border-green-800 p-4 rounded-lg flex items-start gap-3 animate-pulse-gentle">
+      <div className="text-2xl flex-shrink-0 mt-0.5">🎉</div>
+      <div className="flex-1">
+        <p className="font-bold text-green-900 dark:text-green-100">Referral Bonus Earned!</p>
+        <p className="text-sm text-green-700 dark:text-green-300 mt-1">
+          You just earned <span className="font-bold text-lg">₹{latestBonus.amount}</span> from your referral network
+        </p>
+      </div>
     </div>
   );
 }

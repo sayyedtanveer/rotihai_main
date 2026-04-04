@@ -3,7 +3,7 @@ import { Route, Switch, Redirect } from "wouter";
 import api from "@/lib/apiClient";
 import { preloadBuildVersion } from "@/lib/buildVersion";
 import { queryClient } from "./lib/queryClient";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@radix-ui/react-tooltip";
 import { DeliveryLocationProvider } from "@/contexts/DeliveryLocationContext";
@@ -172,6 +172,46 @@ function NotificationsWrapper() {
   return null; // This component just sets up notifications, doesn't render anything
 }
 
+// 🎁 Referral Bonus Toast Listener - listens for referral bonuses and shows toast
+function ReferralBonusToastListener() {
+  const { toast } = require("@/hooks/use-toast");
+  const queryClient = useQueryClient();
+  const [shownIds, setShownIds] = useState(new Set<string>());
+
+  // Listen for referral bonus events in query cache
+  useEffect(() => {
+    const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
+      if (event.type === "updated") {
+        const queryData = event.query.state?.data as any;
+        
+        // Check if this is the referral bonus toast query
+        if (
+          event.query.queryKey[0] === "showReferralBonusToast" &&
+          queryData?.id &&
+          !shownIds.has(queryData.id)
+        ) {
+          // Mark as shown to prevent duplicate toasts
+          setShownIds((prev) => new Set([...prev, queryData.id]));
+
+          // Show toast notification
+          toast({
+            title: "🎉 Referral Bonus Earned!",
+            description: `You earned ₹${queryData.amount} from your referral network`,
+            className: "bg-gradient-to-r from-green-50 to-emerald-50 border-green-200",
+            duration: 4000,
+          });
+
+          console.log(`🎁 ReferralBonusToastListener: Toast shown for bonus ₹${queryData.amount}`);
+        }
+      }
+    });
+
+    return () => unsubscribe();
+  }, [queryClient, toast, shownIds]);
+
+  return null;
+}
+
 // 🔔 Wrapper component for notifications (must be inside QueryClientProvider)
 function AppContent() {
   const [showLoadingSpinner, setShowLoadingSpinner] = useState(false);
@@ -237,6 +277,7 @@ function AppContent() {
       <GlobalLoadingSpinner isVisible={showLoadingSpinner} />
       <Toaster />
       <NotificationsWrapper />
+      <ReferralBonusToastListener />
       <Router />
     </TooltipProvider>
   );

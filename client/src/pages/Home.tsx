@@ -837,6 +837,9 @@ export default function Home() {
       <main className="flex-1">
         <Hero />
 
+        {/* 🎁 Referral Bonus Banner */}
+        <ReferralBonusBanner />
+
         {/* 🫓 Fresh Rotis Near You – header + browse button only */}
         {(() => {
           const gkCategory = categories.find(c =>
@@ -1711,6 +1714,69 @@ export default function Home() {
         </DialogContent>
       </Dialog>
       <ActiveOrderBanner />
+    </div>
+  );
+}
+
+// 🎁 Sub-component: Referral Bonus Banner - shows one-time notification
+function ReferralBonusBanner() {
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  
+  const { data: latestBonus } = useQuery<{
+    amount: number;
+    id: string;
+    createdAt: string;
+  } | null>({
+    queryKey: ["latestReferralBonus"],
+    enabled: false, // Only show if set by WebSocket
+  });
+
+  // Track shown bonuses to avoid repeating
+  const [shownBonusIds, setShownBonusIds] = useState(new Set<string>());
+
+  const handleDismiss = () => {
+    if (latestBonus?.id) {
+      setShownBonusIds((prev) => new Set([...prev, latestBonus.id]));
+      // Mark as shown in localStorage
+      localStorage.setItem(`shownReferralBonus_${latestBonus.id}`, "true");
+    }
+  };
+
+  // Don't show if user not logged in, bonus doesn't exist, or already shown
+  if (!user || !latestBonus || shownBonusIds.has(latestBonus.id)) {
+    return null;
+  }
+
+  // Check localStorage for previous dismissals
+  if (typeof localStorage !== "undefined") {
+    const wasShown = localStorage.getItem(`shownReferralBonus_${latestBonus.id}`);
+    if (wasShown) {
+      return null;
+    }
+  }
+
+  return (
+    <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-8 py-3">
+      <div className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-950/40 dark:to-emerald-950/40 border-2 border-green-200 dark:border-green-800 rounded-lg p-4 flex items-center justify-between gap-4 animate-pulse">
+        <div className="flex items-center gap-3 flex-1">
+          <div className="text-3xl flex-shrink-0">🎉</div>
+          <div className="min-w-0">
+            <p className="font-bold text-green-900 dark:text-green-100 text-sm">
+              Referral Bonus Earned!
+            </p>
+            <p className="text-xs text-green-700 dark:text-green-300 mt-1">
+              You earned <span className="font-bold">₹{latestBonus.amount}</span> from your referral network! Share your code to earn more.
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={handleDismiss}
+          className="text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 font-medium text-sm flex-shrink-0 whitespace-nowrap"
+        >
+          Dismiss
+        </button>
+      </div>
     </div>
   );
 }
