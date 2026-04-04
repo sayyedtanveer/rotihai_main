@@ -31,7 +31,15 @@ export default function AdminWalletLogs() {
   const [dateFilter, setDateFilter] = useState<string>("");
 
   const { data: transactions = [], isLoading, refetch } = useQuery<WalletTransaction[]>({
-    queryKey: ["/api/admin/wallet-transactions", { date: dateFilter }],
+    queryKey: ["/api/admin/wallet-transactions", dateFilter],
+    queryFn: async () => {
+      const url = dateFilter 
+        ? `/api/admin/wallet-transactions?date=${encodeURIComponent(dateFilter)}`
+        : `/api/admin/wallet-transactions`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("Failed to fetch transactions");
+      return res.json();
+    },
   });
 
   const { data: stats } = useQuery<{
@@ -41,6 +49,11 @@ export default function AdminWalletLogs() {
     totalOrderDiscounts: number;
   }>({
     queryKey: ["/api/admin/wallet-stats"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/wallet-stats");
+      if (!res.ok) throw new Error("Failed to fetch stats");
+      return res.json();
+    },
   });
 
   const filteredTransactions = transactions.filter((tx) => {
