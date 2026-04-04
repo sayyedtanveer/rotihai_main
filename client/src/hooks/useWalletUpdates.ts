@@ -68,6 +68,27 @@ export function useWalletUpdates(options?: UseWalletUpdatesOptions) {
         if (message.type === "wallet_updated") {
           console.log(`💳 useWalletUpdates: Wallet updated! New balance: ₹${message.data.newBalance}`);
 
+          const transaction = message.data?.transaction;
+
+          // 🎁 DETECT REFERRAL BONUS - Store for global toast notification
+          if (transaction?.type === "referral_bonus") {
+            console.log(`🎉 useWalletUpdates: Referral bonus detected! Amount: ₹${transaction.amount}`);
+            
+            // Store in query cache to trigger toast in global listener
+            queryClient.setQueryData(["showReferralBonusToast"], {
+              amount: transaction.amount,
+              id: transaction.id,
+              timestamp: Date.now(),
+            });
+            
+            // Also mark for home page banner
+            queryClient.setQueryData(["latestReferralBonus"], {
+              amount: transaction.amount,
+              id: transaction.id,
+              createdAt: new Date().toISOString(),
+            });
+          }
+
           // Invalidate queries to refetch latest data
           // This triggers Profile page to show new wallet balance
           queryClient.invalidateQueries({ 
@@ -82,6 +103,13 @@ export function useWalletUpdates(options?: UseWalletUpdatesOptions) {
             exact: false
           });
           console.log(`🔄 useWalletUpdates: Invalidated user wallet query`);
+
+          // Invalidate wallet transactions to refresh any transaction lists
+          queryClient.invalidateQueries({ 
+            queryKey: ["/api/user/wallet-transactions"],
+            exact: false
+          });
+          console.log(`🔄 useWalletUpdates: Invalidated wallet transactions query`);
         }
       } catch (error) {
         console.error("useWalletUpdates: Error processing WebSocket message:", error);
