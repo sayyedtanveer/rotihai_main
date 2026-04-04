@@ -589,6 +589,7 @@ export class MemStorage implements IStorage {
       deliveryFee: insertOrder.deliveryFee,
       discount: insertOrder.discount || 0,
       couponCode: insertOrder.couponCode || null,
+      referralCode: (insertOrder as any).referralCode || null,
       total: insertOrder.total,
       status: insertOrder.paymentStatus || "pending",
       paymentStatus: "pending" as const,
