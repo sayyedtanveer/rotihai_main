@@ -2379,9 +2379,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             console.log(`[DROPDOWN USER] First login detected - showing account dialog`);
           }
 
-          // 🎯 Create pending referral if order has referral code (first login for existing user)
-          if (order.referralCode && !userCreated) {
-            console.log(`🎁 [REFERRAL] Attempting to link referral code: ${order.referralCode} for existing user ${user.id}`);
+          // 🎯 Create pending referral if order has referral code (any user - new or existing)
+          if (order.referralCode) {
+            console.log(`🎁 [REFERRAL] Attempting to link referral code: ${order.referralCode} for user ${user.id} (userCreated=${userCreated})`);
             try {
               const referrer = await storage.getUserByReferralCode(order.referralCode);
               console.log(`🔍 [REFERRAL] Referrer lookup:`, { found: !!referrer, referrerPhone: referrer?.phone, userPhone: user.phone });
@@ -2409,11 +2409,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               // Don't fail order confirmation if referral application fails
             }
           } else {
-            console.log(`📋 [REFERRAL] Skipped EXISTING USER referral:`, {
-              hasCode: !!order.referralCode,
-              userCreated,
-              reason: !order.referralCode ? 'No referral code' : 'Not first login (userCreated=true)'
-            });
+            console.log(`📋 [REFERRAL] Skipped EXISTING USER referral: No referral code on order`);
           }
         }
       } else {
