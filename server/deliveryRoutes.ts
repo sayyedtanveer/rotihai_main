@@ -824,7 +824,7 @@ export function registerDeliveryRoutes(app: Express) {
   });
 
   // Get pending broadcasts for this delivery personnel
-  app.get("/api/notifications/pending", requireDeliveryAuth(), async (req: AuthenticatedDeliveryRequest, res) => {
+  app.get("/api/delivery/notifications/pending", requireDeliveryAuth(), async (req: AuthenticatedDeliveryRequest, res) => {
     try {
       const deliveryPersonId = req.delivery!.deliveryId;
       if (!deliveryPersonId) return res.status(401).json({ message: "Unauthorized" });
@@ -846,7 +846,7 @@ export function registerDeliveryRoutes(app: Express) {
   });
 
   // Mark broadcast as delivered
-  app.post("/api/notifications/mark-delivered", requireDeliveryAuth(), async (req: AuthenticatedDeliveryRequest, res) => {
+  app.post("/api/delivery/notifications/mark-delivered", requireDeliveryAuth(), async (req: AuthenticatedDeliveryRequest, res) => {
     try {
       const { ids } = req.body;
       const deliveryPersonId = req.delivery!.deliveryId;

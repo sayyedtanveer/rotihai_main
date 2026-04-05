@@ -2462,6 +2462,10 @@ export default function CheckoutDialog({
         pendingCheckoutId: null, // No pending checkout needed, order already created
       });
 
+      // ✅ FIX 2: Invalidate user orders query so checkout dialog will hide referral input next time it opens
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/user"] });
+
       // Reset form for next order
       setCustomerName("");
       setPhone("");
@@ -2478,6 +2482,9 @@ export default function CheckoutDialog({
       setPhoneExists(null);
       setSelectedDeliveryTime("");
       setSelectedDeliverySlotId("");
+      // ✅ FIX 1: Reset referral modal confirmation flag after successful order
+      setConfirmedProceedWithoutReferral(false);
+      setReferralValidation(null);
 
       // Close the checkout dialog
       onClose();

@@ -35,8 +35,8 @@ export function useDeliveryNotifications() {
       console.log("[NOTIFICATIONS] Step 3️⃣ API/axios imported successfully");
       
       // Step 4: Make the request - interceptor will add Authorization header
-      console.log("[NOTIFICATIONS] Step 4️⃣ Making request to /api/notifications/pending");
-      const { data: pending } = await api.get("/api/notifications/pending");
+      console.log("[NOTIFICATIONS] Step 4️⃣ Making request to /api/delivery/notifications/pending");
+      const { data: pending } = await api.get("/api/delivery/notifications/pending");
       
       console.log("[NOTIFICATIONS] Step 5️⃣ ✅ SUCCESS! Received pending:", pending?.length || 0, 'items');
 
@@ -101,7 +101,7 @@ export function useDeliveryNotifications() {
         }
 
         if (processedIds.length > 0) {
-          await api.post("/api/notifications/mark-delivered", { ids: processedIds });
+          await api.post("/api/delivery/notifications/mark-delivered", { ids: processedIds });
         }
       }
     } catch (error: any) {

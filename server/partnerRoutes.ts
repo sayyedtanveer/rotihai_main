@@ -785,8 +785,8 @@ export function registerPartnerRoutes(app: Express): void {
     }
   });
 
-  // Get pending broadcasts for this partner
-  app.get("/api/notifications/pending", requirePartner(), async (req: AuthenticatedPartnerRequest, res) => {
+  // Get pending broadcasts for this chef/partner
+  app.get("/api/partner/notifications/pending", requirePartner(), async (req: AuthenticatedPartnerRequest, res) => {
     try {
       const chefId = req.partner?.chefId;
       if (!chefId) return res.status(401).json({ message: "Unauthorized" });
@@ -808,7 +808,7 @@ export function registerPartnerRoutes(app: Express): void {
   });
 
   // Mark broadcast as delivered
-  app.post("/api/notifications/mark-delivered", requirePartner(), async (req: AuthenticatedPartnerRequest, res) => {
+  app.post("/api/partner/notifications/mark-delivered", requirePartner(), async (req: AuthenticatedPartnerRequest, res) => {
     try {
       const { ids } = req.body;
       const chefId = req.partner?.chefId;
