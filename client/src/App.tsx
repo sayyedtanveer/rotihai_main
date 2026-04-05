@@ -12,6 +12,7 @@ import { startKeepAlive } from "@/lib/keepAlive";
 import { useAuth } from "@/hooks/useAuth";
 import { useOrderNotifications } from "@/hooks/useOrderNotifications";
 import { useVersionCheck } from "@/hooks/useVersionCheck";
+import { useToast } from "@/hooks/use-toast";
 import Home from "@/pages/Home";
 import MyOrders from "@/pages/MyOrders";
 import MySubscriptions from "@/pages/MySubscriptions";
@@ -174,7 +175,7 @@ function NotificationsWrapper() {
 
 // 🎁 Referral Bonus Toast Listener - listens for referral bonuses and shows toast
 function ReferralBonusToastListener() {
-  const { toast } = require("@/hooks/use-toast");
+  const { toast } = useToast();
   const queryClient = useQueryClient();
   const [shownIds, setShownIds] = useState(new Set<string>());
 
