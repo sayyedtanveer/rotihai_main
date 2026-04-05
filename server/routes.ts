@@ -2508,10 +2508,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return;
       }
 
-      // Update order payment status to indicate user confirmed payment
-      const updatedOrder = await storage.updateOrderPaymentStatus(id, "paid");
+      // ============================================================================
+      // 💳 ATOMIC PAYMENT CONFIRMATION + WALLET DEDUCTION (PHASE 2)
+      // ============================================================================
+      // ✅ KEY CHANGE: Order is marked "paid" ONLY if wallet deduction succeeds
+      // This prevents financial leaks (order paid but wallet not deducted)
+      // Now handles errors properly - if wallet fails, payment fails
+      // ============================================================================
+      
+      let walletUpdateResult = null;
+      let updatedOrder = null;
 
-      console.log(`✅ Payment confirmed for order ${id} - Status: ${updatedOrder?.paymentStatus}`);
+      try {
+        console.log(`\n💳 ⚠️ [ATOMIC-PHASE2] Starting atomic payment confirmation + wallet deduction`);
+        console.log(`💳 [ATOMIC] Order: ${id}, Wallet Amount: ₹${orderBefore?.walletAmountUsed || 0}, User: ${orderBefore?.userId}`);
+        
+        // ✅ Call atomic function - this is now the ONLY place order gets marked "paid"
+        // If wallet fails, entire transaction rolls back (order stays unpaid)
+        walletUpdateResult = await storage.confirmPaymentAndDeductWallet(
+          id,
+          orderBefore?.walletAmountUsed,
+          (orderBefore?.userId || undefined) as string | undefined
+        );
+
+        updatedOrder = walletUpdateResult.order;
+
+        if (walletUpdateResult.walletDeducted) {
+          console.log(`✅ [WALLET] Wallet deducted: ₹${orderBefore?.walletAmountUsed}, New balance: ₹${walletUpdateResult.newWalletBalance}`);
+          // 📣 Broadcast wallet update to customer in real-time
+          if (walletUpdateResult.newWalletBalance !== undefined && orderBefore?.userId) {
+            broadcastWalletUpdate(orderBefore.userId, walletUpdateResult.newWalletBalance);
+            console.log(`✅ [WALLET] Broadcast sent to user ${orderBefore.userId}`);
+          }
+        } else {
+          console.log(`⏭️ [WALLET] Wallet deduction not needed or idempotent call`);
+        }
+
+        console.log(`✅ [ATOMIC] Payment confirmed - Order marked paid + Wallet deducted`);
+
+      } catch (paymentError: any) {
+        // ❌ If wallet deduction fails, entire payment fails
+        // Order is NOT marked as paid (transaction rolled back)
+        console.error("❌ [ATOMIC] PAYMENT FAILED - Wallet deduction error:", paymentError.message);
+        res.status(400).json({
+          message: "Payment confirmation failed",
+          error: paymentError.message || "Wallet deduction error",
+          details: paymentError.message.includes("Insufficient wallet balance") 
+            ? "Not enough wallet balance for this order" 
+            : "Payment processing error",
+        });
+        return;
+      }
 
       // ✅ MARK PENDING CHECKOUTS AS ABANDONED when payment is confirmed
       // If user had abandoned carts (pending checkouts) for same phone, mark them as abandoned
@@ -2541,67 +2588,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // 💳 DEDUCT WALLET BALANCE when payment is confirmed (only once)
-      if (updatedOrder && updatedOrder.walletAmountUsed && updatedOrder.walletAmountUsed > 0 && updatedOrder.userId) {
-        console.log(`\n💳 [=${'='.repeat(50)}] WALLET DEDUCTION TRACE [${'='.repeat(50)}]`);
-        console.log(`💳 [WALLET] Processing wallet deduction for order ${id}...`);
-        console.log(`💳 [WALLET] Order walletAmountUsed value: ₹${updatedOrder.walletAmountUsed}`);
-        console.log(`💳 [WALLET] Order walletAmountUsed type: ${typeof updatedOrder.walletAmountUsed}`);
-
-        // Get current wallet balance before deduction
-        const userBefore = await storage.getUser(updatedOrder.userId);
-        const balanceBefore = userBefore?.walletBalance || 0;
-        console.log(`💳 [WALLET] User ID: ${updatedOrder.userId}`);
-        console.log(`💳 [WALLET] STEP 1 - Query user balance BEFORE deduction:`);
-        console.log(`💳 [WALLET]   → Returned walletBalance: ${userBefore?.walletBalance}`);
-        console.log(`💳 [WALLET]   → Actual balanceBefore used: ₹${balanceBefore}`);
-
-        // Check if wallet has already been deducted for this order (double-check)
-        const existingTransactions = await storage.getWalletTransactions(updatedOrder.userId, 100);
-        const deductionTransactions = existingTransactions.filter(
-          (txn: any) => txn.referenceId === id && txn.type === "debit"
-        );
-
-        if (deductionTransactions.length > 0) {
-          console.log(`⏭️ [WALLET] Found ${deductionTransactions.length} existing debit transaction(s) for order ${id}. Skipping...`);
-          const existingAmount = deductionTransactions.reduce((sum: number, txn: any) => sum + txn.amount, 0);
-          console.log(`   Already deducted: ₹${existingAmount}`);
-        } else {
-          console.log(`💳 [WALLET] No existing transaction found. Proceeding with deduction...`);
-          try {
-            // Create wallet transaction for audit trail (this also updates the wallet balance atomically)
-            await storage.createWalletTransaction({
-              userId: updatedOrder.userId,
-              amount: updatedOrder.walletAmountUsed,
-              type: "debit",
-              description: `Wallet payment for order #${updatedOrder.id}`,
-              referenceId: updatedOrder.id,
-              referenceType: "order",
-            });
-            console.log(`✅ [WALLET] Balance updated and transaction logged`);
-
-            // Get updated wallet balance
-            const updatedUser = await storage.getUser(updatedOrder.userId);
-            const newWalletBalance = updatedUser?.walletBalance || 0;
-            console.log(`   User wallet balance AFTER: ₹${newWalletBalance}`);
-            console.log(`   Calculation: ₹${balanceBefore} - ₹${updatedOrder.walletAmountUsed} = ₹${newWalletBalance}`);
-
-            // 📣 Broadcast wallet update to customer in real-time
-            broadcastWalletUpdate(updatedOrder.userId, newWalletBalance);
-            console.log(`✅ [WALLET] Broadcast sent to user ${updatedOrder.userId}`);
-
-            console.log(`✅ [WALLET] COMPLETE: ₹${updatedOrder.walletAmountUsed} deducted from wallet for order #${updatedOrder.id}`);
-            console.log(`💳 [${'='.repeat(100)}]\n`);
-          } catch (walletError: any) {
-            console.error("❌ [WALLET] ERROR during deduction:", walletError.message);
-            console.error(walletError.stack);
-            // Don't fail the payment confirmation if wallet deduction fails - it's non-critical
-          }
-        }
-      } else {
-        console.log(`⏭️ [WALLET] Skipped deduction: walletAmountUsed=${updatedOrder?.walletAmountUsed}, userId=${updatedOrder?.userId}`);
-      }
-
       const response: any = {
         message: "Payment confirmation received",
         order: updatedOrder,
@@ -2610,7 +2596,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // ✅ HANDLE ALL SCENARIOS + RETURN USER DATA FOR TRACK PAGE:
       // userCreated=true means: Show account dialog (NEW user OR first login after admin creation)
       // userCreated=false means: Auto-login without dialog (regular existing user)
-      
       if (userCreated) {
         // Scenario 2 (new user) OR Scenario 1B (first login after admin creation - dropout user)
         response.userCreated = true;  // Frontend will show account dialog

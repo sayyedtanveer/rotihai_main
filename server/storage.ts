@@ -2845,6 +2845,170 @@ export class MemStorage implements IStorage {
     });
   }
 
+  /**
+   * ⚠️ ATOMIC PAYMENT CONFIRMATION + WALLET DEDUCTION (PHASE 2 - SAFE FIX)
+   * 
+   * CRITICAL: Order status ONLY updated AFTER wallet succeeds
+   * - Prevents order showing "paid" without wallet deduction
+   * - Fails entire transaction if wallet deduction required but fails
+   * - Idempotent: Multiple calls safe
+   * 
+   * Fixes:
+   * 1. ✅ Idempotency check at START (early return if already paid)
+   * 2. ✅ Wallet balance validated BEFORE order status update
+   * 3. ✅ Required wallet deduction MUST succeed (throws error if insufficient)
+   * 4. ✅ Order marked "paid" ONLY after wallet succeeds
+   * 5. ✅ Entire transaction atomic - all-or-nothing
+   */
+  async confirmPaymentAndDeductWallet(
+    orderId: string,
+    walletAmountUsed?: number,
+    userId?: string
+  ): Promise<{
+    order: Order;
+    walletDeducted: boolean;
+    newWalletBalance?: number;
+    error?: string;
+  }> {
+    return db.transaction(async (tx) => {
+      console.log(`\n🔒 [ATOMIC-PHASE2] Starting atomic payment + wallet transaction for order ${orderId}...`);
+      
+      // ============================================================================
+      // STEP 0: IDEMPOTENCY CHECK (EARLY RETURN IF ALREADY PAID)
+      // ============================================================================
+      console.log(`🔒 [ATOMIC] Step 0: Idempotency check - fetch current order status (WITH ROW LOCK)`);
+      const existingOrderResult = await tx.execute(sql`
+        SELECT * FROM "orders"
+        WHERE id = ${orderId}
+        FOR UPDATE
+      `);
+      
+      const existingOrder = existingOrderResult[0] as Order | undefined;
+
+      if (!existingOrder) {
+        throw new Error(`Order ${orderId} not found`);
+      }
+
+      // ✅ If already paid, this is a duplicate confirmation → return early
+      if (existingOrder.paymentStatus === "paid") {
+        console.log(`✅ [ATOMIC] Idempotency: Order already paid - returning early (no duplicate deduction)`);
+        return {
+          order: existingOrder,
+          walletDeducted: false,
+          newWalletBalance: undefined,
+        };
+      }
+
+      if (!existingOrder.userId) {
+        throw new Error(`Order ${orderId} has no userId`);
+      }
+
+      // Use provided values or from order
+      const actualUserId = userId || existingOrder.userId;
+      const actualWalletAmount = walletAmountUsed || existingOrder.walletAmountUsed || 0;
+
+      let newWalletBalance = undefined;
+      let walletDeducted = false;
+
+      // ============================================================================
+      // STEP 1: VALIDATE WALLET BALANCE BEFORE UPDATING ORDER (CRITICAL ORDER!)
+      // ============================================================================
+      if (actualWalletAmount > 0) {
+        console.log(`🔒 [ATOMIC] Step 1: Checking wallet balance for user ${actualUserId}...`);
+        
+        const user = await tx.query.users.findFirst({
+          where: eq(users.id, actualUserId),
+        });
+
+        if (!user) {
+          throw new Error(`User ${actualUserId} not found`);
+        }
+
+        const currentBalance = user.walletBalance || 0;
+        console.log(`🔒 [ATOMIC]   Current balance: ₹${currentBalance}, Need to deduct: ₹${actualWalletAmount}`);
+
+        // ⚠️ CRITICAL: If wallet insufficient, FAIL ENTIRE OPERATION (throw error)
+        // This prevents order from being marked "paid" without wallet deduction
+        if (currentBalance < actualWalletAmount) {
+          throw new Error(
+            `Insufficient wallet balance: ₹${currentBalance} < ₹${actualWalletAmount} required. Transaction failed.`
+          );
+        }
+
+        console.log(`🔒 [ATOMIC] Step 2: Attempting wallet transaction insert with unique constraint check...`);
+        
+        // Step 2: Try to insert wallet transaction (unique constraint will prevent duplicates)
+        const balanceAfter = currentBalance - actualWalletAmount;
+        
+        try {
+          await tx.insert(walletTransactions).values({
+            userId: actualUserId,
+            amount: actualWalletAmount,
+            type: "debit",
+            description: `Wallet payment for order #${orderId}`,
+            referenceId: orderId,
+            referenceType: "order",
+            balanceBefore: currentBalance,
+            balanceAfter: balanceAfter,
+          });
+          console.log(`🔒 [ATOMIC]   ✅ Wallet transaction inserted`);
+
+          // Step 3: Update wallet balance (same transaction)
+          console.log(`🔒 [ATOMIC] Step 3: Update user wallet balance to ₹${balanceAfter}`);
+          await tx
+            .update(users)
+            .set({ walletBalance: balanceAfter })
+            .where(eq(users.id, actualUserId));
+
+          newWalletBalance = balanceAfter;
+          walletDeducted = true;
+          console.log(`🔒 [ATOMIC]   ✅ Wallet balance updated`);
+        } catch (insertError: any) {
+          // If unique constraint violated, it means this order was already deducted
+          // This shouldn't happen with idempotency check, but handle gracefully
+          if (insertError.code === "23505" || insertError.message.includes("duplicate")) {
+            console.log(`⏭️ [ATOMIC] Duplicate wallet transaction detected - already deducted for order ${orderId}`);
+            // Fetch current balance to return
+            const refreshedUser = await tx.query.users.findFirst({
+              where: eq(users.id, actualUserId),
+            });
+            newWalletBalance = refreshedUser?.walletBalance;
+            walletDeducted = false;
+          } else {
+            throw insertError;
+          }
+        }
+      }
+
+      // ============================================================================
+      // STEP FINAL: UPDATE ORDER STATUS TO "PAID" (ONLY AFTER WALLET SUCCEEDS!)
+      // ============================================================================
+      // 🔴 CRITICAL: This MUST happen AFTER wallet deduction succeeds
+      // If wallet fails above, we never reach this point (transaction rolls back)
+      console.log(`🔒 [ATOMIC] Step FINAL: Update order payment status to 'paid' (after wallet succeeded)`);
+      const [updatedOrder] = await tx
+        .update(orders)
+        .set({ paymentStatus: "paid" })
+        .where(eq(orders.id, orderId))
+        .returning();
+
+      if (!updatedOrder) {
+        throw new Error(`Failed to update order ${orderId} status`);
+      }
+
+      console.log(`✅ [ATOMIC] Transaction committed successfully - Order paid + Wallet deducted`);
+      return {
+        order: updatedOrder,
+        walletDeducted,
+        newWalletBalance,
+      };
+    }, {
+      // ⚠️ CRITICAL: Use serializable isolation to prevent race conditions
+      // All concurrent transactions for same userId will serialize
+      isolationLevel: "serializable",
+    });
+  }
+
   async getReferralStats(userId: string): Promise<{
     totalReferrals: number;
     pendingReferrals: number;

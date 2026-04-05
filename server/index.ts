@@ -16,27 +16,42 @@ import { saveImageFile, getImagePath, imageExists, deleteImageFile } from "./ima
 // ENABLE_VITE=false or undefined → deployed environments (no vite.config)
 const enableVite = process.env.ENABLE_VITE === "true";
 
-// 🔒 DATABASE SAFETY CHECK: Prevent dev from using prod database
+// 🔒 DATABASE SAFETY CHECK: Prevent dev from using prod database (unless explicitly allowed)
 if (enableVite) {
   const dbUrl = process.env.DATABASE_URL || "";
-  if (dbUrl.includes("rotihai_prod")) {
+  const allowProdDb = process.env.ALLOW_PROD_DB_IN_DEV === "false";
+  
+  if (dbUrl.includes("rotihai_prod") && !allowProdDb) {
     console.error("❌ ❌ ❌ CRITICAL ERROR ❌ ❌ ❌");
     console.error("DEV SERVER IS USING PRODUCTION DATABASE!");
     console.error(`DATABASE_URL: ${dbUrl}`);
     console.error("This will corrupt production data!");
     console.error("");
-    console.error("✅ FIX: Update .env to use rotihai_dev database");
+    console.error("✅ FIX #1: Update .env to use rotihai_dev database");
     console.error("   DATABASE_URL=postgresql://user:pass@host:5432/rotihai_dev");
     console.error("");
+    console.error("✅ FIX #2: Or, to RUN LOCALLY WITH PRODUCTION DB (for debugging):");
+    console.error("   Add to .env: ALLOW_PROD_DB_IN_DEV=true");
+    console.error("   ⚠️ WARNING: This will use real production data locally!");
+    console.error("");
     console.error("Available databases:");
-    console.error("  📊 rotihai_prod - Production database (DO NOT USE IN DEV)");
+    console.error("  📊 rotihai_prod - Production database (DO NOT USE IN DEV unless ALLOW_PROD_DB_IN_DEV=true)");
     console.error("  🧪 rotihai_dev  - Development database (USE THIS IN DEV)");
     console.error("  🧪 rotihai_test - Test database (USE FOR TESTS)");
     console.error("");
     process.exit(1); // Exit immediately - do not start server
   }
-  console.log("✅ Database safety check passed - using DEVELOPMENT database");
-  console.log(`   DATABASE: ${dbUrl.split("/").pop()}`);
+  
+  if (allowProdDb && dbUrl.includes("rotihai_prod")) {
+    console.warn("⚠️  ⚠️  ⚠️  WARNING ⚠️  ⚠️  ⚠️");
+    console.warn("RUNNING LOCAL DEV SERVER WITH PRODUCTION DATABASE!");
+    console.warn("Any changes made will affect real production data.");
+    console.warn("DATABASE: " + dbUrl.split("/").pop());
+    console.warn("");
+  } else if (!dbUrl.includes("rotihai_prod")) {
+    console.log("✅ Database safety check passed - using DEVELOPMENT database");
+    console.log(`   DATABASE: ${dbUrl.split("/").pop()}`);
+  }
 }
 
 // Simple logger function - avoid importing from vite which is dev-only

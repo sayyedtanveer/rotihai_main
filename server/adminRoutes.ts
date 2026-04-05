@@ -581,64 +581,56 @@ export function registerAdminRoutes(app: Express) {
         }
       }
 
-      // Update payment status
-      const updatedOrder = await storage.updateOrderPaymentStatus(orderId, paymentStatus as "pending" | "paid" | "confirmed");
+      // ============================================================================
+      // 💳 UPDATE PAYMENT STATUS (PHASE 2 - ATOMIC FOR WALLET)
+      // ============================================================================
+      // Key: Only use atomic function for wallet deduction ("paid" status)
+      // Other statuses use regular update
+      // ============================================================================
+      
+      let updatedOrder = null;
 
-      console.log(`✅ Updated order payment status: ${updatedOrder?.paymentStatus}`);
+      if (paymentStatus === "paid") {
+        // ✅ Use atomic function for "paid" status (with wallet deduction)
+        // This ensures order marked "paid" ONLY if wallet deducted successfully
+        try {
+          console.log(`\n💳 ⚠️ [ATOMIC-ADMIN] ADMIN: Starting atomic payment confirmation + wallet deduction`);
+          console.log(`💳 [ATOMIC] Order: ${orderId}, Wallet Amount: ₹${order?.walletAmountUsed || 0}`);
+          
+          const walletUpdateResult = await storage.confirmPaymentAndDeductWallet(
+            orderId,
+            order?.walletAmountUsed,
+            order?.userId
+          );
 
-      // ✅ FIX: Handle wallet deduction (same logic as payment-confirmed endpoint)
-      if (updatedOrder && updatedOrder.walletAmountUsed && updatedOrder.walletAmountUsed > 0 && updatedOrder.userId) {
-        console.log(`\n💳 [=${'='.repeat(50)}] WALLET DEDUCTION TRACE [${'='.repeat(50)}]`);
-        console.log(`💳 [WALLET] Processing wallet deduction for order ${orderId}...`);
-        console.log(`💳 [WALLET] Order walletAmountUsed value: ₹${updatedOrder.walletAmountUsed}`);
+          updatedOrder = walletUpdateResult.order;
 
-        // Get current wallet balance before deduction
-        const userBefore = await storage.getUser(updatedOrder.userId);
-        const balanceBefore = userBefore?.walletBalance || 0;
-        console.log(`💳 [WALLET] User ID: ${updatedOrder.userId}`);
-        console.log(`💳 [WALLET] Wallet balance BEFORE: ₹${balanceBefore}`);
-
-        // Check if wallet has already been deducted for this order (double-check)
-        const existingTransactions = await storage.getWalletTransactions(updatedOrder.userId, 100);
-        const deductionTransactions = existingTransactions.filter(
-          (txn: any) => txn.referenceId === orderId && txn.type === "debit"
-        );
-
-        if (deductionTransactions.length > 0) {
-          console.log(`⏭️ [WALLET] Found ${deductionTransactions.length} existing debit transaction(s) for order ${orderId}. Skipping...`);
-          const existingAmount = deductionTransactions.reduce((sum: number, txn: any) => sum + txn.amount, 0);
-          console.log(`   Already deducted: ₹${existingAmount}`);
-        } else {
-          console.log(`💳 [WALLET] No existing transaction found. Proceeding with deduction...`);
-          try {
-            // Create wallet transaction for audit trail (this also updates the wallet balance atomically)
-            await storage.createWalletTransaction({
-              userId: updatedOrder.userId,
-              amount: updatedOrder.walletAmountUsed,
-              type: "debit",
-              description: `Admin payment confirmation for order #${updatedOrder.id}`,
-              referenceId: updatedOrder.id,
-              referenceType: "order",
-            });
-            console.log(`✅ [WALLET] Balance updated and transaction logged`);
-
-            // Get updated wallet balance
-            const updatedUser = await storage.getUser(updatedOrder.userId);
-            const newWalletBalance = updatedUser?.walletBalance || 0;
-            console.log(`   User wallet balance AFTER: ₹${newWalletBalance}`);
-            console.log(`   Calculation: ₹${balanceBefore} - ₹${updatedOrder.walletAmountUsed} = ₹${newWalletBalance}`);
-
-            // 📣 Broadcast wallet update to customer in real-time
-            broadcastWalletUpdate(updatedOrder.userId, newWalletBalance);
-            console.log(`✅ [WALLET] Broadcast sent to user ${updatedOrder.userId}`);
-
-            console.log(`✅ [WALLET] COMPLETE: ₹${updatedOrder.walletAmountUsed} deducted from wallet for order #${updatedOrder.id}`);
-            console.log(`💳 [${'='.repeat(100)}]\n`);
-          } catch (walletError: any) {
-            console.error("❌ [WALLET] ERROR during deduction:", walletError.message);
-            // Don't fail the payment confirmation if wallet deduction fails - it's non-critical
+          if (walletUpdateResult.walletDeducted) {
+            console.log(`✅ [WALLET] Wallet deducted: ₹${order?.walletAmountUsed}, New balance: ₹${walletUpdateResult.newWalletBalance}`);
+            // 📣 Broadcast wallet update
+            if (walletUpdateResult.newWalletBalance !== undefined && order?.userId) {
+              broadcastWalletUpdate(order.userId, walletUpdateResult.newWalletBalance);
+              console.log(`✅ [WALLET] Broadcast sent to user ${order.userId}`);
+            }
+          } else {
+            console.log(`⏭️ [WALLET] Idempotent: Already paid or wallet not needed`);
           }
+
+          console.log(`✅ [ATOMIC] Admin payment confirmed - Order marked paid + Wallet deducted`);
+
+        } catch (paymentError: any) {
+          // ❌ Atomic function failed - payment should not succeed
+          console.error("❌ [ATOMIC-ADMIN] PAYMENT FAILED:", paymentError.message);
+          res.status(400).json({
+            message: "Payment confirmation failed",
+            error: paymentError.message || "Wallet deduction error",
+          });
+          return;
         }
+      } else {
+        // For "pending" and other statuses, use regular update (no wallet deduction)
+        updatedOrder = await storage.updateOrderPaymentStatus(orderId, paymentStatus as "pending" | "paid" | "confirmed");
+        console.log(`✅ Updated order payment status: ${updatedOrder?.paymentStatus}`);
       }
 
       if (paymentStatus === "confirmed") {
