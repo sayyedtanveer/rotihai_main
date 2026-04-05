@@ -98,6 +98,7 @@ export default function CheckoutDialog({
     bonusNote?: string; // ✅ Note about when bonus is credited
     minRequired?: number; // ✅ Used when validation fails (min required from error)
     currentAmount?: number; // ✅ Current order amount
+    validatedAmount?: number; // ✅ FIX: Track amount verified at for dynamic re-validation
   } | null>(null);
   const [subtotal, setSubtotal] = useState(0);
   const [originalSubtotal, setOriginalSubtotal] = useState(0); // Original price before item discounts
@@ -219,6 +220,17 @@ export default function CheckoutDialog({
 
   // NOTE: Auto-validation removed — validation only occurs via explicit
   // "Validate Address" button click (handleValidateAddressClick)
+
+  // ✅ FIX: Reset referral validation when cart amount changes
+  useEffect(() => {
+    if (referralValidation && referralValidation.validatedAmount !== subtotal) {
+      console.log("[REFERRAL] ⚠️ Cart amount changed - resetting validation", {
+        validatedAt: referralValidation.validatedAmount,
+        currentAmount: subtotal
+      });
+      setReferralValidation(null);
+    }
+  }, [subtotal, referralValidation]);
 
   // Handle smooth scrolling to delivery slots upon validation success
   useEffect(() => {
@@ -393,7 +405,11 @@ export default function CheckoutDialog({
         return;
       }
 
-      setReferralValidation(result);
+      // ✅ FIX: Store validatedAmount to track which amount this was verified at
+      setReferralValidation({
+        ...result,
+        validatedAmount: subtotal // Store current subtotal when verified
+      });
       if (result.valid) {
         localStorage.setItem("pendingReferralCode", codeToValidate);
       } else {
@@ -2263,9 +2279,16 @@ export default function CheckoutDialog({
         return;
       }
 
-      // Code entered but never validated (user didn't click Verify button)
-      // ✅ FIX 2: Show confirmation modal instead of hard-blocking toast
-      if (!referralValidation && !confirmedProceedWithoutReferral) {
+      // ✅ FIX: Check if validation is OUTDATED (cart changed since verification)
+      const isValidationOutdated = 
+        referralValidation && 
+        referralValidation.validatedAmount !== subtotal;
+      
+      // ✅ FIX: Show confirmation modal if:
+      // 1. Code not verified yet, OR
+      // 2. Validation is invalid, OR  
+      // 3. Validation is outdated (cart changed)
+      if ((!referralValidation || isValidationOutdated) && !confirmedProceedWithoutReferral) {
         setShowReferralConfirmModal(true);
         return;
       } else if (referralValidation && !referralValidation.valid) {
@@ -2279,8 +2302,8 @@ export default function CheckoutDialog({
         });
         referralCode_to_use = null;
         localStorage.removeItem("pendingReferralCode");
-      } else if (referralValidation?.valid) {
-        // Code is valid - use it
+      } else if (referralValidation?.valid && !isValidationOutdated) {
+        // Code is valid AND amount hasn't changed - use it
         referralCode_to_use = referralCode.trim();
       }
     }
