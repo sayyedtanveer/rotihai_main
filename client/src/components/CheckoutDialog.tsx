@@ -426,7 +426,10 @@ export default function CheckoutDialog({
         return;
       }
 
-      const errorMessage = error.message || "Invalid referral code";
+      const errorMessage =
+        error?.response?.data?.message ||
+        error?.message ||
+        "Invalid referral code";
       
       // ✅ Extract minimum required amount from error message if present
       // Message format: "Minimum order check failed. Required: ₹130, Current: ₹15"
@@ -442,7 +445,8 @@ export default function CheckoutDialog({
         valid: false,
         message: errorMessage,
         minRequired: minRequired,
-        currentAmount: subtotal
+        currentAmount: subtotal,
+        validatedAmount: subtotal
       });
       localStorage.removeItem("pendingReferralCode");
     } finally {
