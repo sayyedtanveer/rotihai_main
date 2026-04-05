@@ -409,7 +409,8 @@ export default function CheckoutDialog({
       setReferralValidation({
         ...result,
         validatedAmount: subtotal, // Store current subtotal when verified
-        currentAmount: subtotal // Ensure currentAmount is always set for display
+        currentAmount: subtotal, // Ensure currentAmount is always set for display
+        minRequired: result.minOrderAmount // Map minOrderAmount to minRequired for display
       });
       if (result.valid) {
         localStorage.setItem("pendingReferralCode", codeToValidate);
@@ -426,10 +427,21 @@ export default function CheckoutDialog({
       }
 
       const errorMessage = error.message || "Invalid referral code";
+      
+      // ✅ Extract minimum required amount from error message if present
+      // Message format: "Minimum order check failed. Required: ₹130, Current: ₹15"
+      let minRequired: number | undefined;
+      const minMatch = errorMessage.match(/Required:\s*[₹$]?(\d+)/);
+      if (minMatch) {
+        minRequired = parseInt(minMatch[1], 10);
+      } else if (error.minOrderAmount) {
+        minRequired = error.minOrderAmount;
+      }
+      
       setReferralValidation({
         valid: false,
         message: errorMessage,
-        minRequired: error.minOrderAmount,
+        minRequired: minRequired,
         currentAmount: subtotal
       });
       localStorage.removeItem("pendingReferralCode");
