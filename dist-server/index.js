@@ -1397,6 +1397,7 @@ var init_storage = __esm({
           deliveryFee: insertOrder.deliveryFee,
           discount: insertOrder.discount || 0,
           couponCode: insertOrder.couponCode || null,
+          referralCode: insertOrder.referralCode || null,
           total: insertOrder.total,
           status: insertOrder.paymentStatus || "pending",
           paymentStatus: "pending",
@@ -7036,6 +7037,13 @@ function registerAdminRoutes(app2) {
             latitude: null,
             longitude: null
           });
+          try {
+            const referralCode = await storage.generateReferralCode(user.id);
+            console.log(`\u2705 Referral code generated for new user ${user.id}: ${referralCode}`);
+            user.referralCode = referralCode;
+          } catch (error) {
+            console.warn(`\u26A0\uFE0F Failed to generate referral code: ${error.message}`);
+          }
           console.log(`\u2705 New user created on admin payment confirmation: ${user.id} - Phone: ${order.phone}`);
           userCreated = true;
           await db.update(orders2).set({ userId: user.id }).where(eq2(orders2.id, orderId));
@@ -11484,6 +11492,39 @@ function registerDeliveryRoutes(app2) {
       const updatedOrder = await storage.updateOrderDelivery(orderId);
       if (updatedOrder) {
         broadcastOrderUpdate(updatedOrder);
+        if (updatedOrder.userId) {
+          try {
+            const creditedUsers = await storage.completeReferralOnFirstOrder(updatedOrder.userId, orderId);
+            if (creditedUsers) {
+              console.log(`\u2705 Referral completion triggered by Delivery for order ${orderId}`, {
+                referredUser: {
+                  id: creditedUsers.referredUserId,
+                  bonus: creditedUsers.referredUserBonus
+                },
+                referrerUser: {
+                  id: creditedUsers.referrerUserId,
+                  bonus: creditedUsers.referrerUserBonus
+                }
+              });
+              if (creditedUsers.referredUserBonus > 0) {
+                const referredUser = await storage.getUser(creditedUsers.referredUserId);
+                if (referredUser) {
+                  broadcastWalletUpdate(creditedUsers.referredUserId, referredUser.walletBalance);
+                }
+              }
+              if (creditedUsers.referrerUserBonus > 0) {
+                const referrerUser = await storage.getUser(creditedUsers.referrerUserId);
+                if (referrerUser) {
+                  broadcastWalletUpdate(creditedUsers.referrerUserId, referrerUser.walletBalance);
+                }
+              }
+            } else {
+              console.log(`\u2139\uFE0F No referral bonus to process for order ${orderId}`);
+            }
+          } catch (referralError) {
+            console.warn(`\u26A0\uFE0F Error completing referral during delivery: ${referralError.message}`);
+          }
+        }
       }
       res.json(updatedOrder);
     } catch (error) {
@@ -12510,6 +12551,13 @@ async function registerRoutes(app2) {
         latitude: null,
         longitude: null
       });
+      try {
+        const referralCode = await storage.generateReferralCode(user.id);
+        console.log(`\u2705 Referral code generated for new user ${user.id}: ${referralCode}`);
+        user.referralCode = referralCode;
+      } catch (error) {
+        console.warn(`\u26A0\uFE0F Failed to generate referral code: ${error.message}`);
+      }
       const accessToken = generateAccessToken2(user);
       const refreshToken = generateRefreshToken2(user);
       console.log(`\u2705 User registered successfully: ${user.id}`);
@@ -12642,6 +12690,13 @@ async function registerRoutes(app2) {
           longitude: null
         });
         console.log("New user created:", user.id, "- Default password:", generatedPassword);
+        try {
+          const referralCode = await storage.generateReferralCode(user.id);
+          console.log(`\u2705 Referral code generated: ${referralCode}`);
+          user.referralCode = referralCode;
+        } catch (error) {
+          console.warn(`\u26A0\uFE0F Failed to generate referral code: ${error.message}`);
+        }
         if (email) {
           const emailHtml = createWelcomeEmail(customerName, phone, generatedPassword);
           emailSent = await sendEmail({
@@ -12665,7 +12720,8 @@ async function registerRoutes(app2) {
           name: user.name,
           phone: user.phone,
           email: user.email,
-          address: user.address
+          address: user.address,
+          referralCode: user.referralCode
         },
         accessToken,
         refreshToken,
@@ -12832,6 +12888,19 @@ async function registerRoutes(app2) {
       if (!referrer) {
         console.log("[REFERRAL-VALIDATE-ENDPOINT] Code not found", { duration: Date.now() - startTime });
         return res.status(400).json({ valid: false, message: "Invalid referral code" });
+      }
+      const firstReferrerOrder = await db.query.orders.findFirst({
+        where: (o, { and: and5, eq: eqOp }) => and5(
+          eqOp(o.userId, referrer.id),
+          eqOp(o.status, "delivered")
+        )
+      });
+      if (!firstReferrerOrder) {
+        console.log(`\u26A0\uFE0F [REFERRAL-VALIDATE] Referrer has 0 delivered orders. Blocking usage of code: ${referralCode}`);
+        return res.status(400).json({
+          valid: false,
+          message: "Referrer must have completed at least one delivered order before sharing referrals."
+        });
       }
       const settingsStart = Date.now();
       const settings = await storage.getActiveReferralReward();
@@ -13686,6 +13755,13 @@ async function registerRoutes(app2) {
             latitude: null,
             longitude: null
           });
+          try {
+            const referralCode = await storage.generateReferralCode(user.id);
+            console.log(`\u2705 Referral code generated for new user ${user.id}: ${referralCode}`);
+            user.referralCode = referralCode;
+          } catch (error) {
+            console.warn(`\u26A0\uFE0F Failed to generate referral code: ${error.message}`);
+          }
           console.log(`\u2705 New user created on payment confirmation: ${user.id} - Phone: ${order.phone}`);
           userCreated = true;
           if (SEND_SUBSCRIPTION_EMAILS && order.email) {
@@ -13767,8 +13843,8 @@ async function registerRoutes(app2) {
             userCreated = true;
             console.log(`[DROPDOWN USER] First login detected - showing account dialog`);
           }
-          if (order.referralCode && !userCreated) {
-            console.log(`\u{1F381} [REFERRAL] Attempting to link referral code: ${order.referralCode} for existing user ${user.id}`);
+          if (order.referralCode) {
+            console.log(`\u{1F381} [REFERRAL] Attempting to link referral code: ${order.referralCode} for user ${user.id} (userCreated=${userCreated})`);
             try {
               const referrer = await storage.getUserByReferralCode(order.referralCode);
               console.log(`\u{1F50D} [REFERRAL] Referrer lookup:`, { found: !!referrer, referrerPhone: referrer?.phone, userPhone: user.phone });
@@ -13794,11 +13870,7 @@ async function registerRoutes(app2) {
               console.warn(`\u26A0\uFE0F [REFERRAL] Stack:`, referralError.stack);
             }
           } else {
-            console.log(`\u{1F4CB} [REFERRAL] Skipped EXISTING USER referral:`, {
-              hasCode: !!order.referralCode,
-              userCreated,
-              reason: !order.referralCode ? "No referral code" : "Not first login (userCreated=true)"
-            });
+            console.log(`\u{1F4CB} [REFERRAL] Skipped EXISTING USER referral: No referral code on order`);
           }
         }
       } else {
@@ -14453,6 +14525,13 @@ async function registerRoutes(app2) {
             latitude: latitude || null,
             longitude: longitude || null
           });
+          try {
+            const referralCode = await storage.generateReferralCode(user.id);
+            console.log(`\u2705 Referral code generated: ${referralCode}`);
+            user.referralCode = referralCode;
+          } catch (error) {
+            console.warn(`\u26A0\uFE0F Failed to generate referral code: ${error.message}`);
+          }
           console.log(`\u2705 New account created during subscription with phone: ${sanitizedPhone}, Email: ${email || "Not provided"}`);
           if (SEND_SUBSCRIPTION_EMAILS && email) {
             const emailHtml = createWelcomeEmail(customerName, sanitizedPhone, newPassword);
@@ -16722,7 +16801,7 @@ var imageExists = (filename) => {
 var enableVite2 = process.env.ENABLE_VITE === "true";
 if (enableVite2) {
   const dbUrl = process.env.DATABASE_URL || "";
-  const allowProdDb = process.env.ALLOW_PROD_DB_IN_DEV === "true";
+  const allowProdDb = process.env.ALLOW_PROD_DB_IN_DEV === "false";
   if (dbUrl.includes("rotihai_prod") && !allowProdDb) {
     console.error("\u274C \u274C \u274C CRITICAL ERROR \u274C \u274C \u274C");
     console.error("DEV SERVER IS USING PRODUCTION DATABASE!");
