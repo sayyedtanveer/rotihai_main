@@ -1737,7 +1737,7 @@ function ReferralBonusBanner() {
 
   const handleDismiss = () => {
     if (latestBonus?.id) {
-      setShownBonusIds((prev) => new Set([...prev, latestBonus.id]));
+      setShownBonusIds((prev) => new Set([...Array.from(prev), latestBonus.id]));
       // Mark as shown in localStorage
       localStorage.setItem(`shownReferralBonus_${latestBonus.id}`, "true");
     }

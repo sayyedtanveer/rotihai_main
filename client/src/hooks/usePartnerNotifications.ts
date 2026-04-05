@@ -21,8 +21,10 @@ export function usePartnerNotifications() {
       const token = localStorage.getItem("partnerToken");
       if (!token) return;
 
+      console.log(`[NOTIFICATIONS] Using token: ${token ? token.substring(0, 10) + '...' : 'none'}`);
+      
       const { default: api } = await import("@/lib/apiClient");
-      const { data: pending } = await api.get("/api/notifications/pending");
+      const { data: pending } = await api.get("/api/partner/notifications/pending");
 
       if (Array.isArray(pending) && pending.length > 0) {
         console.log(`📥 Recovered ${pending.length} pending broadcasts`);
@@ -94,7 +96,7 @@ export function usePartnerNotifications() {
 
         // Mark them as delivered
         if (processedIds.length > 0) {
-          await api.post("/api/notifications/mark-delivered", { ids: processedIds });
+          await api.post("/api/partner/notifications/mark-delivered", { ids: processedIds });
         }
       }
     } catch (error) {

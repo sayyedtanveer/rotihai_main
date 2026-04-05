@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Hook to fetch and cache delivery configuration
  * This replaces hardcoded coordinates throughout the app
  * Ready for mobile app and multi-city support
@@ -10,6 +10,7 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
+import { getApiUrl } from '@/lib/apiBase';
 
 export interface DeliveryConfig {
   storeName: string;

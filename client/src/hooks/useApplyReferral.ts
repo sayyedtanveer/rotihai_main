@@ -28,6 +28,7 @@ export function useApplyReferral() {
     },
     onSuccess: (data) => {
       // Invalidate all related queries
+      queryClient.invalidateQueries({ queryKey: ["/api/user"] }); // ✅ NEW: Refresh user data for pendingBonus update
       queryClient.invalidateQueries({ queryKey: ["/api/user/wallet"] });
       queryClient.invalidateQueries({ queryKey: ["/api/user/referrals"] });
       queryClient.invalidateQueries({ queryKey: ["/api/user/referral-eligibility"] });

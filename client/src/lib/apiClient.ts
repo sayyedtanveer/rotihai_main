@@ -80,7 +80,7 @@ api.interceptors.response.use(
       
       // ⚠️ IMPORTANT: Don't auto-redirect for non-critical endpoints
       // If it's just notifications, let the component handle it gracefully
-      if (url.includes('/api/notifications/pending') || url.includes('/api/notifications/mark-delivered')) {
+      if (url.includes('/api/partner/notifications/pending') || url.includes('/api/partner/notifications/mark-delivered') || url.includes('/api/delivery/notifications/pending') || url.includes('/api/delivery/notifications/mark-delivered')) {
         console.warn("[API-CLIENT] ⚠️ 401 on notifications endpoint - NOT auto-redirecting");
         console.warn("[API-CLIENT] Letting the notifications handler deal with this");
         return Promise.reject(error); // Return error without redirecting
