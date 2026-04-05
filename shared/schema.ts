@@ -307,6 +307,9 @@ export const walletTransactions = pgTable("wallet_transactions", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => [
   index("IDX_wallet_user_created").on(table.userId, table.createdAt),
+  // ⚠️ CRITICAL: Unique constraint prevents duplicate wallet deductions for same order
+  // Prevents race condition where multiple payment confirmations deduct twice
+  uniqueIndex("UQ_wallet_user_reference_type").on(table.userId, table.referenceId, table.type),
 ]);
 
 export const walletSettings = pgTable("wallet_settings", {
