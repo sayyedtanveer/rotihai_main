@@ -98,6 +98,7 @@ export default function CheckoutDialog({
     bonusNote?: string; // ✅ Note about when bonus is credited
     minRequired?: number; // ✅ Used when validation fails (min required from error)
     currentAmount?: number; // ✅ Current order amount
+    validatedAmount?: number; // ✅ FIX: Track amount verified at for dynamic re-validation
   } | null>(null);
   const [subtotal, setSubtotal] = useState(0);
   const [originalSubtotal, setOriginalSubtotal] = useState(0); // Original price before item discounts
@@ -219,6 +220,17 @@ export default function CheckoutDialog({
 
   // NOTE: Auto-validation removed — validation only occurs via explicit
   // "Validate Address" button click (handleValidateAddressClick)
+
+  // ✅ FIX: Reset referral validation when cart amount changes
+  useEffect(() => {
+    if (referralValidation && referralValidation.validatedAmount !== subtotal) {
+      console.log("[REFERRAL] ⚠️ Cart amount changed - resetting validation", {
+        validatedAt: referralValidation.validatedAmount,
+        currentAmount: subtotal
+      });
+      setReferralValidation(null);
+    }
+  }, [subtotal, referralValidation]);
 
   // Handle smooth scrolling to delivery slots upon validation success
   useEffect(() => {
@@ -393,7 +405,11 @@ export default function CheckoutDialog({
         return;
       }
 
-      setReferralValidation(result);
+      // ✅ FIX: Store validatedAmount to track which amount this was verified at
+      setReferralValidation({
+        ...result,
+        validatedAmount: subtotal // Store current subtotal when verified
+      });
       if (result.valid) {
         localStorage.setItem("pendingReferralCode", codeToValidate);
       } else {
@@ -2263,24 +2279,25 @@ export default function CheckoutDialog({
         return;
       }
 
-      // Code entered but never validated (user didn't click Verify button)
-      // ✅ FIX 2: Show confirmation modal instead of hard-blocking toast
-      if (!referralValidation && !confirmedProceedWithoutReferral) {
+      // ✅ FIX: Check if validation is OUTDATED (cart changed since verification)
+      const isValidationOutdated = 
+        referralValidation && 
+        referralValidation.validatedAmount !== subtotal;
+      
+      // ✅ Check if referral code is actually entered
+      const hasReferralInput = referralCode?.trim().length > 0;
+      
+      // ✅ Check if referral is INVALID (unverified, invalid, or outdated)
+      const isReferralInvalid =
+        hasReferralInput &&
+        (!referralValidation || !referralValidation.valid || isValidationOutdated);
+      
+      // ✅ Show confirmation modal if referral is invalid
+      if (isReferralInvalid && !confirmedProceedWithoutReferral) {
         setShowReferralConfirmModal(true);
         return;
-      } else if (referralValidation && !referralValidation.valid) {
-        // Reset the bypass flag after using it
-        setConfirmedProceedWithoutReferral(false);
-        // Code is invalid - allow payment but without code
-        toast({
-          title: "Referral Code Not Applied",
-          description: (referralValidation?.message ?? "") + " Your order will proceed without referral benefit.",
-          variant: "default",
-        });
-        referralCode_to_use = null;
-        localStorage.removeItem("pendingReferralCode");
-      } else if (referralValidation?.valid) {
-        // Code is valid - use it
+      } else if (referralValidation?.valid && !isValidationOutdated) {
+        // Code is valid AND amount hasn't changed - use it
         referralCode_to_use = referralCode.trim();
       }
     }
@@ -3766,9 +3783,9 @@ export default function CheckoutDialog({
       <Dialog open={showReferralConfirmModal} onOpenChange={setShowReferralConfirmModal}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Referral Code Not Verified</DialogTitle>
+            <DialogTitle>Referral Code Not Valid</DialogTitle>
             <DialogDescription>
-              You entered a referral code but did not verify it.
+              Your referral code is not valid for the current cart.
               <br /><br />
               <strong>Do you want to proceed without applying it?</strong>
               <br />
@@ -3792,10 +3809,9 @@ export default function CheckoutDialog({
                 setReferralValidation(null);
                 setShowReferralConfirmModal(false);
                 setConfirmedProceedWithoutReferral(true);
-                // Trigger form submit after state update
+                // ✅ FIX 3: Use direct function call instead of unsafe form resubmit
                 setTimeout(() => {
-                  const form = document.querySelector<HTMLFormElement>("form");
-                  form?.requestSubmit();
+                  handleSubmit(new Event('submit') as unknown as React.FormEvent);
                 }, 50);
               }}
               className="w-full sm:w-auto"
