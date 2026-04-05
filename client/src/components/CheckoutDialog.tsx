@@ -116,6 +116,9 @@ export default function CheckoutDialog({
   } | null>(null);
   const [couponError, setCouponError] = useState("");
   const [showForgotPassword, setShowForgotPassword] = useState(false);
+  // ✅ FIX 2: Referral confirmation modal state
+  const [showReferralConfirmModal, setShowReferralConfirmModal] = useState(false);
+  const [confirmedProceedWithoutReferral, setConfirmedProceedWithoutReferral] = useState(false);
   const [selectedDeliveryTime, setSelectedDeliveryTime] = useState("");
   const [selectedDeliverySlotId, setSelectedDeliverySlotId] = useState("");
 
@@ -467,6 +470,18 @@ export default function CheckoutDialog({
     enabled: isOpen,
     refetchInterval: 60000,
   });
+
+  // ✅ FIX 1: Fetch user's order history to detect returning users
+  const { data: userOrders } = useQuery<any[]>({
+    queryKey: ["/api/orders"],
+    enabled: isAuthenticated && isOpen,
+  });
+
+  // ✅ FIX 1: Referral input visibility logic
+  // Hide if: user already has an active referral (pendingBonus) OR has placed orders before
+  const hasUsedReferral = isAuthenticated && !!user?.pendingBonus;
+  const hasPlacedOrder = isAuthenticated && Array.isArray(userOrders) && userOrders.length > 0;
+  const showReferralInput = !hasUsedReferral && !hasPlacedOrder;
 
   // GPS Fallback: Get Current Location
   const handleUseCurrentLocation = () => {
@@ -2249,28 +2264,23 @@ export default function CheckoutDialog({
       }
 
       // Code entered but never validated (user didn't click Verify button)
-      if (!referralValidation) {
-        toast({
-          title: "Referral Code Not Verified",
-          description: "Please click 'Verify' to validate your referral code, or remove it to proceed without referral benefit.",
-          variant: "destructive",
-        });
-        // ✅ BLOCK PAYMENT - User must verify or clear code
+      // ✅ FIX 2: Show confirmation modal instead of hard-blocking toast
+      if (!referralValidation && !confirmedProceedWithoutReferral) {
+        setShowReferralConfirmModal(true);
         return;
-      }
-      // Code is invalid or doesn't meet minimum order amount - allow payment but without code
-      else if (!referralValidation.valid) {
+      } else if (referralValidation && !referralValidation.valid) {
+        // Reset the bypass flag after using it
+        setConfirmedProceedWithoutReferral(false);
+        // Code is invalid - allow payment but without code
         toast({
           title: "Referral Code Not Applied",
-          description: referralValidation.message + " Your order will proceed without referral benefit.",
+          description: (referralValidation?.message ?? "") + " Your order will proceed without referral benefit.",
           variant: "default",
         });
-        // Clear the code so it doesn't get sent to backend - proceed without it
         referralCode_to_use = null;
         localStorage.removeItem("pendingReferralCode");
-      }
-      // Code is valid - use it
-      else if (referralValidation.valid) {
+      } else if (referralValidation?.valid) {
+        // Code is valid - use it
         referralCode_to_use = referralCode.trim();
       }
     }
@@ -3163,8 +3173,8 @@ export default function CheckoutDialog({
                       )}
 
                       {/* Referral Code Input - Manual verification with button */}
-                      {/* Show for: (1) unauthenticated users OR (2) authenticated users without pending bonus */}
-                      {(!isAuthenticated || (isAuthenticated && !user?.pendingBonus)) && (
+                      {/* ✅ FIX 1: Show only if user hasn't used a referral AND hasn't placed an order yet */}
+                      {showReferralInput && (
                         <div>
                           <Label
                             htmlFor="referralCode"
@@ -3742,6 +3752,49 @@ export default function CheckoutDialog({
                 </Button>
               )}
             </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* ✅ FIX 2: Referral Confirmation Modal */}
+      <Dialog open={showReferralConfirmModal} onOpenChange={setShowReferralConfirmModal}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Referral Code Not Verified</DialogTitle>
+            <DialogDescription>
+              You entered a referral code but did not verify it.
+              <br /><br />
+              <strong>Do you want to proceed without applying it?</strong>
+              <br />
+              <span className="text-muted-foreground text-sm">Your order will be placed without any referral bonus.</span>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex gap-2 flex-col sm:flex-row">
+            <Button
+              variant="outline"
+              onClick={() => setShowReferralConfirmModal(false)}
+              className="w-full sm:w-auto"
+            >
+              Go Back & Verify
+            </Button>
+            <Button
+              variant="default"
+              onClick={() => {
+                // Clear the unverified code, mark bypass, then re-submit
+                localStorage.removeItem("pendingReferralCode");
+                setReferralCode("");
+                setReferralValidation(null);
+                setShowReferralConfirmModal(false);
+                setConfirmedProceedWithoutReferral(true);
+                // Trigger form submit after state update
+                setTimeout(() => {
+                  const form = document.querySelector<HTMLFormElement>("form");
+                  form?.requestSubmit();
+                }, 50);
+              }}
+              className="w-full sm:w-auto"
+            >
+              Proceed Without Referral
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

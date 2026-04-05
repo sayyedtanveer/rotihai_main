@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState, useRef } from "react";
 import { Route, Switch, Redirect } from "wouter";
 import api from "@/lib/apiClient";
 import { preloadBuildVersion } from "@/lib/buildVersion";
@@ -177,7 +177,7 @@ function NotificationsWrapper() {
 function ReferralBonusToastListener() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [shownIds, setShownIds] = useState(new Set<string>());
+  const shownIdsRef = useRef(new Set<string>());
 
   // Listen for referral bonus events in query cache
   useEffect(() => {
@@ -189,10 +189,10 @@ function ReferralBonusToastListener() {
         if (
           event.query.queryKey[0] === "showReferralBonusToast" &&
           queryData?.id &&
-          !shownIds.has(queryData.id)
+          !shownIdsRef.current.has(queryData.id)
         ) {
           // Mark as shown to prevent duplicate toasts
-          setShownIds((prev) => new Set([...prev, queryData.id]));
+          shownIdsRef.current.add(queryData.id);
 
           // Show toast notification
           toast({
@@ -208,7 +208,7 @@ function ReferralBonusToastListener() {
     });
 
     return () => unsubscribe();
-  }, [queryClient, toast, shownIds]);
+  }, [queryClient, toast]);  // ← Stable dependencies, no shownIds
 
   return null;
 }
