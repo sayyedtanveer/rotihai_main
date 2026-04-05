@@ -408,7 +408,8 @@ export default function CheckoutDialog({
       // ✅ FIX: Store validatedAmount to track which amount this was verified at
       setReferralValidation({
         ...result,
-        validatedAmount: subtotal // Store current subtotal when verified
+        validatedAmount: subtotal, // Store current subtotal when verified
+        currentAmount: subtotal // Ensure currentAmount is always set for display
       });
       if (result.valid) {
         localStorage.setItem("pendingReferralCode", codeToValidate);
