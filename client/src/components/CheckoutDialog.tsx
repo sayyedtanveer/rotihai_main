@@ -2284,24 +2284,18 @@ export default function CheckoutDialog({
         referralValidation && 
         referralValidation.validatedAmount !== subtotal;
       
-      // ✅ FIX: Show confirmation modal if:
-      // 1. Code not verified yet, OR
-      // 2. Validation is invalid, OR  
-      // 3. Validation is outdated (cart changed)
-      if ((!referralValidation || isValidationOutdated) && !confirmedProceedWithoutReferral) {
+      // ✅ Check if referral code is actually entered
+      const hasReferralInput = referralCode?.trim().length > 0;
+      
+      // ✅ Check if referral is INVALID (unverified, invalid, or outdated)
+      const isReferralInvalid =
+        hasReferralInput &&
+        (!referralValidation || !referralValidation.valid || isValidationOutdated);
+      
+      // ✅ Show confirmation modal if referral is invalid
+      if (isReferralInvalid && !confirmedProceedWithoutReferral) {
         setShowReferralConfirmModal(true);
         return;
-      } else if (referralValidation && !referralValidation.valid) {
-        // Reset the bypass flag after using it
-        setConfirmedProceedWithoutReferral(false);
-        // Code is invalid - allow payment but without code
-        toast({
-          title: "Referral Code Not Applied",
-          description: (referralValidation?.message ?? "") + " Your order will proceed without referral benefit.",
-          variant: "default",
-        });
-        referralCode_to_use = null;
-        localStorage.removeItem("pendingReferralCode");
       } else if (referralValidation?.valid && !isValidationOutdated) {
         // Code is valid AND amount hasn't changed - use it
         referralCode_to_use = referralCode.trim();
@@ -3789,9 +3783,9 @@ export default function CheckoutDialog({
       <Dialog open={showReferralConfirmModal} onOpenChange={setShowReferralConfirmModal}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Referral Code Not Verified</DialogTitle>
+            <DialogTitle>Referral Code Not Valid</DialogTitle>
             <DialogDescription>
-              You entered a referral code but did not verify it.
+              Your referral code is not valid for the current cart.
               <br /><br />
               <strong>Do you want to proceed without applying it?</strong>
               <br />
@@ -3815,10 +3809,9 @@ export default function CheckoutDialog({
                 setReferralValidation(null);
                 setShowReferralConfirmModal(false);
                 setConfirmedProceedWithoutReferral(true);
-                // Trigger form submit after state update
+                // ✅ FIX 3: Use direct function call instead of unsafe form resubmit
                 setTimeout(() => {
-                  const form = document.querySelector<HTMLFormElement>("form");
-                  form?.requestSubmit();
+                  handleSubmit(new Event('submit') as unknown as React.FormEvent);
                 }, 50);
               }}
               className="w-full sm:w-auto"
