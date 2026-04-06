@@ -2904,11 +2904,19 @@ export class MemStorage implements IStorage {
       }
 
       if (!existingOrder.userId) {
-        throw new Error(`Order ${orderId} has no userId`);
+        // ✅ FIX: If order has no userId but we have userId parameter, order was just updated
+        // Use the provided userId (from payment-confirmed endpoint after user account creation)
+        if (!userId) {
+          throw new Error(`Order ${orderId} has no userId and no userId provided`);
+        }
+        console.log(`✅ [ATOMIC] Order has no userId in DB, but userId provided: ${userId} (order just updated)`);
       }
 
-      // Use provided values or from order
-      const actualUserId = userId || existingOrder.userId;
+      // Use provided values or from order - guaranteed to be non-null due to checks above
+      const actualUserId: string = (userId || existingOrder.userId)!;
+      if (!actualUserId) {
+        throw new Error(`Unable to determine userId for order ${orderId}`);
+      }
       let actualWalletAmount = walletAmountUsed || existingOrder.walletAmountUsed || 0;
 
       // ✅ FIX 5: ENFORCE WALLET LIMIT (BACKEND)
