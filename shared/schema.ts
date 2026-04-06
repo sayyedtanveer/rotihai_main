@@ -292,7 +292,7 @@ export const referrals = pgTable("referrals", {
   index("IDX_referrals_expires").on(table.expiresAt),
 ]);
 
-export const transactionTypeEnum = pgEnum("transaction_type", ["credit", "debit", "referral_bonus", "order_discount"]);
+export const transactionTypeEnum = pgEnum("transaction_type", ["credit", "debit", "referral_bonus", "referral_bonus_claimed", "order_discount"]);
 
 export const walletTransactions = pgTable("wallet_transactions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -758,7 +758,7 @@ export type Referral = typeof referrals.$inferSelect;
 export const insertWalletTransactionSchema = createInsertSchema(walletTransactions, {
   userId: z.string().min(1, { message: "User ID is required" }),
   amount: z.number({ message: "Amount is required" }),
-  type: z.enum(["credit", "debit", "referral_bonus", "order_discount"]),
+  type: z.enum(["credit", "debit", "referral_bonus", "referral_bonus_claimed", "order_discount"]),
   description: z.string().min(1, { message: "Description is required" }),
   referenceId: z.string().optional(),
   referenceType: z.string().optional(),

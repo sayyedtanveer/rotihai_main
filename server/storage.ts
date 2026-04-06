@@ -2486,18 +2486,14 @@ export class MemStorage implements IStorage {
         }, tx);
       }
 
-      // ✅ NEW: Check if referrer has completed at least one delivered order
+      // ✅ REQUIREMENT: Referrer must have completed their own first order to earn bonus
+      // Both users must have delivered their first order to both receive bonuses
       const referrerOrders = await tx.query.orders.findMany({
-        where: (o, { and, eq: eqOp }) => and(
-          eqOp(o.userId, referral.referrerId),
-          eqOp(o.status, "delivered")
-        ),
+        where: (o, { eq }) => eq(o.userId, referral.referrerId),
       });
-
-      const referrerHasCompletedFirstOrder = referrerOrders.length > 0;
+      const referrerHasCompletedFirstOrder = referrerOrders.some(o => o.status === "delivered");
 
       if (canCreditBonus && referrerHasCompletedFirstOrder) {
-        // 🎁 Credit ₹100 to referrer
         referrerUserBonus = referral.referrerBonus;
         await this.createWalletTransaction({
           userId: referral.referrerId,
@@ -2507,17 +2503,18 @@ export class MemStorage implements IStorage {
           referenceId: referral.id,
           referenceType: "referral",
         }, tx);
+        console.log(`[REFERRAL] ✅ Referrer ${referral.referrerId} credited ₹${referral.referrerBonus}`);
       } else if (canCreditBonus && !referrerHasCompletedFirstOrder) {
-        // Referrer must complete their own first order before earning bonus
-        console.log(`[REFERRAL] Referrer ${referral.referrerId} has not completed first order. Skipping bonus.`);
+        console.log(`[REFERRAL] ⏳ Referrer ${referral.referrerId} has not completed first order. Bonus pending delivery.`);
       }
 
-      // Mark referral as completed
+      // Mark referral as completed only if BOTH users have completed their first orders
+      // If referrer hasn't completed yet, keep it pending and set referrerBonus to 0
       await tx.update(referrals)
         .set({
-          status: "completed",
+          status: referrerHasCompletedFirstOrder ? "completed" : "pending",
           referredOrderCompleted: true,
-          completedAt: new Date(),
+          completedAt: referrerHasCompletedFirstOrder ? new Date() : null,
           referrerBonus: (canCreditBonus && referrerHasCompletedFirstOrder) ? referral.referrerBonus : 0,
         })
         .where(eq(referrals.id, referral.id));

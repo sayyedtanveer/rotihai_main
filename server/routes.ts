@@ -2369,46 +2369,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           accessToken = generateAccessToken(user);
           refreshToken = generateRefreshToken(user);
           
-          // 🎯 Create pending referral if order has referral code (new user only)
-          if (order.referralCode && userCreated) {
-            console.log(`🎁 [REFERRAL] Attempting to link referral code: ${order.referralCode} for new user ${user.id}`);
-            try {
-              // Get referrer
-              const referrer = await storage.getUserByReferralCode(order.referralCode);
-              console.log(`🔍 [REFERRAL] Referrer lookup:`, { found: !!referrer, referrerPhone: referrer?.phone, newUserPhone: user.phone });
-              
-              // ❌ prevent self referral
-              if (referrer && referrer.phone !== user.phone) {
-                 const { referrals: referralsTable } = await import("@shared/db");
-                 const { eq } = await import("drizzle-orm");
-                 const userId = user.id; // Capture for closure
-                 // ❌ prevent duplicate referral
-                 const existing = await db.query.referrals.findFirst({
-                    where: (r, { eq: eqOp }) => eqOp(r.referredId, userId)
-                 });
-                 console.log(`🔍 [REFERRAL] Duplicate check:`, { existingReferral: !!existing });
-                 if (!existing) {
-                    // ✅ Create referral with firstOrderId to link user's first order
-                    const referral = await storage.createReferral(referrer.id, user.id, { firstOrderId: id });
-                    console.log(`✅ [REFERRAL] Referral properly linked for code: ${order.referralCode}, First Order: ${id}, Referral ID: ${referral.id}`);
-                 } else {
-                    console.log(`⚠️ [REFERRAL] Skipped - User already has referral`);
-                 }
-              } else {
-                console.log(`⚠️ [REFERRAL] Skipped - Referrer not found or self-referral detected`);
-              }
-            } catch (referralError: any) {
-              console.warn(`⚠️ [REFERRAL] Failed to link referral (non-blocking):`, referralError.message);
-              console.warn(`⚠️ [REFERRAL] Stack:`, referralError.stack);
-              // Don't fail order creation if referral application fails
-            }
-          } else {
-            console.log(`📋 [REFERRAL] Skipped NEW USER referral:`, {
-              hasCode: !!order.referralCode,
-              userCreated,
-              reason: !order.referralCode ? 'No referral code' : 'Not a new user'
-            });
-          }
+          // ✅ FIX 1: Referral creation now happens once after payment confirmed (see line ~2620)
+          // Skip creation here - prevent duplicate attempts
         } else {
           console.log(`👤 User already exists with phone ${order.phone}, linking to order`);
           
@@ -2447,38 +2409,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             console.log(`[DROPDOWN USER] First login detected - showing account dialog`);
           }
 
-          // 🎯 Create pending referral if order has referral code (any user - new or existing)
-          if (order.referralCode) {
-            console.log(`🎁 [REFERRAL] Attempting to link referral code: ${order.referralCode} for user ${user.id} (userCreated=${userCreated})`);
-            try {
-              const referrer = await storage.getUserByReferralCode(order.referralCode);
-              console.log(`🔍 [REFERRAL] Referrer lookup:`, { found: !!referrer, referrerPhone: referrer?.phone, userPhone: user.phone });
-              if (referrer && referrer.phone !== user.phone) {
-                 const { referrals: referralsTable } = await import("@shared/db");
-                 const { eq } = await import("drizzle-orm");
-                 const userId = user.id; // Capture for closure
-                 const existing = await db.query.referrals.findFirst({
-                    where: (r, { eq: eqOp }) => eqOp(r.referredId, userId)
-                 });
-                 console.log(`🔍 [REFERRAL] Duplicate check:`, { existingReferral: !!existing });
-                 if (!existing) {
-                    // ✅ Link first order to referral
-                    const referral = await storage.createReferral(referrer.id, user.id, { firstOrderId: id });
-                    console.log(`✅ [REFERRAL] Referral properly linked for code: ${order.referralCode}, First Order: ${id}, Referral ID: ${referral.id}`);
-                 } else {
-                    console.log(`⚠️ [REFERRAL] Skipped - User already has referral`);
-                 }
-              } else {
-                console.log(`⚠️ [REFERRAL] Skipped - Referrer not found or self-referral detected`);
-              }
-            } catch (referralError: any) {
-              console.warn(`⚠️ [REFERRAL] Failed to link referral (non-blocking):`, referralError.message);
-              console.warn(`⚠️ [REFERRAL] Stack:`, referralError.stack);
-              // Don't fail order confirmation if referral application fails
-            }
-          } else {
-            console.log(`📋 [REFERRAL] Skipped EXISTING USER referral: No referral code on order`);
-          }
+          // ✅ FIX 2: Referral creation now happens once after payment confirmed (see line ~2620)
+          // Skip creation here - prevent duplicate attempts
         }
       } else {
         console.log(`👤 User already linked to order ${id} (userId: ${order.userId}). Generating tokens for potential auto-login.`);
@@ -2498,37 +2430,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             console.log(`✅ Tokens generated for existing user: ${existingUser.id}`);
           }
 
-          // 🎯 Create pending referral for existing user who is already linked to order
-          // (e.g., admin linked them earlier)
-          if (order.referralCode) {
-            console.log(`🎁 [REFERRAL] Attempting to link referral code: ${order.referralCode} for existing user ${order.userId}`);
-            try {
-              const referrer = await storage.getUserByReferralCode(order.referralCode);
-              console.log(`🔍 [REFERRAL] Referrer lookup:`, { found: !!referrer, referrerPhone: referrer?.phone, orderPhone: order.phone });
-              if (referrer && referrer.phone !== order.phone) { // Ensure self-referral doesn't happen
-                 const { referrals: referralsTable } = await import("@shared/db");
-                 const { eq } = await import("drizzle-orm");
-                 const existing = await db.query.referrals.findFirst({
-                    where: (r, { eq }) => eq(r.referredId, order.userId!)
-                 });
-                 console.log(`🔍 [REFERRAL] Duplicate check:`, { existingReferral: !!existing });
-                 if (!existing) {
-                    // ✅ Link first order to referral
-                    const referral = await storage.createReferral(referrer.id, order.userId!, { firstOrderId: id });
-                    console.log(`✅ [REFERRAL] Referral properly linked for code: ${order.referralCode}, First Order: ${id}, Referral ID: ${referral.id}`);
-                 } else {
-                    console.log(`⚠️ [REFERRAL] Skipped - User already has referral`);
-                 }
-              } else {
-                console.log(`⚠️ [REFERRAL] Skipped - Referrer not found or self-referral detected`);
-              }
-            } catch (referralError: any) {
-              console.warn(`⚠️ [REFERRAL] Failed to link referral (non-blocking):`, referralError.message);
-              console.warn(`⚠️ [REFERRAL] Stack:`, referralError.stack);
-            }
-          } else {
-            console.log(`📋 [REFERRAL] Skipped PRE-LINKED USER referral - No referral code in order`);
-          }
+          // ✅ FIX 3: Referral creation now happens once after payment confirmed (see line ~2620)
+          // Skip creation here - prevent duplicate attempts
         }
 
       // Check if order was already paid (for idempotency)
@@ -2589,9 +2492,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const referrer = await storage.getUserByReferralCode(updatedOrder.referralCode);
             
             if (referrer && referrer.id !== updatedOrder.userId) {
-              console.log(`[REFERRAL] Creating referral after payment confirm - Referrer: ${referrer.id}, Referred: ${updatedOrder.userId}`);
-              await storage.createReferral(referrer.id, updatedOrder.userId);
-              console.log(`✅ [REFERRAL] Referral created successfully`);
+              // ✅ FIX 1: PREVENT DUPLICATE REFERRALS - check if already exists
+              const existingReferral = await storage.getReferralByReferredId(updatedOrder.userId);
+              
+              if (!existingReferral) {
+                console.log(`[REFERRAL] Creating referral after payment confirm - Referrer: ${referrer.id}, Referred: ${updatedOrder.userId}`);
+                await storage.createReferral(referrer.id, updatedOrder.userId);
+                console.log(`✅ [REFERRAL] Referral created successfully`);
+              } else {
+                console.log(`[REFERRAL] Skipped - referral already exists for user ${updatedOrder.userId}`);
+              }
             }
           } catch (refError: any) {
             console.warn(`⚠️ [REFERRAL] Error creating referral:`, refError.message);
