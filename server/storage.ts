@@ -2887,7 +2887,7 @@ export class MemStorage implements IStorage {
         FOR UPDATE
       `);
       
-      const existingOrder = existingOrderResult[0] as Order | undefined;
+      const existingOrder = (existingOrderResult as any).rows?.[0] as Order | undefined;
 
       if (!existingOrder) {
         throw new Error(`Order ${orderId} not found`);
@@ -2909,7 +2909,17 @@ export class MemStorage implements IStorage {
 
       // Use provided values or from order
       const actualUserId = userId || existingOrder.userId;
-      const actualWalletAmount = walletAmountUsed || existingOrder.walletAmountUsed || 0;
+      let actualWalletAmount = walletAmountUsed || existingOrder.walletAmountUsed || 0;
+
+      // ✅ FIX 5: ENFORCE WALLET LIMIT (BACKEND)
+      // Ensure wallet usage doesn't exceed configured max per order
+      const maxAllowed = Math.min(
+        actualWalletAmount,       // What user requested
+        50,                        // Max wallet usage per order (hard limit)
+        existingOrder.total        // Can't deduct more than order total
+      );
+      actualWalletAmount = maxAllowed;
+      console.log(`💳 [WALLET-LIMIT] Enforced limit: requested=${walletAmountUsed}, max_allowed=${maxAllowed}, order_total=${existingOrder.total}`);
 
       let newWalletBalance = undefined;
       let walletDeducted = false;
