@@ -417,7 +417,10 @@ var init_schema = __esm({
       balanceAfter: integer("balance_after").notNull(),
       createdAt: timestamp("created_at").notNull().defaultNow()
     }, (table) => [
-      index("IDX_wallet_user_created").on(table.userId, table.createdAt)
+      index("IDX_wallet_user_created").on(table.userId, table.createdAt),
+      // ⚠️ CRITICAL: Unique constraint prevents duplicate wallet deductions for same order
+      // Prevents race condition where multiple payment confirmations deduct twice
+      uniqueIndex("UQ_wallet_user_reference_type").on(table.userId, table.referenceId, table.type)
     ]);
     walletSettings = pgTable("wallet_settings", {
       id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -461,6 +464,8 @@ var init_schema = __esm({
       // ₹50 for referred user
       minOrderAmount: integer("min_order_amount").notNull().default(0),
       // Min order to qualify
+      maxBonusUsagePerOrder: integer("max_bonus_usage_per_order").default(10),
+      // Max bonus that can be used per order (e.g., ₹10 max even if bonus is ₹50)
       maxReferralsPerMonth: integer("max_referrals_per_month").default(10),
       maxEarningsPerMonth: integer("max_earnings_per_month").default(500),
       expiryDays: integer("expiry_days").default(30),
@@ -845,6 +850,8 @@ var init_schema = __esm({
       maxReferralsPerMonth: z.number().int().default(10),
       maxEarningsPerMonth: z.number().int().default(500),
       expiryDays: z.number().int().default(30),
+      maxBonusUsagePerOrder: z.number().int().default(10),
+      // ✅ FIX: Per-order limit default
       isActive: z.boolean().default(true)
     }).omit({
       id: true,
@@ -2926,15 +2933,17 @@ var init_storage = __esm({
         }
         const minOrderAmount = settings?.minOrderAmount || 0;
         const referredBonus = settings?.referredBonus || 50;
+        const maxBonusUsagePerOrder = settings?.maxBonusUsagePerOrder || 10;
+        const bonusToUse = Math.min(referredBonus, maxBonusUsagePerOrder);
         if (orderTotal < minOrderAmount) {
           return {
             eligible: false,
-            bonus: referredBonus,
+            bonus: bonusToUse,
             minOrderAmount,
             reason: `Minimum order amount \u20B9${minOrderAmount} required to claim bonus. Current order: \u20B9${orderTotal}`
           };
         }
-        return { eligible: true, bonus: referredBonus, minOrderAmount };
+        return { eligible: true, bonus: bonusToUse, minOrderAmount };
       }
       async claimReferralBonusAtCheckout(userId, orderTotal, orderId) {
         return await db.transaction(async (tx) => {
@@ -3071,6 +3080,114 @@ var init_storage = __esm({
           where: (t, { eq: eq10 }) => eq10(t.userId, userId),
           orderBy: (t, { desc: desc3 }) => [desc3(t.createdAt)],
           limit
+        });
+      }
+      /**
+       * ⚠️ ATOMIC PAYMENT CONFIRMATION + WALLET DEDUCTION (PHASE 2 - SAFE FIX)
+       * 
+       * CRITICAL: Order status ONLY updated AFTER wallet succeeds
+       * - Prevents order showing "paid" without wallet deduction
+       * - Fails entire transaction if wallet deduction required but fails
+       * - Idempotent: Multiple calls safe
+       * 
+       * Fixes:
+       * 1. ✅ Idempotency check at START (early return if already paid)
+       * 2. ✅ Wallet balance validated BEFORE order status update
+       * 3. ✅ Required wallet deduction MUST succeed (throws error if insufficient)
+       * 4. ✅ Order marked "paid" ONLY after wallet succeeds
+       * 5. ✅ Entire transaction atomic - all-or-nothing
+       */
+      async confirmPaymentAndDeductWallet(orderId, walletAmountUsed, userId) {
+        return db.transaction(async (tx) => {
+          console.log(`
+\u{1F512} [ATOMIC-PHASE2] Starting atomic payment + wallet transaction for order ${orderId}...`);
+          console.log(`\u{1F512} [ATOMIC] Step 0: Idempotency check - fetch current order status (WITH ROW LOCK)`);
+          const existingOrderResult = await tx.execute(sql3`
+        SELECT * FROM "orders"
+        WHERE id = ${orderId}
+        FOR UPDATE
+      `);
+          const existingOrder = existingOrderResult[0];
+          if (!existingOrder) {
+            throw new Error(`Order ${orderId} not found`);
+          }
+          if (existingOrder.paymentStatus === "paid") {
+            console.log(`\u2705 [ATOMIC] Idempotency: Order already paid - returning early (no duplicate deduction)`);
+            return {
+              order: existingOrder,
+              walletDeducted: false,
+              newWalletBalance: void 0
+            };
+          }
+          if (!existingOrder.userId) {
+            throw new Error(`Order ${orderId} has no userId`);
+          }
+          const actualUserId = userId || existingOrder.userId;
+          const actualWalletAmount = walletAmountUsed || existingOrder.walletAmountUsed || 0;
+          let newWalletBalance = void 0;
+          let walletDeducted = false;
+          if (actualWalletAmount > 0) {
+            console.log(`\u{1F512} [ATOMIC] Step 1: Checking wallet balance for user ${actualUserId}...`);
+            const user = await tx.query.users.findFirst({
+              where: eq(users2.id, actualUserId)
+            });
+            if (!user) {
+              throw new Error(`User ${actualUserId} not found`);
+            }
+            const currentBalance = user.walletBalance || 0;
+            console.log(`\u{1F512} [ATOMIC]   Current balance: \u20B9${currentBalance}, Need to deduct: \u20B9${actualWalletAmount}`);
+            if (currentBalance < actualWalletAmount) {
+              throw new Error(
+                `Insufficient wallet balance: \u20B9${currentBalance} < \u20B9${actualWalletAmount} required. Transaction failed.`
+              );
+            }
+            console.log(`\u{1F512} [ATOMIC] Step 2: Attempting wallet transaction insert with unique constraint check...`);
+            const balanceAfter = currentBalance - actualWalletAmount;
+            try {
+              await tx.insert(walletTransactions2).values({
+                userId: actualUserId,
+                amount: actualWalletAmount,
+                type: "debit",
+                description: `Wallet payment for order #${orderId}`,
+                referenceId: orderId,
+                referenceType: "order",
+                balanceBefore: currentBalance,
+                balanceAfter
+              });
+              console.log(`\u{1F512} [ATOMIC]   \u2705 Wallet transaction inserted`);
+              console.log(`\u{1F512} [ATOMIC] Step 3: Update user wallet balance to \u20B9${balanceAfter}`);
+              await tx.update(users2).set({ walletBalance: balanceAfter }).where(eq(users2.id, actualUserId));
+              newWalletBalance = balanceAfter;
+              walletDeducted = true;
+              console.log(`\u{1F512} [ATOMIC]   \u2705 Wallet balance updated`);
+            } catch (insertError) {
+              if (insertError.code === "23505" || insertError.message.includes("duplicate")) {
+                console.log(`\u23ED\uFE0F [ATOMIC] Duplicate wallet transaction detected - already deducted for order ${orderId}`);
+                const refreshedUser = await tx.query.users.findFirst({
+                  where: eq(users2.id, actualUserId)
+                });
+                newWalletBalance = refreshedUser?.walletBalance;
+                walletDeducted = false;
+              } else {
+                throw insertError;
+              }
+            }
+          }
+          console.log(`\u{1F512} [ATOMIC] Step FINAL: Update order payment status to 'paid' (after wallet succeeded)`);
+          const [updatedOrder] = await tx.update(orders2).set({ paymentStatus: "paid" }).where(eq(orders2.id, orderId)).returning();
+          if (!updatedOrder) {
+            throw new Error(`Failed to update order ${orderId} status`);
+          }
+          console.log(`\u2705 [ATOMIC] Transaction committed successfully - Order paid + Wallet deducted`);
+          return {
+            order: updatedOrder,
+            walletDeducted,
+            newWalletBalance
+          };
+        }, {
+          // ⚠️ CRITICAL: Use serializable isolation to prevent race conditions
+          // All concurrent transactions for same userId will serialize
+          isolationLevel: "serializable"
         });
       }
       async getReferralStats(userId) {
@@ -3290,6 +3407,8 @@ var init_storage = __esm({
             maxReferralsPerMonth: 10,
             maxEarningsPerMonth: 500,
             expiryDays: 30,
+            maxBonusUsagePerOrder: 10,
+            // ✅ FIX: Per-order limit (e.g., max ₹10 per order even if total bonus is ₹50)
             isActive: true
           };
           settings = await this.createReferralReward(defaultReward);
@@ -7069,50 +7188,39 @@ function registerAdminRoutes(app2) {
           refreshToken = generateRefreshToken2(user);
         }
       }
-      const updatedOrder = await storage.updateOrderPaymentStatus(orderId, paymentStatus);
-      console.log(`\u2705 Updated order payment status: ${updatedOrder?.paymentStatus}`);
-      if (updatedOrder && updatedOrder.walletAmountUsed && updatedOrder.walletAmountUsed > 0 && updatedOrder.userId) {
-        console.log(`
-\u{1F4B3} [=${"=".repeat(50)}] WALLET DEDUCTION TRACE [${"=".repeat(50)}]`);
-        console.log(`\u{1F4B3} [WALLET] Processing wallet deduction for order ${orderId}...`);
-        console.log(`\u{1F4B3} [WALLET] Order walletAmountUsed value: \u20B9${updatedOrder.walletAmountUsed}`);
-        const userBefore = await storage.getUser(updatedOrder.userId);
-        const balanceBefore = userBefore?.walletBalance || 0;
-        console.log(`\u{1F4B3} [WALLET] User ID: ${updatedOrder.userId}`);
-        console.log(`\u{1F4B3} [WALLET] Wallet balance BEFORE: \u20B9${balanceBefore}`);
-        const existingTransactions = await storage.getWalletTransactions(updatedOrder.userId, 100);
-        const deductionTransactions = existingTransactions.filter(
-          (txn) => txn.referenceId === orderId && txn.type === "debit"
-        );
-        if (deductionTransactions.length > 0) {
-          console.log(`\u23ED\uFE0F [WALLET] Found ${deductionTransactions.length} existing debit transaction(s) for order ${orderId}. Skipping...`);
-          const existingAmount = deductionTransactions.reduce((sum, txn) => sum + txn.amount, 0);
-          console.log(`   Already deducted: \u20B9${existingAmount}`);
-        } else {
-          console.log(`\u{1F4B3} [WALLET] No existing transaction found. Proceeding with deduction...`);
-          try {
-            await storage.createWalletTransaction({
-              userId: updatedOrder.userId,
-              amount: updatedOrder.walletAmountUsed,
-              type: "debit",
-              description: `Admin payment confirmation for order #${updatedOrder.id}`,
-              referenceId: updatedOrder.id,
-              referenceType: "order"
-            });
-            console.log(`\u2705 [WALLET] Balance updated and transaction logged`);
-            const updatedUser = await storage.getUser(updatedOrder.userId);
-            const newWalletBalance = updatedUser?.walletBalance || 0;
-            console.log(`   User wallet balance AFTER: \u20B9${newWalletBalance}`);
-            console.log(`   Calculation: \u20B9${balanceBefore} - \u20B9${updatedOrder.walletAmountUsed} = \u20B9${newWalletBalance}`);
-            broadcastWalletUpdate(updatedOrder.userId, newWalletBalance);
-            console.log(`\u2705 [WALLET] Broadcast sent to user ${updatedOrder.userId}`);
-            console.log(`\u2705 [WALLET] COMPLETE: \u20B9${updatedOrder.walletAmountUsed} deducted from wallet for order #${updatedOrder.id}`);
-            console.log(`\u{1F4B3} [${"=".repeat(100)}]
-`);
-          } catch (walletError) {
-            console.error("\u274C [WALLET] ERROR during deduction:", walletError.message);
+      let updatedOrder = null;
+      if (paymentStatus === "paid") {
+        try {
+          console.log(`
+\u{1F4B3} \u26A0\uFE0F [ATOMIC-ADMIN] ADMIN: Starting atomic payment confirmation + wallet deduction`);
+          console.log(`\u{1F4B3} [ATOMIC] Order: ${orderId}, Wallet Amount: \u20B9${order?.walletAmountUsed || 0}`);
+          const walletUpdateResult = await storage.confirmPaymentAndDeductWallet(
+            orderId,
+            order?.walletAmountUsed,
+            order?.userId
+          );
+          updatedOrder = walletUpdateResult.order;
+          if (walletUpdateResult.walletDeducted) {
+            console.log(`\u2705 [WALLET] Wallet deducted: \u20B9${order?.walletAmountUsed}, New balance: \u20B9${walletUpdateResult.newWalletBalance}`);
+            if (walletUpdateResult.newWalletBalance !== void 0 && order?.userId) {
+              broadcastWalletUpdate(order.userId, walletUpdateResult.newWalletBalance);
+              console.log(`\u2705 [WALLET] Broadcast sent to user ${order.userId}`);
+            }
+          } else {
+            console.log(`\u23ED\uFE0F [WALLET] Idempotent: Already paid or wallet not needed`);
           }
+          console.log(`\u2705 [ATOMIC] Admin payment confirmed - Order marked paid + Wallet deducted`);
+        } catch (paymentError) {
+          console.error("\u274C [ATOMIC-ADMIN] PAYMENT FAILED:", paymentError.message);
+          res.status(400).json({
+            message: "Payment confirmation failed",
+            error: paymentError.message || "Wallet deduction error"
+          });
+          return;
         }
+      } else {
+        updatedOrder = await storage.updateOrderPaymentStatus(orderId, paymentStatus);
+        console.log(`\u2705 Updated order payment status: ${updatedOrder?.paymentStatus}`);
       }
       if (paymentStatus === "confirmed") {
         const confirmedOrder = await storage.updateOrderStatus(orderId, "confirmed");
@@ -11110,7 +11218,7 @@ function registerPartnerRoutes(app2) {
       res.status(500).json({ message: "Failed to update delivery status" });
     }
   });
-  app2.get("/api/notifications/pending", requirePartner(), async (req, res) => {
+  app2.get("/api/partner/notifications/pending", requirePartner(), async (req, res) => {
     try {
       const chefId = req.partner?.chefId;
       if (!chefId) return res.status(401).json({ message: "Unauthorized" });
@@ -11128,7 +11236,7 @@ function registerPartnerRoutes(app2) {
       res.status(500).json({ message: "Failed to fetch pending broadcasts" });
     }
   });
-  app2.post("/api/notifications/mark-delivered", requirePartner(), async (req, res) => {
+  app2.post("/api/partner/notifications/mark-delivered", requirePartner(), async (req, res) => {
     try {
       const { ids } = req.body;
       const chefId = req.partner?.chefId;
@@ -11799,7 +11907,7 @@ function registerDeliveryRoutes(app2) {
       res.status(500).json({ message: "Failed to fetch subscription statistics" });
     }
   });
-  app2.get("/api/notifications/pending", requireDeliveryAuth(), async (req, res) => {
+  app2.get("/api/delivery/notifications/pending", requireDeliveryAuth(), async (req, res) => {
     try {
       const deliveryPersonId = req.delivery.deliveryId;
       if (!deliveryPersonId) return res.status(401).json({ message: "Unauthorized" });
@@ -11817,7 +11925,7 @@ function registerDeliveryRoutes(app2) {
       res.status(500).json({ message: "Failed to fetch pending broadcasts" });
     }
   });
-  app2.post("/api/notifications/mark-delivered", requireDeliveryAuth(), async (req, res) => {
+  app2.post("/api/delivery/notifications/mark-delivered", requireDeliveryAuth(), async (req, res) => {
     try {
       const { ids } = req.body;
       const deliveryPersonId = req.delivery.deliveryId;
@@ -12819,6 +12927,7 @@ async function registerRoutes(app2) {
           referrerBonus: 50,
           referredBonus: 50,
           minOrderAmount: 100,
+          maxBonusUsagePerOrder: 10,
           maxReferralsPerMonth: 10,
           maxEarningsPerMonth: 500,
           expiryDays: 30
@@ -12829,6 +12938,7 @@ async function registerRoutes(app2) {
         referrerBonus: settings.referrerBonus,
         referredBonus: settings.referredBonus,
         minOrderAmount: settings.minOrderAmount,
+        maxBonusUsagePerOrder: settings.maxBonusUsagePerOrder,
         maxReferralsPerMonth: settings.maxReferralsPerMonth,
         maxEarningsPerMonth: settings.maxEarningsPerMonth,
         expiryDays: settings.expiryDays
@@ -13926,8 +14036,37 @@ async function registerRoutes(app2) {
         });
         return;
       }
-      const updatedOrder = await storage.updateOrderPaymentStatus(id, "paid");
-      console.log(`\u2705 Payment confirmed for order ${id} - Status: ${updatedOrder?.paymentStatus}`);
+      let walletUpdateResult = null;
+      let updatedOrder = null;
+      try {
+        console.log(`
+\u{1F4B3} \u26A0\uFE0F [ATOMIC-PHASE2] Starting atomic payment confirmation + wallet deduction`);
+        console.log(`\u{1F4B3} [ATOMIC] Order: ${id}, Wallet Amount: \u20B9${orderBefore?.walletAmountUsed || 0}, User: ${orderBefore?.userId}`);
+        walletUpdateResult = await storage.confirmPaymentAndDeductWallet(
+          id,
+          orderBefore?.walletAmountUsed,
+          orderBefore?.userId || void 0
+        );
+        updatedOrder = walletUpdateResult.order;
+        if (walletUpdateResult.walletDeducted) {
+          console.log(`\u2705 [WALLET] Wallet deducted: \u20B9${orderBefore?.walletAmountUsed}, New balance: \u20B9${walletUpdateResult.newWalletBalance}`);
+          if (walletUpdateResult.newWalletBalance !== void 0 && orderBefore?.userId) {
+            broadcastWalletUpdate(orderBefore.userId, walletUpdateResult.newWalletBalance);
+            console.log(`\u2705 [WALLET] Broadcast sent to user ${orderBefore.userId}`);
+          }
+        } else {
+          console.log(`\u23ED\uFE0F [WALLET] Wallet deduction not needed or idempotent call`);
+        }
+        console.log(`\u2705 [ATOMIC] Payment confirmed - Order marked paid + Wallet deducted`);
+      } catch (paymentError) {
+        console.error("\u274C [ATOMIC] PAYMENT FAILED - Wallet deduction error:", paymentError.message);
+        res.status(400).json({
+          message: "Payment confirmation failed",
+          error: paymentError.message || "Wallet deduction error",
+          details: paymentError.message.includes("Insufficient wallet balance") ? "Not enough wallet balance for this order" : "Payment processing error"
+        });
+        return;
+      }
       if (updatedOrder?.phone) {
         try {
           const pendingForPhone = await storage.getPendingCheckoutsByPhone(updatedOrder.phone);
@@ -13944,55 +14083,6 @@ async function registerRoutes(app2) {
         } catch (cleanupError) {
           console.warn(`\u26A0\uFE0F [PENDING-CHECKOUT-CLEANUP] Error marking pending checkouts as abandoned:`, cleanupError.message);
         }
-      }
-      if (updatedOrder && updatedOrder.walletAmountUsed && updatedOrder.walletAmountUsed > 0 && updatedOrder.userId) {
-        console.log(`
-\u{1F4B3} [=${"=".repeat(50)}] WALLET DEDUCTION TRACE [${"=".repeat(50)}]`);
-        console.log(`\u{1F4B3} [WALLET] Processing wallet deduction for order ${id}...`);
-        console.log(`\u{1F4B3} [WALLET] Order walletAmountUsed value: \u20B9${updatedOrder.walletAmountUsed}`);
-        console.log(`\u{1F4B3} [WALLET] Order walletAmountUsed type: ${typeof updatedOrder.walletAmountUsed}`);
-        const userBefore = await storage.getUser(updatedOrder.userId);
-        const balanceBefore = userBefore?.walletBalance || 0;
-        console.log(`\u{1F4B3} [WALLET] User ID: ${updatedOrder.userId}`);
-        console.log(`\u{1F4B3} [WALLET] STEP 1 - Query user balance BEFORE deduction:`);
-        console.log(`\u{1F4B3} [WALLET]   \u2192 Returned walletBalance: ${userBefore?.walletBalance}`);
-        console.log(`\u{1F4B3} [WALLET]   \u2192 Actual balanceBefore used: \u20B9${balanceBefore}`);
-        const existingTransactions = await storage.getWalletTransactions(updatedOrder.userId, 100);
-        const deductionTransactions = existingTransactions.filter(
-          (txn) => txn.referenceId === id && txn.type === "debit"
-        );
-        if (deductionTransactions.length > 0) {
-          console.log(`\u23ED\uFE0F [WALLET] Found ${deductionTransactions.length} existing debit transaction(s) for order ${id}. Skipping...`);
-          const existingAmount = deductionTransactions.reduce((sum, txn) => sum + txn.amount, 0);
-          console.log(`   Already deducted: \u20B9${existingAmount}`);
-        } else {
-          console.log(`\u{1F4B3} [WALLET] No existing transaction found. Proceeding with deduction...`);
-          try {
-            await storage.createWalletTransaction({
-              userId: updatedOrder.userId,
-              amount: updatedOrder.walletAmountUsed,
-              type: "debit",
-              description: `Wallet payment for order #${updatedOrder.id}`,
-              referenceId: updatedOrder.id,
-              referenceType: "order"
-            });
-            console.log(`\u2705 [WALLET] Balance updated and transaction logged`);
-            const updatedUser = await storage.getUser(updatedOrder.userId);
-            const newWalletBalance = updatedUser?.walletBalance || 0;
-            console.log(`   User wallet balance AFTER: \u20B9${newWalletBalance}`);
-            console.log(`   Calculation: \u20B9${balanceBefore} - \u20B9${updatedOrder.walletAmountUsed} = \u20B9${newWalletBalance}`);
-            broadcastWalletUpdate(updatedOrder.userId, newWalletBalance);
-            console.log(`\u2705 [WALLET] Broadcast sent to user ${updatedOrder.userId}`);
-            console.log(`\u2705 [WALLET] COMPLETE: \u20B9${updatedOrder.walletAmountUsed} deducted from wallet for order #${updatedOrder.id}`);
-            console.log(`\u{1F4B3} [${"=".repeat(100)}]
-`);
-          } catch (walletError) {
-            console.error("\u274C [WALLET] ERROR during deduction:", walletError.message);
-            console.error(walletError.stack);
-          }
-        }
-      } else {
-        console.log(`\u23ED\uFE0F [WALLET] Skipped deduction: walletAmountUsed=${updatedOrder?.walletAmountUsed}, userId=${updatedOrder?.userId}`);
       }
       const response = {
         message: "Payment confirmation received",
