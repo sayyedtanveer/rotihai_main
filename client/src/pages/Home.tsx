@@ -170,6 +170,9 @@ export default function Home() {
 
   // 🎁 Extract pending referral bonus amount for display
   const pendingBonusAmount = user?.pendingBonus?.amount || 0;
+  
+  // 🎁 Extract earned referral bonuses for display (referrer rewards)
+  const earnedBonusAmount = (user as any)?.earnedReferralBonuses || 0;
 
   const { carts, addToCart: cartAddToCart, canAddItem, clearCart, getTotalItems, setUserLocation, getAllCartsWithDelivery, updateChefStatus, fetchChefStatuses, userLatitude, userLongitude, updateQuantity, removeFromCart } = useCart();
   const queryClient = useQueryClient();
@@ -997,7 +1000,7 @@ export default function Home() {
           // Logged in: check order count to decide full vs teaser
           return (
             <>
-              {/* 🎁 Show Pending Referral Bonus Badge if user has one */}
+              {/* 🎁 Show Pending Referral Bonus Badge if user has one - EARNED FROM REFERRAL CODE  */}
               {pendingBonusAmount > 0 && (
                 <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-8 py-2">
                   <div className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-950/30 dark:to-emerald-950/30 border border-green-200 dark:border-green-800 rounded-xl p-3 sm:p-4 flex items-center gap-3">
@@ -1016,6 +1019,27 @@ export default function Home() {
                   </div>
                 </div>
               )}
+
+              {/* 🎁 Show Referrer Bonus Badge if they earned bonuses - EARNED FROM REFERRING OTHERS */}
+              {earnedBonusAmount > 0 && (
+                <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-8 py-2">
+                  <div className="bg-gradient-to-r from-yellow-50 to-amber-50 dark:from-yellow-950/30 dark:to-amber-950/30 border border-yellow-200 dark:border-yellow-800 rounded-xl p-3 sm:p-4 flex items-center gap-3">
+                    <div className="text-2xl sm:text-3xl flex-shrink-0">⭐</div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-bold text-sm text-yellow-900 dark:text-yellow-100">
+                        Friends Ordered! Bonus Added!
+                      </h3>
+                      <p className="text-xs text-yellow-700 dark:text-yellow-300 mt-0.5">
+                        ₹<span className="font-bold text-base">{earnedBonusAmount}</span> added to wallet • Your referrals are rewarding you!
+                      </p>
+                    </div>
+                    <div className="flex-shrink-0">
+                      <Gift className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <ReferEarnBanner user={user} />
             </>
           );

@@ -7207,19 +7207,22 @@ function registerAdminRoutes(app2) {
         }
       }
       let updatedOrder = null;
+      let walletUpdateResult = null;
+      let walletToDeduct = 0;
       if (paymentStatus === "paid") {
         try {
+          walletToDeduct = order?.walletAmountUsed || 0;
           console.log(`
 \u{1F4B3} \u26A0\uFE0F [ATOMIC-ADMIN] ADMIN: Starting atomic payment confirmation + wallet deduction`);
-          console.log(`\u{1F4B3} [ATOMIC] Order: ${orderId}, Wallet Amount: \u20B9${order?.walletAmountUsed || 0}`);
-          const walletUpdateResult = await storage.confirmPaymentAndDeductWallet(
+          console.log(`\u{1F4B3} [ATOMIC] Order: ${orderId}, Wallet Amount to Deduct: \u20B9${walletToDeduct}`);
+          walletUpdateResult = await storage.confirmPaymentAndDeductWallet(
             orderId,
-            order?.walletAmountUsed,
+            walletToDeduct,
             order?.userId
           );
           updatedOrder = walletUpdateResult.order;
           if (walletUpdateResult.walletDeducted) {
-            console.log(`\u2705 [WALLET] Wallet deducted: \u20B9${order?.walletAmountUsed}, New balance: \u20B9${walletUpdateResult.newWalletBalance}`);
+            console.log(`\u2705 [WALLET] Wallet deducted: \u20B9${walletToDeduct}, New balance: \u20B9${walletUpdateResult.newWalletBalance}`);
             if (walletUpdateResult.newWalletBalance !== void 0 && order?.userId) {
               broadcastWalletUpdate(order.userId, walletUpdateResult.newWalletBalance);
               console.log(`\u2705 [WALLET] Broadcast sent to user ${order.userId}`);
@@ -7262,6 +7265,14 @@ function registerAdminRoutes(app2) {
         message: `Order payment ${paymentStatus === "confirmed" ? "confirmed and sent to chef" : `marked as ${paymentStatus}`}`,
         order: updatedOrder
       };
+      if (paymentStatus === "paid" && updatedOrder && walletUpdateResult) {
+        response.walletDeduction = {
+          amount: walletToDeduct,
+          deducted: walletUpdateResult.walletDeducted,
+          newBalance: walletUpdateResult.newWalletBalance
+        };
+        console.log(`\u2705 [RESPONSE] Wallet deduction details included: \u20B9${walletToDeduct} deducted, new balance: \u20B9${walletUpdateResult.newWalletBalance}`);
+      }
       if (userCreated) {
         response.userCreated = true;
         response.accessToken = accessToken;
@@ -12866,11 +12877,16 @@ async function registerRoutes(app2) {
         res.status(404).json({ message: "User not found" });
         return;
       }
+      const db2 = (await Promise.resolve().then(() => (init_db(), db_exports))).db;
+      const userOrders = await db2.query.orders.findMany({
+        where: (o, { eq: eq10 }) => eq10(o.userId, user.id)
+      });
+      const hasCompletedFirstOrder = userOrders.length > 0;
       let pendingBonus = null;
-      const referral = await (await Promise.resolve().then(() => (init_db(), db_exports))).db.query.referrals.findFirst({
+      const referral = await db2.query.referrals.findFirst({
         where: (r, { eq: eq10 }) => eq10(r.referredId, user.id)
       });
-      if (referral && referral.status === "pending") {
+      if (referral && referral.status === "pending" && hasCompletedFirstOrder) {
         const settings = await storage.getActiveReferralReward();
         pendingBonus = {
           amount: referral.referredBonus,
@@ -12878,6 +12894,18 @@ async function registerRoutes(app2) {
           code: referral.referralCode,
           referrerName: (await storage.getUser(referral.referrerId))?.name
         };
+      }
+      let earnedReferralBonuses = 0;
+      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1e3);
+      const recentBonusTransactions = await db2.query.walletTransactions.findMany({
+        where: (wt, { eq: eq10, and: andOp, gte: gte3 }) => andOp(
+          eq10(wt.userId, user.id),
+          eq10(wt.type, "referral_bonus"),
+          gte3(wt.createdAt, twentyFourHoursAgo)
+        )
+      });
+      if (recentBonusTransactions.length > 0) {
+        earnedReferralBonuses = recentBonusTransactions.reduce((sum, tx) => sum + (tx.amount || 0), 0);
       }
       res.json({
         id: user.id,
@@ -12888,6 +12916,8 @@ async function registerRoutes(app2) {
         referralCode: user.referralCode,
         walletBalance: user.walletBalance || 0,
         pendingBonus,
+        hasCompletedFirstOrder,
+        earnedReferralBonuses,
         latitude: user.latitude,
         longitude: user.longitude
       });
