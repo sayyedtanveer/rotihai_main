@@ -2684,8 +2684,8 @@ var init_storage = __esm({
           throw new Error("Referrer does not have a referral code");
         }
         const settings = await this.getActiveReferralReward();
-        const referrerBonusAmount = settings?.referrerBonus || 100;
-        const referredBonusAmount = settings?.referredBonus || 50;
+        const referrerBonusAmount = settings?.referrerBonus || 0;
+        const referredBonusAmount = settings?.referredBonus || 0;
         let expiresAt = options?.expiresAt;
         if (!expiresAt) {
           expiresAt = /* @__PURE__ */ new Date();
@@ -2754,10 +2754,10 @@ var init_storage = __esm({
           if (existingReferral) {
             throw new Error("User already used a referral code");
           }
-          const referrerBonus = settings?.referrerBonus || 50;
-          const referredBonus = settings?.referredBonus || 50;
-          const maxReferralsPerMonth = settings?.maxReferralsPerMonth || 10;
-          const maxEarningsPerMonth = settings?.maxEarningsPerMonth || 500;
+          const referrerBonus = settings?.referrerBonus || 0;
+          const referredBonus = settings?.referredBonus || 0;
+          const maxReferralsPerMonth = settings?.maxReferralsPerMonth || 0;
+          const maxEarningsPerMonth = settings?.maxEarningsPerMonth || 0;
           const startOfMonth = /* @__PURE__ */ new Date();
           startOfMonth.setDate(1);
           startOfMonth.setHours(0, 0, 0, 0);
@@ -2801,8 +2801,8 @@ var init_storage = __esm({
             return;
           }
           const settings = await this.getActiveReferralReward();
-          const expiryDays = settings?.expiryDays || 30;
-          const maxEarningsPerMonth = settings?.maxEarningsPerMonth || 500;
+          const expiryDays = settings?.expiryDays || 0;
+          const maxEarningsPerMonth = settings?.maxEarningsPerMonth || 0;
           const referralDate = new Date(referral.createdAt);
           const expiryDate = new Date(referralDate);
           expiryDate.setDate(expiryDate.getDate() + expiryDays);
@@ -2930,8 +2930,8 @@ var init_storage = __esm({
           return { eligible: false, bonus: 0, minOrderAmount: 0, reason: "Referral system is disabled" };
         }
         const minOrderAmount = settings?.minOrderAmount || 0;
-        const referredBonus = settings?.referredBonus || 50;
-        const maxBonusUsagePerOrder = settings?.maxBonusUsagePerOrder || 10;
+        const referredBonus = settings?.referredBonus || 0;
+        const maxBonusUsagePerOrder = settings?.maxBonusUsagePerOrder || 0;
         const bonusToUse = Math.min(referredBonus, maxBonusUsagePerOrder);
         if (orderTotal < minOrderAmount) {
           return {
@@ -6210,7 +6210,11 @@ function serveStatic(app2) {
       }
     }
   }));
-  app2.use("*", (_req, res) => {
+  app2.use("*", (req, res) => {
+    if (req.path.startsWith("/api/")) {
+      res.status(404).json({ message: "API endpoint not found" });
+      return;
+    }
     res.sendFile(path2.resolve(distPath, "index.html"));
   });
 }
@@ -7188,7 +7192,7 @@ function registerAdminRoutes(app2) {
             try {
               await storage.applyReferralBonus(order.referralCode, user.id, order.total, { skipFirstOrderCheck: true });
               const settings = await storage.getActiveReferralReward();
-              appliedReferralBonus = settings?.referredBonus || 50;
+              appliedReferralBonus = settings?.referredBonus || 0;
               console.log(`\u2705 [REFERRAL] Bonus applied successfully for code: ${order.referralCode} - Amount: \u20B9${appliedReferralBonus}`);
             } catch (referralError) {
               console.warn(`\u26A0\uFE0F [REFERRAL] Failed to apply referral bonus (non-blocking):`, referralError.message);
@@ -9739,9 +9743,9 @@ function registerAdminRoutes(app2) {
           referrerBonus,
           referredBonus,
           minOrderAmount: minOrderAmount || 0,
-          maxReferralsPerMonth: maxReferralsPerMonth || 10,
-          maxEarningsPerMonth: maxEarningsPerMonth || 500,
-          expiryDays: expiryDays || 30,
+          maxReferralsPerMonth: maxReferralsPerMonth || 0,
+          maxEarningsPerMonth: maxEarningsPerMonth || 0,
+          expiryDays: expiryDays || 0,
           updatedAt: /* @__PURE__ */ new Date()
         }).where(eq2(referralRewards2.id, existingRewards.id)).returning();
         console.log("[ADMIN WALLET SETTINGS] Successfully updated referralRewards:", updatedRewards);
@@ -9753,9 +9757,9 @@ function registerAdminRoutes(app2) {
           referrerBonus,
           referredBonus,
           minOrderAmount: minOrderAmount || 0,
-          maxReferralsPerMonth: maxReferralsPerMonth || 10,
-          maxEarningsPerMonth: maxEarningsPerMonth || 500,
-          expiryDays: expiryDays || 30,
+          maxReferralsPerMonth: maxReferralsPerMonth || 0,
+          maxEarningsPerMonth: maxEarningsPerMonth || 0,
+          expiryDays: expiryDays || 0,
           isActive: true
         }).returning();
         console.log("[ADMIN WALLET SETTINGS] Successfully created referralRewards:", newRewards);
@@ -10234,8 +10238,8 @@ function registerAdminRoutes(app2) {
       }
       if (status === "completed" && referral.status !== "completed") {
         const settings = await storage.getActiveReferralReward();
-        const referrerBonus = settings?.referrerBonus || 50;
-        const referredBonus = settings?.referredBonus || 50;
+        const referrerBonus = settings?.referrerBonus || 0;
+        const referredBonus = settings?.referredBonus || 0;
         const referrer = await storage.getUser(referral.referrerId);
         if (referrer) {
           await storage.updateUser(referral.referrerId, {
@@ -12938,13 +12942,13 @@ async function registerRoutes(app2) {
       const settings = await storage.getActiveReferralReward();
       if (!settings) {
         res.json({
-          referrerBonus: 50,
-          referredBonus: 50,
-          minOrderAmount: 100,
-          maxBonusUsagePerOrder: 10,
-          maxReferralsPerMonth: 10,
-          maxEarningsPerMonth: 500,
-          expiryDays: 30
+          referrerBonus: 0,
+          referredBonus: 0,
+          minOrderAmount: 0,
+          maxBonusUsagePerOrder: 0,
+          maxReferralsPerMonth: 0,
+          maxEarningsPerMonth: 0,
+          expiryDays: 0
         });
         return;
       }
@@ -13044,7 +13048,7 @@ async function registerRoutes(app2) {
           currentOrder: orderAmount
         });
       }
-      const bonus = settings.referredBonus || 50;
+      const bonus = settings.referredBonus || 0;
       const totalTime = Date.now() - startTime;
       console.log(`\u2705 [REFERRAL-VALIDATE] Code valid. Total response time: ${totalTime}ms`, {
         referrerName: referrer.name,
@@ -13080,7 +13084,7 @@ async function registerRoutes(app2) {
         return res.status(400).json({ message: "Referral system is currently disabled" });
       }
       await storage.applyReferralBonus(referralCode, userId);
-      const bonus = settings.referredBonus || 50;
+      const bonus = settings.referredBonus || 0;
       res.json({
         message: "Referral code applied successfully! \u{1F381}",
         bonus,
@@ -15571,10 +15575,10 @@ async function registerRoutes(app2) {
         where: (ws, { eq: eq10 }) => eq10(ws.isActive, true)
       });
       const defaultWallet = {
-        maxUsagePerOrder: 10,
+        maxUsagePerOrder: 0,
         minOrderAmount: 0,
-        referrerBonus: 100,
-        referredBonus: 50
+        referrerBonus: 0,
+        referredBonus: 0
       };
       const response = walletSetting || defaultWallet;
       console.log("[WALLET] Public endpoint returning:", response);

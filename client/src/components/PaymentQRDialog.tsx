@@ -300,6 +300,9 @@ export default function PaymentQRDialog({
           setCreatedOrderId(orderIdFromCheckout || "");
           setShowAccountDialog(true);  // ✅ Show account credentials dialog
           
+          // ✅ FIX 1: Invalidate wallet after new account created
+          queryClient.invalidateQueries({ queryKey: ['/api/user/profile'] });
+          
           toast({
             title: "✓ Payment Confirmed!",
             description: "Your account has been created!",
@@ -336,9 +339,9 @@ export default function PaymentQRDialog({
             description: "Your order is being prepared",
           });
 
-          // Invalidate queries
+          // ✅ FIX 2: Invalidate wallet IMMEDIATELY after payment (for logged-in users)
+          queryClient.invalidateQueries({ queryKey: ['/api/user/profile'] });
           queryClient.invalidateQueries({ queryKey: ["user-orders"] });
-          queryClient.invalidateQueries({ queryKey: ["user-profile"] });
 
           // ✅ CRITICAL: Clear cart BEFORE navigating away to prevent race conditions
           onOrderSuccess?.();

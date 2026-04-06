@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { getApiUrl } from "@/lib/apiBase";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -34,10 +35,10 @@ export default function AdminWalletLogs() {
     queryKey: ["/api/admin/wallet-transactions", dateFilter],
     queryFn: async () => {
       const token = localStorage.getItem("adminToken");
-      const url = dateFilter 
+      const path = dateFilter 
         ? `/api/admin/wallet-transactions?date=${encodeURIComponent(dateFilter)}`
         : `/api/admin/wallet-transactions`;
-      const res = await fetch(url, {
+      const res = await fetch(getApiUrl(path), {
         headers: {
           "Authorization": `Bearer ${token}`,
         },
@@ -56,7 +57,7 @@ export default function AdminWalletLogs() {
     queryKey: ["/api/admin/wallet-stats"],
     queryFn: async () => {
       const token = localStorage.getItem("adminToken");
-      const res = await fetch("/api/admin/wallet-stats", {
+      const res = await fetch(getApiUrl("/api/admin/wallet-stats"), {
         headers: {
           "Authorization": `Bearer ${token}`,
         },

@@ -562,7 +562,7 @@ export function registerAdminRoutes(app: Express) {
               await storage.applyReferralBonus(order.referralCode, user.id, order.total, { skipFirstOrderCheck: true });
               // Get the bonus amount from settings
               const settings = await storage.getActiveReferralReward();
-              appliedReferralBonus = settings?.referredBonus || 50;
+              appliedReferralBonus = settings?.referredBonus || 0;
               console.log(`✅ [REFERRAL] Bonus applied successfully for code: ${order.referralCode} - Amount: ₹${appliedReferralBonus}`);
             } catch (referralError: any) {
               console.warn(`⚠️ [REFERRAL] Failed to apply referral bonus (non-blocking):`, referralError.message);
@@ -3749,9 +3749,9 @@ export function registerAdminRoutes(app: Express) {
             referrerBonus,
             referredBonus,
             minOrderAmount: minOrderAmount || 0,
-            maxReferralsPerMonth: maxReferralsPerMonth || 10,
-            maxEarningsPerMonth: maxEarningsPerMonth || 500,
-            expiryDays: expiryDays || 30,
+            maxReferralsPerMonth: maxReferralsPerMonth || 0,
+            maxEarningsPerMonth: maxEarningsPerMonth || 0,
+            expiryDays: expiryDays || 0,
             updatedAt: new Date(),
           })
           .where(eq(referralRewards.id, existingRewards.id))
@@ -3765,9 +3765,9 @@ export function registerAdminRoutes(app: Express) {
           referrerBonus,
           referredBonus,
           minOrderAmount: minOrderAmount || 0,
-          maxReferralsPerMonth: maxReferralsPerMonth || 10,
-          maxEarningsPerMonth: maxEarningsPerMonth || 500,
-          expiryDays: expiryDays || 30,
+          maxReferralsPerMonth: maxReferralsPerMonth || 0,
+          maxEarningsPerMonth: maxEarningsPerMonth || 0,
+          expiryDays: expiryDays || 0,
           isActive: true,
         }).returning();
         console.log("[ADMIN WALLET SETTINGS] Successfully created referralRewards:", newRewards);
@@ -4365,8 +4365,8 @@ export function registerAdminRoutes(app: Express) {
       if (status === "completed" && referral.status !== "completed") {
         // Credit bonuses to both users
         const settings = await storage.getActiveReferralReward();
-        const referrerBonus = settings?.referrerBonus || 50;
-        const referredBonus = settings?.referredBonus || 50;
+        const referrerBonus = settings?.referrerBonus || 0;
+        const referredBonus = settings?.referredBonus || 0;
 
         // Credit referrer
         const referrer = await storage.getUser(referral.referrerId);

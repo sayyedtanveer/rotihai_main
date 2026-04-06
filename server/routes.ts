@@ -1054,13 +1054,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const settings = await storage.getActiveReferralReward();
       if (!settings) {
         res.json({
-          referrerBonus: 50,
-          referredBonus: 50,
-          minOrderAmount: 100,
-          maxBonusUsagePerOrder: 10,
-          maxReferralsPerMonth: 10,
-          maxEarningsPerMonth: 500,
-          expiryDays: 30,
+          referrerBonus: 0,
+          referredBonus: 0,
+          minOrderAmount: 0,
+          maxBonusUsagePerOrder: 0,
+          maxReferralsPerMonth: 0,
+          maxEarningsPerMonth: 0,
+          expiryDays: 0,
         });
         return;
       }
@@ -1185,7 +1185,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // ✅ Code is valid and meets minimum order requirement
-      const bonus = settings.referredBonus || 50;
+      const bonus = settings.referredBonus || 0;
       const totalTime = Date.now() - startTime;
       console.log(`✅ [REFERRAL-VALIDATE] Code valid. Total response time: ${totalTime}ms`, {
         referrerName: referrer.name,
@@ -1228,7 +1228,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       await storage.applyReferralBonus(referralCode, userId);
 
-      const bonus = settings.referredBonus || 50;
+      const bonus = settings.referredBonus || 0;
       res.json({
         message: "Referral code applied successfully! 🎁",
         bonus,
@@ -4541,10 +4541,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       const defaultWallet = {
-        maxUsagePerOrder: 10,
+        maxUsagePerOrder: 0,
         minOrderAmount: 0,
-        referrerBonus: 100,
-        referredBonus: 50
+        referrerBonus: 0,
+        referredBonus: 0
       };
 
       const response = walletSetting || defaultWallet;
