@@ -126,10 +126,14 @@ export default function CheckoutDialog({
   // Referral bonus states
   const [pendingBonus, setPendingBonus] = useState<number>(0);
   const [minOrderAmount, setMinOrderAmount] = useState<number>(0);
+  const [maxBonusUsagePerOrder, setMaxBonusUsagePerOrder] = useState<number>(10);
   const [bonusEligible, setBonusEligible] = useState<boolean>(false);
   const [useBonusAtCheckout, setUseBonusAtCheckout] = useState<boolean>(false);
   const [isCheckingBonusEligibility, setIsCheckingBonusEligibility] = useState(false);
   const [bonusEligibilityMsg, setBonusEligibilityMsg] = useState<string>("");
+
+  // Bonus amount to actually use (respecting limit)
+  const [bonusAmountToUse, setBonusAmountToUse] = useState<number>(0);
 
   // Wallet balance states
   const [useWalletBalance, setUseWalletBalance] = useState<boolean>(false);
@@ -504,6 +508,21 @@ export default function CheckoutDialog({
     refetchInterval: 60000,
   });
 
+  // Fetch referral settings (maxBonusUsagePerOrder limit)
+  const { data: referralSettings } = useQuery<{
+    referrerBonus: number;
+    referredBonus: number;
+    minOrderAmount: number;
+    maxBonusUsagePerOrder: number;
+    maxReferralsPerMonth: number;
+    maxEarningsPerMonth: number;
+    expiryDays: number;
+  }>({
+    queryKey: ["/api/referral-settings"],
+    enabled: isOpen,
+    refetchInterval: 60000,
+  });
+
   // ✅ FIX 1: Fetch user's order history to detect returning users
   const { data: userOrders } = useQuery<any[]>({
     queryKey: ["/api/orders"],
@@ -627,6 +646,17 @@ export default function CheckoutDialog({
       console.log("[WALLET] No wallet settings fetched");
     }
   }, [walletSettings]);
+
+  // Update local state when referral settings are fetched
+  useEffect(() => {
+    if (referralSettings) {
+      console.log("[REFERRAL] Fetched referral settings:", referralSettings);
+      setMaxBonusUsagePerOrder(referralSettings.maxBonusUsagePerOrder || 10);
+      console.log("[REFERRAL] Set maxBonusUsagePerOrder to:", referralSettings.maxBonusUsagePerOrder || 10);
+    } else {
+      console.log("[REFERRAL] No referral settings fetched");
+    }
+  }, [referralSettings]);
 
   // Fetch roti time settings for blocking logic
   const { data: rotiSettings } = useQuery<{
@@ -881,7 +911,20 @@ export default function CheckoutDialog({
 
       // Apply bonus if user has chosen to use it
       if (useBonusAtCheckout && bonusEligible && pendingBonus > 0) {
-        baseTotal = Math.max(0, baseTotal - pendingBonus);
+        // Apply bonus respecting maxBonusUsagePerOrder limit
+        const maxAllowed = Math.min(maxBonusUsagePerOrder, pendingBonus);
+        const amountToDeduct = Math.min(maxAllowed, baseTotal);
+        console.log("[BONUS] Calculating bonus deduction:", {
+          maxBonusUsagePerOrder,
+          pendingBonus,
+          maxAllowed,
+          baseTotal,
+          amountToDeduct,
+        });
+        setBonusAmountToUse(amountToDeduct);
+        baseTotal = Math.max(0, baseTotal - amountToDeduct);
+      } else {
+        setBonusAmountToUse(0);
       }
 
       // Apply wallet balance if user has chosen to use it
@@ -925,9 +968,7 @@ export default function CheckoutDialog({
         setAmountNeededForFreeDelivery(0);
       }
     }
-  }, [cart, address, appliedCoupon, useBonusAtCheckout, bonusEligible, pendingBonus, useWalletBalance, user?.walletBalance, maxWalletUsagePerOrder, minOrderAmountForWallet, deliveryFee, customerLatitude, customerLongitude]);
-
-  // Auto-fill checkout fields when user profile is loaded or dialog opens
+  }, [cart, address, appliedCoupon, useBonusAtCheckout, bonusEligible, pendingBonus, maxBonusUsagePerOrder, bonusAmountToUse, useWalletBalance, user?.walletBalance, maxWalletUsagePerOrder, minOrderAmountForWallet, deliveryFee, customerLatitude, customerLongitude]);
   useEffect(() => {
     if (isOpen && isAuthenticated && user) {
       // Use data from useAuth() hook which fetches from /api/user/profile
@@ -2452,13 +2493,60 @@ export default function CheckoutDialog({
           requiresDeliverySlot && deliveryDateStr ? deliveryDateStr : undefined,
         status: "pending" as const,
         paymentStatus: "pending" as const,
-        bonusUsedAtCheckout: useBonusAtCheckout ? user?.pendingBonus?.amount || 0 : 0,
+        bonusUsedAtCheckout: useBonusAtCheckout ? bonusAmountToUse : 0,
         walletAmountUsed: useWalletBalance ? walletAmountToUse : 0,
       };
 
       console.log("=== OPTION A FLOW: CREATE ORDER NOW ===");
       console.log("Creating order immediately at checkout");
       console.log("orderData:", orderData);
+
+      // 🎁 ✅ CRITICAL FIX: Claim bonus BEFORE creating order (if user selected it)
+      // This ensures:
+      // 1. Deducts from user.pendingBonus
+      // 2. Marks referral as referredOrderCompleted=true
+      // 3. Prevents double-credit on delivery
+      if (useBonusAtCheckout && bonusAmountToUse > 0) {
+        try {
+          console.log("[BONUS-CLAIM] Claiming bonus before order creation...", {
+            bonusAmountToUse,
+            pendingBonus,
+          });
+          
+          // Create a temporary order ID for tracking (will be replaced after order is created)
+          const tempOrderId = `temp_${Date.now()}`;
+          
+          const claimResponse = await api.post("/api/user/claim-bonus-at-checkout", {
+            orderTotal: subtotal,
+            orderId: tempOrderId,  // Temporary - will be updated after real order created
+          });
+
+          if (!claimResponse.data.bonusClaimed) {
+            console.error("[BONUS-CLAIM] Failed to claim bonus:", claimResponse.data.message);
+            toast({
+              title: "Bonus Claim Failed",
+              description: claimResponse.data.message || "Failed to claim bonus",
+              variant: "destructive",
+            });
+            setIsLoading(false);
+            return;
+          }
+
+          console.log("[BONUS-CLAIM] ✅ Bonus claimed successfully:", {
+            amount: claimResponse.data.amount,
+            message: claimResponse.data.message,
+          });
+        } catch (bonusError: any) {
+          console.error("[BONUS-CLAIM] Error claiming bonus:", bonusError);
+          toast({
+            title: "Bonus Error",
+            description: bonusError?.response?.data?.message || "Failed to claim bonus",
+            variant: "destructive",
+          });
+          setIsLoading(false);
+          return;
+        }
+      }
 
       // ✅ CREATE ORDER IMMEDIATELY (with paymentStatus: pending)
       // This ensures admin sees order in notifications even before payment
@@ -3479,6 +3567,12 @@ export default function CheckoutDialog({
                                       }`}
                                   >
                                     {bonusEligibilityMsg}
+                                  </p>
+                                )}
+
+                                {useBonusAtCheckout && bonusAmountToUse > 0 && bonusEligible && (
+                                  <p className="text-xs text-green-600 dark:text-green-400">
+                                    ✓ Will use ₹{bonusAmountToUse.toFixed(2)} from bonus (Max per order: ₹{maxBonusUsagePerOrder})
                                   </p>
                                 )}
 

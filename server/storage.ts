@@ -2626,18 +2626,22 @@ export class MemStorage implements IStorage {
 
     const minOrderAmount = settings?.minOrderAmount || 0;
     const referredBonus = settings?.referredBonus || 50;
+    const maxBonusUsagePerOrder = settings?.maxBonusUsagePerOrder || 10;
+
+    // ✅ FIX: Apply per-order limit to the bonus (e.g., max ₹10 even if bonus is ₹50)
+    const bonusToUse = Math.min(referredBonus, maxBonusUsagePerOrder);
 
     // Check minimum order amount
     if (orderTotal < minOrderAmount) {
       return {
         eligible: false,
-        bonus: referredBonus,
+        bonus: bonusToUse,
         minOrderAmount,
         reason: `Minimum order amount ₹${minOrderAmount} required to claim bonus. Current order: ₹${orderTotal}`
       };
     }
 
-    return { eligible: true, bonus: referredBonus, minOrderAmount };
+    return { eligible: true, bonus: bonusToUse, minOrderAmount };
   }
 
   async claimReferralBonusAtCheckout(userId: string, orderTotal: number, orderId: string): Promise<{
@@ -3295,6 +3299,7 @@ export class MemStorage implements IStorage {
         maxReferralsPerMonth: 10,
         maxEarningsPerMonth: 500,
         expiryDays: 30,
+        maxBonusUsagePerOrder: 10, // ✅ FIX: Per-order limit (e.g., max ₹10 per order even if total bonus is ₹50)
         isActive: true,
       };
       settings = await this.createReferralReward(defaultReward);

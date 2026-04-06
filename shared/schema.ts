@@ -352,6 +352,7 @@ export const referralRewards = pgTable("referral_rewards", {
   referrerBonus: integer("referrer_bonus").notNull().default(50), // ₹50 for referrer
   referredBonus: integer("referred_bonus").notNull().default(50), // ₹50 for referred user
   minOrderAmount: integer("min_order_amount").notNull().default(0), // Min order to qualify
+  maxBonusUsagePerOrder: integer("max_bonus_usage_per_order").default(10), // Max bonus that can be used per order (e.g., ₹10 max even if bonus is ₹50)
   maxReferralsPerMonth: integer("max_referrals_per_month").default(10),
   maxEarningsPerMonth: integer("max_earnings_per_month").default(500),
   expiryDays: integer("expiry_days").default(30), // Days for referred user to complete first order
@@ -779,6 +780,7 @@ export const insertReferralRewardSchema = createInsertSchema(referralRewards, {
   maxReferralsPerMonth: z.number().int().default(10),
   maxEarningsPerMonth: z.number().int().default(500),
   expiryDays: z.number().int().default(30),
+  maxBonusUsagePerOrder: z.number().int().default(10), // ✅ FIX: Per-order limit default
   isActive: z.boolean().default(true),
 }).omit({
   id: true,
