@@ -1953,12 +1953,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
         let user = await storage.getUserByPhone(sanitized.phone);
 
         if (!user) {
-          // NEW PHONE = Do NOT create account yet. Will be created on payment confirmation.
-          // This allows user to cancel the payment without creating an account.
-          console.log(`📝 New phone ${sanitized.phone} detected. Account will be created after payment confirmation.`);
-          accountCreated = false;
-          generatedPassword = sanitized.phone.slice(-6);
-          // userId remains null - will be set on payment confirmation
+          // ✅ FIX 1: CREATE USER BEFORE ORDER (for new users)
+          // This ensures order will have userId immediately, avoiding wallet deduction issues
+          console.log(`📝 New phone ${sanitized.phone} detected. Creating account before order...`);
+          const generatedPwd = sanitized.phone.slice(-6);
+          const passwordHash = await hashPassword(generatedPwd);
+          
+          user = await storage.createUser({
+            name: sanitized.customerName,
+            phone: sanitized.phone,
+            email: sanitized.email || null,
+            address: sanitized.address || null,
+            passwordHash,
+            referralCode: null,
+            walletBalance: 0,
+            latitude: customerLatitude,
+            longitude: customerLongitude,
+          });
+          
+          accountCreated = true;
+          generatedPassword = generatedPwd;
+          console.log(`✅ New user created before order: ${user.id} - Phone: ${sanitized.phone}`);
         } else {
           // EXISTING PHONE = Use existing account
           console.log(`✅ Existing account found with phone: ${sanitized.phone}`);
@@ -1978,16 +1993,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           }
 
-          userId = user.id;
+          accountCreated = false;
         }
+        
+        userId = user.id;
       }
 
-      // Build payload to create order
+      // ✅ FIX 3: DEBUG REFERRAL CODE
+      if (referralCodeInput) {
+        console.log(`🎁 [DEBUG-REFERRAL] Referral Code: ${referralCodeInput}, UserId: ${userId}`);
+      }
+
+      // ✅ FIX 2: PASS userId TO ORDER (guaranteed to exist for new users now)
       const orderPayload: any = {
         ...result.data,
         paymentStatus: "pending",
         userId,
-        referralCode: referralCodeInput ? referralCodeInput.trim().toUpperCase() : null, // ✅ FIX 3: Ensure referral code is stored
+        referralCode: referralCodeInput ? referralCodeInput.trim().toUpperCase() : null,
         // ✅ Google Pay verification fields
         paymentSource: "google-pay",
         expectedPayerPhone: sanitized.phone,
@@ -2510,15 +2532,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
       // Check if order was already paid (for idempotency)
-      const orderBefore = await storage.getOrderById(id);
-      const isIdempotentCall = orderBefore?.paymentStatus === "paid";
+      // Note: We already fetched this at the start as 'order', but get a fresh read for paranoia
+      const orderPaymentCheck = await storage.getOrderById(id);
+      const isIdempotentCall = orderPaymentCheck?.paymentStatus === "paid";
 
       if (isIdempotentCall) {
         console.log(`⏭️ Order ${id} already marked as paid. Skipping payment processing...`);
         // Still return the order to client, but don't process again
         res.json({
           message: "Payment already confirmed for this order",
-          order: orderBefore,
+          order: orderPaymentCheck,
         });
         return;
       }
@@ -2536,24 +2559,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       try {
         console.log(`\n💳 ⚠️ [ATOMIC-PHASE2] Starting atomic payment confirmation + wallet deduction`);
-        console.log(`💳 [ATOMIC] Order: ${id}, Wallet Amount: ₹${orderBefore?.walletAmountUsed || 0}, User: ${orderBefore?.userId}`);
+        console.log(`💳 [ATOMIC] Order: ${id}, Wallet Amount: ₹${order?.walletAmountUsed || 0}, User: ${order?.userId}`);
         
         // ✅ Call atomic function - this is now the ONLY place order gets marked "paid"
         // If wallet fails, entire transaction rolls back (order stays unpaid)
+        // Order.userId is guaranteed to exist (created before order creation now)
         walletUpdateResult = await storage.confirmPaymentAndDeductWallet(
           id,
-          orderBefore?.walletAmountUsed,
-          (orderBefore?.userId || undefined) as string | undefined
+          order?.walletAmountUsed,
+          order?.userId as string
         );
 
         updatedOrder = walletUpdateResult.order;
 
         if (walletUpdateResult.walletDeducted) {
-          console.log(`✅ [WALLET] Wallet deducted: ₹${orderBefore?.walletAmountUsed}, New balance: ₹${walletUpdateResult.newWalletBalance}`);
+          console.log(`✅ [WALLET] Wallet deducted: ₹${order?.walletAmountUsed}, New balance: ₹${walletUpdateResult.newWalletBalance}`);
           // 📣 Broadcast wallet update to customer in real-time
-          if (walletUpdateResult.newWalletBalance !== undefined && orderBefore?.userId) {
-            broadcastWalletUpdate(orderBefore.userId, walletUpdateResult.newWalletBalance);
-            console.log(`✅ [WALLET] Broadcast sent to user ${orderBefore.userId}`);
+          if (walletUpdateResult.newWalletBalance !== undefined && order?.userId) {
+            broadcastWalletUpdate(order.userId, walletUpdateResult.newWalletBalance);
+            console.log(`✅ [WALLET] Broadcast sent to user ${order.userId}`);
           }
         } else {
           console.log(`⏭️ [WALLET] Wallet deduction not needed or idempotent call`);
