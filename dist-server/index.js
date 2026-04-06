@@ -89,7 +89,7 @@ __export(schema_exports, {
   walletTransactions: () => walletTransactions
 });
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, decimal, boolean, timestamp, jsonb, index, pgEnum, real } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, decimal, boolean, timestamp, jsonb, index, uniqueIndex, pgEnum, real } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import * as crypto from "crypto";
@@ -402,7 +402,7 @@ var init_schema = __esm({
       index("IDX_referrals_referred").on(table.referredId),
       index("IDX_referrals_expires").on(table.expiresAt)
     ]);
-    transactionTypeEnum = pgEnum("transaction_type", ["credit", "debit", "referral_bonus", "order_discount"]);
+    transactionTypeEnum = pgEnum("transaction_type", ["credit", "debit", "referral_bonus", "referral_bonus_claimed", "order_discount"]);
     walletTransactions = pgTable("wallet_transactions", {
       id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
       userId: varchar("user_id").notNull(),
@@ -832,7 +832,7 @@ var init_schema = __esm({
     insertWalletTransactionSchema = createInsertSchema(walletTransactions, {
       userId: z.string().min(1, { message: "User ID is required" }),
       amount: z.number({ message: "Amount is required" }),
-      type: z.enum(["credit", "debit", "referral_bonus", "order_discount"]),
+      type: z.enum(["credit", "debit", "referral_bonus", "referral_bonus_claimed", "order_discount"]),
       description: z.string().min(1, { message: "Description is required" }),
       referenceId: z.string().optional(),
       referenceType: z.string().optional(),
@@ -2836,12 +2836,9 @@ var init_storage = __esm({
             }, tx);
           }
           const referrerOrders = await tx.query.orders.findMany({
-            where: (o, { and: and5, eq: eqOp }) => and5(
-              eqOp(o.userId, referral.referrerId),
-              eqOp(o.status, "delivered")
-            )
+            where: (o, { eq: eq10 }) => eq10(o.userId, referral.referrerId)
           });
-          const referrerHasCompletedFirstOrder = referrerOrders.length > 0;
+          const referrerHasCompletedFirstOrder = referrerOrders.some((o) => o.status === "delivered");
           if (canCreditBonus && referrerHasCompletedFirstOrder) {
             referrerUserBonus = referral.referrerBonus;
             await this.createWalletTransaction({
@@ -2852,13 +2849,14 @@ var init_storage = __esm({
               referenceId: referral.id,
               referenceType: "referral"
             }, tx);
+            console.log(`[REFERRAL] \u2705 Referrer ${referral.referrerId} credited \u20B9${referral.referrerBonus}`);
           } else if (canCreditBonus && !referrerHasCompletedFirstOrder) {
-            console.log(`[REFERRAL] Referrer ${referral.referrerId} has not completed first order. Skipping bonus.`);
+            console.log(`[REFERRAL] \u23F3 Referrer ${referral.referrerId} has not completed first order. Bonus pending delivery.`);
           }
           await tx.update(referrals2).set({
-            status: "completed",
+            status: referrerHasCompletedFirstOrder ? "completed" : "pending",
             referredOrderCompleted: true,
-            completedAt: /* @__PURE__ */ new Date(),
+            completedAt: referrerHasCompletedFirstOrder ? /* @__PURE__ */ new Date() : null,
             referrerBonus: canCreditBonus && referrerHasCompletedFirstOrder ? referral.referrerBonus : 0
           }).where(eq(referrals2.id, referral.id));
           if (referredUserBonus > 0 || referrerUserBonus > 0) {
@@ -3107,7 +3105,7 @@ var init_storage = __esm({
         WHERE id = ${orderId}
         FOR UPDATE
       `);
-          const existingOrder = existingOrderResult[0];
+          const existingOrder = existingOrderResult.rows?.[0];
           if (!existingOrder) {
             throw new Error(`Order ${orderId} not found`);
           }
@@ -3120,10 +3118,26 @@ var init_storage = __esm({
             };
           }
           if (!existingOrder.userId) {
-            throw new Error(`Order ${orderId} has no userId`);
+            if (!userId) {
+              throw new Error(`Order ${orderId} has no userId and no userId provided`);
+            }
+            console.log(`\u2705 [ATOMIC] Order has no userId in DB, but userId provided: ${userId} (order just updated)`);
           }
           const actualUserId = userId || existingOrder.userId;
-          const actualWalletAmount = walletAmountUsed || existingOrder.walletAmountUsed || 0;
+          if (!actualUserId) {
+            throw new Error(`Unable to determine userId for order ${orderId}`);
+          }
+          let actualWalletAmount = walletAmountUsed || existingOrder.walletAmountUsed || 0;
+          const maxAllowed = Math.min(
+            actualWalletAmount,
+            // What user requested
+            50,
+            // Max wallet usage per order (hard limit)
+            existingOrder.total
+            // Can't deduct more than order total
+          );
+          actualWalletAmount = maxAllowed;
+          console.log(`\u{1F4B3} [WALLET-LIMIT] Enforced limit: requested=${walletAmountUsed}, max_allowed=${maxAllowed}, order_total=${existingOrder.total}`);
           let newWalletBalance = void 0;
           let walletDeducted = false;
           if (actualWalletAmount > 0) {
@@ -6224,7 +6238,7 @@ var init_vite = __esm({
       }
       if (!viteConfig) {
         try {
-          const config = await import("../vite.config");
+          const config = await import("../../vite.config");
           viteConfig = config.default;
         } catch (error) {
           console.error("\u274C Failed to load vite.config:", error);
@@ -13360,7 +13374,18 @@ async function registerRoutes(app2) {
   });
   app2.post("/api/orders", async (req, res) => {
     try {
-      console.log(" Incoming order body:", JSON.stringify(req.body, null, 2));
+      console.log("\u{1F4E6} Incoming order body:", JSON.stringify(req.body, null, 2));
+      const checkoutId = req.body.checkoutId;
+      if (checkoutId) {
+        const pending = await storage.getPendingCheckout(checkoutId);
+        if (!pending) {
+          console.warn(`\u274C Pending checkout not found: ${checkoutId}`);
+          return res.status(400).json({
+            message: "Invalid or expired checkout"
+          });
+        }
+        console.log(`\u2705 Pending checkout validated: ${checkoutId}`);
+      }
       const body = req.body;
       const sanitizeNumber = (val) => typeof val === "string" ? parseFloat(val) : val;
       const sanitized = {
@@ -13603,9 +13628,23 @@ async function registerRoutes(app2) {
       if (!userId && sanitized.phone) {
         let user = await storage.getUserByPhone(sanitized.phone);
         if (!user) {
-          console.log(`\u{1F4DD} New phone ${sanitized.phone} detected. Account will be created after payment confirmation.`);
-          accountCreated = false;
-          generatedPassword = sanitized.phone.slice(-6);
+          console.log(`\u{1F4DD} New phone ${sanitized.phone} detected. Creating account before order...`);
+          const generatedPwd = sanitized.phone.slice(-6);
+          const passwordHash = await hashPassword2(generatedPwd);
+          user = await storage.createUser({
+            name: sanitized.customerName,
+            phone: sanitized.phone,
+            email: sanitized.email || null,
+            address: sanitized.address || null,
+            passwordHash,
+            referralCode: null,
+            walletBalance: 0,
+            latitude: customerLatitude,
+            longitude: customerLongitude
+          });
+          accountCreated = true;
+          generatedPassword = generatedPwd;
+          console.log(`\u2705 New user created before order: ${user.id} - Phone: ${sanitized.phone}`);
         } else {
           console.log(`\u2705 Existing account found with phone: ${sanitized.phone}`);
           await storage.updateUserLastLogin(user.id);
@@ -13620,8 +13659,12 @@ async function registerRoutes(app2) {
               console.warn(`\u26A0\uFE0F Failed to update user coordinates:`, updateErr);
             }
           }
-          userId = user.id;
+          accountCreated = false;
         }
+        userId = user.id;
+      }
+      if (referralCodeInput) {
+        console.log(`\u{1F381} [DEBUG-REFERRAL] Referral Code: ${referralCodeInput}, UserId: ${userId}`);
       }
       const orderPayload = {
         ...result.data,
@@ -13902,39 +13945,6 @@ async function registerRoutes(app2) {
           order.userId = user.id;
           accessToken = generateAccessToken2(user);
           refreshToken = generateRefreshToken2(user);
-          if (order.referralCode && userCreated) {
-            console.log(`\u{1F381} [REFERRAL] Attempting to link referral code: ${order.referralCode} for new user ${user.id}`);
-            try {
-              const referrer = await storage.getUserByReferralCode(order.referralCode);
-              console.log(`\u{1F50D} [REFERRAL] Referrer lookup:`, { found: !!referrer, referrerPhone: referrer?.phone, newUserPhone: user.phone });
-              if (referrer && referrer.phone !== user.phone) {
-                const { referrals: referralsTable } = await Promise.resolve().then(() => (init_db(), db_exports));
-                const { eq: eq10 } = await import("drizzle-orm");
-                const userId = user.id;
-                const existing = await db.query.referrals.findFirst({
-                  where: (r, { eq: eqOp }) => eqOp(r.referredId, userId)
-                });
-                console.log(`\u{1F50D} [REFERRAL] Duplicate check:`, { existingReferral: !!existing });
-                if (!existing) {
-                  const referral = await storage.createReferral(referrer.id, user.id, { firstOrderId: id });
-                  console.log(`\u2705 [REFERRAL] Referral properly linked for code: ${order.referralCode}, First Order: ${id}, Referral ID: ${referral.id}`);
-                } else {
-                  console.log(`\u26A0\uFE0F [REFERRAL] Skipped - User already has referral`);
-                }
-              } else {
-                console.log(`\u26A0\uFE0F [REFERRAL] Skipped - Referrer not found or self-referral detected`);
-              }
-            } catch (referralError) {
-              console.warn(`\u26A0\uFE0F [REFERRAL] Failed to link referral (non-blocking):`, referralError.message);
-              console.warn(`\u26A0\uFE0F [REFERRAL] Stack:`, referralError.stack);
-            }
-          } else {
-            console.log(`\u{1F4CB} [REFERRAL] Skipped NEW USER referral:`, {
-              hasCode: !!order.referralCode,
-              userCreated,
-              reason: !order.referralCode ? "No referral code" : "Not a new user"
-            });
-          }
         } else {
           console.log(`\u{1F464} User already exists with phone ${order.phone}, linking to order`);
           console.log(`\u{1F4CA} [EXISTING-USER-DIAGNOSTICS]:`, {
@@ -13953,35 +13963,6 @@ async function registerRoutes(app2) {
             userCreated = true;
             console.log(`[DROPDOWN USER] First login detected - showing account dialog`);
           }
-          if (order.referralCode) {
-            console.log(`\u{1F381} [REFERRAL] Attempting to link referral code: ${order.referralCode} for user ${user.id} (userCreated=${userCreated})`);
-            try {
-              const referrer = await storage.getUserByReferralCode(order.referralCode);
-              console.log(`\u{1F50D} [REFERRAL] Referrer lookup:`, { found: !!referrer, referrerPhone: referrer?.phone, userPhone: user.phone });
-              if (referrer && referrer.phone !== user.phone) {
-                const { referrals: referralsTable } = await Promise.resolve().then(() => (init_db(), db_exports));
-                const { eq: eq10 } = await import("drizzle-orm");
-                const userId = user.id;
-                const existing = await db.query.referrals.findFirst({
-                  where: (r, { eq: eqOp }) => eqOp(r.referredId, userId)
-                });
-                console.log(`\u{1F50D} [REFERRAL] Duplicate check:`, { existingReferral: !!existing });
-                if (!existing) {
-                  const referral = await storage.createReferral(referrer.id, user.id, { firstOrderId: id });
-                  console.log(`\u2705 [REFERRAL] Referral properly linked for code: ${order.referralCode}, First Order: ${id}, Referral ID: ${referral.id}`);
-                } else {
-                  console.log(`\u26A0\uFE0F [REFERRAL] Skipped - User already has referral`);
-                }
-              } else {
-                console.log(`\u26A0\uFE0F [REFERRAL] Skipped - Referrer not found or self-referral detected`);
-              }
-            } catch (referralError) {
-              console.warn(`\u26A0\uFE0F [REFERRAL] Failed to link referral (non-blocking):`, referralError.message);
-              console.warn(`\u26A0\uFE0F [REFERRAL] Stack:`, referralError.stack);
-            }
-          } else {
-            console.log(`\u{1F4CB} [REFERRAL] Skipped EXISTING USER referral: No referral code on order`);
-          }
         }
       } else {
         console.log(`\u{1F464} User already linked to order ${id} (userId: ${order.userId}). Generating tokens for potential auto-login.`);
@@ -13997,42 +13978,14 @@ async function registerRoutes(app2) {
           refreshToken = generateRefreshToken2(existingUser);
           console.log(`\u2705 Tokens generated for existing user: ${existingUser.id}`);
         }
-        if (order.referralCode) {
-          console.log(`\u{1F381} [REFERRAL] Attempting to link referral code: ${order.referralCode} for existing user ${order.userId}`);
-          try {
-            const referrer = await storage.getUserByReferralCode(order.referralCode);
-            console.log(`\u{1F50D} [REFERRAL] Referrer lookup:`, { found: !!referrer, referrerPhone: referrer?.phone, orderPhone: order.phone });
-            if (referrer && referrer.phone !== order.phone) {
-              const { referrals: referralsTable } = await Promise.resolve().then(() => (init_db(), db_exports));
-              const { eq: eq10 } = await import("drizzle-orm");
-              const existing = await db.query.referrals.findFirst({
-                where: (r, { eq: eq11 }) => eq11(r.referredId, order.userId)
-              });
-              console.log(`\u{1F50D} [REFERRAL] Duplicate check:`, { existingReferral: !!existing });
-              if (!existing) {
-                const referral = await storage.createReferral(referrer.id, order.userId, { firstOrderId: id });
-                console.log(`\u2705 [REFERRAL] Referral properly linked for code: ${order.referralCode}, First Order: ${id}, Referral ID: ${referral.id}`);
-              } else {
-                console.log(`\u26A0\uFE0F [REFERRAL] Skipped - User already has referral`);
-              }
-            } else {
-              console.log(`\u26A0\uFE0F [REFERRAL] Skipped - Referrer not found or self-referral detected`);
-            }
-          } catch (referralError) {
-            console.warn(`\u26A0\uFE0F [REFERRAL] Failed to link referral (non-blocking):`, referralError.message);
-            console.warn(`\u26A0\uFE0F [REFERRAL] Stack:`, referralError.stack);
-          }
-        } else {
-          console.log(`\u{1F4CB} [REFERRAL] Skipped PRE-LINKED USER referral - No referral code in order`);
-        }
       }
-      const orderBefore = await storage.getOrderById(id);
-      const isIdempotentCall = orderBefore?.paymentStatus === "paid";
+      const orderPaymentCheck = await storage.getOrderById(id);
+      const isIdempotentCall = orderPaymentCheck?.paymentStatus === "paid";
       if (isIdempotentCall) {
         console.log(`\u23ED\uFE0F Order ${id} already marked as paid. Skipping payment processing...`);
         res.json({
           message: "Payment already confirmed for this order",
-          order: orderBefore
+          order: orderPaymentCheck
         });
         return;
       }
@@ -14041,21 +13994,38 @@ async function registerRoutes(app2) {
       try {
         console.log(`
 \u{1F4B3} \u26A0\uFE0F [ATOMIC-PHASE2] Starting atomic payment confirmation + wallet deduction`);
-        console.log(`\u{1F4B3} [ATOMIC] Order: ${id}, Wallet Amount: \u20B9${orderBefore?.walletAmountUsed || 0}, User: ${orderBefore?.userId}`);
+        console.log(`\u{1F4B3} [ATOMIC] Order: ${id}, Wallet Amount: \u20B9${order?.walletAmountUsed || 0}, User: ${order?.userId}`);
         walletUpdateResult = await storage.confirmPaymentAndDeductWallet(
           id,
-          orderBefore?.walletAmountUsed,
-          orderBefore?.userId || void 0
+          order?.walletAmountUsed,
+          order?.userId
         );
         updatedOrder = walletUpdateResult.order;
         if (walletUpdateResult.walletDeducted) {
-          console.log(`\u2705 [WALLET] Wallet deducted: \u20B9${orderBefore?.walletAmountUsed}, New balance: \u20B9${walletUpdateResult.newWalletBalance}`);
-          if (walletUpdateResult.newWalletBalance !== void 0 && orderBefore?.userId) {
-            broadcastWalletUpdate(orderBefore.userId, walletUpdateResult.newWalletBalance);
-            console.log(`\u2705 [WALLET] Broadcast sent to user ${orderBefore.userId}`);
+          console.log(`\u2705 [WALLET] Wallet deducted: \u20B9${order?.walletAmountUsed}, New balance: \u20B9${walletUpdateResult.newWalletBalance}`);
+          if (walletUpdateResult.newWalletBalance !== void 0 && order?.userId) {
+            broadcastWalletUpdate(order.userId, walletUpdateResult.newWalletBalance);
+            console.log(`\u2705 [WALLET] Broadcast sent to user ${order.userId}`);
           }
         } else {
           console.log(`\u23ED\uFE0F [WALLET] Wallet deduction not needed or idempotent call`);
+        }
+        if (updatedOrder?.referralCode && updatedOrder?.userId) {
+          try {
+            const referrer = await storage.getUserByReferralCode(updatedOrder.referralCode);
+            if (referrer && referrer.id !== updatedOrder.userId) {
+              const existingReferral = await storage.getReferralByReferredId(updatedOrder.userId);
+              if (!existingReferral) {
+                console.log(`[REFERRAL] Creating referral after payment confirm - Referrer: ${referrer.id}, Referred: ${updatedOrder.userId}`);
+                await storage.createReferral(referrer.id, updatedOrder.userId);
+                console.log(`\u2705 [REFERRAL] Referral created successfully`);
+              } else {
+                console.log(`[REFERRAL] Skipped - referral already exists for user ${updatedOrder.userId}`);
+              }
+            }
+          } catch (refError) {
+            console.warn(`\u26A0\uFE0F [REFERRAL] Error creating referral:`, refError.message);
+          }
         }
         console.log(`\u2705 [ATOMIC] Payment confirmed - Order marked paid + Wallet deducted`);
       } catch (paymentError) {
