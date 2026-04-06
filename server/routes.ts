@@ -964,13 +964,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return;
       }
 
+      // ✅ NEW: Check if user has completed their first order
+      const db = (await import("@shared/db")).db;
+      const userOrders = await db.query.orders.findMany({
+        where: (o, { eq }) => eq(o.userId, user.id),
+      });
+      const hasCompletedFirstOrder = userOrders.length > 0;
+
       // Get referral bonus info if user was referred
       let pendingBonus = null;
-      const referral = await (await import("@shared/db")).db.query.referrals.findFirst({
+      const referral = await db.query.referrals.findFirst({
         where: (r, { eq }) => eq(r.referredId, user.id),
       });
 
-      if (referral && referral.status === "pending") {
+      // ✅ FIX: Only show pending bonus if referral is pending AND user has completed first order
+      // This ensures the bonus message only appears AFTER first order completion
+      if (referral && referral.status === "pending" && hasCompletedFirstOrder) {
         const settings = await storage.getActiveReferralReward();
         pendingBonus = {
           amount: referral.referredBonus,
@@ -978,6 +987,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
           code: referral.referralCode,
           referrerName: (await storage.getUser(referral.referrerId))?.name,
         };
+      }
+
+      // ✅ NEW: Check if user recently earned a referral bonus (as a referrer)
+      // Show message to referrer when their referred user completes first order
+      let earnedReferralBonuses = 0;
+      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const recentBonusTransactions = await db.query.walletTransactions.findMany({
+        where: (wt, { eq, and: andOp, gte }) => andOp(
+          eq(wt.userId, user.id),
+          eq(wt.type, "referral_bonus"),
+          gte(wt.createdAt, twentyFourHoursAgo)
+        ),
+      });
+      if (recentBonusTransactions.length > 0) {
+        earnedReferralBonuses = recentBonusTransactions.reduce((sum, tx) => sum + (tx.amount || 0), 0);
       }
 
       res.json({
@@ -989,6 +1013,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         referralCode: user.referralCode,
         walletBalance: user.walletBalance || 0,
         pendingBonus,
+        hasCompletedFirstOrder,
+        earnedReferralBonuses,
         latitude: user.latitude,
         longitude: user.longitude,
       });

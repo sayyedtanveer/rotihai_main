@@ -589,24 +589,28 @@ export function registerAdminRoutes(app: Express) {
       // ============================================================================
       
       let updatedOrder = null;
+      let walletUpdateResult = null;
+      let walletToDeduct = 0;
 
       if (paymentStatus === "paid") {
         // ✅ Use atomic function for "paid" status (with wallet deduction)
         // This ensures order marked "paid" ONLY if wallet deducted successfully
         try {
+          // ✅ FIX: Ensure walletAmountUsed is properly retrieved from order
+          walletToDeduct = order?.walletAmountUsed || 0;
           console.log(`\n💳 ⚠️ [ATOMIC-ADMIN] ADMIN: Starting atomic payment confirmation + wallet deduction`);
-          console.log(`💳 [ATOMIC] Order: ${orderId}, Wallet Amount: ₹${order?.walletAmountUsed || 0}`);
+          console.log(`💳 [ATOMIC] Order: ${orderId}, Wallet Amount to Deduct: ₹${walletToDeduct}`);
           
-          const walletUpdateResult = await storage.confirmPaymentAndDeductWallet(
+          walletUpdateResult = await storage.confirmPaymentAndDeductWallet(
             orderId,
-            order?.walletAmountUsed,
+            walletToDeduct,
             order?.userId
           );
 
           updatedOrder = walletUpdateResult.order;
 
           if (walletUpdateResult.walletDeducted) {
-            console.log(`✅ [WALLET] Wallet deducted: ₹${order?.walletAmountUsed}, New balance: ₹${walletUpdateResult.newWalletBalance}`);
+            console.log(`✅ [WALLET] Wallet deducted: ₹${walletToDeduct}, New balance: ₹${walletUpdateResult.newWalletBalance}`);
             // 📣 Broadcast wallet update
             if (walletUpdateResult.newWalletBalance !== undefined && order?.userId) {
               broadcastWalletUpdate(order.userId, walletUpdateResult.newWalletBalance);
@@ -660,6 +664,16 @@ export function registerAdminRoutes(app: Express) {
         message: `Order payment ${paymentStatus === 'confirmed' ? 'confirmed and sent to chef' : `marked as ${paymentStatus}`}`,
         order: updatedOrder,
       };
+
+      // ✅ Include wallet deduction confirmation when admin marks as paid
+      if (paymentStatus === "paid" && updatedOrder && walletUpdateResult) {
+        response.walletDeduction = {
+          amount: walletToDeduct,
+          deducted: walletUpdateResult.walletDeducted,
+          newBalance: walletUpdateResult.newWalletBalance,
+        };
+        console.log(`✅ [RESPONSE] Wallet deduction details included: ₹${walletToDeduct} deducted, new balance: ₹${walletUpdateResult.newWalletBalance}`);
+      }
 
       // Include user creation details if new account was created
       if (userCreated) {
