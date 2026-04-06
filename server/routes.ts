@@ -1614,7 +1614,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create an order (no authentication required - supports guest checkout)
   app.post("/api/orders", async (req: any, res) => {
     try {
-      console.log(" Incoming order body:", JSON.stringify(req.body, null, 2));
+      console.log("📦 Incoming order body:", JSON.stringify(req.body, null, 2));
+
+      // ✅ FIX 1: VALIDATE PENDING CHECKOUT EXISTS (NOT ORDER)
+      const checkoutId = req.body.checkoutId;
+      if (checkoutId) {
+        const pending = await storage.getPendingCheckout(checkoutId);
+        if (!pending) {
+          console.warn(`❌ Pending checkout not found: ${checkoutId}`);
+          return res.status(400).json({
+            message: "Invalid or expired checkout"
+          });
+        }
+        console.log(`✅ Pending checkout validated: ${checkoutId}`);
+      }
 
       // 🔹 Sanitize request before validation
       const body = req.body;
@@ -1974,7 +1987,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...result.data,
         paymentStatus: "pending",
         userId,
-        referralCode: referralCodeInput ? referralCodeInput.trim().toUpperCase() : null,
+        referralCode: referralCodeInput ? referralCodeInput.trim().toUpperCase() : null, // ✅ FIX 3: Ensure referral code is stored
         // ✅ Google Pay verification fields
         paymentSource: "google-pay",
         expectedPayerPhone: sanitized.phone,
@@ -2544,6 +2557,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         } else {
           console.log(`⏭️ [WALLET] Wallet deduction not needed or idempotent call`);
+        }
+
+        // ✅ FIX 4: CREATE REFERRAL AFTER PAYMENT CONFIRMS
+        if (updatedOrder?.referralCode && updatedOrder?.userId) {
+          try {
+            const referrer = await storage.getUserByReferralCode(updatedOrder.referralCode);
+            
+            if (referrer && referrer.id !== updatedOrder.userId) {
+              console.log(`[REFERRAL] Creating referral after payment confirm - Referrer: ${referrer.id}, Referred: ${updatedOrder.userId}`);
+              await storage.createReferral(referrer.id, updatedOrder.userId);
+              console.log(`✅ [REFERRAL] Referral created successfully`);
+            }
+          } catch (refError: any) {
+            console.warn(`⚠️ [REFERRAL] Error creating referral:`, refError.message);
+            // Don't fail payment if referral creation fails
+          }
         }
 
         console.log(`✅ [ATOMIC] Payment confirmed - Order marked paid + Wallet deducted`);
