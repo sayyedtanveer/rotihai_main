@@ -2589,9 +2589,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const referrer = await storage.getUserByReferralCode(updatedOrder.referralCode);
             
             if (referrer && referrer.id !== updatedOrder.userId) {
-              console.log(`[REFERRAL] Creating referral after payment confirm - Referrer: ${referrer.id}, Referred: ${updatedOrder.userId}`);
-              await storage.createReferral(referrer.id, updatedOrder.userId);
-              console.log(`✅ [REFERRAL] Referral created successfully`);
+              // ✅ FIX 1: PREVENT DUPLICATE REFERRALS - check if already exists
+              const existingReferral = await storage.getReferralByReferredId(updatedOrder.userId);
+              
+              if (!existingReferral) {
+                console.log(`[REFERRAL] Creating referral after payment confirm - Referrer: ${referrer.id}, Referred: ${updatedOrder.userId}`);
+                await storage.createReferral(referrer.id, updatedOrder.userId);
+                console.log(`✅ [REFERRAL] Referral created successfully`);
+              } else {
+                console.log(`[REFERRAL] Skipped - referral already exists for user ${updatedOrder.userId}`);
+              }
             }
           } catch (refError: any) {
             console.warn(`⚠️ [REFERRAL] Error creating referral:`, refError.message);
