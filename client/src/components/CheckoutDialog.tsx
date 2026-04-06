@@ -2252,6 +2252,18 @@ export default function CheckoutDialog({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    // ✅ FIX 3: HARD REFETCH wallet before placing order to prevent double usage
+    if (isAuthenticated) {
+      try {
+        console.log("[CHECKOUT] Refetching wallet balance before order...");
+        await queryClient.refetchQueries({ queryKey: ['/api/user/profile'] });
+        console.log("[CHECKOUT] ✅ Wallet refreshed");
+      } catch (err) {
+        console.warn('[CHECKOUT] Wallet refetch failed, continuing anyway:', err);
+        // Non-blocking - user can still place order
+      }
+    }
+
     // 🛡️ FIX BUG 5: Check both cart prop AND live Zustand store for cart data
     // This prevents stale prop issue after payment clearing
     let validCart = cart;
@@ -2572,6 +2584,10 @@ export default function CheckoutDialog({
       if (onClearCart) {
         onClearCart();
       }
+
+      // ✅ FIX 4: Reset wallet state to prevent reusing same balance in next order
+      setUseWalletBalance(false);
+      setWalletAmountToUse(0);
 
       // ✅ Now show payment QR with order created
       onShowPaymentQR({

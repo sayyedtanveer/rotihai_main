@@ -2253,8 +2253,8 @@ export class MemStorage implements IStorage {
     }
 
     const settings = await this.getActiveReferralReward();
-    const referrerBonusAmount = settings?.referrerBonus || 100;
-    const referredBonusAmount = settings?.referredBonus || 50;
+    const referrerBonusAmount = settings?.referrerBonus || 0;
+    const referredBonusAmount = settings?.referredBonus || 0;
 
     // Calculate expiry date if not provided (default 30 days)
     let expiresAt = options?.expiresAt;
@@ -2356,10 +2356,10 @@ export class MemStorage implements IStorage {
       }
 
       // Settings already retrieved above for enable check
-      const referrerBonus = settings?.referrerBonus || 50;
-      const referredBonus = settings?.referredBonus || 50;
-      const maxReferralsPerMonth = settings?.maxReferralsPerMonth || 10;
-      const maxEarningsPerMonth = settings?.maxEarningsPerMonth || 500;
+      const referrerBonus = settings?.referrerBonus || 0;
+      const referredBonus = settings?.referredBonus || 0;
+      const maxReferralsPerMonth = settings?.maxReferralsPerMonth || 0;
+      const maxEarningsPerMonth = settings?.maxEarningsPerMonth || 0;
 
       // Check monthly referral limit for referrer
       const startOfMonth = new Date();
@@ -2432,8 +2432,8 @@ export class MemStorage implements IStorage {
 
       // Get referral settings for validation
       const settings = await this.getActiveReferralReward();
-      const expiryDays = settings?.expiryDays || 30;
-      const maxEarningsPerMonth = settings?.maxEarningsPerMonth || 500;
+      const expiryDays = settings?.expiryDays || 0;
+      const maxEarningsPerMonth = settings?.maxEarningsPerMonth || 0;
 
       // Check if referral has expired
       const referralDate = new Date(referral.createdAt);
@@ -2622,8 +2622,8 @@ export class MemStorage implements IStorage {
     }
 
     const minOrderAmount = settings?.minOrderAmount || 0;
-    const referredBonus = settings?.referredBonus || 50;
-    const maxBonusUsagePerOrder = settings?.maxBonusUsagePerOrder || 10;
+    const referredBonus = settings?.referredBonus || 0;
+    const maxBonusUsagePerOrder = settings?.maxBonusUsagePerOrder || 0;
 
     // ✅ FIX: Apply per-order limit to the bonus (e.g., max ₹10 even if bonus is ₹50)
     const bonusToUse = Math.min(referredBonus, maxBonusUsagePerOrder);
