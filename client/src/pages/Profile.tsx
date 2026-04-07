@@ -27,7 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { User, Mail, MapPin, Phone, LogOut, Lock, Gift, Edit2, Loader2 } from "lucide-react";
+import { User, Mail, MapPin, Phone, LogOut, Lock, Gift, Edit2, Loader2, TrendingDown, AlertCircle } from "lucide-react";
 import type { Category, Chef as BaseChef } from "@shared/schema";
 import type { ProfileUser } from "@/types/profileuser";
 
@@ -105,6 +105,16 @@ export default function Profile() {
     queryKey: ["/api/user/wallet", userToken],
     queryFn: async () => {
       const response = await api.get("/api/user/wallet");
+      return response.data;
+    },
+    enabled: !!userToken,
+  });
+
+  // 💳 Wallet Transactions (to show reversals)
+  const { data: walletTransactions = [] } = useQuery<any[]>({
+    queryKey: ["/api/user/wallet/transactions", userToken],
+    queryFn: async () => {
+      const response = await api.get("/api/user/wallet/transactions?limit=10");
       return response.data;
     },
     enabled: !!userToken,
@@ -713,6 +723,79 @@ export default function Profile() {
                           <li>• Bonus amount is set by admin</li>
                         </ul>
                       </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* 💳 Wallet Transaction History */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <TrendingDown className="h-5 w-5" />
+                        Wallet Transaction History
+                      </CardTitle>
+                      <CardDescription>Recent wallet activity and transactions</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {walletTransactions && walletTransactions.length > 0 ? (
+                        <div className="space-y-3 max-h-96 overflow-y-auto">
+                          {walletTransactions.map((transaction: any, idx: number) => (
+                            <div
+                              key={`${transaction.id}-${idx}`}
+                              className={`flex items-start justify-between p-3 rounded-lg border ${
+                                transaction.type === "referral_reversal"
+                                  ? "bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800"
+                                  : "bg-muted/30"
+                              }`}
+                            >
+                              <div className="flex items-start gap-3 flex-1">
+                                {transaction.type === "referral_reversal" ? (
+                                  <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
+                                ) : (
+                                  <TrendingDown className="h-5 w-5 text-muted-foreground mt-0.5 flex-shrink-0" />
+                                )}
+                                <div className="flex-1">
+                                  <p className="font-medium text-sm">
+                                    {transaction.type === "referral_reversal"
+                                      ? "Referral Bonus Reversal"
+                                      : transaction.type === "referral_bonus"
+                                      ? "Referral Bonus"
+                                      : transaction.type === "order_discount"
+                                      ? "Order Discount"
+                                      : "Transaction"}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground mt-1">
+                                    {transaction.description || "Wallet transaction"}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground mt-1">
+                                    {new Date(transaction.createdAt).toLocaleDateString()} at{" "}
+                                    {new Date(transaction.createdAt).toLocaleTimeString([], {
+                                      hour: "2-digit",
+                                      minute: "2-digit",
+                                    })}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <p
+                                  className={`font-semibold text-sm ${
+                                    (transaction.type === "referral_reversal" || transaction.type === "debit" || transaction.type === "order_discount")
+                                      ? "text-red-600 dark:text-red-400"
+                                      : "text-green-600 dark:text-green-400"
+                                  }`}
+                                >
+                                  {(transaction.type === "referral_reversal" || transaction.type === "debit" || transaction.type === "order_discount")
+                                    ? `-${transaction.amount}`
+                                    : `+${transaction.amount}`}
+                                </p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground text-center py-6">
+                          No transactions yet
+                        </p>
+                      )}
                     </CardContent>
                   </Card>
 

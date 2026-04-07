@@ -292,7 +292,7 @@ export const referrals = pgTable("referrals", {
   index("IDX_referrals_expires").on(table.expiresAt),
 ]);
 
-export const transactionTypeEnum = pgEnum("transaction_type", ["credit", "debit", "referral_bonus", "referral_bonus_claimed", "order_discount"]);
+export const transactionTypeEnum = pgEnum("transaction_type", ["credit", "debit", "referral_bonus", "referral_bonus_claimed", "order_discount", "referral_reversal"]);
 
 export const walletTransactions = pgTable("wallet_transactions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

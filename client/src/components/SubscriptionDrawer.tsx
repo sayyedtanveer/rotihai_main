@@ -646,9 +646,16 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
     // Priority 2: Existing subscription address
     if (mySubscriptions && mySubscriptions.length > 0 && mySubscriptions[0]?.address) {
       try {
-        const parsed = typeof mySubscriptions[0].address === "string"
-          ? JSON.parse(mySubscriptions[0].address)
-          : mySubscriptions[0].address;
+        let parsed;
+        if (typeof mySubscriptions[0].address === "string") {
+          try {
+            parsed = JSON.parse(mySubscriptions[0].address);
+          } catch (e) {
+            parsed = { building: mySubscriptions[0].address };
+          }
+        } else {
+          parsed = mySubscriptions[0].address;
+        }
         setAuthenticatedSubAddress({
           building: parsed.building || "",
           street: parsed.street || "",
@@ -668,9 +675,16 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
     // Priority 3: User profile address (key fix — data may arrive asynchronously)
     if (userProfile?.address) {
       try {
-        const parsed = typeof userProfile.address === "string"
-          ? JSON.parse(userProfile.address)
-          : userProfile.address;
+        let parsed;
+        if (typeof userProfile.address === "string") {
+          try {
+            parsed = JSON.parse(userProfile.address);
+          } catch (e) {
+            parsed = { building: userProfile.address };
+          }
+        } else {
+          parsed = userProfile.address;
+        }
         setAuthenticatedSubAddress({
           building: parsed.building || "",
           street: parsed.street || "",
@@ -748,10 +762,17 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
     // Priority 2: Fallback to existing subscription address (for users buying additional plans)
     else if (mySubscriptions && mySubscriptions.length > 0 && mySubscriptions[0]?.address) {
       try {
-        // Try to parse address from existing subscription
-        const parsedAddress = typeof mySubscriptions[0].address === 'string' 
-          ? JSON.parse(mySubscriptions[0].address)
-          : mySubscriptions[0].address;
+        let parsedAddress;
+        if (typeof mySubscriptions[0].address === "string") {
+          try {
+            parsedAddress = JSON.parse(mySubscriptions[0].address);
+          } catch (e) {
+            // Plain text address fallback
+            parsedAddress = { building: mySubscriptions[0].address };
+          }
+        } else {
+          parsedAddress = mySubscriptions[0].address;
+        }
         
         initialAddress = {
           building: parsedAddress.building || "",
@@ -769,18 +790,25 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
         // If address parsing fails, try user profile
         if (userProfile?.address) {
           try {
-            const parsedAddress = typeof userProfile.address === 'string' 
-              ? JSON.parse(userProfile.address)
-              : userProfile.address;
+            let parsedProfileAddress;
+            if (typeof userProfile.address === "string") {
+              try {
+                parsedProfileAddress = JSON.parse(userProfile.address);
+              } catch (e) {
+                parsedProfileAddress = { building: userProfile.address };
+              }
+            } else {
+              parsedProfileAddress = userProfile.address;
+            }
             
             initialAddress = {
-              building: parsedAddress.building || "",
-              street: parsedAddress.street || "",
-              area: parsedAddress.area || "",
-              city: parsedAddress.city || "Mumbai",
-              pincode: parsedAddress.pincode || "",
-              latitude: parsedAddress.latitude || null,
-              longitude: parsedAddress.longitude || null,
+              building: parsedProfileAddress.building || "",
+              street: parsedProfileAddress.street || "",
+              area: parsedProfileAddress.area || "",
+              city: parsedProfileAddress.city || "Mumbai",
+              pincode: parsedProfileAddress.pincode || "",
+              latitude: parsedProfileAddress.latitude || null,
+              longitude: parsedProfileAddress.longitude || null,
             };
             setAuthenticatedSubAddress(initialAddress);
             setIsAuthSubAddressValidated(false);
@@ -800,10 +828,17 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
     // Priority 3: Fallback to user profile address (for returning customers with no active subscriptions)
     else if (userProfile?.address) {
       try {
-        // Try to parse address as JSON if it's stored as object
-        const parsedAddress = typeof userProfile.address === 'string' 
-          ? JSON.parse(userProfile.address)
-          : userProfile.address;
+        let parsedAddress;
+        if (typeof userProfile.address === "string") {
+          try {
+            parsedAddress = JSON.parse(userProfile.address);
+          } catch (e) {
+            // It's a plain text address
+            parsedAddress = { building: userProfile.address };
+          }
+        } else {
+          parsedAddress = userProfile.address;
+        }
         
         initialAddress = {
           building: parsedAddress.building || "",
@@ -818,7 +853,6 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
         setIsAuthSubAddressValidated(false);
         console.log("[SUBSCRIPTION] Pre-populated address from user profile (no active subscriptions):", initialAddress);
       } catch (error) {
-        // If address parsing fails, leave empty
         setAuthenticatedSubAddress(null);
         setIsAuthSubAddressValidated(false);
         console.log("[SUBSCRIPTION] Failed to parse user profile address, starting fresh");
