@@ -9,7 +9,8 @@ import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 import { adminApiRequest } from "@/hooks/useAdminAuth";
 import { Wallet, Gift, Settings } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { Checkbox } from "@/components/ui/checkbox";
 
 export default function AdminWalletSettings() {
   const { toast } = useToast();
@@ -21,9 +22,10 @@ export default function AdminWalletSettings() {
     maxReferralsPerMonth: 10,
     maxEarningsPerMonth: 500,
     expiryDays: 30,
+    isActive: true,
   });
 
-  const { data: currentSettings, isLoading } = useQuery({
+  const { data: currentSettings, isLoading, refetch } = useQuery({
     queryKey: ["/api/admin/wallet-settings"],
     queryFn: async () => {
       const response = await adminApiRequest("/api/admin/wallet-settings");
@@ -38,11 +40,31 @@ export default function AdminWalletSettings() {
           maxReferralsPerMonth: data.maxReferralsPerMonth || 10,
           maxEarningsPerMonth: data.maxEarningsPerMonth || 500,
           expiryDays: data.expiryDays || 30,
+          isActive: data.isActive !== undefined ? data.isActive : true,
         });
       }
       return data;
-    }
+    },
+    staleTime: 0, // Always consider data stale
+    gcTime: 0, // Don't cache (formerly cacheTime in React Query v4)
   });
+
+  // Refetch data when page becomes visible (tab focus)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        refetch();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [refetch]);
+
+  // Refetch data on component mount to ensure fresh data
+  useEffect(() => {
+    refetch();
+  }, [refetch]);
 
   const updateMutation = useMutation({
     mutationFn: async (data: typeof settings) => {
@@ -212,6 +234,22 @@ export default function AdminWalletSettings() {
                     Days within which referred user must complete first order to earn bonus
                   </p>
                 </div>
+
+                <div className="flex items-center space-x-2 py-4 px-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                  <Checkbox
+                    id="isActive"
+                    checked={settings.isActive}
+                    onCheckedChange={(checked) => setSettings({ ...settings, isActive: checked as boolean })}
+                  />
+                  <div className="space-y-1 flex-1">
+                    <Label htmlFor="isActive" className="text-sm font-medium cursor-pointer mb-0">
+                      Enable Referral System
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      When disabled, users won't see referral features in their profile or checkout
+                    </p>
+                  </div>
+                </div>
                 
                 <Button type="submit" disabled={updateMutation.isPending}>
                   {updateMutation.isPending ? "Saving..." : "Save Settings"}
@@ -257,6 +295,12 @@ export default function AdminWalletSettings() {
               <div className="flex justify-between py-2">
                 <span className="font-medium">Referral Expiry Days:</span>
                 <span>{settings.expiryDays}</span>
+              </div>
+              <div className="flex justify-between py-2 border-t pt-2">
+                <span className="font-medium">Referral System Status:</span>
+                <span className={`font-semibold ${settings.isActive ? "text-green-600" : "text-red-600"}`}>
+                  {settings.isActive ? "🟢 Enabled" : "🔴 Disabled"}
+                </span>
               </div>
             </div>
           </CardContent>

@@ -9696,10 +9696,10 @@ function registerAdminRoutes(app2) {
   app2.get("/api/admin/wallet-settings", requireAdmin(), async (req, res) => {
     try {
       const walletSetting = await db.query.walletSettings.findFirst({
-        where: (ws, { eq: eq10 }) => eq10(ws.isActive, true)
+        orderBy: (ws, { desc: desc3 }) => desc3(ws.updatedAt)
       });
       const referralSetting = await db.query.referralRewards.findFirst({
-        where: (rr, { eq: eq10 }) => eq10(rr.isActive, true)
+        orderBy: (rr, { desc: desc3 }) => desc3(rr.updatedAt)
       });
       const defaultWallet = {
         maxUsagePerOrder: 10,
@@ -9719,7 +9719,7 @@ function registerAdminRoutes(app2) {
         minOrderAmount: walletSetting?.minOrderAmount || defaultWallet.minOrderAmount,
         referrerBonus: walletSetting?.referrerBonus || defaultWallet.referrerBonus,
         referredBonus: walletSetting?.referredBonus || defaultWallet.referredBonus,
-        isActive: walletSetting?.isActive || true,
+        isActive: walletSetting?.isActive !== void 0 ? walletSetting.isActive : true,
         // From referralRewards table
         maxReferralsPerMonth: referralSetting?.maxReferralsPerMonth || defaultReferral.maxReferralsPerMonth,
         maxEarningsPerMonth: referralSetting?.maxEarningsPerMonth || defaultReferral.maxEarningsPerMonth,
@@ -9741,27 +9741,30 @@ function registerAdminRoutes(app2) {
         minOrderAmount,
         maxReferralsPerMonth,
         maxEarningsPerMonth,
-        expiryDays
+        expiryDays,
+        isActive = true
       } = req.body;
       console.log("[ADMIN WALLET SETTINGS] Request received:", {
         maxUsagePerOrder,
         minOrderAmount,
         referrerBonus,
-        referredBonus
+        referredBonus,
+        isActive
       });
       await db.update(walletSettings2).set({ isActive: false });
       console.log("[ADMIN WALLET SETTINGS] Attempting to INSERT into walletSettings with:", {
         maxUsagePerOrder,
         minOrderAmount: minOrderAmount || 0,
         referrerBonus,
-        referredBonus
+        referredBonus,
+        isActive
       });
       const [newWalletSettings] = await db.insert(walletSettings2).values({
         maxUsagePerOrder,
         minOrderAmount: minOrderAmount || 0,
         referrerBonus,
         referredBonus,
-        isActive: true
+        isActive
       }).returning();
       console.log("[ADMIN WALLET SETTINGS] Successfully saved to walletSettings:", newWalletSettings);
       const existingRewards = await db.query.referralRewards.findFirst({
@@ -9776,6 +9779,7 @@ function registerAdminRoutes(app2) {
           maxReferralsPerMonth: maxReferralsPerMonth || 0,
           maxEarningsPerMonth: maxEarningsPerMonth || 0,
           expiryDays: expiryDays || 0,
+          isActive,
           updatedAt: /* @__PURE__ */ new Date()
         }).where(eq2(referralRewards2.id, existingRewards.id)).returning();
         console.log("[ADMIN WALLET SETTINGS] Successfully updated referralRewards:", updatedRewards);
@@ -9790,7 +9794,7 @@ function registerAdminRoutes(app2) {
           maxReferralsPerMonth: maxReferralsPerMonth || 0,
           maxEarningsPerMonth: maxEarningsPerMonth || 0,
           expiryDays: expiryDays || 0,
-          isActive: true
+          isActive
         }).returning();
         console.log("[ADMIN WALLET SETTINGS] Successfully created referralRewards:", newRewards);
         res.json({ ...newWalletSettings, ...newRewards });
