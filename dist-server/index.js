@@ -2916,17 +2916,35 @@ var init_storage = __esm({
         return user?.walletBalance || 0;
       }
       async validateBonusEligibility(userId, orderTotal) {
+        const userOrders = await db.query.orders.findMany({
+          where: (o, { eq: eq10 }) => eq10(o.userId, userId)
+        });
+        const deliveredOrders = userOrders.filter((order) => order.status === "delivered");
+        console.log(`[BONUS-ELIGIBILITY] User ${userId} - Total orders: ${userOrders.length}, Delivered: ${deliveredOrders.length}`);
+        console.log(`[BONUS-ELIGIBILITY] Order statuses:`, userOrders.map((o) => ({ id: o.id, status: o.status })));
+        if (deliveredOrders.length === 0) {
+          console.log(`\u26A0\uFE0F [BONUS-ELIGIBILITY] User ${userId} NOT eligible - no delivered orders yet`);
+          return {
+            eligible: false,
+            bonus: 0,
+            minOrderAmount: 0,
+            reason: "You must complete and receive your first order before claiming the referral bonus"
+          };
+        }
         const referral = await db.query.referrals.findFirst({
           where: (r, { eq: eq10 }) => eq10(r.referredId, userId)
         });
         if (!referral) {
+          console.log(`\u26A0\uFE0F [BONUS-ELIGIBILITY] No referral found for user ${userId}`);
           return { eligible: false, bonus: 0, minOrderAmount: 0, reason: "No referral found for this user" };
         }
         if (referral.status !== "pending") {
+          console.log(`\u26A0\uFE0F [BONUS-ELIGIBILITY] Referral status is ${referral.status} for user ${userId}`);
           return { eligible: false, bonus: 0, minOrderAmount: 0, reason: `Referral is ${referral.status}, cannot claim bonus` };
         }
         const settings = await this.getActiveReferralReward();
         if (!settings?.isActive) {
+          console.log(`\u26A0\uFE0F [BONUS-ELIGIBILITY] Referral system disabled for user ${userId}`);
           return { eligible: false, bonus: 0, minOrderAmount: 0, reason: "Referral system is disabled" };
         }
         const minOrderAmount = settings?.minOrderAmount || 0;
@@ -2934,6 +2952,7 @@ var init_storage = __esm({
         const maxBonusUsagePerOrder = settings?.maxBonusUsagePerOrder || 0;
         const bonusToUse = Math.min(referredBonus, maxBonusUsagePerOrder);
         if (orderTotal < minOrderAmount) {
+          console.log(`\u26A0\uFE0F [BONUS-ELIGIBILITY] Order total \u20B9${orderTotal} < min \u20B9${minOrderAmount}`);
           return {
             eligible: false,
             bonus: bonusToUse,
@@ -12881,7 +12900,8 @@ async function registerRoutes(app2) {
       const userOrders = await db2.query.orders.findMany({
         where: (o, { eq: eq10 }) => eq10(o.userId, user.id)
       });
-      const hasCompletedFirstOrder = userOrders.length > 0;
+      const deliveredOrders = userOrders.filter((order) => order.status === "delivered");
+      const hasCompletedFirstOrder = deliveredOrders.length > 0;
       let pendingBonus = null;
       const referral = await db2.query.referrals.findFirst({
         where: (r, { eq: eq10 }) => eq10(r.referredId, user.id)

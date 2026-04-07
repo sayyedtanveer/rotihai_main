@@ -964,12 +964,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return;
       }
 
-      // ✅ NEW: Check if user has completed their first order
+      // ✅ FIX: Check if user has DELIVERED their first order (not just placed)
+      // Only show bonus AFTER order is delivered, not when pending/confirmed
       const db = (await import("@shared/db")).db;
       const userOrders = await db.query.orders.findMany({
         where: (o, { eq }) => eq(o.userId, user.id),
       });
-      const hasCompletedFirstOrder = userOrders.length > 0;
+      
+      // ✅ CRITICAL: Filter for delivered orders only (status must be "delivered")
+      const deliveredOrders = userOrders.filter(order => order.status === "delivered");
+      const hasCompletedFirstOrder = deliveredOrders.length > 0;
 
       // Get referral bonus info if user was referred
       let pendingBonus = null;
@@ -977,8 +981,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         where: (r, { eq }) => eq(r.referredId, user.id),
       });
 
-      // ✅ FIX: Only show pending bonus if referral is pending AND user has completed first order
-      // This ensures the bonus message only appears AFTER first order completion
+      // ✅ CRITICAL FIX: Only show pending bonus if:
+      // 1. Referral is pending AND
+      // 2. User has DELIVERED their first order (not just placed/confirmed)
+      // This prevents early access to bonus before delivery confirmation
       if (referral && referral.status === "pending" && hasCompletedFirstOrder) {
         const settings = await storage.getActiveReferralReward();
         pendingBonus = {

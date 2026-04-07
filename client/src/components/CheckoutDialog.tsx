@@ -914,12 +914,13 @@ export default function CheckoutDialog({
         // Apply bonus respecting maxBonusUsagePerOrder limit
         const maxAllowed = Math.min(maxBonusUsagePerOrder, pendingBonus);
         const amountToDeduct = Math.min(maxAllowed, baseTotal);
-        console.log("[BONUS] Calculating bonus deduction:", {
-          maxBonusUsagePerOrder,
-          pendingBonus,
-          maxAllowed,
-          baseTotal,
-          amountToDeduct,
+        console.log("[BONUS-CALCULATION] Bonus deduction calculation:", {
+          "pendingBonusFromDB": pendingBonus,
+          "maxBonusUsagePerOrderFromSettings": maxBonusUsagePerOrder,
+          "maxAllowed (min of above two)": maxAllowed,
+          "baseTotal": baseTotal,
+          "amountToDeduct (min of maxAllowed & baseTotal)": amountToDeduct,
+          "reason": "Can't deduct more than total order value"
         });
         setBonusAmountToUse(amountToDeduct);
         baseTotal = Math.max(0, baseTotal - amountToDeduct);
@@ -1352,6 +1353,10 @@ export default function CheckoutDialog({
       setPendingBonus(user.pendingBonus.amount || 0);
       setMinOrderAmount(user.pendingBonus.minOrderAmount || 0);
       setBonusEligibilityMsg("");
+      console.log("[BONUS-FETCH] From DB - Pending Bonus:", {
+        amount: user.pendingBonus.amount,
+        minOrderAmount: user.pendingBonus.minOrderAmount,
+      });
     }
   }, [user]);
 
@@ -1427,6 +1432,12 @@ export default function CheckoutDialog({
 
       const result = response.data;
       setBonusEligible(result.eligible);
+      console.log("[BONUS-ELIGIBILITY-RESPONSE] Backend returned:", {
+        eligible: result.eligible,
+        bonus: result.bonus,
+        minOrderAmount: result.minOrderAmount,
+        reason: result.reason
+      });
       if (result.eligible) {
         setBonusEligibilityMsg(`✓ You can claim ₹${result.bonus} bonus!`);
       } else {
@@ -3534,66 +3545,64 @@ export default function CheckoutDialog({
 
 
 
-                        {/* Referral Bonus Section */}
+                        {/* Referral Bonus Section - ONLY show when user has delivered orders (bonusEligible) */}
                         {isAuthenticated &&
                           typeof pendingBonus === 'number' && pendingBonus > 0 &&
-                          (bonusEligible || !bonusEligibilityMsg) && (
+                          bonusEligible && (
                             <div className="border-t pt-2 mt-2 space-y-2">
-                              <div className="bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-md p-2 space-y-2">
+                              <div className="bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-md p-2 space-y-2">
                                 <div className="flex justify-between items-start">
                                   <div className="flex-1">
-                                    <p className="text-xs font-medium text-amber-900 dark:text-amber-100">
-                                      Available Referral Bonus
+                                    <p className="text-xs font-medium text-green-900 dark:text-green-100">
+                                      Available Referral Bonus (Per Order)
                                     </p>
-                                    <p className="text-sm font-bold text-amber-700 dark:text-amber-300">
-                                      ₹{pendingBonus}
+                                    <p className="text-sm font-bold text-green-700 dark:text-green-300">
+                                      ₹{Math.min(maxBonusUsagePerOrder, pendingBonus)}
                                     </p>
+                                    {pendingBonus > maxBonusUsagePerOrder && (
+                                      <p className="text-xs text-green-600 dark:text-green-400 mt-1">
+                                        Total bonus: ₹{pendingBonus} (₹{maxBonusUsagePerOrder} per order)
+                                      </p>
+                                    )}
                                     {minOrderAmount > 0 && (
-                                      <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                                      <p className="text-xs text-green-600 dark:text-green-400 mt-1">
                                         Minimum order: ₹{minOrderAmount}
                                       </p>
                                     )}
                                   </div>
-                                  {bonusEligible && (
-                                    <div className="flex items-center gap-2">
-                                      <input
-                                        type="checkbox"
-                                        id="useBonusCheckbox"
-                                        checked={useBonusAtCheckout}
-                                        onChange={(e) =>
-                                          setUseBonusAtCheckout(e.target.checked)
-                                        }
-                                        className="cursor-pointer"
-                                      />
-                                      <label
-                                        htmlFor="useBonusCheckbox"
-                                        className="text-xs cursor-pointer font-medium text-amber-700 dark:text-amber-300"
-                                      >
-                                        Use Bonus
-                                      </label>
-                                    </div>
-                                  )}
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      type="checkbox"
+                                      id="useBonusCheckbox"
+                                      checked={useBonusAtCheckout}
+                                      onChange={(e) =>
+                                        setUseBonusAtCheckout(e.target.checked)
+                                      }
+                                      className="cursor-pointer"
+                                    />
+                                    <label
+                                      htmlFor="useBonusCheckbox"
+                                      className="text-xs cursor-pointer font-medium text-green-700 dark:text-green-300"
+                                    >
+                                      Use Bonus
+                                    </label>
+                                  </div>
                                 </div>
 
                                 {bonusEligibilityMsg && (
-                                  <p
-                                    className={`text-xs ${bonusEligible
-                                      ? "text-green-600 dark:text-green-400"
-                                      : "text-red-600 dark:text-red-400"
-                                      }`}
-                                  >
+                                  <p className="text-xs text-green-600 dark:text-green-400">
                                     {bonusEligibilityMsg}
                                   </p>
                                 )}
 
-                                {useBonusAtCheckout && bonusAmountToUse > 0 && bonusEligible && (
+                                {useBonusAtCheckout && bonusAmountToUse > 0 && (
                                   <p className="text-xs text-green-600 dark:text-green-400">
-                                    ✓ Will use ₹{bonusAmountToUse.toFixed(2)} from bonus (Max per order: ₹{maxBonusUsagePerOrder})
+                                    ✓ Using ₹{bonusAmountToUse.toFixed(2)} from bonus
                                   </p>
                                 )}
 
                                 {isCheckingBonusEligibility && (
-                                  <p className="text-xs text-amber-600 dark:text-amber-400">
+                                  <p className="text-xs text-green-600 dark:text-green-400">
                                     Checking eligibility...
                                   </p>
                                 )}
@@ -3601,19 +3610,7 @@ export default function CheckoutDialog({
                             </div>
                           )}
 
-                        {/* Show ineligibility message */}
-                        {isAuthenticated &&
-                          pendingBonus > 0 &&
-                          !bonusEligible &&
-                          bonusEligibilityMsg && (
-                            <div className="border-t pt-2 mt-2">
-                              <div className="bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-md p-2">
-                                <p className="text-xs text-red-700 dark:text-red-300">
-                                  {bonusEligibilityMsg}
-                                </p>
-                              </div>
-                            </div>
-                          )}
+                        {/* ✅ REMOVED: Ineligibility message panel - Don't confuse user with error messages */}
 
                         {/* Wallet Balance */}
                         {isAuthenticated && (user?.walletBalance || 0) > 0 && (
