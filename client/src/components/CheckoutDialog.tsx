@@ -502,6 +502,7 @@ export default function CheckoutDialog({
   const { data: walletSettings } = useQuery<{
     maxUsagePerOrder: number;
     minOrderAmount: number;
+    isActive: boolean;
   }>({
     queryKey: ["/api/wallet-settings"],
     enabled: isOpen,
@@ -3545,10 +3546,11 @@ export default function CheckoutDialog({
 
 
 
-                        {/* Referral Bonus Section - ONLY show when user has delivered orders (bonusEligible) */}
+                        {/* Referral Bonus Section - ONLY show when user has delivered orders (bonusEligible) AND referral system is active */}
                         {isAuthenticated &&
                           typeof pendingBonus === 'number' && pendingBonus > 0 &&
-                          bonusEligible && (
+                          bonusEligible && 
+                          walletSettings?.isActive && (
                             <div className="border-t pt-2 mt-2 space-y-2">
                               <div className="bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-md p-2 space-y-2">
                                 <div className="flex justify-between items-start">
@@ -3612,8 +3614,8 @@ export default function CheckoutDialog({
 
                         {/* ✅ REMOVED: Ineligibility message panel - Don't confuse user with error messages */}
 
-                        {/* Wallet Balance */}
-                        {isAuthenticated && (user?.walletBalance || 0) > 0 && (
+                        {/* Wallet Balance - ONLY show when referral system is active */}
+                        {isAuthenticated && (user?.walletBalance || 0) > 0 && walletSettings?.isActive && (
                           <div className="border-t pt-2 mt-2">
                             <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-md p-2 space-y-2">
                               <div className="flex justify-between items-start">

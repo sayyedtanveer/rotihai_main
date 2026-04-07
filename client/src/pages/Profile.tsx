@@ -110,6 +110,15 @@ export default function Profile() {
     enabled: !!userToken,
   });
 
+  // ⚙️ Wallet Settings (to check if referral system is active)
+  const { data: walletSettings } = useQuery<{ isActive: boolean }>({
+    queryKey: ["/api/wallet-settings"],
+    queryFn: async () => {
+      const response = await api.get("/api/wallet-settings");
+      return response.data;
+    },
+   });
+
   // 📦 Orders for referral eligibility
   const { data: userOrders = [] } = useQuery<any[]>({
     queryKey: ["/api/orders", "referral-check"],
@@ -513,12 +522,13 @@ export default function Profile() {
                         </p>
                       </div>
 
-                      {/* 🎁 Latest Referral Bonus Highlight */}
-                      <ReferralBonusHighlight />
+                      {/* 🎁 Latest Referral Bonus Highlight - ONLY show when referral system is active */}
+                      {walletSettings?.isActive && <ReferralBonusHighlight />}
 
-                      <Separator />
+                      {walletSettings?.isActive && <Separator />}
 
-                      {/* Referral Code */}
+                      {/* Referral Code - ONLY show when referral system is active */}
+                      {walletSettings?.isActive && (
                       <div>
                         <h3 className="font-semibold mb-3">Your Referral Code</h3>
                         {!hasOrders ? (
@@ -614,9 +624,10 @@ export default function Profile() {
                           </Button>
                         )}
                       </div>
+                      )}
 
-                      {/* Apply Referral Code - Show only if eligible */}
-                      {referralEligibility?.eligible && (
+                      {/* Apply Referral Code - Show only if eligible AND referral system is active */}
+                      {referralEligibility?.eligible && walletSettings?.isActive && (
                         <>
                           <Separator />
                           <div>

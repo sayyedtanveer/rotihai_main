@@ -3670,11 +3670,14 @@ export function registerAdminRoutes(app: Express) {
   // Wallet Settings
   app.get("/api/admin/wallet-settings", requireAdmin(), async (req, res) => {
     try {
+      // Get the most recent wallet settings (active or not)
       const walletSetting = await db.query.walletSettings.findFirst({
-        where: (ws, { eq }) => eq(ws.isActive, true)
+        orderBy: (ws, { desc }) => desc(ws.updatedAt)
       });
+      
+      // Get the most recent referral rewards (active or not)
       const referralSetting = await db.query.referralRewards.findFirst({
-        where: (rr, { eq }) => eq(rr.isActive, true)
+        orderBy: (rr, { desc }) => desc(rr.updatedAt)
       });
 
       const defaultWallet = {
@@ -3697,7 +3700,7 @@ export function registerAdminRoutes(app: Express) {
         minOrderAmount: walletSetting?.minOrderAmount || defaultWallet.minOrderAmount,
         referrerBonus: walletSetting?.referrerBonus || defaultWallet.referrerBonus,
         referredBonus: walletSetting?.referredBonus || defaultWallet.referredBonus,
-        isActive: walletSetting?.isActive || true,
+        isActive: walletSetting?.isActive !== undefined ? walletSetting.isActive : true,
         // From referralRewards table
         maxReferralsPerMonth: referralSetting?.maxReferralsPerMonth || defaultReferral.maxReferralsPerMonth,
         maxEarningsPerMonth: referralSetting?.maxEarningsPerMonth || defaultReferral.maxEarningsPerMonth,
@@ -3721,7 +3724,8 @@ export function registerAdminRoutes(app: Express) {
         minOrderAmount,
         maxReferralsPerMonth,
         maxEarningsPerMonth,
-        expiryDays
+        expiryDays,
+        isActive = true
       } = req.body;
 
       console.log("[ADMIN WALLET SETTINGS] Request received:", {
@@ -3729,9 +3733,10 @@ export function registerAdminRoutes(app: Express) {
         minOrderAmount,
         referrerBonus,
         referredBonus,
+        isActive,
       });
 
-      // Update wallet settings
+      // Update wallet settings - mark all others as inactive
       await db.update(walletSettings).set({ isActive: false });
 
       console.log("[ADMIN WALLET SETTINGS] Attempting to INSERT into walletSettings with:", {
@@ -3739,6 +3744,7 @@ export function registerAdminRoutes(app: Express) {
         minOrderAmount: minOrderAmount || 0,
         referrerBonus,
         referredBonus,
+        isActive,
       });
 
       const [newWalletSettings] = await db.insert(walletSettings).values({
@@ -3746,7 +3752,7 @@ export function registerAdminRoutes(app: Express) {
         minOrderAmount: minOrderAmount || 0,
         referrerBonus,
         referredBonus,
-        isActive: true,
+        isActive,
       }).returning();
 
       console.log("[ADMIN WALLET SETTINGS] Successfully saved to walletSettings:", newWalletSettings);
@@ -3766,6 +3772,7 @@ export function registerAdminRoutes(app: Express) {
             maxReferralsPerMonth: maxReferralsPerMonth || 0,
             maxEarningsPerMonth: maxEarningsPerMonth || 0,
             expiryDays: expiryDays || 0,
+            isActive,
             updatedAt: new Date(),
           })
           .where(eq(referralRewards.id, existingRewards.id))
@@ -3782,7 +3789,7 @@ export function registerAdminRoutes(app: Express) {
           maxReferralsPerMonth: maxReferralsPerMonth || 0,
           maxEarningsPerMonth: maxEarningsPerMonth || 0,
           expiryDays: expiryDays || 0,
-          isActive: true,
+          isActive,
         }).returning();
         console.log("[ADMIN WALLET SETTINGS] Successfully created referralRewards:", newRewards);
         res.json({ ...newWalletSettings, ...newRewards });
