@@ -8,14 +8,14 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Wallet, ArrowUpCircle, ArrowDownCircle, Gift, ShoppingCart, Search, RefreshCw, Calendar } from "lucide-react";
+import { Wallet, ArrowUpCircle, ArrowDownCircle, Gift, ShoppingCart, Search, RefreshCw, Calendar, AlertCircle } from "lucide-react";
 import { format } from "date-fns";
 
 interface WalletTransaction {
   id: string;
   userId: string;
   amount: number;
-  type: "credit" | "debit" | "referral_bonus" | "order_discount";
+  type: "credit" | "debit" | "referral_bonus" | "referral_bonus_claimed" | "order_discount" | "referral_reversal";
   description: string;
   referenceId: string | null;
   referenceType: string | null;
@@ -87,6 +87,10 @@ export default function AdminWalletLogs() {
         return <Badge variant="destructive"><ArrowDownCircle className="w-3 h-3 mr-1" />Debit</Badge>;
       case "referral_bonus":
         return <Badge variant="secondary" className="bg-purple-600 text-white"><Gift className="w-3 h-3 mr-1" />Referral</Badge>;
+      case "referral_bonus_claimed":
+        return <Badge variant="secondary" className="bg-blue-600 text-white"><Gift className="w-3 h-3 mr-1" />Claimed</Badge>;
+      case "referral_reversal":
+        return <Badge variant="destructive" className="bg-red-600"><AlertCircle className="w-3 h-3 mr-1" />Reversal</Badge>;
       case "order_discount":
         return <Badge variant="outline"><ShoppingCart className="w-3 h-3 mr-1" />Order</Badge>;
       default:
@@ -96,7 +100,7 @@ export default function AdminWalletLogs() {
 
   const getAmountColor = (type: string) => {
     if (type === "credit" || type === "referral_bonus") return "text-green-600";
-    if (type === "debit" || type === "order_discount") return "text-red-600";
+    if (type === "debit" || type === "order_discount" || type === "referral_reversal") return "text-red-600";
     return "";
   };
 
@@ -187,6 +191,8 @@ export default function AdminWalletLogs() {
                 <SelectItem value="credit">Credit</SelectItem>
                 <SelectItem value="debit">Debit</SelectItem>
                 <SelectItem value="referral_bonus">Referral Bonus</SelectItem>
+                <SelectItem value="referral_bonus_claimed">Bonus Claimed</SelectItem>
+                <SelectItem value="referral_reversal">Reversal</SelectItem>
                 <SelectItem value="order_discount">Order Discount</SelectItem>
               </SelectContent>
             </Select>

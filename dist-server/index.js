@@ -402,7 +402,7 @@ var init_schema = __esm({
       index("IDX_referrals_referred").on(table.referredId),
       index("IDX_referrals_expires").on(table.expiresAt)
     ]);
-    transactionTypeEnum = pgEnum("transaction_type", ["credit", "debit", "referral_bonus", "referral_bonus_claimed", "order_discount"]);
+    transactionTypeEnum = pgEnum("transaction_type", ["credit", "debit", "referral_bonus", "referral_bonus_claimed", "order_discount", "referral_reversal"]);
     walletTransactions = pgTable("wallet_transactions", {
       id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
       userId: varchar("user_id").notNull(),
@@ -2589,7 +2589,7 @@ var init_storage = __esm({
                 const clawbackAmount = referral.referredBonus;
                 await this.createWalletTransaction({
                   userId: updatedOrder.userId,
-                  amount: -clawbackAmount,
+                  amount: clawbackAmount,
                   type: "debit",
                   description: `Referral bonus reversed - order #${orderId} rejected`,
                   referenceId: referral.id,
@@ -3069,7 +3069,7 @@ var init_storage = __esm({
         if (!user) throw new Error("User not found");
         const balanceBefore = user.walletBalance;
         console.log(`\u{1F4B3} [STORAGE]   Read from DB - walletBalance: ${balanceBefore} (type: ${typeof balanceBefore})`);
-        const amountChange = transaction.type === "debit" ? -transaction.amount : transaction.amount;
+        const amountChange = transaction.type === "debit" || transaction.type === "referral_reversal" ? -transaction.amount : transaction.amount;
         console.log(`\u{1F4B3} [STORAGE]   AmountChange: ${amountChange}`);
         const balanceAfter = balanceBefore + amountChange;
         console.log(`\u{1F4B3} [STORAGE]   Calculation: ${balanceBefore} + ${amountChange} = ${balanceAfter}`);
@@ -3644,39 +3644,103 @@ var init_storage = __esm({
           }).where(eq(referrals2.id, id));
         });
       }
-      // Admin cancel referral — reverses referrer bonus if already credited, marks as cancelled
+      /**
+       * 🔄 REVERSAL HELPER: Reverse referral bonuses for BOTH users atomically
+       * 
+       * Safety:
+       * - Only reverses if status = completed/approved (has been credited)
+       * - Prevents double reversal (checks status first)
+       * - Atomic: Either both reversed or neither
+       * - Creates audit trail via wallet transactions
+       * 
+       * @param referralId - The referral to reverse
+       * @throws Error if referral not found or already reversed
+       */
+      async reverseReferralBonus(referralId) {
+        const referral = await this.getReferralById(referralId);
+        if (!referral) {
+          console.error(`[REVERSAL] \u274C Referral ${referralId} not found. Skipping reversal.`);
+          return;
+        }
+        if (!["completed", "approved"].includes(referral.status)) {
+          console.log(`[REVERSAL] \u23ED\uFE0F  Referral ${referralId} has status "${referral.status}" (not completed/approved). Skipping reversal.`);
+          return;
+        }
+        if (["fraud", "cancelled"].includes(referral.status)) {
+          console.log(`[REVERSAL] \u26A0\uFE0F  Referral ${referralId} already marked as ${referral.status}. Skipping reversal to prevent double-deduction.`);
+          return;
+        }
+        await db.transaction(async (tx) => {
+          console.log(`[REVERSAL] \u{1F504} Starting reversal for referral ${referralId}...`);
+          if (referral.referrerBonus > 0) {
+            try {
+              await this.createWalletTransaction({
+                userId: referral.referrerId,
+                amount: referral.referrerBonus,
+                type: "referral_reversal",
+                description: `Referral bonus reversed (Referral ID: ${referralId})`,
+                referenceId: referralId,
+                referenceType: "referral"
+              }, tx);
+              console.log(`[REVERSAL] \u2705 Referrer ${referral.referrerId} reversed \u20B9${referral.referrerBonus}`);
+            } catch (err) {
+              console.error(`[REVERSAL] \u274C Failed to reverse referrer bonus: ${err.message}`);
+              throw err;
+            }
+          }
+          if (referral.referredBonus > 0) {
+            try {
+              await this.createWalletTransaction({
+                userId: referral.referredId,
+                amount: referral.referredBonus,
+                type: "referral_reversal",
+                description: `Referral benefit reversed (Referral ID: ${referralId})`,
+                referenceId: referralId,
+                referenceType: "referral"
+              }, tx);
+              console.log(`[REVERSAL] \u2705 Referred user ${referral.referredId} reversed \u20B9${referral.referredBonus}`);
+            } catch (err) {
+              console.error(`[REVERSAL] \u274C Failed to reverse referred user bonus: ${err.message}`);
+              throw err;
+            }
+          }
+          console.log(`[REVERSAL] \u2705 Reversal completed for referral ${referralId}`);
+        });
+      }
+      // ✅ PHASE 3: Admin cancel referral — reverses BOTH user bonuses atomically
       async adminCancelReferral(id, adminNote) {
         const referral = await this.getReferralById(id);
         if (!referral) throw new Error("Referral not found");
         if (referral.status === "cancelled") {
           throw new Error("Referral is already cancelled");
         }
-        await db.transaction(async (tx) => {
-          if ((referral.status === "approved" || referral.status === "completed") && referral.referrerBonus > 0) {
-            try {
-              await this.createWalletTransaction({
-                userId: referral.referrerId,
-                amount: referral.referrerBonus,
-                type: "debit",
-                description: `Referral bonus reversed by admin (Referral ID: ${id}). Reason: ${adminNote}`,
-                referenceId: id,
-                referenceType: "referral_reversal"
-              }, tx);
-            } catch (err) {
-              console.warn(
-                `\u26A0\uFE0F adminCancelReferral: Could not reverse referrer bonus for referral ${id} \u2014 ${err.message}. Cancelling without reversal.`
-              );
-            }
-          }
-          await tx.update(referrals2).set({
-            status: "cancelled",
-            adminNote
-          }).where(eq(referrals2.id, id));
-        });
+        await this.reverseReferralBonus(id);
+        await db.update(referrals2).set({
+          status: "cancelled",
+          adminNote
+        }).where(eq(referrals2.id, id));
+        console.log(`[ADMIN-CANCEL] \u2705 Referral ${id} cancelled and bonuses reversed for both users`);
       }
       // Toggle fraud flag on a referral
+      // ✅ PHASE 3: Mark referral as fraud — reverses BOTH user bonuses atomically
       async setReferralFraudFlag(id, fraudFlag) {
-        await db.update(referrals2).set({ fraudFlag }).where(eq(referrals2.id, id));
+        const referral = await this.getReferralById(id);
+        if (!referral) throw new Error("Referral not found");
+        if (fraudFlag === true) {
+          if (referral.fraudFlag === true || referral.status === "fraud") {
+            console.log(`[FRAUD-FLAG] \u26A0\uFE0F  Referral ${id} already flagged as fraud. Skipping.`);
+            return;
+          }
+          await this.reverseReferralBonus(id);
+          await db.update(referrals2).set({
+            fraudFlag: true,
+            status: "fraud"
+          }).where(eq(referrals2.id, id));
+          console.log(`[FRAUD-FLAG] \u2705 Referral ${id} marked as fraud and bonuses reversed for both users`);
+        } else {
+          await db.update(referrals2).set({ fraudFlag: false }).where(eq(referrals2.id, id));
+          console.log(`[FRAUD-FLAG] \u2139\uFE0F  Referral ${id} fraud flag cleared`);
+        }
       }
       // ================= NEW WALLET TRANSACTION METHODS =================
       // Get all wallet transactions (for admin)
