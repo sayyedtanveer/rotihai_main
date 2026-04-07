@@ -2602,22 +2602,45 @@ export class MemStorage implements IStorage {
     minOrderAmount: number;
     reason?: string;
   }> {
+    // ✅ CRITICAL: User must have delivered their first order before claiming bonus
+    // This prevents accessing bonus while first order is pending/confirmed
+    const userOrders = await db.query.orders.findMany({
+      where: (o, { eq }) => eq(o.userId, userId),
+    });
+    const deliveredOrders = userOrders.filter(order => order.status === "delivered");
+    
+    console.log(`[BONUS-ELIGIBILITY] User ${userId} - Total orders: ${userOrders.length}, Delivered: ${deliveredOrders.length}`);
+    console.log(`[BONUS-ELIGIBILITY] Order statuses:`, userOrders.map(o => ({ id: o.id, status: o.status })));
+    
+    if (deliveredOrders.length === 0) {
+      console.log(`⚠️ [BONUS-ELIGIBILITY] User ${userId} NOT eligible - no delivered orders yet`);
+      return { 
+        eligible: false, 
+        bonus: 0, 
+        minOrderAmount: 0, 
+        reason: "You must complete and receive your first order before claiming the referral bonus" 
+      };
+    }
+
     // Check if user has pending referral bonus
     const referral = await db.query.referrals.findFirst({
       where: (r, { eq }) => eq(r.referredId, userId),
     });
 
     if (!referral) {
+      console.log(`⚠️ [BONUS-ELIGIBILITY] No referral found for user ${userId}`);
       return { eligible: false, bonus: 0, minOrderAmount: 0, reason: "No referral found for this user" };
     }
 
     if (referral.status !== "pending") {
+      console.log(`⚠️ [BONUS-ELIGIBILITY] Referral status is ${referral.status} for user ${userId}`);
       return { eligible: false, bonus: 0, minOrderAmount: 0, reason: `Referral is ${referral.status}, cannot claim bonus` };
     }
 
     // Get referral settings
     const settings = await this.getActiveReferralReward();
     if (!settings?.isActive) {
+      console.log(`⚠️ [BONUS-ELIGIBILITY] Referral system disabled for user ${userId}`);
       return { eligible: false, bonus: 0, minOrderAmount: 0, reason: "Referral system is disabled" };
     }
 
@@ -2630,6 +2653,7 @@ export class MemStorage implements IStorage {
 
     // Check minimum order amount
     if (orderTotal < minOrderAmount) {
+      console.log(`⚠️ [BONUS-ELIGIBILITY] Order total ₹${orderTotal} < min ₹${minOrderAmount}`);
       return {
         eligible: false,
         bonus: bonusToUse,
