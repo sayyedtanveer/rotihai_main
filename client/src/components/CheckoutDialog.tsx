@@ -3379,6 +3379,17 @@ export default function CheckoutDialog({
                               </Button>
                             </div>
 
+                           {/* Referral Info Notice */}
+{/* Referral Info Notice */}
+<div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded p-2.5 text-xs">
+  <p className="font-medium text-blue-900 dark:text-blue-200 mb-1.5">
+    ℹ️ Referral Info
+  </p>
+  <p className="text-blue-800 dark:text-blue-300 leading-relaxed">
+    Referral rewards are meant to be shared with friends. To keep things fair, benefits may be adjusted if multiple accounts are used from the same address, location, or device, or if activity doesn’t meet our program guidelines.
+  </p>
+</div>
+
                             {/* Validation result message */}
                             {referralCode.trim() && (
                               <div

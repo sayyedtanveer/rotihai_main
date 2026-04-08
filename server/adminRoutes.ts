@@ -3567,6 +3567,66 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // ──────────────────── DELIVERY PARTNER PAYOUT SLABS ────────────────────
+
+  // Get all delivery partner payout slabs
+  app.get("/api/admin/delivery-partner-payouts", requireAdmin(), async (req, res) => {
+    try {
+      const payouts = await storage.getDeliveryPartnerPayouts();
+      res.json(payouts);
+    } catch (error) {
+      console.error("Get delivery partner payouts error:", error);
+      res.status(500).json({ message: "Failed to fetch delivery partner payouts" });
+    }
+  });
+
+  // Create new delivery partner payout slab
+  app.post("/api/admin/delivery-partner-payouts", requireAdminOrManager(), async (req, res) => {
+    try {
+      const payout = await storage.createDeliveryPartnerPayout(req.body);
+      res.status(201).json(payout);
+    } catch (error) {
+      console.error("Create delivery partner payout error:", error);
+      res.status(500).json({ message: "Failed to create delivery partner payout" });
+    }
+  });
+
+  // Update delivery partner payout slab
+  app.patch("/api/admin/delivery-partner-payouts/:id", requireAdminOrManager(), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const payout = await storage.updateDeliveryPartnerPayout(id, req.body);
+
+      if (!payout) {
+        res.status(404).json({ message: "Delivery partner payout not found" });
+        return;
+      }
+
+      res.json(payout);
+    } catch (error) {
+      console.error("Update delivery partner payout error:", error);
+      res.status(500).json({ message: "Failed to update delivery partner payout" });
+    }
+  });
+
+  // Delete delivery partner payout slab
+  app.delete("/api/admin/delivery-partner-payouts/:id", requireSuperAdmin(), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const success = await storage.deleteDeliveryPartnerPayout(id);
+
+      if (!success) {
+        res.status(404).json({ message: "Delivery partner payout not found" });
+        return;
+      }
+
+      res.json({ message: "Delivery partner payout deleted successfully" });
+    } catch (error) {
+      console.error("Delete delivery partner payout error:", error);
+      res.status(500).json({ message: "Failed to delete delivery partner payout" });
+    }
+  });
+
   // SMS Notification Settings
   app.get("/api/admin/sms-settings", requireAdmin(), async (req, res) => {
     try {

@@ -510,9 +510,12 @@ export function registerDeliveryRoutes(app: Express) {
       const deliveryPersonId = req.delivery!.deliveryId;
       const orders = await storage.getOrdersByDeliveryPerson(deliveryPersonId);
 
-      // Calculate delivery fees (assuming delivery fee goes to delivery person)
+      // Calculate delivery partner payouts (use new slab-based payout, fallback to deliveryFee for old orders)
       const completedOrders = orders.filter(o => o.status === "delivered");
-      const totalEarnings = completedOrders.reduce((sum, order) => sum + order.deliveryFee, 0);
+      const totalEarnings = completedOrders.reduce((sum, order) => {
+        const payout = (order as any).deliveryPartnerPayout ?? order.deliveryFee;
+        return sum + payout;
+      }, 0);
 
       const now = new Date();
       const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -523,9 +526,18 @@ export function registerDeliveryRoutes(app: Express) {
       const weekOrders = completedOrders.filter(o => new Date(o.deliveredAt!) >= startOfThisWeek);
       const monthOrders = completedOrders.filter(o => new Date(o.deliveredAt!) >= startOfThisMonth);
 
-      const todayEarnings = todayOrders.reduce((sum, order) => sum + order.deliveryFee, 0);
-      const weekEarnings = weekOrders.reduce((sum, order) => sum + order.deliveryFee, 0);
-      const monthEarnings = monthOrders.reduce((sum, order) => sum + order.deliveryFee, 0);
+      const todayEarnings = todayOrders.reduce((sum, order) => {
+        const payout = (order as any).deliveryPartnerPayout ?? order.deliveryFee;
+        return sum + payout;
+      }, 0);
+      const weekEarnings = weekOrders.reduce((sum, order) => {
+        const payout = (order as any).deliveryPartnerPayout ?? order.deliveryFee;
+        return sum + payout;
+      }, 0);
+      const monthEarnings = monthOrders.reduce((sum, order) => {
+        const payout = (order as any).deliveryPartnerPayout ?? order.deliveryFee;
+        return sum + payout;
+      }, 0);
 
       res.json({
         totalEarnings,

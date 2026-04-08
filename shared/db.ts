@@ -40,6 +40,7 @@ export const {
   subscriptionPlans,
   subscriptionDeliveryLogs,
   deliverySettings,
+  deliveryPartnerPayouts,
   cartSettings,
   deliveryPersonnel,
   coupons,

@@ -197,6 +197,9 @@ export const orders = pgTable("orders", {
   referenceMatch: boolean("reference_match"),
   paymentVerifiedBy: varchar("payment_verified_by", { length: 50 }),
   verificationAttempts: integer("verification_attempts").notNull().default(0),
+  // Delivery partner payout tracking
+  distance: decimal("distance", { precision: 5, scale: 2 }), // Distance in km (nullable for old orders)
+  deliveryPartnerPayout: integer("delivery_partner_payout"), // Distance-slab based payout (nullable for old orders)
 });
 
 export const paymentVerificationLog = pgTable("payment_verification_log", {
@@ -227,6 +230,18 @@ export const deliverySettings = pgTable("delivery_settings", {
   minOrderAmount: integer("min_order_amount").default(0), // Minimum order for this range
   // Pincode field - which pincode this delivery setting applies to
   pincode: varchar("pincode", { length: 6 }), // Optional: specific pincode (e.g., "400070", "400086")
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const deliveryPartnerPayouts = pgTable("delivery_partner_payouts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  minDistance: decimal("min_distance", { precision: 5, scale: 2 }).notNull(),
+  maxDistance: decimal("max_distance", { precision: 5, scale: 2 }).notNull(),
+  payoutAmount: integer("payout_amount").notNull(),
+  pincode: varchar("pincode", { length: 6 }),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -678,6 +693,22 @@ export type SubscriptionDeliveryLog = typeof subscriptionDeliveryLogs.$inferSele
 
 export type InsertDeliverySetting = z.infer<typeof insertDeliverySettingSchema>;
 export type DeliverySetting = typeof deliverySettings.$inferSelect;
+
+export const insertDeliveryPartnerPayoutSchema = createInsertSchema(deliveryPartnerPayouts, {
+  name: z.string().min(1, "Name is required"),
+  minDistance: z.number(),
+  maxDistance: z.number(),
+  payoutAmount: z.number().positive("Payout amount must be positive"),
+  pincode: z.string().regex(/^\d{5,6}$/, "Pincode must be 5-6 digits").optional().nullable(),
+  isActive: z.boolean().default(true),
+}).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertDeliveryPartnerPayout = z.infer<typeof insertDeliveryPartnerPayoutSchema>;
+export type DeliveryPartnerPayout = typeof deliveryPartnerPayouts.$inferSelect;
 
 export const insertCartSettingSchema = createInsertSchema(cartSettings, {
   categoryId: z.string().min(1, { message: "Category ID is required" }),
