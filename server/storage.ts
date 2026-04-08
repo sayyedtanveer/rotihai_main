@@ -1990,10 +1990,13 @@ export class MemStorage implements IStorage {
     const id = randomUUID();
     const now = new Date();
 
+    // Auto-generate name from distance range if not provided
+    const name = data.name || `${data.minDistance}km - ${data.maxDistance}km`;
+
     // Insert into database with proper type conversion
     await db.insert(deliveryPartnerPayouts).values({
       id,
-      name: data.name,
+      name,
       minDistance: String(data.minDistance),
       maxDistance: String(data.maxDistance),
       payoutAmount: data.payoutAmount,
@@ -2006,7 +2009,7 @@ export class MemStorage implements IStorage {
     // Return with proper type
     return {
       id,
-      name: data.name,
+      name,
       minDistance: String(data.minDistance),
       maxDistance: String(data.maxDistance),
       payoutAmount: data.payoutAmount,
