@@ -1856,8 +1856,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Overwrite any client-supplied deliveryFee with server-calculated value
         (sanitized as any).deliveryFee = expectedDeliveryFee;
 
-        // Store distance for delivery partner payout calculation
-        (sanitized as any).distance = parseFloat(addressDistance.toFixed(2));
+        // Store distance for delivery partner payout calculation (as string for DECIMAL type)
+        (sanitized as any).distance = addressDistance.toFixed(2);
 
         // Calculate distance-based delivery partner payout (fetches from database)
         const deliveryPartnerPayout = await storage.calculateDeliveryPartnerPayout(
