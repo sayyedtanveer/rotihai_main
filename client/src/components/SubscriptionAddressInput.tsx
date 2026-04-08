@@ -20,7 +20,7 @@ import { Label } from "@/components/ui/label";
 import { Loader2, AlertCircle, CheckCircle2, MapPin } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import api from "@/lib/apiClient";
-import { getAreaSuggestions } from "@/lib/deliveryAreas";
+import { getAreaSuggestions, getDeliveryAreas } from "@/lib/deliveryAreas";
 
 export interface SubscriptionAddress {
   building: string;
@@ -52,7 +52,10 @@ export function SubscriptionAddressInput({
   actionRef,
 }: SubscriptionAddressInputProps) {
   const { toast } = useToast();
-  const [isEditing, setIsEditing] = useState(initialIsEditing);
+  // If initialAddress has valid coordinates, mark as validated and not editing
+  const hasValidInitialAddress = !!(initialAddress?.latitude && initialAddress?.longitude);
+
+  const [isEditing, setIsEditing] = useState(initialIsEditing ?? !hasValidInitialAddress);
   const [building, setBuilding] = useState(initialAddress?.building || "");
   const [street, setStreet] = useState(initialAddress?.street || "");
   const [area, setArea] = useState(initialAddress?.area || "");
@@ -61,7 +64,7 @@ export function SubscriptionAddressInput({
 
   const [isValidating, setIsValidating] = useState(false);
   const [locationError, setLocationError] = useState("");
-  const [isValidated, setIsValidated] = useState(false);
+  const [isValidated, setIsValidated] = useState(hasValidInitialAddress);
   const [isInServiceArea, setIsInServiceArea] = useState(true);
 
   const [areaSuggestions, setAreaSuggestions] = useState<string[]>([]);
@@ -207,6 +210,11 @@ export function SubscriptionAddressInput({
           title: "Address Validated",
           description: "Your delivery address is within our service area",
         });
+      } else {
+        // Response doesn't have coordinates - treat as error
+        console.warn("[SUBSCRIPTION-ADDR] Geocoding response missing coordinates");
+        setLocationError("Could not verify address coordinates. Please check and try again.");
+        setIsValidated(false);
       }
     } catch (error: any) {
       console.error("[SUBSCRIPTION-ADDR] Geocoding error:", error);
@@ -224,6 +232,13 @@ export function SubscriptionAddressInput({
       };
     }
   });
+
+  // Preload delivery areas on component mount
+  useEffect(() => {
+    getDeliveryAreas().catch((error) => {
+      console.warn("[SUBSCRIPTION-ADDR] Failed to preload delivery areas:", error);
+    });
+  }, []);
 
   useEffect(() => {
     if (onValidationStateChange) {
