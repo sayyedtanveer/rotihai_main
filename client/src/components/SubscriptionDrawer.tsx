@@ -744,6 +744,8 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
     // Priority 1: Use stored pincode (respects recent delivery location)
     if (storedPincode?.pincode && storedPincode?.latitude && storedPincode?.longitude) {
       // Pre-populate from stored pincode data
+      // Note: storedPincode only has pincode, area, latitude, longitude
+      // Building and street will be empty - user must enter them
       initialAddress = {
         building: "",
         street: "",
@@ -753,6 +755,46 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
         latitude: storedPincode.latitude,
         longitude: storedPincode.longitude,
       };
+
+      // INTELLIGENT FALLBACK: Fill missing building/street from subscription or profile
+      // Priority A: Try active subscription first (returning customers buying additional plans)
+      if (mySubscriptions?.[0]?.address) {
+        try {
+          const subAddr = typeof mySubscriptions[0].address === "string"
+            ? JSON.parse(mySubscriptions[0].address)
+            : mySubscriptions[0].address;
+
+          if (subAddr.building && !initialAddress.building) {
+            initialAddress.building = subAddr.building;
+          }
+          if (subAddr.street && !initialAddress.street) {
+            initialAddress.street = subAddr.street;
+          }
+          console.log("[SUBSCRIPTION] Enhanced Priority 1 address with building/street from subscription");
+        } catch (e) {
+          // Silently ignore - fall through to Profile fallback
+        }
+      }
+      // Priority B: If subscription didn't provide building/street, try user profile
+      // (customers with orders but no active subscription)
+      if (userProfile?.address && (!initialAddress.building || !initialAddress.street)) {
+        try {
+          const profileAddr = typeof userProfile.address === "string"
+            ? JSON.parse(userProfile.address)
+            : userProfile.address;
+
+          if (profileAddr.building && !initialAddress.building) {
+            initialAddress.building = profileAddr.building;
+          }
+          if (profileAddr.street && !initialAddress.street) {
+            initialAddress.street = profileAddr.street;
+          }
+          console.log("[SUBSCRIPTION] Enhanced Priority 1 address with building/street from user profile");
+        } catch (e) {
+          // Silently ignore - keep Priority 1 as is
+        }
+      }
+
       setAuthenticatedSubAddress(initialAddress);
       // IMPORTANT: Do NOT set validated = true yet
       // User must click "Validate Address" button to confirm
