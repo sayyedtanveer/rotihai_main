@@ -324,7 +324,7 @@ export function SubscriptionAddressInput({
         {/* Street */}
         <div className="space-y-2">
           <Label htmlFor="sub-street" className="font-semibold">
-            Street/Road (Optional)
+            Street/Road *
           </Label>
           <Input
             id="sub-street"
