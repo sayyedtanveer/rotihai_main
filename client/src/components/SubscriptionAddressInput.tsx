@@ -118,6 +118,18 @@ export function SubscriptionAddressInput({
 
   // Validate pincode against delivery areas
   const handleValidatePincode = async () => {
+    // Building is mandatory (like CheckoutDialog)
+    if (!building.trim()) {
+      setLocationError("Building/House number is required");
+      return;
+    }
+
+    // Street is mandatory (like CheckoutDialog)
+    if (!street.trim()) {
+      setLocationError("Street/Road name is required");
+      return;
+    }
+
     if (!pincode.trim()) {
       setLocationError("Pincode is required");
       return;
@@ -244,7 +256,7 @@ export function SubscriptionAddressInput({
     if (onValidationStateChange) {
       onValidationStateChange({
         isValidating,
-        canValidate: !!pincode && !!area && !!building,
+        canValidate: !!pincode && !!area && !!building && !!street,
         isReValidatingPincode: isValidating,
         addressPincode: pincode,
         addressArea: area,
