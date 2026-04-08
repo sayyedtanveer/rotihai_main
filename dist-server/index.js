@@ -3674,15 +3674,27 @@ var init_storage = __esm({
           console.log(`[REVERSAL] \u{1F504} Starting reversal for referral ${referralId}...`);
           if (referral.referrerBonus > 0) {
             try {
-              await this.createWalletTransaction({
-                userId: referral.referrerId,
-                amount: referral.referrerBonus,
-                type: "referral_reversal",
-                description: `Referral bonus reversed (Referral ID: ${referralId})`,
-                referenceId: referralId,
-                referenceType: "referral"
-              }, tx);
-              console.log(`[REVERSAL] \u2705 Referrer ${referral.referrerId} reversed \u20B9${referral.referrerBonus}`);
+              const referrerUser = await tx.query.users.findFirst({
+                where: eq(users2.id, referral.referrerId)
+              });
+              if (!referrerUser) {
+                console.error(`[REVERSAL] \u274C Referrer user ${referral.referrerId} not found`);
+                throw new Error(`Referrer user not found: ${referral.referrerId}`);
+              }
+              const reversalAmount = Math.min(referral.referrerBonus, referrerUser.walletBalance);
+              if (reversalAmount > 0) {
+                await this.createWalletTransaction({
+                  userId: referral.referrerId,
+                  amount: reversalAmount,
+                  type: "referral_reversal",
+                  description: `Referral bonus reversed (Referral ID: ${referralId})${reversalAmount < referral.referrerBonus ? " [Partial: User spent part of bonus]" : ""}`,
+                  referenceId: referralId,
+                  referenceType: "referral"
+                }, tx);
+                console.log(`[REVERSAL] \u2705 Referrer ${referral.referrerId} reversed \u20B9${reversalAmount}${reversalAmount < referral.referrerBonus ? ` (partial, had \u20B9${referrerUser.walletBalance} of \u20B9${referral.referrerBonus})` : ""}`);
+              } else {
+                console.log(`[REVERSAL] \u2139\uFE0F  Referrer ${referral.referrerId} has no available balance to reverse`);
+              }
             } catch (err) {
               console.error(`[REVERSAL] \u274C Failed to reverse referrer bonus: ${err.message}`);
               throw err;
@@ -3690,15 +3702,27 @@ var init_storage = __esm({
           }
           if (referral.referredBonus > 0) {
             try {
-              await this.createWalletTransaction({
-                userId: referral.referredId,
-                amount: referral.referredBonus,
-                type: "referral_reversal",
-                description: `Referral benefit reversed (Referral ID: ${referralId})`,
-                referenceId: referralId,
-                referenceType: "referral"
-              }, tx);
-              console.log(`[REVERSAL] \u2705 Referred user ${referral.referredId} reversed \u20B9${referral.referredBonus}`);
+              const referredUser = await tx.query.users.findFirst({
+                where: eq(users2.id, referral.referredId)
+              });
+              if (!referredUser) {
+                console.error(`[REVERSAL] \u274C Referred user ${referral.referredId} not found`);
+                throw new Error(`Referred user not found: ${referral.referredId}`);
+              }
+              const reversalAmount = Math.min(referral.referredBonus, referredUser.walletBalance);
+              if (reversalAmount > 0) {
+                await this.createWalletTransaction({
+                  userId: referral.referredId,
+                  amount: reversalAmount,
+                  type: "referral_reversal",
+                  description: `Referral benefit reversed (Referral ID: ${referralId})${reversalAmount < referral.referredBonus ? " [Partial: User spent part of bonus]" : ""}`,
+                  referenceId: referralId,
+                  referenceType: "referral"
+                }, tx);
+                console.log(`[REVERSAL] \u2705 Referred user ${referral.referredId} reversed \u20B9${reversalAmount}${reversalAmount < referral.referredBonus ? ` (partial, had \u20B9${referredUser.walletBalance} of \u20B9${referral.referredBonus})` : ""}`);
+              } else {
+                console.log(`[REVERSAL] \u2139\uFE0F  Referred user ${referral.referredId} has no available balance to reverse`);
+              }
             } catch (err) {
               console.error(`[REVERSAL] \u274C Failed to reverse referred user bonus: ${err.message}`);
               throw err;
