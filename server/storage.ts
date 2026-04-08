@@ -3606,9 +3606,10 @@ export class MemStorage implements IStorage {
    * - Creates audit trail via wallet transactions
    * 
    * @param referralId - The referral to reverse
+   * @param reason - Admin note explaining why reversal is happening (optional)
    * @throws Error if referral not found or already reversed
    */
-  async reverseReferralBonus(referralId: string): Promise<void> {
+  async reverseReferralBonus(referralId: string, reason?: string): Promise<void> {
     const referral = await this.getReferralById(referralId);
     
     // Safety check 1: Referral must exist
@@ -3649,15 +3650,17 @@ export class MemStorage implements IStorage {
           const reversalAmount = Math.min(referral.referrerBonus, referrerUser.walletBalance);
           
           if (reversalAmount > 0) {
+            const reasonText = reason ? ` - Reason: ${reason}` : '';
+            const partialText = reversalAmount < referral.referrerBonus ? ' [Partial: User spent part of bonus]' : '';
             await this.createWalletTransaction({
               userId: referral.referrerId,
               amount: reversalAmount,
               type: "referral_reversal",
-              description: `Referral bonus reversed (Referral ID: ${referralId})${reversalAmount < referral.referrerBonus ? ' [Partial: User spent part of bonus]' : ''}`,
+              description: `Referral bonus reversed (Referral ID: ${referralId})${partialText}${reasonText}`,
               referenceId: referralId,
               referenceType: "referral",
             }, tx);
-            console.log(`[REVERSAL] ✅ Referrer ${referral.referrerId} reversed ₹${reversalAmount}${reversalAmount < referral.referrerBonus ? ` (partial, had ₹${referrerUser.walletBalance} of ₹${referral.referrerBonus})` : ''}`);
+            console.log(`[REVERSAL] ✅ Referrer ${referral.referrerId} reversed ₹${reversalAmount}${reversalAmount < referral.referrerBonus ? ` (partial, had ₹${referrerUser.walletBalance} of ₹${referral.referrerBonus})` : ''}${reasonText}`);
           } else {
             console.log(`[REVERSAL] ℹ️  Referrer ${referral.referrerId} has no available balance to reverse`);
           }
@@ -3683,15 +3686,17 @@ export class MemStorage implements IStorage {
           const reversalAmount = Math.min(referral.referredBonus, referredUser.walletBalance);
           
           if (reversalAmount > 0) {
+            const reasonText = reason ? ` - Reason: ${reason}` : '';
+            const partialText = reversalAmount < referral.referredBonus ? ' [Partial: User spent part of bonus]' : '';
             await this.createWalletTransaction({
               userId: referral.referredId,
               amount: reversalAmount,
               type: "referral_reversal",
-              description: `Referral benefit reversed (Referral ID: ${referralId})${reversalAmount < referral.referredBonus ? ' [Partial: User spent part of bonus]' : ''}`,
+              description: `Referral benefit reversed (Referral ID: ${referralId})${partialText}${reasonText}`,
               referenceId: referralId,
               referenceType: "referral",
             }, tx);
-            console.log(`[REVERSAL] ✅ Referred user ${referral.referredId} reversed ₹${reversalAmount}${reversalAmount < referral.referredBonus ? ` (partial, had ₹${referredUser.walletBalance} of ₹${referral.referredBonus})` : ''}`);
+            console.log(`[REVERSAL] ✅ Referred user ${referral.referredId} reversed ₹${reversalAmount}${reversalAmount < referral.referredBonus ? ` (partial, had ₹${referredUser.walletBalance} of ₹${referral.referredBonus})` : ''}${reasonText}`);
           } else {
             console.log(`[REVERSAL] ℹ️  Referred user ${referral.referredId} has no available balance to reverse`);
           }
@@ -3713,8 +3718,8 @@ export class MemStorage implements IStorage {
       throw new Error("Referral is already cancelled");
     }
 
-    // ✅ Use atomic reversal helper (reverses BOTH users)
-    await this.reverseReferralBonus(id);
+    // ✅ Use atomic reversal helper with reason (reverses BOTH users)
+    await this.reverseReferralBonus(id, adminNote);
 
     // Mark referral as cancelled
     await db.update(referrals)
@@ -3724,7 +3729,7 @@ export class MemStorage implements IStorage {
       })
       .where(eq(referrals.id, id));
 
-    console.log(`[ADMIN-CANCEL] ✅ Referral ${id} cancelled and bonuses reversed for both users`);
+    console.log(`[ADMIN-CANCEL] ✅ Referral ${id} cancelled and bonuses reversed for both users. Reason: ${adminNote}`);
   }
 
   // Toggle fraud flag on a referral
@@ -3741,9 +3746,11 @@ export class MemStorage implements IStorage {
         return;
       }
 
-      // Use atomic reversal helper (reverses BOTH users)
-      await this.reverseReferralBonus(id);
-
+      // Use atomic reversal helper with fraud reason (reverses BOTH users)
+    await this.reverseReferralBonus(
+  id,
+  "Referral benefits adjusted due to activity not meeting program guidelines (e.g., same address or usage pattern)."
+);
       // Mark as fraud
       await db.update(referrals)
         .set({

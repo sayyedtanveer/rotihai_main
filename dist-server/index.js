@@ -3654,9 +3654,10 @@ var init_storage = __esm({
        * - Creates audit trail via wallet transactions
        * 
        * @param referralId - The referral to reverse
+       * @param reason - Admin note explaining why reversal is happening (optional)
        * @throws Error if referral not found or already reversed
        */
-      async reverseReferralBonus(referralId) {
+      async reverseReferralBonus(referralId, reason) {
         const referral = await this.getReferralById(referralId);
         if (!referral) {
           console.error(`[REVERSAL] \u274C Referral ${referralId} not found. Skipping reversal.`);
@@ -3683,15 +3684,17 @@ var init_storage = __esm({
               }
               const reversalAmount = Math.min(referral.referrerBonus, referrerUser.walletBalance);
               if (reversalAmount > 0) {
+                const reasonText = reason ? ` - Reason: ${reason}` : "";
+                const partialText = reversalAmount < referral.referrerBonus ? " [Partial: User spent part of bonus]" : "";
                 await this.createWalletTransaction({
                   userId: referral.referrerId,
                   amount: reversalAmount,
                   type: "referral_reversal",
-                  description: `Referral bonus reversed (Referral ID: ${referralId})${reversalAmount < referral.referrerBonus ? " [Partial: User spent part of bonus]" : ""}`,
+                  description: `Referral bonus reversed (Referral ID: ${referralId})${partialText}${reasonText}`,
                   referenceId: referralId,
                   referenceType: "referral"
                 }, tx);
-                console.log(`[REVERSAL] \u2705 Referrer ${referral.referrerId} reversed \u20B9${reversalAmount}${reversalAmount < referral.referrerBonus ? ` (partial, had \u20B9${referrerUser.walletBalance} of \u20B9${referral.referrerBonus})` : ""}`);
+                console.log(`[REVERSAL] \u2705 Referrer ${referral.referrerId} reversed \u20B9${reversalAmount}${reversalAmount < referral.referrerBonus ? ` (partial, had \u20B9${referrerUser.walletBalance} of \u20B9${referral.referrerBonus})` : ""}${reasonText}`);
               } else {
                 console.log(`[REVERSAL] \u2139\uFE0F  Referrer ${referral.referrerId} has no available balance to reverse`);
               }
@@ -3711,15 +3714,17 @@ var init_storage = __esm({
               }
               const reversalAmount = Math.min(referral.referredBonus, referredUser.walletBalance);
               if (reversalAmount > 0) {
+                const reasonText = reason ? ` - Reason: ${reason}` : "";
+                const partialText = reversalAmount < referral.referredBonus ? " [Partial: User spent part of bonus]" : "";
                 await this.createWalletTransaction({
                   userId: referral.referredId,
                   amount: reversalAmount,
                   type: "referral_reversal",
-                  description: `Referral benefit reversed (Referral ID: ${referralId})${reversalAmount < referral.referredBonus ? " [Partial: User spent part of bonus]" : ""}`,
+                  description: `Referral benefit reversed (Referral ID: ${referralId})${partialText}${reasonText}`,
                   referenceId: referralId,
                   referenceType: "referral"
                 }, tx);
-                console.log(`[REVERSAL] \u2705 Referred user ${referral.referredId} reversed \u20B9${reversalAmount}${reversalAmount < referral.referredBonus ? ` (partial, had \u20B9${referredUser.walletBalance} of \u20B9${referral.referredBonus})` : ""}`);
+                console.log(`[REVERSAL] \u2705 Referred user ${referral.referredId} reversed \u20B9${reversalAmount}${reversalAmount < referral.referredBonus ? ` (partial, had \u20B9${referredUser.walletBalance} of \u20B9${referral.referredBonus})` : ""}${reasonText}`);
               } else {
                 console.log(`[REVERSAL] \u2139\uFE0F  Referred user ${referral.referredId} has no available balance to reverse`);
               }
@@ -3738,12 +3743,12 @@ var init_storage = __esm({
         if (referral.status === "cancelled") {
           throw new Error("Referral is already cancelled");
         }
-        await this.reverseReferralBonus(id);
+        await this.reverseReferralBonus(id, adminNote);
         await db.update(referrals2).set({
           status: "cancelled",
           adminNote
         }).where(eq(referrals2.id, id));
-        console.log(`[ADMIN-CANCEL] \u2705 Referral ${id} cancelled and bonuses reversed for both users`);
+        console.log(`[ADMIN-CANCEL] \u2705 Referral ${id} cancelled and bonuses reversed for both users. Reason: ${adminNote}`);
       }
       // Toggle fraud flag on a referral
       // ✅ PHASE 3: Mark referral as fraud — reverses BOTH user bonuses atomically
@@ -3755,7 +3760,7 @@ var init_storage = __esm({
             console.log(`[FRAUD-FLAG] \u26A0\uFE0F  Referral ${id} already flagged as fraud. Skipping.`);
             return;
           }
-          await this.reverseReferralBonus(id);
+          await this.reverseReferralBonus(id, "Referral benefits adjusted due to activity not meeting program guidelines (e.g., same address or usage pattern");
           await db.update(referrals2).set({
             fraudFlag: true,
             status: "fraud"

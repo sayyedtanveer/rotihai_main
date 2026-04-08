@@ -738,7 +738,13 @@ export default function Profile() {
                     <CardContent>
                       {walletTransactions && walletTransactions.length > 0 ? (
                         <div className="space-y-3 max-h-96 overflow-y-auto">
-                          {walletTransactions.map((transaction: any, idx: number) => (
+                          {walletTransactions.map((transaction: any, idx: number) => {
+                            // Extract reason from description if it exists
+                            const reasonMatch = transaction.description?.match(/- Reason: (.+)$/);
+                            const reason = reasonMatch ? reasonMatch[1] : null;
+                            const baseDescription = transaction.description?.split(' - Reason:')[0] || transaction.description;
+                            
+                            return (
                             <div
                               key={`${transaction.id}-${idx}`}
                               className={`flex items-start justify-between p-3 rounded-lg border ${
@@ -764,8 +770,13 @@ export default function Profile() {
                                       : "Transaction"}
                                   </p>
                                   <p className="text-xs text-muted-foreground mt-1">
-                                    {transaction.description || "Wallet transaction"}
+                                    {baseDescription || "Wallet transaction"}
                                   </p>
+                                  {reason && (
+                                    <p className="text-xs text-amber-700 dark:text-amber-400 mt-1 font-medium">
+                                      📋 {reason}
+                                    </p>
+                                  )}
                                   <p className="text-xs text-muted-foreground mt-1">
                                     {new Date(transaction.createdAt).toLocaleDateString()} at{" "}
                                     {new Date(transaction.createdAt).toLocaleTimeString([], {
@@ -789,7 +800,8 @@ export default function Profile() {
                                 </p>
                               </div>
                             </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       ) : (
                         <p className="text-sm text-muted-foreground text-center py-6">
