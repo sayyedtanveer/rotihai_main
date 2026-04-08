@@ -1,10 +1,10 @@
-import { type Category, type InsertCategory, type Product, type InsertProduct, type Order, type InsertOrder, type User, type UpsertUser, type Chef, type AdminUser, type InsertAdminUser, type PartnerUser, type Subscription, type SubscriptionPlan, type DeliverySetting, type InsertDeliverySetting, type CartSetting, type InsertCartSetting, type DeliveryPersonnel, type InsertDeliveryPersonnel, type WalletTransaction, type ReferralReward, type PromotionalBanner, type InsertPromotionalBanner, type SubscriptionDeliveryLog, type InsertSubscriptionDeliveryLog, type DeliveryTimeSlot, type InsertDeliveryTimeSlot, type Coupon, type RotiSettings, type InsertRotiSettings, type Visitor, type DeliveryArea, type InsertDeliveryArea, type AdminSettings, type PendingCheckout, type InsertPendingCheckout } from "@shared/schema";
+import { type Category, type InsertCategory, type Product, type InsertProduct, type Order, type InsertOrder, type User, type UpsertUser, type Chef, type AdminUser, type InsertAdminUser, type PartnerUser, type Subscription, type SubscriptionPlan, type DeliverySetting, type InsertDeliverySetting, type DeliveryPartnerPayout, type InsertDeliveryPartnerPayout, type CartSetting, type InsertCartSetting, type DeliveryPersonnel, type InsertDeliveryPersonnel, type WalletTransaction, type ReferralReward, type PromotionalBanner, type InsertPromotionalBanner, type SubscriptionDeliveryLog, type InsertSubscriptionDeliveryLog, type DeliveryTimeSlot, type InsertDeliveryTimeSlot, type Coupon, type RotiSettings, type InsertRotiSettings, type Visitor, type DeliveryArea, type InsertDeliveryArea, type AdminSettings, type PendingCheckout, type InsertPendingCheckout } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { nanoid } from "nanoid";
 import { eq, and, gte, lte, desc, asc, or, isNull, sql, count, lt, inArray } from "drizzle-orm";
 import {
   db, users, categories, products, orders, chefs, adminUsers, partnerUsers, subscriptions,
-  subscriptionPlans, subscriptionDeliveryLogs, deliverySettings, cartSettings, deliveryPersonnel, coupons, couponUsages, referrals, walletTransactions, referralRewards, promotionalBanners, deliveryTimeSlots, rotiSettings, visitors, deliveryAreas, adminSettings, payoutTransactions, pendingCheckouts
+  subscriptionPlans, subscriptionDeliveryLogs, deliverySettings, deliveryPartnerPayouts, cartSettings, deliveryPersonnel, coupons, couponUsages, referrals, walletTransactions, referralRewards, promotionalBanners, deliveryTimeSlots, rotiSettings, visitors, deliveryAreas, adminSettings, payoutTransactions, pendingCheckouts
 } from "@shared/db";
 
 export interface IStorage {
@@ -107,6 +107,16 @@ export interface IStorage {
   createDeliverySetting(data: Omit<DeliverySetting, "id" | "createdAt" | "updatedAt">): Promise<DeliverySetting>;
   updateDeliverySetting(id: string, data: Partial<DeliverySetting>): Promise<DeliverySetting | undefined>;
   deleteDeliverySetting(id: string): Promise<void>;
+
+  // Delivery Partner Payout Slab methods
+  getDeliveryPartnerPayouts(): Promise<DeliveryPartnerPayout[]>;
+  getDeliveryPartnerPayout(id: string): Promise<DeliveryPartnerPayout | undefined>;
+  getDeliveryPartnerPayoutsByPincode(pincode: string): Promise<DeliveryPartnerPayout[]>;
+  getDeliveryPartnerPayoutByPincodeAndDistance(pincode: string | null, distance: number): Promise<DeliveryPartnerPayout | undefined>;
+  createDeliveryPartnerPayout(data: InsertDeliveryPartnerPayout): Promise<DeliveryPartnerPayout>;
+  updateDeliveryPartnerPayout(id: string, data: Partial<DeliveryPartnerPayout>): Promise<DeliveryPartnerPayout | undefined>;
+  deleteDeliveryPartnerPayout(id: string): Promise<boolean>;
+  calculateDeliveryPartnerPayout(distance: number | null | undefined, pincode?: string): Promise<number>;
 
   // Cart settings methods
   getCartSettings(): Promise<CartSetting[]>;
@@ -603,6 +613,8 @@ export class MemStorage implements IStorage {
       deliverySlotId: insertOrder.deliverySlotId || null,
       deliveryDate: (insertOrder as any).deliveryDate || null,
       walletAmountUsed: insertOrder.walletAmountUsed || 0,
+      distance: (insertOrder as any).distance || null,
+      deliveryPartnerPayout: (insertOrder as any).deliveryPartnerPayout || null,
       createdAt: new Date(),
     };
 
@@ -1929,6 +1941,100 @@ export class MemStorage implements IStorage {
     await db.delete(deliverySettings).where(eq(deliverySettings.id, id));
   }
 
+  // ──────────────────── DELIVERY PARTNER PAYOUT METHODS ────────────────────
+
+  async getDeliveryPartnerPayouts(): Promise<DeliveryPartnerPayout[]> {
+    return await db.select().from(deliveryPartnerPayouts);
+  }
+
+  async getDeliveryPartnerPayout(id: string): Promise<DeliveryPartnerPayout | undefined> {
+    const result = await db
+      .select()
+      .from(deliveryPartnerPayouts)
+      .where(eq(deliveryPartnerPayouts.id, id));
+    return result[0];
+  }
+
+  async getDeliveryPartnerPayoutsByPincode(pincode: string): Promise<DeliveryPartnerPayout[]> {
+    return await db
+      .select()
+      .from(deliveryPartnerPayouts)
+      .where(and(
+        eq(deliveryPartnerPayouts.isActive, true),
+        or(
+          isNull(deliveryPartnerPayouts.pincode),
+          eq(deliveryPartnerPayouts.pincode, pincode)
+        )
+      ));
+  }
+
+  async getDeliveryPartnerPayoutByPincodeAndDistance(
+    pincode: string | null,
+    distance: number
+  ): Promise<DeliveryPartnerPayout | undefined> {
+    const payoutSlabs = await this.getDeliveryPartnerPayoutsByPincode(pincode || '');
+
+    for (const slab of payoutSlabs) {
+      const minDist = parseFloat(String(slab.minDistance));
+      const maxDist = parseFloat(String(slab.maxDistance));
+      if (distance >= minDist && distance <= maxDist) {
+        return slab;
+      }
+    }
+    return undefined;
+  }
+
+  async createDeliveryPartnerPayout(
+    data: InsertDeliveryPartnerPayout
+  ): Promise<DeliveryPartnerPayout> {
+    const id = randomUUID();
+    const now = new Date();
+
+    // Insert into database with proper type conversion
+    await db.insert(deliveryPartnerPayouts).values({
+      id,
+      name: data.name,
+      minDistance: String(data.minDistance),
+      maxDistance: String(data.maxDistance),
+      payoutAmount: data.payoutAmount,
+      pincode: data.pincode ?? null,
+      isActive: data.isActive ?? true,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    // Return with proper type
+    return {
+      id,
+      name: data.name,
+      minDistance: String(data.minDistance),
+      maxDistance: String(data.maxDistance),
+      payoutAmount: data.payoutAmount,
+      pincode: data.pincode ?? null,
+      isActive: data.isActive ?? true,
+      createdAt: now,
+      updatedAt: now,
+    } as DeliveryPartnerPayout;
+  }
+
+  async updateDeliveryPartnerPayout(
+    id: string,
+    data: Partial<DeliveryPartnerPayout>
+  ): Promise<DeliveryPartnerPayout | undefined> {
+    await db
+      .update(deliveryPartnerPayouts)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(deliveryPartnerPayouts.id, id));
+    return this.getDeliveryPartnerPayout(id);
+  }
+
+  async deleteDeliveryPartnerPayout(id: string): Promise<boolean> {
+    const result = await db
+      .delete(deliveryPartnerPayouts)
+      .where(eq(deliveryPartnerPayouts.id, id));
+    return (result.rowCount ?? 0) > 0;
+  }
+
   async getCartSettings(): Promise<CartSetting[]> {
     return db.query.cartSettings.findMany({ where: (cs, { eq }) => eq(cs.isActive, true) });
   }
@@ -2797,6 +2903,52 @@ export class MemStorage implements IStorage {
       deliveryFee,
       isFreeDelivery,
     };
+  }
+
+  /**
+   * Calculate delivery partner payout based on distance and configured slabs
+   *
+   * Distance-slab based earning structure (customizable by admin via database):
+   * Default slabs:
+   * - 0 to 1 km: ₹10
+   * - 1 to 2 km: ₹15
+   * - 2 to 3 km: ₹20
+   * - 3 to 4 km: ₹25
+   * - 4+ km: ₹30
+   *
+   * @param distance - Distance in km (null or 0 defaults to ₹10)
+   * @param pincode - Optional: customer pincode for regional rate matching
+   * @returns Payout amount in ₹
+   */
+  async calculateDeliveryPartnerPayout(
+    distance: number | null | undefined,
+    pincode?: string
+  ): Promise<number> {
+    // Handle null/zero distance with default
+    if (!distance || distance <= 0) {
+      return 10;  // Default payout when no distance
+    }
+
+    try {
+      // Fetch slab from database
+      const matchingSlab = await this.getDeliveryPartnerPayoutByPincodeAndDistance(
+        pincode || null,
+        distance
+      );
+
+      if (matchingSlab) {
+        console.log(`[PARTNER-PAYOUT] Distance: ${distance}km, Pincode: ${pincode || 'N/A'}, Payout: ₹${matchingSlab.payoutAmount}`);
+        return matchingSlab.payoutAmount;
+      }
+
+      // Fallback if no matching slab found
+      console.warn(`[PARTNER-PAYOUT] No matching slab found for distance ${distance}km, using default ₹10`);
+      return 10;
+    } catch (error) {
+      console.error("[PARTNER-PAYOUT] Error fetching slab config:", error);
+      // Fallback to safe default on database error
+      return 10;
+    }
   }
 
   async createWalletTransaction(transaction: {

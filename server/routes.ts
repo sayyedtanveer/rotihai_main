@@ -1856,6 +1856,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Overwrite any client-supplied deliveryFee with server-calculated value
         (sanitized as any).deliveryFee = expectedDeliveryFee;
 
+        // Store distance for delivery partner payout calculation
+        (sanitized as any).distance = parseFloat(addressDistance.toFixed(2));
+
+        // Calculate distance-based delivery partner payout (fetches from database)
+        const deliveryPartnerPayout = await storage.calculateDeliveryPartnerPayout(
+          addressDistance,
+          sanitized.addressPincode  // Pass pincode for regional rate matching
+        );
+        (sanitized as any).deliveryPartnerPayout = deliveryPartnerPayout;
+
+        console.log("[DELIVERY-PARTNER-PAYOUT] Calculated payout:", {
+          distance: addressDistance.toFixed(2),
+          pincode: sanitized.addressPincode || 'N/A',
+          payout: deliveryPartnerPayout
+        });
+
         // Recompute total to reflect server-side fee and discount
         // We MUST also subtract walletAmountUsed and bonusUsedAtCheckout just like the frontend
         const baseTotal = (sanitized.subtotal || 0) + (sanitized.deliveryFee || 0) - (sanitized.discount || 0);

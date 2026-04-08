@@ -192,7 +192,14 @@ export function serveStatic(app: Express) {
   }));
 
   // Fallback to index.html for client-side routing
-  app.use("*", (_req, res) => {
+  // ⚠️ CRITICAL: Exclude API routes - let them return proper JSON errors
+  app.use("*", (req, res) => {
+    if (req.path.startsWith("/api/")) {
+      // API routes should not fall back to index.html
+      res.status(404).json({ message: "API endpoint not found" });
+      return;
+    }
+    // Client-side routing: serve index.html for all other requests
     res.sendFile(path.resolve(distPath, "index.html"));
   });
 }
