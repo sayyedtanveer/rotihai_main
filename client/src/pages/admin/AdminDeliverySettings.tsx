@@ -8,10 +8,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import type { DeliverySetting, DeliveryPersonnel } from "@shared/schema";
+import type { DeliverySetting, DeliveryPersonnel, DeliveryPartnerPayout } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Truck, Plus, Trash2, MapPin, Users, UserCog } from "lucide-react";
+import { Truck, Plus, Trash2, MapPin, Users, UserCog, DollarSign } from "lucide-react";
 import { useState } from "react";
 
 export default function AdminDeliverySettings() {
@@ -31,6 +31,13 @@ export default function AdminDeliverySettings() {
     password: "",
   });
 
+  const [newPayoutSlab, setNewPayoutSlab] = useState({
+    minDistance: "",
+    maxDistance: "",
+    payoutAmount: "",
+    pincode: "",
+  });
+
   // Delivery Settings Queries
   const { data: settings, isLoading: settingsLoading } = useQuery<DeliverySetting[]>({
     queryKey: ["/api/admin", "delivery-settings"],
@@ -45,6 +52,15 @@ export default function AdminDeliverySettings() {
     queryKey: ["/api/admin", "delivery-personnel"],
     queryFn: async () => {
       const response = await api.get("/api/admin/delivery-personnel");
+      return response.data;
+    },
+  });
+
+  // Delivery Partner Payouts Queries
+  const { data: payoutSlabs, isLoading: payoutsLoading } = useQuery<DeliveryPartnerPayout[]>({
+    queryKey: ["/api/admin", "delivery-partner-payouts"],
+    queryFn: async () => {
+      const response = await api.get("/api/admin/delivery-partner-payouts");
       return response.data;
     },
   });
@@ -186,6 +202,77 @@ export default function AdminDeliverySettings() {
     },
   });
 
+  // Delivery Partner Payout Mutations
+  const createPayoutMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const response = await api.post("/api/admin/delivery-partner-payouts", {
+        minDistance: parseFloat(data.minDistance),
+        maxDistance: parseFloat(data.maxDistance),
+        payoutAmount: parseInt(data.payoutAmount),
+        pincode: data.pincode || null,
+        isActive: true,
+      });
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin", "delivery-partner-payouts"] });
+      setNewPayoutSlab({ minDistance: "", maxDistance: "", payoutAmount: "", pincode: "" });
+      toast({
+        title: "Payout slab created",
+        description: "Delivery partner payout slab has been created successfully",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Creation failed",
+        description: error?.response?.data?.message || "Failed to create payout slab",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const updatePayoutMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: Partial<DeliveryPartnerPayout> }) => {
+      const response = await api.patch(`/api/admin/delivery-partner-payouts/${id}`, data);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin", "delivery-partner-payouts"] });
+      toast({
+        title: "Payout slab updated",
+        description: "Delivery partner payout slab has been updated successfully",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Update failed",
+        description: error?.response?.data?.message || "Failed to update payout slab",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deletePayoutMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const response = await api.delete(`/api/admin/delivery-partner-payouts/${id}`);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin", "delivery-partner-payouts"] });
+      toast({
+        title: "Payout slab deleted",
+        description: "Delivery partner payout slab has been deleted successfully",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Deletion failed",
+        description: error?.response?.data?.message || "Failed to delete payout slab",
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleCreateSetting = () => {
     if (!newSetting.name || !newSetting.minDistance || !newSetting.maxDistance || !newSetting.price) {
       toast({
@@ -221,6 +308,28 @@ export default function AdminDeliverySettings() {
     createPersonnelMutation.mutate(newDeliveryPerson);
   };
 
+  const handleCreatePayoutSlab = () => {
+    if (!newPayoutSlab.minDistance || !newPayoutSlab.maxDistance || !newPayoutSlab.payoutAmount) {
+      toast({
+        title: "Validation error",
+        description: "Please fill in all required fields",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (parseFloat(newPayoutSlab.minDistance) >= parseFloat(newPayoutSlab.maxDistance)) {
+      toast({
+        title: "Validation error",
+        description: "Max distance must be greater than min distance",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    createPayoutMutation.mutate(newPayoutSlab);
+  };
+
   return (
     <AdminLayout>
       <div className="space-y-6">
@@ -235,18 +344,22 @@ export default function AdminDeliverySettings() {
         </div>
 
         <Tabs defaultValue="settings" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="partners" className="flex items-center gap-2">
               <Users className="w-4 h-4" />
               <span className="hidden sm:inline">Partners</span>
             </TabsTrigger>
             <TabsTrigger value="personnel" className="flex items-center gap-2">
               <UserCog className="w-4 h-4" />
-              <span className="hidden sm:inline">Delivery Personnel</span>
+              <span className="hidden sm:inline">Personnel</span>
+            </TabsTrigger>
+            <TabsTrigger value="payouts" className="flex items-center gap-2">
+              <DollarSign className="w-4 h-4" />
+              <span className="hidden sm:inline">Payouts</span>
             </TabsTrigger>
             <TabsTrigger value="settings" className="flex items-center gap-2">
               <MapPin className="w-4 h-4" />
-              <span className="hidden sm:inline">Delivery Settings</span>
+              <span className="hidden sm:inline">Settings</span>
             </TabsTrigger>
           </TabsList>
 
@@ -413,6 +526,158 @@ export default function AdminDeliverySettings() {
                       <p className="text-slate-600 dark:text-slate-400">No delivery personnel registered</p>
                       <p className="text-sm text-slate-500 dark:text-slate-500 mt-1">
                         Add your first delivery person above
+                      </p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
+
+          {/* Delivery Partner Payouts Tab */}
+          <TabsContent value="payouts">
+            <div className="space-y-6">
+              {/* Create New Payout Slab */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Plus className="w-5 h-5" />
+                    Add Delivery Partner Payout Slab
+                  </CardTitle>
+                  <CardDescription>
+                    Define distance ranges and payout amounts for delivery boys.
+                    <span className="block mt-2 text-sm bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded p-2">
+                      💡 <strong>How it works:</strong> When a delivery is created, the distance is calculated and the payout is determined by which distance range it falls into. Leave pincode empty for default slab, or specify for pincode-specific rates.
+                    </span>
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="payout-min-distance">Min Distance (km) *</Label>
+                      <Input
+                        id="payout-min-distance"
+                        type="number"
+                        step="0.1"
+                        placeholder="0"
+                        value={newPayoutSlab.minDistance}
+                        onChange={(e) => setNewPayoutSlab({ ...newPayoutSlab, minDistance: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="payout-max-distance">Max Distance (km) *</Label>
+                      <Input
+                        id="payout-max-distance"
+                        type="number"
+                        step="0.1"
+                        placeholder="1"
+                        value={newPayoutSlab.maxDistance}
+                        onChange={(e) => setNewPayoutSlab({ ...newPayoutSlab, maxDistance: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="payout-amount">Payout Amount (₹) *</Label>
+                      <Input
+                        id="payout-amount"
+                        type="number"
+                        placeholder="10"
+                        value={newPayoutSlab.payoutAmount}
+                        onChange={(e) => setNewPayoutSlab({ ...newPayoutSlab, payoutAmount: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="payout-pincode">Pincode (Optional)</Label>
+                      <Input
+                        id="payout-pincode"
+                        type="text"
+                        placeholder="400070"
+                        value={newPayoutSlab.pincode}
+                        onChange={(e) => setNewPayoutSlab({ ...newPayoutSlab, pincode: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2 flex flex-col justify-end">
+                      <Button onClick={handleCreatePayoutSlab} disabled={createPayoutMutation.isPending}>
+                        <Plus className="w-4 h-4 mr-2" />
+                        Add Slab
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Existing Payout Slabs */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <DollarSign className="w-5 h-5" />
+                    Current Payout Slabs
+                  </CardTitle>
+                  <CardDescription>Manage delivery partner payout configurations</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {payoutsLoading ? (
+                    <div className="space-y-4">
+                      {[...Array(3)].map((_, i) => (
+                        <div key={i} className="animate-pulse p-4 bg-slate-50 dark:bg-slate-800 rounded-lg">
+                          <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-48 mb-2"></div>
+                          <div className="h-3 bg-slate-200 dark:bg-slate-700 rounded w-32"></div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : payoutSlabs && payoutSlabs.length > 0 ? (
+                    <div className="space-y-4">
+                      {payoutSlabs
+                        .sort((a, b) => parseFloat(a.minDistance) - parseFloat(b.minDistance))
+                        .map((slab) => (
+                          <div
+                            key={slab.id}
+                            className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg"
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex-1">
+                                <h3 className="font-semibold text-lg text-slate-900 dark:text-slate-100">
+                                  {slab.minDistance} km - {slab.maxDistance} km
+                                </h3>
+                                <p className="text-sm text-slate-600 dark:text-slate-400">
+                                  Payout: <span className="font-bold text-green-600 dark:text-green-400">₹{slab.payoutAmount}</span>
+                                  {slab.pincode && ` • Pincode: ${slab.pincode}`}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-4">
+                                <div className="flex items-center gap-2">
+                                  <Label htmlFor={`payout-active-${slab.id}`} className="text-sm">
+                                    Active
+                                  </Label>
+                                  <Switch
+                                    id={`payout-active-${slab.id}`}
+                                    checked={slab.isActive}
+                                    onCheckedChange={(checked) =>
+                                      updatePayoutMutation.mutate({
+                                        id: slab.id,
+                                        data: { isActive: checked },
+                                      })
+                                    }
+                                  />
+                                </div>
+                                <Button
+                                  variant="destructive"
+                                  size="icon"
+                                  onClick={() => deletePayoutMutation.mutate(slab.id)}
+                                  disabled={deletePayoutMutation.isPending}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-12">
+                      <DollarSign className="w-12 h-12 mx-auto text-slate-400 mb-4" />
+                      <p className="text-slate-600 dark:text-slate-400">No payout slabs configured</p>
+                      <p className="text-sm text-slate-500 dark:text-slate-500 mt-1">
+                        Add your first payout slab above
                       </p>
                     </div>
                   )}
