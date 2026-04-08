@@ -875,21 +875,50 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
           try {
             parsedAddress = JSON.parse(userProfile.address);
           } catch (e) {
-            // It's a plain text address
-            parsedAddress = { building: userProfile.address };
+            // Hardcoded parsing for plain text profile address
+            // Format: "18/20, Lig colony 3rd ground , Kurla West, Mumbai, 400070"
+            const addressStr = userProfile.address.trim();
+            const parts = addressStr.split(",").map(p => p.trim()).filter(p => p);
+
+            // Remove duplicates
+            const uniqueParts: string[] = [];
+            const seen = new Set<string>();
+            for (const part of parts) {
+              if (!seen.has(part.toLowerCase())) {
+                uniqueParts.push(part);
+                seen.add(part.toLowerCase());
+              }
+            }
+
+            // Extract pincode (6 digits)
+            const pincodeMatch = addressStr.match(/\b\d{6}\b/);
+            const pincode = pincodeMatch?.[0] || "";
+
+            // Hardcoded extraction order:
+            // [0] = building/house number
+            // [1] = area/colony
+            // [2] = street/road
+            // [3] = city
+            parsedAddress = {
+              building: uniqueParts[0] || "",
+              area: uniqueParts[1] || "",
+              street: uniqueParts[2] || "",
+              city: uniqueParts[3] || "Mumbai",
+              pincode
+            };
           }
         } else {
           parsedAddress = userProfile.address;
         }
-        
+
         initialAddress = {
           building: parsedAddress.building || "",
           street: parsedAddress.street || "",
           area: parsedAddress.area || "",
           city: parsedAddress.city || "Mumbai",
           pincode: parsedAddress.pincode || "",
-          latitude: parsedAddress.latitude || null,
-          longitude: parsedAddress.longitude || null,
+          latitude: userProfile.latitude || null,
+          longitude: userProfile.longitude || null,
         };
         setAuthenticatedSubAddress(initialAddress);
         setIsAuthSubAddressValidated(false);
