@@ -695,7 +695,7 @@ export type InsertDeliverySetting = z.infer<typeof insertDeliverySettingSchema>;
 export type DeliverySetting = typeof deliverySettings.$inferSelect;
 
 export const insertDeliveryPartnerPayoutSchema = createInsertSchema(deliveryPartnerPayouts, {
-  name: z.string().min(1, "Name is required"),
+  name: z.string().min(1, "Name is required").optional(),
   minDistance: z.number(),
   maxDistance: z.number(),
   payoutAmount: z.number().positive("Payout amount must be positive"),
