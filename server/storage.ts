@@ -1991,14 +1991,16 @@ export class MemStorage implements IStorage {
     const now = new Date();
 
     // Auto-generate name from distance range if not provided
-    const name = data.name || `${data.minDistance}km - ${data.maxDistance}km`;
+    const minDist = parseFloat(String(data.minDistance));
+    const maxDist = parseFloat(String(data.maxDistance));
+    const name = data.name || `${minDist}km - ${maxDist}km`;
 
     // Insert into database with proper type conversion
     await db.insert(deliveryPartnerPayouts).values({
       id,
       name,
-      minDistance: String(data.minDistance),
-      maxDistance: String(data.maxDistance),
+      minDistance: minDist.toFixed(2),
+      maxDistance: maxDist.toFixed(2),
       payoutAmount: data.payoutAmount,
       pincode: data.pincode ?? null,
       isActive: data.isActive ?? true,
@@ -2010,8 +2012,8 @@ export class MemStorage implements IStorage {
     return {
       id,
       name,
-      minDistance: String(data.minDistance),
-      maxDistance: String(data.maxDistance),
+      minDistance: minDist.toFixed(2),
+      maxDistance: maxDist.toFixed(2),
       payoutAmount: data.payoutAmount,
       pincode: data.pincode ?? null,
       isActive: data.isActive ?? true,
