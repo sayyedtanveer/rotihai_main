@@ -1990,35 +1990,55 @@ export class MemStorage implements IStorage {
     const id = randomUUID();
     const now = new Date();
 
-    // Auto-generate name from distance range if not provided
+    // Parse and round distances to 2 decimal places
     const minDist = parseFloat(String(data.minDistance));
     const maxDist = parseFloat(String(data.maxDistance));
-    const name = data.name || `${minDist}km - ${maxDist}km`;
+    const roundedMin = Math.round(minDist * 100) / 100;
+    const roundedMax = Math.round(maxDist * 100) / 100;
 
-    // Insert into database with proper type conversion
-    await db.insert(deliveryPartnerPayouts).values({
-      id,
-      name,
-      minDistance: minDist.toFixed(2),
-      maxDistance: maxDist.toFixed(2),
+    const name = data.name || `${roundedMin}km - ${roundedMax}km`;
+
+    console.log("[PAYOUT-CREATE] Inserting:", {
+      minDistance: roundedMin,
+      maxDistance: roundedMax,
       payoutAmount: data.payoutAmount,
-      pincode: data.pincode ?? null,
-      isActive: data.isActive ?? true,
-      createdAt: now,
-      updatedAt: now,
     });
 
-    // Return with proper type
+    try {
+      // Insert into database - pass numeric values for decimal fields
+      await db.insert(deliveryPartnerPayouts).values({
+        id,
+        name,
+        minDistance: roundedMin,
+        maxDistance: roundedMax,
+        payoutAmount: parseInt(String(data.payoutAmount)),
+        pincode: data.pincode || null,
+        isActive: data.isActive ?? true,
+        createdAt: now,
+        updatedAt: now,
+      });
+    } catch (dbError: any) {
+      console.error("[PAYOUT-CREATE] DB Insert Error:", {
+        message: dbError.message,
+        code: dbError.code,
+        detail: dbError.detail,
+      });
+      throw dbError;
+    }
+
+    // Return with formatted strings (as stored in DB)
     return {
       id,
       name,
-      minDistance: minDist.toFixed(2),
-      maxDistance: maxDist.toFixed(2),
-      payoutAmount: data.payoutAmount,
-      pincode: data.pincode ?? null,
+      minDistance: roundedMin.toFixed(2),
+      maxDistance: roundedMax.toFixed(2),
+      payoutAmount: parseInt(String(data.payoutAmount)),
+      pincode: data.pincode || null,
       isActive: data.isActive ?? true,
       createdAt: now,
       updatedAt: now,
+    } as DeliveryPartnerPayout;
+  }
     } as DeliveryPartnerPayout;
   }
 
