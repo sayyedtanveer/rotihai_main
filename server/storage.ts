@@ -2005,18 +2005,21 @@ export class MemStorage implements IStorage {
     });
 
     try {
-      // Insert into database - pass numeric values for decimal fields
-      await db.insert(deliveryPartnerPayouts).values({
+      // Create the full payout object with all required fields
+      const payout: DeliveryPartnerPayout = {
         id,
         name,
-        minDistance: roundedMin,
-        maxDistance: roundedMax,
+        minDistance: roundedMin as any, // Drizzle will handle decimal conversion
+        maxDistance: roundedMax as any,
         payoutAmount: parseInt(String(data.payoutAmount)),
         pincode: data.pincode || null,
         isActive: data.isActive ?? true,
         createdAt: now,
         updatedAt: now,
-      });
+      };
+      
+      // Insert into database
+      await db.insert(deliveryPartnerPayouts).values(payout);
     } catch (dbError: any) {
       console.error("[PAYOUT-CREATE] DB Insert Error:", {
         message: dbError.message,
