@@ -2039,8 +2039,6 @@ export class MemStorage implements IStorage {
       updatedAt: now,
     } as DeliveryPartnerPayout;
   }
-    } as DeliveryPartnerPayout;
-  }
 
   async updateDeliveryPartnerPayout(
     id: string,
