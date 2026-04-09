@@ -3583,11 +3583,13 @@ export function registerAdminRoutes(app: Express) {
   // Create new delivery partner payout slab
   app.post("/api/admin/delivery-partner-payouts", requireAdminOrManager(), async (req, res) => {
     try {
+      console.log("[PAYOUT-CREATE] Request body:", req.body);
       const payout = await storage.createDeliveryPartnerPayout(req.body);
       res.status(201).json(payout);
-    } catch (error) {
-      console.error("Create delivery partner payout error:", error);
-      res.status(500).json({ message: "Failed to create delivery partner payout" });
+    } catch (error: any) {
+      console.error("[PAYOUT-CREATE] Error:", error.message || error);
+      if (error.cause) console.error("[PAYOUT-CREATE] Cause:", error.cause);
+      res.status(500).json({ message: "Failed to create delivery partner payout", error: error.message });
     }
   });
 

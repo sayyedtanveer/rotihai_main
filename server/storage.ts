@@ -1990,27 +1990,50 @@ export class MemStorage implements IStorage {
     const id = randomUUID();
     const now = new Date();
 
-    // Insert into database with proper type conversion
-    await db.insert(deliveryPartnerPayouts).values({
-      id,
-      name: data.name,
-      minDistance: String(data.minDistance),
-      maxDistance: String(data.maxDistance),
+    // Parse and round distances to 2 decimal places
+    const minDist = parseFloat(String(data.minDistance));
+    const maxDist = parseFloat(String(data.maxDistance));
+    const roundedMin = Math.round(minDist * 100) / 100;
+    const roundedMax = Math.round(maxDist * 100) / 100;
+
+    const name = data.name || `${roundedMin}km - ${roundedMax}km`;
+
+    console.log("[PAYOUT-CREATE] Inserting:", {
+      minDistance: roundedMin,
+      maxDistance: roundedMax,
       payoutAmount: data.payoutAmount,
-      pincode: data.pincode ?? null,
-      isActive: data.isActive ?? true,
-      createdAt: now,
-      updatedAt: now,
     });
 
-    // Return with proper type
+    try {
+      // Insert into database - pass numeric values for decimal fields
+      await db.insert(deliveryPartnerPayouts).values({
+        id,
+        name,
+        minDistance: roundedMin,
+        maxDistance: roundedMax,
+        payoutAmount: parseInt(String(data.payoutAmount)),
+        pincode: data.pincode || null,
+        isActive: data.isActive ?? true,
+        createdAt: now,
+        updatedAt: now,
+      });
+    } catch (dbError: any) {
+      console.error("[PAYOUT-CREATE] DB Insert Error:", {
+        message: dbError.message,
+        code: dbError.code,
+        detail: dbError.detail,
+      });
+      throw dbError;
+    }
+
+    // Return with formatted strings (as stored in DB)
     return {
       id,
-      name: data.name,
-      minDistance: String(data.minDistance),
-      maxDistance: String(data.maxDistance),
-      payoutAmount: data.payoutAmount,
-      pincode: data.pincode ?? null,
+      name,
+      minDistance: roundedMin.toFixed(2),
+      maxDistance: roundedMax.toFixed(2),
+      payoutAmount: parseInt(String(data.payoutAmount)),
+      pincode: data.pincode || null,
       isActive: data.isActive ?? true,
       createdAt: now,
       updatedAt: now,
