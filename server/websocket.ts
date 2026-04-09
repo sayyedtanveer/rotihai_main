@@ -266,22 +266,49 @@ export async function broadcastSubscriptionDeliveryToAvailableDelivery(deliveryL
   const { storage } = await import("./storage");
 
   let deliveryPersonnelNotified = 0;
+  const connectedDeliveryPersonIds = new Set<string>();
 
+  // PHASE 1: Broadcast to all CONNECTED delivery personnel
   for (const [deliveryPersonId, client] of Array.from(clients.entries())) {
-    if (client.type === "delivery" && client.ws.readyState === WebSocket.OPEN) {
-      const deliveryPerson = await storage.getDeliveryPersonnelById(deliveryPersonId);
-      if (deliveryPerson && deliveryPerson.isActive) {
-        const message = {
-          type: "new_subscription_delivery",
-          deliveryLog: deliveryLog,
-          message: `🍽️ New subscription delivery ready for pickup!`
-        };
+    if (client.type === "delivery") {
+      // Track ALL delivery clients to avoid duplicate pending broadcasts
+      connectedDeliveryPersonIds.add(deliveryPersonId);
+      
+      // Only send real-time notification if WebSocket is OPEN
+      if (client.ws.readyState === WebSocket.OPEN) {
+        const deliveryPerson = await storage.getDeliveryPersonnelById(deliveryPersonId);
+        if (deliveryPerson && deliveryPerson.isActive) {
+          const message = {
+            type: "new_subscription_delivery",
+            deliveryLog: deliveryLog,
+            message: `🍽️ New subscription delivery ready for pickup!`
+          };
 
-        client.ws.send(JSON.stringify(message));
-        console.log(`✅ Sent to delivery person: ${deliveryPersonId} (${deliveryPerson.name})`);
-        deliveryPersonnelNotified++;
+          client.ws.send(JSON.stringify(message));
+          console.log(`✅ Sent to delivery person: ${deliveryPersonId} (${deliveryPerson.name})`);
+          deliveryPersonnelNotified++;
+        }
       }
     }
+  }
+
+  // PHASE 2: Create pending broadcasts for OFFLINE delivery personnel (so they get notified when they come online)
+  try {
+    const activeDeliveryPersonnel = await storage.getAvailableDeliveryPersonnel();
+
+    for (const deliveryPerson of activeDeliveryPersonnel) {
+      // Only save pending broadcast if NOT already connected
+      if (!connectedDeliveryPersonIds.has(deliveryPerson.id)) {
+        console.log(`⏳ Saving pending broadcast for offline delivery person: ${deliveryPerson.id} (${deliveryPerson.name})`);
+        savePendingBroadcast(deliveryPerson.id, "delivery", "new_subscription_delivery", {
+          deliveryLog: deliveryLog,
+          message: `🍽️ New subscription delivery ready for pickup!`
+        });
+      }
+    }
+  } catch (error) {
+    console.error(`⚠️ Error saving pending broadcasts for offline delivery personnel:`, error);
+    // Don't fail the broadcast if pending broadcasts fail
   }
 
   if (deliveryPersonnelNotified === 0) {
@@ -495,40 +522,56 @@ export async function broadcastPreparedOrderToAvailableDelivery(order: any) {
   const { storage } = await import("./storage");
 
   let deliveryPersonnelNotified = 0;
+  const connectedDeliveryPersonIds = new Set<string>();
 
-  // Broadcast to all connected delivery personnel (they can self-filter based on availability)
+  // PHASE 1: Broadcast to all CONNECTED delivery personnel (they can self-filter based on availability)
   for (const [deliveryPersonId, client] of Array.from(clients.entries())) {
-    if (client.type === "delivery" && client.ws.readyState === WebSocket.OPEN) {
-      // Verify delivery person is active before notifying
-      const deliveryPerson = await storage.getDeliveryPersonnelById(deliveryPersonId);
-      if (deliveryPerson && deliveryPerson.isActive) {
-        const message = {
-          type: "new_prepared_order",
+    if (client.type === "delivery") {
+      // Track ALL delivery clients to avoid duplicate pending broadcasts
+      connectedDeliveryPersonIds.add(deliveryPersonId);
+      
+      // Only send real-time notification if WebSocket is OPEN
+      if (client.ws.readyState === WebSocket.OPEN) {
+        // Verify delivery person is active before notifying
+        const deliveryPerson = await storage.getDeliveryPersonnelById(deliveryPersonId);
+        if (deliveryPerson && deliveryPerson.isActive) {
+          const message = {
+            type: "new_prepared_order",
+            order: order,
+            notificationStage: notificationStage,
+            message: notificationStage === "CHEF_ACCEPTED"
+              ? `🔔 New order alert! Chef accepted order #${order.id.slice(0, 8)} - start preparing to head out`
+              : `🍽️ Order #${order.id.slice(0, 8)} is ready for pickup!`
+          };
+
+          client.ws.send(JSON.stringify(message));
+          console.log(`✅ [${notificationStage}] Sent to delivery person: ${deliveryPersonId} (${deliveryPerson.name})`);
+          deliveryPersonnelNotified++;
+        }
+      }
+    }
+  }
+
+  // PHASE 2: Create pending broadcasts for OFFLINE delivery personnel (so they get notified when they come online)
+  try {
+    const activeDeliveryPersonnel = await storage.getAvailableDeliveryPersonnel();
+
+    for (const deliveryPerson of activeDeliveryPersonnel) {
+      // Only save pending broadcast if NOT already connected
+      if (!connectedDeliveryPersonIds.has(deliveryPerson.id)) {
+        console.log(`⏳ [${notificationStage}] Saving pending broadcast for offline delivery person: ${deliveryPerson.id} (${deliveryPerson.name})`);
+        savePendingBroadcast(deliveryPerson.id, "delivery", "new_prepared_order", {
           order: order,
           notificationStage: notificationStage,
           message: notificationStage === "CHEF_ACCEPTED"
             ? `🔔 New order alert! Chef accepted order #${order.id.slice(0, 8)} - start preparing to head out`
             : `🍽️ Order #${order.id.slice(0, 8)} is ready for pickup!`
-        };
-
-        client.ws.send(JSON.stringify(message));
-        console.log(`✅ [${notificationStage}] Sent to delivery person: ${deliveryPersonId} (${deliveryPerson.name})`);
-        deliveryPersonnelNotified++;
+        });
       }
     }
-
-    // Save pending broadcast for ALL active delivery personnel (since any could claim it)
-    // To avoid spamming DB too much, we will rely on assigning manually, but we broadcast here
-    if (client.type === "delivery") {
-      // It's expensive to do DB queries in loop, we simplify pending broadcast
-      savePendingBroadcast(deliveryPersonId, "delivery", "new_prepared_order", {
-        order: order,
-        notificationStage: notificationStage,
-        message: notificationStage === "CHEF_ACCEPTED"
-          ? `🔔 New order alert! Chef accepted order #${order.id.slice(0, 8)} - start preparing to head out`
-          : `🍽️ Order #${order.id.slice(0, 8)} is ready for pickup!`
-      });
-    }
+  } catch (error) {
+    console.error(`⚠️ Error saving pending broadcasts for offline delivery personnel:`, error);
+    // Don't fail the broadcast if pending broadcasts fail
   }
 
   // Clear any existing timeout for this order

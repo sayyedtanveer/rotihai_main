@@ -28,6 +28,7 @@ __export(schema_exports, {
   coupons: () => coupons,
   deliveryAreas: () => deliveryAreas,
   deliveryLogStatusEnum: () => deliveryLogStatusEnum,
+  deliveryPartnerPayouts: () => deliveryPartnerPayouts,
   deliveryPersonnel: () => deliveryPersonnel,
   deliveryPersonnelLoginSchema: () => deliveryPersonnelLoginSchema,
   deliveryPersonnelStatusEnum: () => deliveryPersonnelStatusEnum,
@@ -41,6 +42,7 @@ __export(schema_exports, {
   insertChefSchema: () => insertChefSchema,
   insertCouponSchema: () => insertCouponSchema,
   insertDeliveryAreasSchema: () => insertDeliveryAreasSchema,
+  insertDeliveryPartnerPayoutSchema: () => insertDeliveryPartnerPayoutSchema,
   insertDeliveryPersonnelSchema: () => insertDeliveryPersonnelSchema,
   insertDeliverySettingSchema: () => insertDeliverySettingSchema,
   insertDeliveryTimeSlotsSchema: () => insertDeliveryTimeSlotsSchema,
@@ -93,7 +95,7 @@ import { pgTable, text, varchar, integer, decimal, boolean, timestamp, jsonb, in
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import * as crypto from "crypto";
-var adminRoleEnum, sessions, users, adminUsers, partnerUsers, categories, chefs, products, paymentStatusEnum, deliveryPersonnelStatusEnum, deliveryPersonnel, orders, paymentVerificationLog, deliverySettings, cartSettings, discountTypeEnum, coupons, couponUsages, referrals, transactionTypeEnum, walletTransactions, walletSettings, payoutTransactions, referralRewards, subscriptionStatusEnum, subscriptionFrequencyEnum, deliveryLogStatusEnum, subscriptionPlans, subscriptions, subscriptionDeliveryLogs, insertCategorySchema, insertProductSchema, insertChefSchema, orderItemSchema, insertOrderSchema, insertUserSchema, userLoginSchema, insertAdminUserSchema, adminLoginSchema, insertPartnerUserSchema, partnerLoginSchema, insertSubscriptionPlanSchema, promotionalBanners, insertPromotionalBannerSchema, insertSubscriptionSchema, insertDeliverySettingSchema, insertSubscriptionDeliveryLogSchema, insertCartSettingSchema, insertDeliveryPersonnelSchema, deliveryPersonnelLoginSchema, insertCouponSchema, insertReferralSchema, insertWalletTransactionSchema, insertReferralRewardSchema, deliveryTimeSlots, insertDeliveryTimeSlotsSchema, rotiSettings, insertRotiSettingsSchema, visitors, insertVisitorSchema, deliveryAreas, insertDeliveryAreasSchema, adminSettings, insertAdminSettingsSchema, pushSubscriptions, insertPushSubscriptionSchema, newsletterSubscribers, pendingBroadcasts, insertPendingBroadcastSchema, pendingCheckouts, insertPendingCheckoutSchema;
+var adminRoleEnum, sessions, users, adminUsers, partnerUsers, categories, chefs, products, paymentStatusEnum, deliveryPersonnelStatusEnum, deliveryPersonnel, orders, paymentVerificationLog, deliverySettings, deliveryPartnerPayouts, cartSettings, discountTypeEnum, coupons, couponUsages, referrals, transactionTypeEnum, walletTransactions, walletSettings, payoutTransactions, referralRewards, subscriptionStatusEnum, subscriptionFrequencyEnum, deliveryLogStatusEnum, subscriptionPlans, subscriptions, subscriptionDeliveryLogs, insertCategorySchema, insertProductSchema, insertChefSchema, orderItemSchema, insertOrderSchema, insertUserSchema, userLoginSchema, insertAdminUserSchema, adminLoginSchema, insertPartnerUserSchema, partnerLoginSchema, insertSubscriptionPlanSchema, promotionalBanners, insertPromotionalBannerSchema, insertSubscriptionSchema, insertDeliverySettingSchema, insertSubscriptionDeliveryLogSchema, insertDeliveryPartnerPayoutSchema, insertCartSettingSchema, insertDeliveryPersonnelSchema, deliveryPersonnelLoginSchema, insertCouponSchema, insertReferralSchema, insertWalletTransactionSchema, insertReferralRewardSchema, deliveryTimeSlots, insertDeliveryTimeSlotsSchema, rotiSettings, insertRotiSettingsSchema, visitors, insertVisitorSchema, deliveryAreas, insertDeliveryAreasSchema, adminSettings, insertAdminSettingsSchema, pushSubscriptions, insertPushSubscriptionSchema, newsletterSubscribers, pendingBroadcasts, insertPendingBroadcastSchema, pendingCheckouts, insertPendingCheckoutSchema;
 var init_schema = __esm({
   "shared/schema.ts"() {
     "use strict";
@@ -301,7 +303,12 @@ var init_schema = __esm({
       amountMatch: boolean("amount_match"),
       referenceMatch: boolean("reference_match"),
       paymentVerifiedBy: varchar("payment_verified_by", { length: 50 }),
-      verificationAttempts: integer("verification_attempts").notNull().default(0)
+      verificationAttempts: integer("verification_attempts").notNull().default(0),
+      // Delivery partner payout tracking
+      distance: decimal("distance", { precision: 5, scale: 2 }),
+      // Distance in km (nullable for old orders)
+      deliveryPartnerPayout: integer("delivery_partner_payout")
+      // Distance-slab based payout (nullable for old orders)
     });
     paymentVerificationLog = pgTable("payment_verification_log", {
       id: varchar("id", { length: 100 }).primaryKey(),
@@ -332,6 +339,17 @@ var init_schema = __esm({
       // Pincode field - which pincode this delivery setting applies to
       pincode: varchar("pincode", { length: 6 }),
       // Optional: specific pincode (e.g., "400070", "400086")
+      isActive: boolean("is_active").notNull().default(true),
+      createdAt: timestamp("created_at").notNull().defaultNow(),
+      updatedAt: timestamp("updated_at").notNull().defaultNow()
+    });
+    deliveryPartnerPayouts = pgTable("delivery_partner_payouts", {
+      id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+      name: text("name").notNull(),
+      minDistance: decimal("min_distance", { precision: 5, scale: 2 }).notNull(),
+      maxDistance: decimal("max_distance", { precision: 5, scale: 2 }).notNull(),
+      payoutAmount: integer("payout_amount").notNull(),
+      pincode: varchar("pincode", { length: 6 }),
       isActive: boolean("is_active").notNull().default(true),
       createdAt: timestamp("created_at").notNull().defaultNow(),
       updatedAt: timestamp("updated_at").notNull().defaultNow()
@@ -771,6 +789,18 @@ var init_schema = __esm({
       createdAt: true,
       updatedAt: true
     });
+    insertDeliveryPartnerPayoutSchema = createInsertSchema(deliveryPartnerPayouts, {
+      name: z.string().min(1, "Name is required").optional(),
+      minDistance: z.number(),
+      maxDistance: z.number(),
+      payoutAmount: z.number().positive("Payout amount must be positive"),
+      pincode: z.string().regex(/^\d{5,6}$/, "Pincode must be 5-6 digits").optional().nullable(),
+      isActive: z.boolean().default(true)
+    }).omit({
+      id: true,
+      createdAt: true,
+      updatedAt: true
+    });
     insertCartSettingSchema = createInsertSchema(cartSettings, {
       categoryId: z.string().min(1, { message: "Category ID is required" }),
       categoryName: z.string().min(1, { message: "Category name is required" }),
@@ -1077,6 +1107,7 @@ __export(db_exports, {
   db: () => db,
   dbType: () => dbType,
   deliveryAreas: () => deliveryAreas2,
+  deliveryPartnerPayouts: () => deliveryPartnerPayouts2,
   deliveryPersonnel: () => deliveryPersonnel2,
   deliverySettings: () => deliverySettings2,
   deliveryTimeSlots: () => deliveryTimeSlots2,
@@ -1105,7 +1136,7 @@ __export(db_exports, {
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { sql as sql2 } from "drizzle-orm";
-var dbType, connectionString, pool, db, users2, sessions2, categories2, products2, orders2, chefs2, adminUsers2, partnerUsers2, subscriptions2, subscriptionPlans2, subscriptionDeliveryLogs2, deliverySettings2, cartSettings2, deliveryPersonnel2, coupons2, couponUsages2, referrals2, walletTransactions2, walletSettings2, referralRewards2, promotionalBanners2, deliveryTimeSlots2, rotiSettings2, visitors2, deliveryAreas2, adminSettings2, newsletterSubscribers2, pendingBroadcasts2, pendingCheckouts2, payoutTransactions2, paymentVerificationLog2;
+var dbType, connectionString, pool, db, users2, sessions2, categories2, products2, orders2, chefs2, adminUsers2, partnerUsers2, subscriptions2, subscriptionPlans2, subscriptionDeliveryLogs2, deliverySettings2, deliveryPartnerPayouts2, cartSettings2, deliveryPersonnel2, coupons2, couponUsages2, referrals2, walletTransactions2, walletSettings2, referralRewards2, promotionalBanners2, deliveryTimeSlots2, rotiSettings2, visitors2, deliveryAreas2, adminSettings2, newsletterSubscribers2, pendingBroadcasts2, pendingCheckouts2, payoutTransactions2, paymentVerificationLog2;
 var init_db = __esm({
   "shared/db.ts"() {
     "use strict";
@@ -1137,6 +1168,7 @@ var init_db = __esm({
       subscriptionPlans: subscriptionPlans2,
       subscriptionDeliveryLogs: subscriptionDeliveryLogs2,
       deliverySettings: deliverySettings2,
+      deliveryPartnerPayouts: deliveryPartnerPayouts2,
       cartSettings: cartSettings2,
       deliveryPersonnel: deliveryPersonnel2,
       coupons: coupons2,
@@ -1418,6 +1450,8 @@ var init_storage = __esm({
           deliverySlotId: insertOrder.deliverySlotId || null,
           deliveryDate: insertOrder.deliveryDate || null,
           walletAmountUsed: insertOrder.walletAmountUsed || 0,
+          distance: insertOrder.distance || null,
+          deliveryPartnerPayout: insertOrder.deliveryPartnerPayout || null,
           createdAt: /* @__PURE__ */ new Date()
         };
         try {
@@ -2450,6 +2484,89 @@ var init_storage = __esm({
       async deleteDeliverySetting(id) {
         await db.delete(deliverySettings2).where(eq(deliverySettings2.id, id));
       }
+      // ──────────────────── DELIVERY PARTNER PAYOUT METHODS ────────────────────
+      async getDeliveryPartnerPayouts() {
+        return await db.select().from(deliveryPartnerPayouts2);
+      }
+      async getDeliveryPartnerPayout(id) {
+        const result = await db.select().from(deliveryPartnerPayouts2).where(eq(deliveryPartnerPayouts2.id, id));
+        return result[0];
+      }
+      async getDeliveryPartnerPayoutsByPincode(pincode) {
+        return await db.select().from(deliveryPartnerPayouts2).where(and(
+          eq(deliveryPartnerPayouts2.isActive, true),
+          or(
+            isNull(deliveryPartnerPayouts2.pincode),
+            eq(deliveryPartnerPayouts2.pincode, pincode)
+          )
+        ));
+      }
+      async getDeliveryPartnerPayoutByPincodeAndDistance(pincode, distance) {
+        const payoutSlabs = await this.getDeliveryPartnerPayoutsByPincode(pincode || "");
+        for (const slab of payoutSlabs) {
+          const minDist = parseFloat(String(slab.minDistance));
+          const maxDist = parseFloat(String(slab.maxDistance));
+          if (distance >= minDist && distance <= maxDist) {
+            return slab;
+          }
+        }
+        return void 0;
+      }
+      async createDeliveryPartnerPayout(data) {
+        const id = randomUUID2();
+        const now = /* @__PURE__ */ new Date();
+        const minDist = parseFloat(String(data.minDistance));
+        const maxDist = parseFloat(String(data.maxDistance));
+        const roundedMin = Math.round(minDist * 100) / 100;
+        const roundedMax = Math.round(maxDist * 100) / 100;
+        const name = data.name || `${roundedMin}km - ${roundedMax}km`;
+        console.log("[PAYOUT-CREATE] Inserting:", {
+          minDistance: roundedMin,
+          maxDistance: roundedMax,
+          payoutAmount: data.payoutAmount
+        });
+        try {
+          const payout = {
+            id,
+            name,
+            minDistance: roundedMin,
+            // Drizzle will handle decimal conversion
+            maxDistance: roundedMax,
+            payoutAmount: parseInt(String(data.payoutAmount)),
+            pincode: data.pincode || null,
+            isActive: data.isActive ?? true,
+            createdAt: now,
+            updatedAt: now
+          };
+          await db.insert(deliveryPartnerPayouts2).values(payout);
+        } catch (dbError) {
+          console.error("[PAYOUT-CREATE] DB Insert Error:", {
+            message: dbError.message,
+            code: dbError.code,
+            detail: dbError.detail
+          });
+          throw dbError;
+        }
+        return {
+          id,
+          name,
+          minDistance: roundedMin.toFixed(2),
+          maxDistance: roundedMax.toFixed(2),
+          payoutAmount: parseInt(String(data.payoutAmount)),
+          pincode: data.pincode || null,
+          isActive: data.isActive ?? true,
+          createdAt: now,
+          updatedAt: now
+        };
+      }
+      async updateDeliveryPartnerPayout(id, data) {
+        await db.update(deliveryPartnerPayouts2).set({ ...data, updatedAt: /* @__PURE__ */ new Date() }).where(eq(deliveryPartnerPayouts2.id, id));
+        return this.getDeliveryPartnerPayout(id);
+      }
+      async deleteDeliveryPartnerPayout(id) {
+        const result = await db.delete(deliveryPartnerPayouts2).where(eq(deliveryPartnerPayouts2.id, id));
+        return (result.rowCount ?? 0) > 0;
+      }
       async getCartSettings() {
         return db.query.cartSettings.findMany({ where: (cs, { eq: eq10 }) => eq10(cs.isActive, true) });
       }
@@ -3051,6 +3168,41 @@ var init_storage = __esm({
           deliveryFee,
           isFreeDelivery
         };
+      }
+      /**
+       * Calculate delivery partner payout based on distance and configured slabs
+       *
+       * Distance-slab based earning structure (customizable by admin via database):
+       * Default slabs:
+       * - 0 to 1 km: ₹10
+       * - 1 to 2 km: ₹15
+       * - 2 to 3 km: ₹20
+       * - 3 to 4 km: ₹25
+       * - 4+ km: ₹30
+       *
+       * @param distance - Distance in km (null or 0 defaults to ₹10)
+       * @param pincode - Optional: customer pincode for regional rate matching
+       * @returns Payout amount in ₹
+       */
+      async calculateDeliveryPartnerPayout(distance, pincode) {
+        if (!distance || distance <= 0) {
+          return 10;
+        }
+        try {
+          const matchingSlab = await this.getDeliveryPartnerPayoutByPincodeAndDistance(
+            pincode || null,
+            distance
+          );
+          if (matchingSlab) {
+            console.log(`[PARTNER-PAYOUT] Distance: ${distance}km, Pincode: ${pincode || "N/A"}, Payout: \u20B9${matchingSlab.payoutAmount}`);
+            return matchingSlab.payoutAmount;
+          }
+          console.warn(`[PARTNER-PAYOUT] No matching slab found for distance ${distance}km, using default \u20B910`);
+          return 10;
+        } catch (error) {
+          console.error("[PARTNER-PAYOUT] Error fetching slab config:", error);
+          return 10;
+        }
       }
       async createWalletTransaction(transaction, txClient) {
         if (transaction.amount <= 0) {
@@ -3760,7 +3912,10 @@ var init_storage = __esm({
             console.log(`[FRAUD-FLAG] \u26A0\uFE0F  Referral ${id} already flagged as fraud. Skipping.`);
             return;
           }
-          await this.reverseReferralBonus(id, "Referral benefits adjusted due to activity not meeting program guidelines (e.g., same address or usage pattern");
+          await this.reverseReferralBonus(
+            id,
+            "Referral benefits adjusted due to activity not meeting program guidelines (e.g., same address or usage pattern)."
+          );
           await db.update(referrals2).set({
             fraudFlag: true,
             status: "fraud"
@@ -4648,20 +4803,38 @@ async function broadcastSubscriptionDeliveryToAvailableDelivery(deliveryLog) {
   console.log(`\u{1F4E3} Broadcasting subscription delivery ${deliveryLog.id} to all active delivery personnel`);
   const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
   let deliveryPersonnelNotified = 0;
+  const connectedDeliveryPersonIds = /* @__PURE__ */ new Set();
   for (const [deliveryPersonId, client] of Array.from(clients.entries())) {
-    if (client.type === "delivery" && client.ws.readyState === WebSocket.OPEN) {
-      const deliveryPerson = await storage2.getDeliveryPersonnelById(deliveryPersonId);
-      if (deliveryPerson && deliveryPerson.isActive) {
-        const message = {
-          type: "new_subscription_delivery",
-          deliveryLog,
-          message: `\u{1F37D}\uFE0F New subscription delivery ready for pickup!`
-        };
-        client.ws.send(JSON.stringify(message));
-        console.log(`\u2705 Sent to delivery person: ${deliveryPersonId} (${deliveryPerson.name})`);
-        deliveryPersonnelNotified++;
+    if (client.type === "delivery") {
+      connectedDeliveryPersonIds.add(deliveryPersonId);
+      if (client.ws.readyState === WebSocket.OPEN) {
+        const deliveryPerson = await storage2.getDeliveryPersonnelById(deliveryPersonId);
+        if (deliveryPerson && deliveryPerson.isActive) {
+          const message = {
+            type: "new_subscription_delivery",
+            deliveryLog,
+            message: `\u{1F37D}\uFE0F New subscription delivery ready for pickup!`
+          };
+          client.ws.send(JSON.stringify(message));
+          console.log(`\u2705 Sent to delivery person: ${deliveryPersonId} (${deliveryPerson.name})`);
+          deliveryPersonnelNotified++;
+        }
       }
     }
+  }
+  try {
+    const activeDeliveryPersonnel = await storage2.getAvailableDeliveryPersonnel();
+    for (const deliveryPerson of activeDeliveryPersonnel) {
+      if (!connectedDeliveryPersonIds.has(deliveryPerson.id)) {
+        console.log(`\u23F3 Saving pending broadcast for offline delivery person: ${deliveryPerson.id} (${deliveryPerson.name})`);
+        savePendingBroadcast(deliveryPerson.id, "delivery", "new_subscription_delivery", {
+          deliveryLog,
+          message: `\u{1F37D}\uFE0F New subscription delivery ready for pickup!`
+        });
+      }
+    }
+  } catch (error) {
+    console.error(`\u26A0\uFE0F Error saving pending broadcasts for offline delivery personnel:`, error);
   }
   if (deliveryPersonnelNotified === 0) {
     console.log(`\u26A0\uFE0F WARNING: No available delivery personnel to notify for subscription delivery ${deliveryLog.id}`);
@@ -4847,28 +5020,40 @@ async function broadcastPreparedOrderToAvailableDelivery(order) {
   console.log(`\u{1F4E3} Broadcasting order ${order.id} (status: ${order.status}, stage: ${notificationStage}) to all active delivery personnel`);
   const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
   let deliveryPersonnelNotified = 0;
+  const connectedDeliveryPersonIds = /* @__PURE__ */ new Set();
   for (const [deliveryPersonId, client] of Array.from(clients.entries())) {
-    if (client.type === "delivery" && client.ws.readyState === WebSocket.OPEN) {
-      const deliveryPerson = await storage2.getDeliveryPersonnelById(deliveryPersonId);
-      if (deliveryPerson && deliveryPerson.isActive) {
-        const message = {
-          type: "new_prepared_order",
+    if (client.type === "delivery") {
+      connectedDeliveryPersonIds.add(deliveryPersonId);
+      if (client.ws.readyState === WebSocket.OPEN) {
+        const deliveryPerson = await storage2.getDeliveryPersonnelById(deliveryPersonId);
+        if (deliveryPerson && deliveryPerson.isActive) {
+          const message = {
+            type: "new_prepared_order",
+            order,
+            notificationStage,
+            message: notificationStage === "CHEF_ACCEPTED" ? `\u{1F514} New order alert! Chef accepted order #${order.id.slice(0, 8)} - start preparing to head out` : `\u{1F37D}\uFE0F Order #${order.id.slice(0, 8)} is ready for pickup!`
+          };
+          client.ws.send(JSON.stringify(message));
+          console.log(`\u2705 [${notificationStage}] Sent to delivery person: ${deliveryPersonId} (${deliveryPerson.name})`);
+          deliveryPersonnelNotified++;
+        }
+      }
+    }
+  }
+  try {
+    const activeDeliveryPersonnel = await storage2.getAvailableDeliveryPersonnel();
+    for (const deliveryPerson of activeDeliveryPersonnel) {
+      if (!connectedDeliveryPersonIds.has(deliveryPerson.id)) {
+        console.log(`\u23F3 [${notificationStage}] Saving pending broadcast for offline delivery person: ${deliveryPerson.id} (${deliveryPerson.name})`);
+        savePendingBroadcast(deliveryPerson.id, "delivery", "new_prepared_order", {
           order,
           notificationStage,
           message: notificationStage === "CHEF_ACCEPTED" ? `\u{1F514} New order alert! Chef accepted order #${order.id.slice(0, 8)} - start preparing to head out` : `\u{1F37D}\uFE0F Order #${order.id.slice(0, 8)} is ready for pickup!`
-        };
-        client.ws.send(JSON.stringify(message));
-        console.log(`\u2705 [${notificationStage}] Sent to delivery person: ${deliveryPersonId} (${deliveryPerson.name})`);
-        deliveryPersonnelNotified++;
+        });
       }
     }
-    if (client.type === "delivery") {
-      savePendingBroadcast(deliveryPersonId, "delivery", "new_prepared_order", {
-        order,
-        notificationStage,
-        message: notificationStage === "CHEF_ACCEPTED" ? `\u{1F514} New order alert! Chef accepted order #${order.id.slice(0, 8)} - start preparing to head out` : `\u{1F37D}\uFE0F Order #${order.id.slice(0, 8)} is ready for pickup!`
-      });
-    }
+  } catch (error) {
+    console.error(`\u26A0\uFE0F Error saving pending broadcasts for offline delivery personnel:`, error);
   }
   const existingTimeout = preparedOrderTimeouts.get(order.id);
   if (existingTimeout) {
@@ -9707,6 +9892,54 @@ function registerAdminRoutes(app2) {
       res.status(500).json({ message: "Failed to delete delivery setting" });
     }
   });
+  app2.get("/api/admin/delivery-partner-payouts", requireAdmin(), async (req, res) => {
+    try {
+      const payouts = await storage.getDeliveryPartnerPayouts();
+      res.json(payouts);
+    } catch (error) {
+      console.error("Get delivery partner payouts error:", error);
+      res.status(500).json({ message: "Failed to fetch delivery partner payouts" });
+    }
+  });
+  app2.post("/api/admin/delivery-partner-payouts", requireAdminOrManager(), async (req, res) => {
+    try {
+      console.log("[PAYOUT-CREATE] Request body:", req.body);
+      const payout = await storage.createDeliveryPartnerPayout(req.body);
+      res.status(201).json(payout);
+    } catch (error) {
+      console.error("[PAYOUT-CREATE] Error:", error.message || error);
+      if (error.cause) console.error("[PAYOUT-CREATE] Cause:", error.cause);
+      res.status(500).json({ message: "Failed to create delivery partner payout", error: error.message });
+    }
+  });
+  app2.patch("/api/admin/delivery-partner-payouts/:id", requireAdminOrManager(), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const payout = await storage.updateDeliveryPartnerPayout(id, req.body);
+      if (!payout) {
+        res.status(404).json({ message: "Delivery partner payout not found" });
+        return;
+      }
+      res.json(payout);
+    } catch (error) {
+      console.error("Update delivery partner payout error:", error);
+      res.status(500).json({ message: "Failed to update delivery partner payout" });
+    }
+  });
+  app2.delete("/api/admin/delivery-partner-payouts/:id", requireSuperAdmin(), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const success = await storage.deleteDeliveryPartnerPayout(id);
+      if (!success) {
+        res.status(404).json({ message: "Delivery partner payout not found" });
+        return;
+      }
+      res.json({ message: "Delivery partner payout deleted successfully" });
+    } catch (error) {
+      console.error("Delete delivery partner payout error:", error);
+      res.status(500).json({ message: "Failed to delete delivery partner payout" });
+    }
+  });
   app2.get("/api/admin/sms-settings", requireAdmin(), async (req, res) => {
     try {
       const smsSettings = await storage.getSMSSettings();
@@ -11705,7 +11938,10 @@ function registerDeliveryRoutes(app2) {
       const deliveryPersonId = req.delivery.deliveryId;
       const orders3 = await storage.getOrdersByDeliveryPerson(deliveryPersonId);
       const completedOrders = orders3.filter((o) => o.status === "delivered");
-      const totalEarnings = completedOrders.reduce((sum, order) => sum + order.deliveryFee, 0);
+      const totalEarnings = completedOrders.reduce((sum, order) => {
+        const payout = order.deliveryPartnerPayout ?? order.deliveryFee;
+        return sum + payout;
+      }, 0);
       const now = /* @__PURE__ */ new Date();
       const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       const startOfThisWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
@@ -11713,9 +11949,18 @@ function registerDeliveryRoutes(app2) {
       const todayOrders = completedOrders.filter((o) => new Date(o.deliveredAt) >= startOfToday);
       const weekOrders = completedOrders.filter((o) => new Date(o.deliveredAt) >= startOfThisWeek);
       const monthOrders = completedOrders.filter((o) => new Date(o.deliveredAt) >= startOfThisMonth);
-      const todayEarnings = todayOrders.reduce((sum, order) => sum + order.deliveryFee, 0);
-      const weekEarnings = weekOrders.reduce((sum, order) => sum + order.deliveryFee, 0);
-      const monthEarnings = monthOrders.reduce((sum, order) => sum + order.deliveryFee, 0);
+      const todayEarnings = todayOrders.reduce((sum, order) => {
+        const payout = order.deliveryPartnerPayout ?? order.deliveryFee;
+        return sum + payout;
+      }, 0);
+      const weekEarnings = weekOrders.reduce((sum, order) => {
+        const payout = order.deliveryPartnerPayout ?? order.deliveryFee;
+        return sum + payout;
+      }, 0);
+      const monthEarnings = monthOrders.reduce((sum, order) => {
+        const payout = order.deliveryPartnerPayout ?? order.deliveryFee;
+        return sum + payout;
+      }, 0);
       res.json({
         totalEarnings,
         todayEarnings,
@@ -13581,6 +13826,18 @@ async function registerRoutes(app2) {
           addressDistance
         });
         sanitized.deliveryFee = expectedDeliveryFee;
+        sanitized.distance = addressDistance.toFixed(2);
+        const deliveryPartnerPayout = await storage.calculateDeliveryPartnerPayout(
+          addressDistance,
+          sanitized.addressPincode
+          // Pass pincode for regional rate matching
+        );
+        sanitized.deliveryPartnerPayout = deliveryPartnerPayout;
+        console.log("[DELIVERY-PARTNER-PAYOUT] Calculated payout:", {
+          distance: addressDistance.toFixed(2),
+          pincode: sanitized.addressPincode || "N/A",
+          payout: deliveryPartnerPayout
+        });
         const baseTotal = (sanitized.subtotal || 0) + (sanitized.deliveryFee || 0) - (sanitized.discount || 0);
         const bonusDeduction = sanitized.bonusUsedAtCheckout || 0;
         const walletDeduction = sanitized.walletAmountUsed || 0;
