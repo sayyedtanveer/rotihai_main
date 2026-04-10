@@ -104,6 +104,8 @@ export default function CheckoutDialog({
   const [originalSubtotal, setOriginalSubtotal] = useState(0); // Original price before item discounts
   const [deliveryFee, setDeliveryFee] = useState(0);
   const [deliveryDistance, setDeliveryDistance] = useState<number | null>(null);
+  const [platformFee, setPlatformFee] = useState(0); // 🆕 Convenience fee
+  const [platformFeeConfig, setPlatformFeeConfig] = useState<any>(null); // 🆕 Platform fee config
   const [discount, setDiscount] = useState(0);
   const [itemDiscountSavings, setItemDiscountSavings] = useState(0); // Track savings from item offers
   const [total, setTotal] = useState(0);
@@ -895,8 +897,27 @@ export default function CheckoutDialog({
       // This ensures display shows "₹20 FREE" while total is correctly ₹0 delivery charge
       setDeliveryFee(calculatedDeliveryFee);
 
-      // Calculate base total with actual delivery fee (only added if below minimum)
-      let baseTotal = calculatedSubtotal + actualDeliveryFee - calculatedDiscount;
+      // 🆕 Calculate platform fee based on subtotal and config
+      let calculatedPlatformFee = 0;
+      if (platformFeeConfig?.platformFeeEnabled) {
+        if (calculatedSubtotal < 100) {
+          calculatedPlatformFee = platformFeeConfig.platformFeeBelow100 || 0;
+        } else if (calculatedSubtotal < 200) {
+          calculatedPlatformFee = platformFeeConfig.platformFeeBelow200 || 0;
+        } else {
+          calculatedPlatformFee = platformFeeConfig.platformFeeAbove200 || 0;
+        }
+      }
+      setPlatformFee(calculatedPlatformFee);
+
+      console.log("[PLATFORM-FEE] Calculated:", {
+        subtotal: calculatedSubtotal,
+        config: platformFeeConfig,
+        calculatedPlatformFee,
+      });
+
+      // Calculate base total with actual delivery fee (only added if below minimum) + platform fee
+      let baseTotal = calculatedSubtotal + actualDeliveryFee + calculatedPlatformFee - calculatedDiscount;
 
       console.log("[WALLET DISABLE CHECK] Calculation Values:", {
         calculatedSubtotal,
@@ -970,7 +991,7 @@ export default function CheckoutDialog({
         setAmountNeededForFreeDelivery(0);
       }
     }
-  }, [cart, address, appliedCoupon, useBonusAtCheckout, bonusEligible, pendingBonus, maxBonusUsagePerOrder, bonusAmountToUse, useWalletBalance, user?.walletBalance, maxWalletUsagePerOrder, minOrderAmountForWallet, deliveryFee, customerLatitude, customerLongitude]);
+  }, [cart, address, appliedCoupon, useBonusAtCheckout, bonusEligible, pendingBonus, maxBonusUsagePerOrder, bonusAmountToUse, useWalletBalance, user?.walletBalance, maxWalletUsagePerOrder, minOrderAmountForWallet, deliveryFee, customerLatitude, customerLongitude, platformFeeConfig]);
   useEffect(() => {
     if (isOpen && isAuthenticated && user) {
       // Use data from useAuth() hook which fetches from /api/user/profile
@@ -1373,6 +1394,43 @@ export default function CheckoutDialog({
       checkBonusEligibility();
     }
   }, [total, isOpen]);
+
+  // ============================================
+  // 🆕 FETCH PLATFORM FEE CONFIG ON DIALOG OPEN
+  // ============================================
+  useEffect(() => {
+    const fetchPlatformFeeConfig = async () => {
+      try {
+        const response = await fetch("/api/payment-settings");
+        if (response.ok) {
+          const config = await response.json();
+          setPlatformFeeConfig(config);
+          console.log("[PLATFORM-FEE] Config fetched from payment settings:", config);
+        } else {
+          // Default if fetch fails
+          setPlatformFeeConfig({
+            platformFeeEnabled: false,
+            platformFeeBelow100: 0,
+            platformFeeBelow200: 0,
+            platformFeeAbove200: 0,
+          });
+        }
+      } catch (error) {
+        console.error("[PLATFORM-FEE] Failed to fetch payment settings:", error);
+        // Default if fetch fails
+        setPlatformFeeConfig({
+          platformFeeEnabled: false,
+          platformFeeBelow100: 0,
+          platformFeeBelow200: 0,
+          platformFeeAbove200: 0,
+        });
+      }
+    };
+
+    if (isOpen) {
+      fetchPlatformFeeConfig();
+    }
+  }, [isOpen]);
 
   // ============================================
   // PHASE 5: CHECKOUT SAFETY - AUTO-FILL AREA IF USER CLEARS IT
@@ -3528,6 +3586,14 @@ export default function CheckoutDialog({
                             <span className="font-medium">₹{deliveryFee.toFixed(2)}</span>
                           )}
                         </div>
+
+                        {/* 🆕 Platform Fee (Convenience Fee) */}
+                        {platformFee > 0 && (
+                          <div className="flex justify-between text-sm">
+                            <span>Platform Fee:</span>
+                            <span>₹{platformFee.toFixed(2)}</span>
+                          </div>
+                        )}
 
                         {/* Summary section continues below */}
 

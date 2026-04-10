@@ -18,6 +18,11 @@ export default function AdminPaymentSettings() {
     upiId: "sayyedtanveer1410-1@oksbi",
     merchantName: "RotiHai",
     supportPhone: "918169020290",
+    // 🆕 Platform Fee Configuration
+    platformFeeEnabled: false,
+    platformFeeBelow100: 0,
+    platformFeeBelow200: 0,
+    platformFeeAbove200: 0,
   });
 
   // Load payment settings from API
@@ -207,6 +212,140 @@ export default function AdminPaymentSettings() {
                 Shown to customers for payment issues
               </p>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* 🆕 Platform Fee Configuration */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Platform Fee Settings</CardTitle>
+            <CardDescription>
+              Small convenience fee charged per order (optional)
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {/* Enable Platform Fee Toggle */}
+            <div className="flex items-center justify-between p-4 border border-slate-200 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-950">
+              <div className="flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  id="platformFeeEnabled"
+                  checked={paymentConfig.platformFeeEnabled}
+                  onChange={(e) =>
+                    setPaymentConfig({
+                      ...paymentConfig,
+                      platformFeeEnabled: e.target.checked,
+                    })
+                  }
+                  className="w-5 h-5 rounded border-slate-300 cursor-pointer"
+                />
+                <Label htmlFor="platformFeeEnabled" className="cursor-pointer font-medium">
+                  Enable Platform Fee
+                </Label>
+              </div>
+              <span className="text-xs text-slate-500 dark:text-slate-400">
+                {paymentConfig.platformFeeEnabled ? "✓ Enabled" : "Disabled"}
+              </span>
+            </div>
+
+            {/* Fee configuration inputs - only show if enabled */}
+            {paymentConfig.platformFeeEnabled && (
+              <div className="space-y-4 p-4 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                <p className="text-sm text-blue-900 dark:text-blue-100 font-medium">
+                  Set fees by order amount tier:
+                </p>
+
+                {/* Below ₹100 */}
+                <div className="space-y-2">
+                  <Label htmlFor="platformFeeBelow100">
+                    Fee for orders below ₹100
+                  </Label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-600 dark:text-slate-400">₹</span>
+                    <Input
+                      id="platformFeeBelow100"
+                      type="number"
+                      min="0"
+                      step="0.5"
+                      value={paymentConfig.platformFeeBelow100}
+                      onChange={(e) =>
+                        setPaymentConfig({
+                          ...paymentConfig,
+                          platformFeeBelow100: Number(e.target.value) || 0,
+                        })
+                      }
+                      placeholder="e.g., 3"
+                      className="flex-1"
+                    />
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    Applied to orders with subtotal &lt; ₹100
+                  </p>
+                </div>
+
+                {/* ₹100 - ₹200 */}
+                <div className="space-y-2">
+                  <Label htmlFor="platformFeeBelow200">
+                    Fee for orders ₹100 - ₹200
+                  </Label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-600 dark:text-slate-400">₹</span>
+                    <Input
+                      id="platformFeeBelow200"
+                      type="number"
+                      min="0"
+                      step="0.5"
+                      value={paymentConfig.platformFeeBelow200}
+                      onChange={(e) =>
+                        setPaymentConfig({
+                          ...paymentConfig,
+                          platformFeeBelow200: Number(e.target.value) || 0,
+                        })
+                      }
+                      placeholder="e.g., 2"
+                      className="flex-1"
+                    />
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    Applied to orders with subtotal ₹100 - ₹199
+                  </p>
+                </div>
+
+                {/* Above ₹200 */}
+                <div className="space-y-2">
+                  <Label htmlFor="platformFeeAbove200">
+                    Fee for orders above ₹200
+                  </Label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-600 dark:text-slate-400">₹</span>
+                    <Input
+                      id="platformFeeAbove200"
+                      type="number"
+                      min="0"
+                      step="0.5"
+                      value={paymentConfig.platformFeeAbove200}
+                      onChange={(e) =>
+                        setPaymentConfig({
+                          ...paymentConfig,
+                          platformFeeAbove200: Number(e.target.value) || 0,
+                        })
+                      }
+                      placeholder="e.g., 0"
+                      className="flex-1"
+                    />
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    Applied to orders with subtotal ≥ ₹200
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {!paymentConfig.platformFeeEnabled && (
+              <div className="p-3 bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-sm text-slate-600 dark:text-slate-400">
+                ℹ️ Platform fee is currently disabled - no fees will be charged to customers
+              </div>
+            )}
           </CardContent>
         </Card>
 

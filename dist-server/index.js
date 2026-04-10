@@ -261,6 +261,8 @@ var init_schema = __esm({
       subtotal: integer("subtotal").notNull(),
       deliveryFee: integer("delivery_fee").notNull(),
       discount: integer("discount").notNull().default(0),
+      platformFee: integer("platform_fee").notNull().default(0),
+      // 🆕 Convenience fee - configurable from admin
       couponCode: varchar("coupon_code", { length: 50 }),
       referralCode: varchar("referral_code", { length: 20 }),
       walletAmountUsed: integer("wallet_amount_used").notNull().default(0),
@@ -3202,6 +3204,55 @@ var init_storage = __esm({
         } catch (error) {
           console.error("[PARTNER-PAYOUT] Error fetching slab config:", error);
           return 10;
+        }
+      }
+      // 🆕 Platform Fee Config Methods
+      async getPlatformFeeConfig() {
+        try {
+          const setting = await db.query.adminSettings.findFirst({
+            where: eq(adminSettings2.key, "platformFeeConfig")
+          });
+          if (!setting) {
+            return {
+              enabled: false,
+              below100: 0,
+              below200: 0,
+              above200: 0
+            };
+          }
+          return JSON.parse(setting.value);
+        } catch (error) {
+          console.error("[PLATFORM-FEE] Error fetching config:", error);
+          return {
+            enabled: false,
+            below100: 0,
+            below200: 0,
+            above200: 0
+          };
+        }
+      }
+      async savePlatformFeeConfig(config) {
+        try {
+          const existing = await db.query.adminSettings.findFirst({
+            where: eq(adminSettings2.key, "platformFeeConfig")
+          });
+          if (existing) {
+            await db.update(adminSettings2).set({
+              value: JSON.stringify(config),
+              updatedAt: /* @__PURE__ */ new Date()
+            }).where(eq(adminSettings2.key, "platformFeeConfig"));
+            console.log("[PLATFORM-FEE] Config updated:", config);
+          } else {
+            await db.insert(adminSettings2).values({
+              key: "platformFeeConfig",
+              value: JSON.stringify(config),
+              description: "Platform fee configuration for orders - convenience fee by order amount tier"
+            });
+            console.log("[PLATFORM-FEE] Config created:", config);
+          }
+        } catch (error) {
+          console.error("[PLATFORM-FEE] Error saving config:", error);
+          throw error;
         }
       }
       async createWalletTransaction(transaction, txClient) {
@@ -10130,6 +10181,47 @@ function registerAdminRoutes(app2) {
       res.status(500).json({ message: "Failed to update wallet settings" });
     }
   });
+  app2.get("/api/admin/platform-fee-config", requireAdmin(), async (req, res) => {
+    try {
+      const config = await storage.getPlatformFeeConfig();
+      res.json(config);
+    } catch (error) {
+      console.error("Get platform fee config error:", error);
+      res.status(500).json({ message: "Failed to fetch platform fee configuration" });
+    }
+  });
+  app2.post("/api/admin/platform-fee-config", requireAdminOrManager(), async (req, res) => {
+    try {
+      const { enabled, below100, below200, above200 } = req.body;
+      console.log("[PLATFORM-FEE CONFIG] Update request:", {
+        enabled,
+        below100,
+        below200,
+        above200
+      });
+      const config = {
+        enabled: !!enabled,
+        below100: Number(below100) || 0,
+        below200: Number(below200) || 0,
+        above200: Number(above200) || 0
+      };
+      await storage.savePlatformFeeConfig(config);
+      console.log("[PLATFORM-FEE CONFIG] Successfully saved:", config);
+      res.json(config);
+    } catch (error) {
+      console.error("Save platform fee config error:", error);
+      res.status(500).json({ message: "Failed to save platform fee configuration" });
+    }
+  });
+  app2.get("/api/platform-fee-config", async (req, res) => {
+    try {
+      const config = await storage.getPlatformFeeConfig();
+      res.json(config);
+    } catch (error) {
+      console.error("Get platform fee config error:", error);
+      res.json({ enabled: false, below100: 0, below200: 0, above200: 0 });
+    }
+  });
   app2.get("/api/admin/cart-settings", requireAdmin(), async (req, res) => {
     try {
       const settings = await storage.getCartSettings();
@@ -10460,7 +10552,12 @@ function registerAdminRoutes(app2) {
         merchantPhone: process.env.VITE_MERCHANT_PHONE || "9773765103",
         upiId: process.env.VITE_UPI_ID || "sayyedtanveer1410-1@oksbi",
         merchantName: "RotiHai",
-        supportPhone: "918169020290"
+        supportPhone: "918169020290",
+        // 🆕 Platform Fee Settings (configurable from admin)
+        platformFeeEnabled: false,
+        platformFeeBelow100: 0,
+        platformFeeBelow200: 0,
+        platformFeeAbove200: 0
       };
     }
   };
@@ -10494,7 +10591,7 @@ function registerAdminRoutes(app2) {
   });
   app2.post("/api/admin/payment-settings", requireAdmin(), async (req, res) => {
     try {
-      const { merchantPhone, upiId, merchantName, supportPhone } = req.body;
+      const { merchantPhone, upiId, merchantName, supportPhone, platformFeeEnabled, platformFeeBelow100, platformFeeBelow200, platformFeeAbove200 } = req.body;
       if (!merchantPhone || !merchantName) {
         res.status(400).json({ message: "Merchant phone and name are required" });
         return;
@@ -10508,7 +10605,12 @@ function registerAdminRoutes(app2) {
         merchantPhone,
         upiId: upiId || process.env.VITE_UPI_ID || "sayyedtanveer1410-1@oksbi",
         merchantName,
-        supportPhone: supportPhone || "918169020290"
+        supportPhone: supportPhone || "918169020290",
+        // 🆕 Platform Fee Settings
+        platformFeeEnabled: !!platformFeeEnabled,
+        platformFeeBelow100: Number(platformFeeBelow100) || 0,
+        platformFeeBelow200: Number(platformFeeBelow200) || 0,
+        platformFeeAbove200: Number(platformFeeAbove200) || 0
       });
       console.log("\u2705 Admin updated payment settings:", { merchantPhone, merchantName });
       res.json({
@@ -13838,13 +13940,38 @@ async function registerRoutes(app2) {
           pincode: sanitized.addressPincode || "N/A",
           payout: deliveryPartnerPayout
         });
-        const baseTotal = (sanitized.subtotal || 0) + (sanitized.deliveryFee || 0) - (sanitized.discount || 0);
+        let platformFee = 0;
+        try {
+          const paymentSettingsResponse = await fetch(`http://localhost:${process.env.PORT || 5e3}/api/payment-settings`);
+          const paymentSettings = paymentSettingsResponse.ok ? await paymentSettingsResponse.json() : {};
+          if (paymentSettings?.platformFeeEnabled) {
+            const subtotalAmount = sanitized.subtotal || 0;
+            if (subtotalAmount < 100) {
+              platformFee = paymentSettings.platformFeeBelow100 || 0;
+            } else if (subtotalAmount < 200) {
+              platformFee = paymentSettings.platformFeeBelow200 || 0;
+            } else {
+              platformFee = paymentSettings.platformFeeAbove200 || 0;
+            }
+          }
+          sanitized.platformFee = platformFee;
+          console.log("[PLATFORM-FEE] Calculated fee from payment settings:", {
+            subtotal: sanitized.subtotal,
+            fee: platformFee,
+            platformFeeEnabled: paymentSettings?.platformFeeEnabled
+          });
+        } catch (pfErr) {
+          console.error("[PLATFORM-FEE] Error calculating fee:", pfErr);
+          sanitized.platformFee = 0;
+        }
+        const baseTotal = (sanitized.subtotal || 0) + (sanitized.deliveryFee || 0) + platformFee - (sanitized.discount || 0);
         const bonusDeduction = sanitized.bonusUsedAtCheckout || 0;
         const walletDeduction = sanitized.walletAmountUsed || 0;
         sanitized.total = Math.max(0, baseTotal - bonusDeduction - walletDeduction);
         console.log("[SERVER] Final recalculated total:", {
           subtotal: sanitized.subtotal,
           deliveryFee: sanitized.deliveryFee,
+          platformFee: sanitized.platformFee || 0,
           discount: sanitized.discount,
           bonusUsed: bonusDeduction,
           walletUsed: walletDeduction,
