@@ -104,6 +104,10 @@ export function useDeliveryNotifications() {
           await api.post("/api/delivery/notifications/mark-delivered", { ids: processedIds });
         }
       }
+      
+      // ✅ ALWAYS refresh available orders (even if no pending broadcasts)
+      // This ensures when delivery person comes online, they see all available orders to claim
+      queryClient.invalidateQueries({ queryKey: ["/api/delivery/available-orders"] });
     } catch (error: any) {
       // Log all error details
       console.error("[NOTIFICATIONS] ❌ ERROR at some step:");

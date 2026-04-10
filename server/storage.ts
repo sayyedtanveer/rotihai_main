@@ -118,6 +118,10 @@ export interface IStorage {
   deleteDeliveryPartnerPayout(id: string): Promise<boolean>;
   calculateDeliveryPartnerPayout(distance: number | null | undefined, pincode?: string): Promise<number>;
 
+  // 🆕 Platform Fee Config methods
+  getPlatformFeeConfig(): Promise<any>;
+  savePlatformFeeConfig(config: any): Promise<void>;
+
   // Cart settings methods
   getCartSettings(): Promise<CartSetting[]>;
   getCartSettingByCategoryId(categoryId: string): Promise<CartSetting | undefined>;
@@ -2974,6 +2978,66 @@ export class MemStorage implements IStorage {
       console.error("[PARTNER-PAYOUT] Error fetching slab config:", error);
       // Fallback to safe default on database error
       return 10;
+    }
+  }
+
+  // 🆕 Platform Fee Config Methods
+  async getPlatformFeeConfig(): Promise<any> {
+    try {
+      const setting = await db.query.adminSettings.findFirst({
+        where: eq(adminSettings.key, "platformFeeConfig"),
+      });
+
+      if (!setting) {
+        // Default config if not set
+        return {
+          enabled: false,
+          below100: 0,
+          below200: 0,
+          above200: 0,
+        };
+      }
+
+      return JSON.parse(setting.value);
+    } catch (error) {
+      console.error("[PLATFORM-FEE] Error fetching config:", error);
+      // Return safe default on error
+      return {
+        enabled: false,
+        below100: 0,
+        below200: 0,
+        above200: 0,
+      };
+    }
+  }
+
+  async savePlatformFeeConfig(config: any): Promise<void> {
+    try {
+      const existing = await db.query.adminSettings.findFirst({
+        where: eq(adminSettings.key, "platformFeeConfig"),
+      });
+
+      if (existing) {
+        // Update existing
+        await db.update(adminSettings)
+          .set({
+            value: JSON.stringify(config),
+            updatedAt: new Date(), 
+          })
+          .where(eq(adminSettings.key, "platformFeeConfig"));
+        console.log("[PLATFORM-FEE] Config updated:", config);
+      } else {
+        // Create new
+        await db.insert(adminSettings).values({
+          key: "platformFeeConfig",
+          value: JSON.stringify(config),
+          description: "Platform fee configuration for orders - convenience fee by order amount tier",
+        });
+        console.log("[PLATFORM-FEE] Config created:", config);
+      }
+    } catch (error) {
+      console.error("[PLATFORM-FEE] Error saving config:", error);
+      throw error;
     }
   }
 

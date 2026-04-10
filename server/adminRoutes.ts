@@ -3862,6 +3862,57 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // 🆕 Platform Fee Configuration Management
+  app.get("/api/admin/platform-fee-config", requireAdmin(), async (req, res) => {
+    try {
+      const config = await storage.getPlatformFeeConfig();
+      res.json(config);
+    } catch (error: any) {
+      console.error("Get platform fee config error:", error);
+      res.status(500).json({ message: "Failed to fetch platform fee configuration" });
+    }
+  });
+
+  app.post("/api/admin/platform-fee-config", requireAdminOrManager(), async (req, res) => {
+    try {
+      const { enabled, below100, below200, above200 } = req.body;
+
+      console.log("[PLATFORM-FEE CONFIG] Update request:", {
+        enabled,
+        below100,
+        below200,
+        above200,
+      });
+
+      const config = {
+        enabled: !!enabled,
+        below100: Number(below100) || 0,
+        below200: Number(below200) || 0,
+        above200: Number(above200) || 0,
+      };
+
+      await storage.savePlatformFeeConfig(config);
+
+      console.log("[PLATFORM-FEE CONFIG] Successfully saved:", config);
+      res.json(config);
+    } catch (error: any) {
+      console.error("Save platform fee config error:", error);
+      res.status(500).json({ message: "Failed to save platform fee configuration" });
+    }
+  });
+
+  // Public API: Get platform fee config (for checkout display)
+  app.get("/api/platform-fee-config", async (req, res) => {
+    try {
+      const config = await storage.getPlatformFeeConfig();
+      res.json(config);
+    } catch (error: any) {
+      console.error("Get platform fee config error:", error);
+      // Return safe default on error - no fee
+      res.json({ enabled: false, below100: 0, below200: 0, above200: 0 });
+    }
+  });
+
   // Admin Cart Settings Management
   app.get("/api/admin/cart-settings", requireAdmin(), async (req, res) => {
     try {
@@ -4271,6 +4322,11 @@ export function registerAdminRoutes(app: Express) {
         upiId: process.env.VITE_UPI_ID || "sayyedtanveer1410-1@oksbi",
         merchantName: "RotiHai",
         supportPhone: "918169020290",
+        // 🆕 Platform Fee Settings (configurable from admin)
+        platformFeeEnabled: false,
+        platformFeeBelow100: 0,
+        platformFeeBelow200: 0,
+        platformFeeAbove200: 0,
       };
     }
   };
@@ -4312,7 +4368,7 @@ export function registerAdminRoutes(app: Express) {
   // Admin: Save payment settings
   app.post("/api/admin/payment-settings", requireAdmin(), async (req: AuthenticatedAdminRequest, res) => {
     try {
-      const { merchantPhone, upiId, merchantName, supportPhone } = req.body;
+      const { merchantPhone, upiId, merchantName, supportPhone, platformFeeEnabled, platformFeeBelow100, platformFeeBelow200, platformFeeAbove200 } = req.body;
 
       // Validate required fields
       if (!merchantPhone || !merchantName) {
@@ -4333,6 +4389,11 @@ export function registerAdminRoutes(app: Express) {
         upiId: upiId || process.env.VITE_UPI_ID || "sayyedtanveer1410-1@oksbi",
         merchantName,
         supportPhone: supportPhone || "918169020290",
+        // 🆕 Platform Fee Settings
+        platformFeeEnabled: !!platformFeeEnabled,
+        platformFeeBelow100: Number(platformFeeBelow100) || 0,
+        platformFeeBelow200: Number(platformFeeBelow200) || 0,
+        platformFeeAbove200: Number(platformFeeAbove200) || 0,
       });
 
       console.log("✅ Admin updated payment settings:", { merchantPhone, merchantName });

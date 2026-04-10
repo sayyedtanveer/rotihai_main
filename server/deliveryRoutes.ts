@@ -218,7 +218,8 @@ export function registerDeliveryRoutes(app: Express) {
       console.log(`📋 Total orders in system: ${allOrders.length}`);
 
       const availableOrders = allOrders.filter(order => {
-        const validStatuses = ["confirmed", "accepted_by_chef", "preparing", "prepared"];
+        // Option B: Only show orders after chef accepts (not while confirming or preparing)
+        const validStatuses = ["accepted_by_chef", "prepared"];
         const isValid = validStatuses.includes(order.status) && !order.assignedTo;
         if (isValid) {
           console.log(`  ✅ Order ${order.id}: status=${order.status}, assignedTo=${order.assignedTo || "none"}`);
@@ -270,12 +271,11 @@ export function registerDeliveryRoutes(app: Express) {
         return res.status(404).json({ message: "Order not found" });
       }
 
-      // Valid claim statuses — IMPORTANT: DO NOT change status here
-      // "confirmed" = admin just confirmed payment, waiting for chef or delivery
-      // "accepted_by_chef" = chef accepted
-      // "preparing" = chef is preparing
+      // Valid claim statuses — IMPORTANT: Option B: Only after chef accepts
+      // "accepted_by_chef" = chef accepted (earliest point to claim)
       // "prepared" = chef marked ready for delivery
-      const validStatuses = ["confirmed", "accepted_by_chef", "preparing", "prepared"];
+      // NOTE: "confirmed" and "preparing" removed to enforce chef acceptance first
+      const validStatuses = ["accepted_by_chef", "prepared"];
       console.log(`  ✅ Status check: "${order.status}" in [${validStatuses.join(', ')}]? ${validStatuses.includes(order.status) ? 'YES' : 'NO'}`);
       if (!validStatuses.includes(order.status)) {
         console.log(`  ❌ BLOCKED: Order status not claimable`);

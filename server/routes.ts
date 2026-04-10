@@ -1874,7 +1874,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         // Recompute total to reflect server-side fee and discount
         // We MUST also subtract walletAmountUsed and bonusUsedAtCheckout just like the frontend
-        const baseTotal = (sanitized.subtotal || 0) + (sanitized.deliveryFee || 0) - (sanitized.discount || 0);
+        
+        // 🆕 Calculate platform fee (convenience fee) from payment settings
+        let platformFee = 0;
+        try {
+          // Fetch platform fee settings from admin payment settings
+          const paymentSettingsResponse = await fetch(`http://localhost:${process.env.PORT || 5000}/api/payment-settings`);
+          const paymentSettings = paymentSettingsResponse.ok ? await paymentSettingsResponse.json() : {};
+          
+          if (paymentSettings?.platformFeeEnabled) {
+            const subtotalAmount = sanitized.subtotal || 0;
+            if (subtotalAmount < 100) {
+              platformFee = paymentSettings.platformFeeBelow100 || 0;
+            } else if (subtotalAmount < 200) {
+              platformFee = paymentSettings.platformFeeBelow200 || 0;
+            } else {
+              platformFee = paymentSettings.platformFeeAbove200 || 0;
+            }
+          }
+          (sanitized as any).platformFee = platformFee;
+          console.log("[PLATFORM-FEE] Calculated fee from payment settings:", {
+            subtotal: sanitized.subtotal,
+            fee: platformFee,
+            platformFeeEnabled: paymentSettings?.platformFeeEnabled
+          });
+        } catch (pfErr) {
+          console.error("[PLATFORM-FEE] Error calculating fee:", pfErr);
+          (sanitized as any).platformFee = 0; // Safe default if error
+        }
+
+        const baseTotal = (sanitized.subtotal || 0) + (sanitized.deliveryFee || 0) + platformFee - (sanitized.discount || 0);
 
         // Safely extract bonus and wallet amounts, defaulting to 0
         const bonusDeduction = (sanitized as any).bonusUsedAtCheckout || 0;
@@ -1885,6 +1914,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log("[SERVER] Final recalculated total:", {
           subtotal: sanitized.subtotal,
           deliveryFee: sanitized.deliveryFee,
+          platformFee: (sanitized as any).platformFee || 0,
           discount: sanitized.discount,
           bonusUsed: bonusDeduction,
           walletUsed: walletDeduction,

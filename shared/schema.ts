@@ -160,6 +160,7 @@ export const orders = pgTable("orders", {
   subtotal: integer("subtotal").notNull(),
   deliveryFee: integer("delivery_fee").notNull(),
   discount: integer("discount").notNull().default(0),
+  platformFee: integer("platform_fee").notNull().default(0), // 🆕 Convenience fee - configurable from admin
   couponCode: varchar("coupon_code", { length: 50 }),
   referralCode: varchar("referral_code", { length: 20 }),
   walletAmountUsed: integer("wallet_amount_used").notNull().default(0),
