@@ -66,6 +66,7 @@ __export(schema_exports, {
   orders: () => orders,
   partnerLoginSchema: () => partnerLoginSchema,
   partnerUsers: () => partnerUsers,
+  paymentSettings: () => paymentSettings,
   paymentStatusEnum: () => paymentStatusEnum,
   paymentVerificationLog: () => paymentVerificationLog,
   payoutTransactions: () => payoutTransactions,
@@ -95,7 +96,7 @@ import { pgTable, text, varchar, integer, decimal, boolean, timestamp, jsonb, in
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import * as crypto from "crypto";
-var adminRoleEnum, sessions, users, adminUsers, partnerUsers, categories, chefs, products, paymentStatusEnum, deliveryPersonnelStatusEnum, deliveryPersonnel, orders, paymentVerificationLog, deliverySettings, deliveryPartnerPayouts, cartSettings, discountTypeEnum, coupons, couponUsages, referrals, transactionTypeEnum, walletTransactions, walletSettings, payoutTransactions, referralRewards, subscriptionStatusEnum, subscriptionFrequencyEnum, deliveryLogStatusEnum, subscriptionPlans, subscriptions, subscriptionDeliveryLogs, insertCategorySchema, insertProductSchema, insertChefSchema, orderItemSchema, insertOrderSchema, insertUserSchema, userLoginSchema, insertAdminUserSchema, adminLoginSchema, insertPartnerUserSchema, partnerLoginSchema, insertSubscriptionPlanSchema, promotionalBanners, insertPromotionalBannerSchema, insertSubscriptionSchema, insertDeliverySettingSchema, insertSubscriptionDeliveryLogSchema, insertDeliveryPartnerPayoutSchema, insertCartSettingSchema, insertDeliveryPersonnelSchema, deliveryPersonnelLoginSchema, insertCouponSchema, insertReferralSchema, insertWalletTransactionSchema, insertReferralRewardSchema, deliveryTimeSlots, insertDeliveryTimeSlotsSchema, rotiSettings, insertRotiSettingsSchema, visitors, insertVisitorSchema, deliveryAreas, insertDeliveryAreasSchema, adminSettings, insertAdminSettingsSchema, pushSubscriptions, insertPushSubscriptionSchema, newsletterSubscribers, pendingBroadcasts, insertPendingBroadcastSchema, pendingCheckouts, insertPendingCheckoutSchema;
+var adminRoleEnum, sessions, users, adminUsers, partnerUsers, categories, chefs, products, paymentStatusEnum, deliveryPersonnelStatusEnum, deliveryPersonnel, orders, paymentVerificationLog, deliverySettings, deliveryPartnerPayouts, cartSettings, discountTypeEnum, coupons, couponUsages, referrals, transactionTypeEnum, walletTransactions, walletSettings, paymentSettings, payoutTransactions, referralRewards, subscriptionStatusEnum, subscriptionFrequencyEnum, deliveryLogStatusEnum, subscriptionPlans, subscriptions, subscriptionDeliveryLogs, insertCategorySchema, insertProductSchema, insertChefSchema, orderItemSchema, insertOrderSchema, insertUserSchema, userLoginSchema, insertAdminUserSchema, adminLoginSchema, insertPartnerUserSchema, partnerLoginSchema, insertSubscriptionPlanSchema, promotionalBanners, insertPromotionalBannerSchema, insertSubscriptionSchema, insertDeliverySettingSchema, insertSubscriptionDeliveryLogSchema, insertDeliveryPartnerPayoutSchema, insertCartSettingSchema, insertDeliveryPersonnelSchema, deliveryPersonnelLoginSchema, insertCouponSchema, insertReferralSchema, insertWalletTransactionSchema, insertReferralRewardSchema, deliveryTimeSlots, insertDeliveryTimeSlotsSchema, rotiSettings, insertRotiSettingsSchema, visitors, insertVisitorSchema, deliveryAreas, insertDeliveryAreasSchema, adminSettings, insertAdminSettingsSchema, pushSubscriptions, insertPushSubscriptionSchema, newsletterSubscribers, pendingBroadcasts, insertPendingBroadcastSchema, pendingCheckouts, insertPendingCheckoutSchema;
 var init_schema = __esm({
   "shared/schema.ts"() {
     "use strict";
@@ -449,6 +450,19 @@ var init_schema = __esm({
       referrerBonus: integer("referrer_bonus").notNull().default(100),
       referredBonus: integer("referred_bonus").notNull().default(50),
       isActive: boolean("is_active").notNull().default(true),
+      createdAt: timestamp("created_at").notNull().defaultNow(),
+      updatedAt: timestamp("updated_at").notNull().defaultNow()
+    });
+    paymentSettings = pgTable("payment_settings", {
+      id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+      merchantPhone: varchar("merchant_phone", { length: 20 }).notNull(),
+      merchantName: varchar("merchant_name", { length: 255 }).notNull(),
+      upiId: varchar("upi_id", { length: 100 }),
+      supportPhone: varchar("support_phone", { length: 20 }),
+      platformFeeEnabled: boolean("platform_fee_enabled").notNull().default(false),
+      platformFeeBelow100: integer("platform_fee_below_100").notNull().default(0),
+      platformFeeBelow200: integer("platform_fee_below_200").notNull().default(0),
+      platformFeeAbove200: integer("platform_fee_above_200").notNull().default(0),
       createdAt: timestamp("created_at").notNull().defaultNow(),
       updatedAt: timestamp("updated_at").notNull().defaultNow()
     });
@@ -1116,6 +1130,7 @@ __export(db_exports, {
   newsletterSubscribers: () => newsletterSubscribers2,
   orders: () => orders2,
   partnerUsers: () => partnerUsers2,
+  paymentSettings: () => paymentSettings2,
   paymentVerificationLog: () => paymentVerificationLog2,
   payoutTransactions: () => payoutTransactions2,
   pendingBroadcasts: () => pendingBroadcasts2,
@@ -1138,7 +1153,7 @@ __export(db_exports, {
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { sql as sql2 } from "drizzle-orm";
-var dbType, connectionString, pool, db, users2, sessions2, categories2, products2, orders2, chefs2, adminUsers2, partnerUsers2, subscriptions2, subscriptionPlans2, subscriptionDeliveryLogs2, deliverySettings2, deliveryPartnerPayouts2, cartSettings2, deliveryPersonnel2, coupons2, couponUsages2, referrals2, walletTransactions2, walletSettings2, referralRewards2, promotionalBanners2, deliveryTimeSlots2, rotiSettings2, visitors2, deliveryAreas2, adminSettings2, newsletterSubscribers2, pendingBroadcasts2, pendingCheckouts2, payoutTransactions2, paymentVerificationLog2;
+var dbType, connectionString, pool, db, users2, sessions2, categories2, products2, orders2, chefs2, adminUsers2, partnerUsers2, subscriptions2, subscriptionPlans2, subscriptionDeliveryLogs2, deliverySettings2, deliveryPartnerPayouts2, cartSettings2, deliveryPersonnel2, coupons2, couponUsages2, referrals2, walletTransactions2, walletSettings2, referralRewards2, promotionalBanners2, deliveryTimeSlots2, rotiSettings2, visitors2, deliveryAreas2, adminSettings2, newsletterSubscribers2, pendingBroadcasts2, pendingCheckouts2, payoutTransactions2, paymentVerificationLog2, paymentSettings2;
 var init_db = __esm({
   "shared/db.ts"() {
     "use strict";
@@ -1189,7 +1204,8 @@ var init_db = __esm({
       pendingBroadcasts: pendingBroadcasts2,
       pendingCheckouts: pendingCheckouts2,
       payoutTransactions: payoutTransactions2,
-      paymentVerificationLog: paymentVerificationLog2
+      paymentVerificationLog: paymentVerificationLog2,
+      paymentSettings: paymentSettings2
     } = schema_exports);
   }
 });
@@ -6458,8 +6474,8 @@ __export(vite_exports, {
   setupVite: () => setupVite
 });
 import express from "express";
-import fs2 from "fs";
-import path2 from "path";
+import fs from "fs";
+import path from "path";
 import { nanoid as nanoid2 } from "nanoid";
 function log(message, source = "express") {
   const formattedTime = (/* @__PURE__ */ new Date()).toLocaleTimeString("en-US", {
@@ -6502,13 +6518,13 @@ async function setupVite(app2, server) {
     app2.use("*", async (req, res, next) => {
       const url = req.originalUrl;
       try {
-        const clientTemplate = path2.resolve(
+        const clientTemplate = path.resolve(
           import.meta.dirname,
           "..",
           "client",
           "index.html"
         );
-        let template = await fs2.promises.readFile(clientTemplate, "utf-8");
+        let template = await fs.promises.readFile(clientTemplate, "utf-8");
         template = template.replace(
           `src="/src/main.tsx"`,
           `src="/src/main.tsx?v=${nanoid2()}"`
@@ -6526,8 +6542,8 @@ async function setupVite(app2, server) {
   }
 }
 function serveStatic(app2) {
-  const distPath = path2.resolve(import.meta.dirname, "..", "dist", "public");
-  if (!fs2.existsSync(distPath)) {
+  const distPath = path.resolve(import.meta.dirname, "..", "dist", "public");
+  if (!fs.existsSync(distPath)) {
     const errorMsg = `\u274C CRITICAL: Frontend build not found: ${distPath}
     
     Cause: 'npm run build:client' was not run before deployment
@@ -6563,7 +6579,7 @@ function serveStatic(app2) {
       res.status(404).json({ message: "API endpoint not found" });
       return;
     }
-    res.sendFile(path2.resolve(distPath, "index.html"));
+    res.sendFile(path.resolve(distPath, "index.html"));
   });
 }
 var enableVite, createViteServer, createLogger, viteConfig, loadVite, getViteLogger;
@@ -7111,8 +7127,6 @@ init_schema();
 init_emailService();
 init_whatsappService();
 import jwt5 from "jsonwebtoken";
-import fs from "fs/promises";
-import path from "path";
 import { fromZodError } from "zod-validation-error";
 import { eq as eq2 } from "drizzle-orm";
 function registerAdminRoutes(app2) {
@@ -10535,25 +10549,50 @@ function registerAdminRoutes(app2) {
       res.status(500).json({ message: "Failed to fetch coupon statistics" });
     }
   });
-  const PAYMENT_SETTINGS_FILE = path.join(process.cwd(), "data", "payment-settings.json");
-  const ensureDataDir = async () => {
+  const initializePaymentSettings = async () => {
     try {
-      await fs.mkdir(path.join(process.cwd(), "data"), { recursive: true });
+      const existing = await db.query.paymentSettings.findFirst();
+      if (!existing) {
+        await db.insert(paymentSettings2).values({
+          merchantPhone: process.env.VITE_MERCHANT_PHONE || "9773765103",
+          merchantName: "RotiHai",
+          upiId: process.env.VITE_UPI_ID || "sayyedtanveer1410-1@oksbi",
+          supportPhone: "918169020290",
+          platformFeeEnabled: false,
+          platformFeeBelow100: 0,
+          platformFeeBelow200: 0,
+          platformFeeAbove200: 0
+        });
+        console.log("\u2705 Initialized default payment settings in database");
+      }
     } catch (error) {
+      console.error("Error initializing payment settings:", error);
     }
   };
+  initializePaymentSettings();
   const readPaymentSettings = async () => {
     try {
-      await ensureDataDir();
-      const data = await fs.readFile(PAYMENT_SETTINGS_FILE, "utf-8");
-      return JSON.parse(data);
+      const settings = await db.query.paymentSettings.findFirst();
+      if (!settings) {
+        return {
+          merchantPhone: process.env.VITE_MERCHANT_PHONE || "9773765103",
+          merchantName: "RotiHai",
+          upiId: process.env.VITE_UPI_ID || "sayyedtanveer1410-1@oksbi",
+          supportPhone: "918169020290",
+          platformFeeEnabled: false,
+          platformFeeBelow100: 0,
+          platformFeeBelow200: 0,
+          platformFeeAbove200: 0
+        };
+      }
+      return settings;
     } catch (error) {
+      console.error("Error reading payment settings from database:", error);
       return {
         merchantPhone: process.env.VITE_MERCHANT_PHONE || "9773765103",
-        upiId: process.env.VITE_UPI_ID || "sayyedtanveer1410-1@oksbi",
         merchantName: "RotiHai",
+        upiId: process.env.VITE_UPI_ID || "sayyedtanveer1410-1@oksbi",
         supportPhone: "918169020290",
-        // 🆕 Platform Fee Settings (configurable from admin)
         platformFeeEnabled: false,
         platformFeeBelow100: 0,
         platformFeeBelow200: 0,
@@ -10563,11 +10602,32 @@ function registerAdminRoutes(app2) {
   };
   const writePaymentSettings = async (settings) => {
     try {
-      await ensureDataDir();
-      await fs.writeFile(PAYMENT_SETTINGS_FILE, JSON.stringify(settings, null, 2), "utf-8");
-      return settings;
+      const existing = await db.query.paymentSettings.findFirst();
+      let result;
+      if (existing) {
+        const updated = await db.update(paymentSettings2).set({
+          merchantPhone: settings.merchantPhone,
+          merchantName: settings.merchantName,
+          upiId: settings.upiId,
+          supportPhone: settings.supportPhone,
+          platformFeeEnabled: settings.platformFeeEnabled,
+          platformFeeBelow100: settings.platformFeeBelow100,
+          platformFeeBelow200: settings.platformFeeBelow200,
+          platformFeeAbove200: settings.platformFeeAbove200,
+          updatedAt: /* @__PURE__ */ new Date()
+        }).where(eq2(paymentSettings2.id, existing.id)).returning();
+        result = updated[0];
+      } else {
+        const inserted = await db.insert(paymentSettings2).values(settings).returning();
+        result = inserted[0];
+      }
+      console.log("[PAYMENT-SETTINGS] Updated in database:", {
+        merchantPhone: settings.merchantPhone,
+        platformFeeEnabled: settings.platformFeeEnabled
+      });
+      return result;
     } catch (error) {
-      console.error("Error writing payment settings:", error);
+      console.error("[PAYMENT-SETTINGS] Error updating database:", error);
       throw error;
     }
   };
@@ -10606,13 +10666,12 @@ function registerAdminRoutes(app2) {
         upiId: upiId || process.env.VITE_UPI_ID || "sayyedtanveer1410-1@oksbi",
         merchantName,
         supportPhone: supportPhone || "918169020290",
-        // 🆕 Platform Fee Settings
         platformFeeEnabled: !!platformFeeEnabled,
         platformFeeBelow100: Number(platformFeeBelow100) || 0,
         platformFeeBelow200: Number(platformFeeBelow200) || 0,
         platformFeeAbove200: Number(platformFeeAbove200) || 0
       });
-      console.log("\u2705 Admin updated payment settings:", { merchantPhone, merchantName });
+      console.log("\u2705 Admin updated payment settings:", { merchantPhone, merchantName, platformFeeEnabled });
       res.json({
         message: "Payment settings updated successfully",
         settings
@@ -13943,22 +14002,22 @@ async function registerRoutes(app2) {
         let platformFee = 0;
         try {
           const paymentSettingsResponse = await fetch(`http://localhost:${process.env.PORT || 5e3}/api/payment-settings`);
-          const paymentSettings = paymentSettingsResponse.ok ? await paymentSettingsResponse.json() : {};
-          if (paymentSettings?.platformFeeEnabled) {
+          const paymentSettings3 = paymentSettingsResponse.ok ? await paymentSettingsResponse.json() : {};
+          if (paymentSettings3?.platformFeeEnabled) {
             const subtotalAmount = sanitized.subtotal || 0;
             if (subtotalAmount < 100) {
-              platformFee = paymentSettings.platformFeeBelow100 || 0;
+              platformFee = paymentSettings3.platformFeeBelow100 || 0;
             } else if (subtotalAmount < 200) {
-              platformFee = paymentSettings.platformFeeBelow200 || 0;
+              platformFee = paymentSettings3.platformFeeBelow200 || 0;
             } else {
-              platformFee = paymentSettings.platformFeeAbove200 || 0;
+              platformFee = paymentSettings3.platformFeeAbove200 || 0;
             }
           }
           sanitized.platformFee = platformFee;
           console.log("[PLATFORM-FEE] Calculated fee from payment settings:", {
             subtotal: sanitized.subtotal,
             fee: platformFee,
-            platformFeeEnabled: paymentSettings?.platformFeeEnabled
+            platformFeeEnabled: paymentSettings3?.platformFeeEnabled
           });
         } catch (pfErr) {
           console.error("[PLATFORM-FEE] Error calculating fee:", pfErr);
@@ -17420,7 +17479,7 @@ app.use((req, res, next) => {
 });
 app.use((req, res, next) => {
   const start = Date.now();
-  const path3 = req.path;
+  const path2 = req.path;
   let capturedJsonResponse = void 0;
   const originalResJson = res.json;
   res.json = function(bodyJson, ...args) {
@@ -17429,8 +17488,8 @@ app.use((req, res, next) => {
   };
   res.on("finish", () => {
     const duration = Date.now() - start;
-    if (path3.startsWith("/api")) {
-      let logLine = `${req.method} ${path3} ${res.statusCode} in ${duration}ms`;
+    if (path2.startsWith("/api")) {
+      let logLine = `${req.method} ${path2} ${res.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
