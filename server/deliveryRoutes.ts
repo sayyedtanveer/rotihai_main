@@ -342,10 +342,10 @@ export function registerDeliveryRoutes(app: Express) {
         return;
       }
 
-      // Allow acceptance from any status where delivery is assigned but not yet out for delivery
-      const validStatuses = ["prepared", "accepted_by_chef", "preparing"];
+      // Allow acceptance ONLY after chef accepts (Option B: delivery can accept when chef has accepted)
+      const validStatuses = ["accepted_by_chef", "prepared"];
       if (!validStatuses.includes(order.status)) {
-        res.status(400).json({ message: "Order cannot be accepted in current status" });
+        res.status(400).json({ message: "Order cannot be accepted until chef accepts" });
         return;
       }
 
@@ -393,10 +393,10 @@ export function registerDeliveryRoutes(app: Express) {
         return;
       }
 
-      // Allow pickup from any status where delivery has accepted or is preparing
-      const validStatuses = ["accepted_by_delivery", "prepared", "accepted_by_chef", "preparing"];
+      // Allow pickup ONLY after chef accepts (Option B: no pickup while chef is still preparing)
+      const validStatuses = ["accepted_by_delivery", "prepared", "accepted_by_chef"];
       if (!validStatuses.includes(order.status)) {
-        res.status(400).json({ message: "Order must be accepted before pickup" });
+        res.status(400).json({ message: "Order must be ready before pickup (waiting for chef to finish)" });
         return;
       }
 

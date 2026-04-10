@@ -511,7 +511,7 @@ export default function DeliveryDashboard() {
                           </div>
 
                           <div className="flex gap-2">
-                            {(order.status === "preparing" || order.status === "accepted_by_delivery" || order.status === "prepared") && (
+                            {(order.status === "accepted_by_chef" || order.status === "accepted_by_delivery" || order.status === "prepared") && (
                               <Button
                                 size="sm"
                                 onClick={() => pickupOrderMutation.mutate(order.id)}

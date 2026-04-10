@@ -11806,9 +11806,9 @@ function registerDeliveryRoutes(app2) {
         res.json(order);
         return;
       }
-      const validStatuses = ["prepared", "accepted_by_chef", "preparing"];
+      const validStatuses = ["accepted_by_chef", "prepared"];
       if (!validStatuses.includes(order.status)) {
-        res.status(400).json({ message: "Order cannot be accepted in current status" });
+        res.status(400).json({ message: "Order cannot be accepted until chef accepts" });
         return;
       }
       const deliveryPerson = await storage.getDeliveryPersonnelById(deliveryPersonId);
@@ -11843,9 +11843,9 @@ function registerDeliveryRoutes(app2) {
         res.status(403).json({ message: "Order not assigned to you" });
         return;
       }
-      const validStatuses = ["accepted_by_delivery", "prepared", "accepted_by_chef", "preparing"];
+      const validStatuses = ["accepted_by_delivery", "prepared", "accepted_by_chef"];
       if (!validStatuses.includes(order.status)) {
-        res.status(400).json({ message: "Order must be accepted before pickup" });
+        res.status(400).json({ message: "Order must be ready before pickup (waiting for chef to finish)" });
         return;
       }
       const updatedOrder = await storage.updateOrderPickup(orderId);
