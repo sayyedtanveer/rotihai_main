@@ -437,6 +437,11 @@ export function usePartnerNotifications() {
 
   useEffect(() => {
     isUnmountedRef.current = false;
+    
+    // ✅ Fetch pending broadcasts immediately (HTTP, doesn't need WebSocket)
+    fetchPendingBroadcasts();
+    
+    // Also connect WebSocket for real-time notifications
     connect();
 
     return () => {
@@ -449,7 +454,7 @@ export function usePartnerNotifications() {
         wsRef.current.close();
       }
     };
-  }, [connect]);
+  }, [connect, fetchPendingBroadcasts]);
 
   const requestNotificationPermission = async () => {
     if ("Notification" in window && Notification.permission === "default") {

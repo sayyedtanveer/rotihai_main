@@ -184,49 +184,8 @@ export default function AdminLogin() {
               </Button>
             </form>
           </Form>
-          
-          <div className="mt-4 pt-4 border-t space-y-3">
-            <Button
-              onClick={async () => {
-                setIsLoading(true);
-                try {
-                  const response = await api.post("/api/admin/auth/test-login");
 
-                  // Ensure token is trimmed of any whitespace
-                  const cleanToken = (response.data.accessToken || "").trim();
-                  if (!cleanToken) {
-                    throw new Error("No authentication token received from server");
-                  }
-                  localStorage.setItem("adminToken", cleanToken);
-                  localStorage.setItem("adminUser", JSON.stringify(response.data.admin));
-
-                  toast({
-                    title: "Test login successful",
-                    description: `Logged in as ${response.data.admin.username}`,
-                  });
-
-                  setLocation("/admin/dashboard");
-                } catch (error) {
-                  toast({
-                    title: "Test login failed",
-                    description: error instanceof Error ? error.message : "Failed to login",
-                    variant: "destructive",
-                  });
-                } finally {
-                  setIsLoading(false);
-                }
-              }}
-              variant="outline"
-              className="w-full"
-              disabled={isLoading}
-            >
-              Test Login (Bypass Auth)
-            </Button>
-            <p className="text-xs text-center text-slate-500">
-              For testing only - uses default admin account
-            </p>
-
-            <Dialog open={showForgotPassword} onOpenChange={setShowForgotPassword}>
+          <Dialog open={showForgotPassword} onOpenChange={setShowForgotPassword}>
               <DialogTrigger asChild>
                 <Button
                   variant="ghost"
@@ -327,7 +286,6 @@ export default function AdminLogin() {
                 )}
               </DialogContent>
             </Dialog>
-          </div>
         </CardContent>
       </Card>
     </div>
