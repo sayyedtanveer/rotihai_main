@@ -239,6 +239,11 @@ export function useDeliveryNotifications() {
 
   useEffect(() => {
     isUnmountedRef.current = false;
+    
+    // ✅ Fetch pending broadcasts immediately (HTTP, doesn't need WebSocket)
+    fetchPendingBroadcasts();
+    
+    // Also connect WebSocket for real-time notifications
     connect();
 
     return () => {
@@ -250,7 +255,7 @@ export function useDeliveryNotifications() {
         clearTimeout(reconnectTimerRef.current);
       }
     };
-  }, [connect]);
+  }, [connect, fetchPendingBroadcasts]);
 
   useEffect(() => {
     const handleVisibilityChange = () => {
