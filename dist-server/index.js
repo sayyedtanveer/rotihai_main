@@ -11713,7 +11713,7 @@ function registerDeliveryRoutes(app2) {
       const allOrders = await storage.getAllOrders();
       console.log(`\u{1F4CB} Total orders in system: ${allOrders.length}`);
       const availableOrders = allOrders.filter((order) => {
-        const validStatuses = ["confirmed", "accepted_by_chef", "preparing", "prepared"];
+        const validStatuses = ["accepted_by_chef", "prepared"];
         const isValid = validStatuses.includes(order.status) && !order.assignedTo;
         if (isValid) {
           console.log(`  \u2705 Order ${order.id}: status=${order.status}, assignedTo=${order.assignedTo || "none"}`);
@@ -11759,7 +11759,7 @@ function registerDeliveryRoutes(app2) {
         console.log(`  \u274C BLOCKED: Order not found`);
         return res.status(404).json({ message: "Order not found" });
       }
-      const validStatuses = ["confirmed", "accepted_by_chef", "preparing", "prepared"];
+      const validStatuses = ["accepted_by_chef", "prepared"];
       console.log(`  \u2705 Status check: "${order.status}" in [${validStatuses.join(", ")}]? ${validStatuses.includes(order.status) ? "YES" : "NO"}`);
       if (!validStatuses.includes(order.status)) {
         console.log(`  \u274C BLOCKED: Order status not claimable`);
