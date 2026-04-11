@@ -196,7 +196,7 @@ export function registerPartnerRoutes(app: Express): void {
       const [updatedOrder] = await db
         .update(orders)
         .set({
-          status: "preparing",
+          status: "accepted_by_chef",
           approvedBy: partnerId!,
           approvedAt: new Date()
         })

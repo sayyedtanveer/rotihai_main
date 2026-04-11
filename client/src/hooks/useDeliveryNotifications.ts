@@ -224,10 +224,11 @@ export function useDeliveryNotifications() {
         console.log("📨 Delivery WS message:", data.type);
 
         if (["order_assigned", "order_confirmed", "order_update", "new_prepared_order", "order_claimed"].includes(data.type)) {
-          // ✅ IMPROVED: Use refetchQueries to immediately fetch latest data
-          queryClient.refetchQueries({ queryKey: ["/api/delivery/orders"], type: "active" });
-          queryClient.refetchQueries({ queryKey: ["/api/delivery/available-orders"], type: "active" });
-          console.log(`🔄 [WS] Refetched orders and available-orders after ${data.type} event`);
+          // ✅ FIXED: Use invalidateQueries (not refetchQueries with type: "active") to force immediate refresh
+          // invalidateQueries marks data as stale and refetches it regardless of active state
+          queryClient.invalidateQueries({ queryKey: ["/api/delivery/orders"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/delivery/available-orders"] });
+          console.log(`🔄 [WS] Invalidated orders and available-orders after ${data.type} event`);
         }
 
         // ✅ NEW: Handle order_claimed event - notify that someone else claimed the order

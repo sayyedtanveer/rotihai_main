@@ -2285,14 +2285,15 @@ export class MemStorage implements IStorage {
       // Perform atomic check-and-set inside a transaction to avoid race conditions.
       const result = await db.transaction(async (tx) => {
         // Try to update the order only if it's currently unassigned
+        // ✅ IMPORTANT: Do NOT change status to 'assigned' - keep current status (accepted_by_chef or prepared)
+        // The status should only change when chef marks ready (prepared) or delivery completes
         const [updatedOrder] = await tx
           .update(orders)
           .set({
             assignedTo: deliveryPersonId,
             assignedAt: new Date(),
             deliveryPersonName: deliveryPerson.name,
-            deliveryPersonPhone: deliveryPerson.phone,
-            status: 'assigned'
+            deliveryPersonPhone: deliveryPerson.phone
           })
           .where(and(eq(orders.id, orderId), isNull(orders.assignedTo)))
           .returning();
