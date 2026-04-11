@@ -654,12 +654,12 @@ export default function PartnerDashboard() {
                                 )}
                               </>
                             )}
-                            {["preparing", "accepted_by_chef"].includes(order.status) && !order.assignedTo && (
+                            {order.status === "accepted_by_chef" && !order.assignedTo && (
                               <Badge variant="secondary" className="text-xs">
                                 Waiting for delivery
                               </Badge>
                             )}
-                            {order.status === "preparing" && (
+                            {order.status === "accepted_by_chef" && (
                               <div className="flex flex-col gap-1 w-full">
                                 {order.assignedTo && order.deliveryPersonName && (
                                   <Badge variant="outline" className="text-xs">
@@ -978,12 +978,12 @@ export default function PartnerDashboard() {
                                 )}
                               </>
                             )}
-                            {["preparing", "accepted_by_chef"].includes(order.status) && !order.assignedTo && (
+                            {order.status === "accepted_by_chef" && !order.assignedTo && (
                               <Badge variant="secondary" className="text-xs">
                                 Waiting for delivery
                               </Badge>
                             )}
-                            {order.assignedTo && order.deliveryPersonName && order.status === "preparing" && (
+                            {order.assignedTo && order.deliveryPersonName && order.status === "accepted_by_chef" && (
                               <Button
                                 size="sm"
                                 onClick={() => updateStatusMutation.mutate({ orderId: order.id, status: "prepared" })}
@@ -1165,12 +1165,12 @@ export default function PartnerDashboard() {
                                   </Button>
                                 </>
                               )}
-                              {["preparing", "accepted_by_chef"].includes(order.status) && !order.assignedTo && (
+                              {order.status === "accepted_by_chef" && !order.assignedTo && (
                                 <Badge variant="secondary" className="text-xs">
                                   Waiting for delivery
                                 </Badge>
                               )}
-                              {order.assignedTo && order.deliveryPersonName && order.status === "preparing" && (
+                              {order.assignedTo && order.deliveryPersonName && order.status === "accepted_by_chef" && (
                                 <Button
                                   size="sm"
                                   onClick={() => updateStatusMutation.mutate({ orderId: order.id, status: "prepared" })}
