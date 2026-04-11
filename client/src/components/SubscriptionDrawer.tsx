@@ -878,7 +878,7 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
             // Hardcoded parsing for plain text profile address
             // Format: "18/20, Lig colony 3rd ground , Kurla West, Mumbai, 400070"
             const addressStr = userProfile.address.trim();
-            const parts = addressStr.split(",").map(p => p.trim()).filter(p => p);
+            const parts = addressStr.split(",").map((p: string) => p.trim()).filter((p: string) => p);
 
             // Remove duplicates
             const uniqueParts: string[] = [];

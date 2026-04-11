@@ -91,12 +91,17 @@ export default function PaymentQRDialog({
   useEffect(() => {
     const fetchPaymentSettings = async () => {
       try {
-        const url = getApiUrl("/api/payment-settings");
+        const url = getApiUrl(`/api/payment-settings`);
         console.log("[PAYMENT QR] DEBUG: Calling API URL:", url);
-        alert("[PAYMENT QR] API URL: " + url);
+        alert("[PAYMENT QR] CALCULATED URL: " + url);
         
-        const response = await fetch(url);
+        const fetchPromise = fetch(url);
+        alert("[PAYMENT QR] FETCH STARTED to: " + url);
+        
+        const response = await fetchPromise;
+        console.log("[PAYMENT QR] DEBUG: Final URL after fetch:", response.url);
         console.log("[PAYMENT QR] DEBUG: Response status:", response.status, response.statusText);
+        alert("[PAYMENT QR] ACTUAL REQUEST URL: " + response.url);
         alert("[PAYMENT QR] Response Status: " + response.status + " " + response.statusText);
         
         if (response.ok) {
