@@ -533,6 +533,7 @@ export default function CheckoutDialog({
   });
 
   // ✅ FIX 1: Referral input visibility logic
+  // Show ONLY for brand new users (no account yet or first order)
   // Hide if: user already has an active referral (pendingBonus) OR has placed orders before
   const hasUsedReferral = isAuthenticated && !!user?.pendingBonus;
   const hasPlacedOrder = isAuthenticated && Array.isArray(userOrders) && userOrders.length > 0;
@@ -900,21 +901,26 @@ export default function CheckoutDialog({
       // 🆕 Calculate platform fee based on subtotal and config
       let calculatedPlatformFee = 0;
       if (platformFeeConfig?.platformFeeEnabled) {
+        console.log("[CHECKOUT-CALC] Platform fee is ENABLED, checking subtotal:", calculatedSubtotal);
         if (calculatedSubtotal < 100) {
           calculatedPlatformFee = platformFeeConfig.platformFeeBelow100 || 0;
+          console.log("[CHECKOUT-CALC] Subtotal < 100, using below100 fee:", calculatedPlatformFee);
         } else if (calculatedSubtotal < 200) {
           calculatedPlatformFee = platformFeeConfig.platformFeeBelow200 || 0;
+          console.log("[CHECKOUT-CALC] Subtotal 100-200, using below200 fee:", calculatedPlatformFee);
         } else {
           calculatedPlatformFee = platformFeeConfig.platformFeeAbove200 || 0;
+          console.log("[CHECKOUT-CALC] Subtotal > 200, using above200 fee:", calculatedPlatformFee);
         }
+      } else {
+        console.log("[CHECKOUT-CALC] Platform fee is DISABLED or config not loaded yet", {
+          platformFeeEnabled: platformFeeConfig?.platformFeeEnabled,
+          configExists: !!platformFeeConfig,
+        });
       }
       setPlatformFee(calculatedPlatformFee);
 
-      console.log("[PLATFORM-FEE] Calculated:", {
-        subtotal: calculatedSubtotal,
-        config: platformFeeConfig,
-        calculatedPlatformFee,
-      });
+      console.log("[CHECKOUT-CALC] Final platform fee set to:", calculatedPlatformFee);
 
       // Calculate base total with actual delivery fee (only added if below minimum) + platform fee
       let baseTotal = calculatedSubtotal + actualDeliveryFee + calculatedPlatformFee - calculatedDiscount;
@@ -1401,33 +1407,45 @@ export default function CheckoutDialog({
   useEffect(() => {
     const fetchPlatformFeeConfig = async () => {
       try {
+        console.log("[CHECKOUT] Fetching platform fee config from /api/payment-settings...");
         const response = await fetch("/api/payment-settings");
         if (response.ok) {
           const config = await response.json();
           setPlatformFeeConfig(config);
-          console.log("[PLATFORM-FEE] Config fetched from payment settings:", config);
+          console.log("[CHECKOUT] ✅ Platform fee config fetched successfully:", {
+            platformFeeEnabled: config?.platformFeeEnabled,
+            below100: config?.platformFeeBelow100,
+            below200: config?.platformFeeBelow200,
+            above200: config?.platformFeeAbove200,
+          });
         } else {
+          console.warn("[CHECKOUT] ⚠️ Failed to fetch payment settings, status:", response.status);
           // Default if fetch fails
-          setPlatformFeeConfig({
+          const defaults = {
             platformFeeEnabled: false,
             platformFeeBelow100: 0,
             platformFeeBelow200: 0,
             platformFeeAbove200: 0,
-          });
+          };
+          setPlatformFeeConfig(defaults);
+          console.log("[CHECKOUT] Using default config:", defaults);
         }
       } catch (error) {
-        console.error("[PLATFORM-FEE] Failed to fetch payment settings:", error);
+        console.error("[CHECKOUT] ❌ Failed to fetch payment settings:", error);
         // Default if fetch fails
-        setPlatformFeeConfig({
+        const defaults = {
           platformFeeEnabled: false,
           platformFeeBelow100: 0,
           platformFeeBelow200: 0,
           platformFeeAbove200: 0,
-        });
+        };
+        setPlatformFeeConfig(defaults);
+        console.log("[CHECKOUT] Using default config on error:", defaults);
       }
     };
 
     if (isOpen) {
+      console.log("[CHECKOUT] Dialog opened - fetching platform fee config");
       fetchPlatformFeeConfig();
     }
   }, [isOpen]);
@@ -3587,11 +3605,54 @@ export default function CheckoutDialog({
                           )}
                         </div>
 
-                        {/* 🆕 Platform Fee (Convenience Fee) */}
-                        {platformFee > 0 && (
-                          <div className="flex justify-between text-sm">
-                            <span>Platform Fee:</span>
-                            <span>₹{platformFee.toFixed(2)}</span>
+                        {/* 🆕 Platform Fee (Convenience Fee) - Always show if enabled */}
+                        {platformFeeConfig?.platformFeeEnabled && (
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-sm">
+                              <span>Platform Fee (Convenience):</span>
+                              <span className={platformFee > 0 ? "font-medium" : "text-gray-500"}>
+                                ₹{platformFee.toFixed(2)}
+                              </span>
+                            </div>
+                            
+                            {/* 🎉 Dynamic message when platform fee is 0 */}
+                            {platformFee === 0 && (
+                              <p className="text-xs text-green-600 dark:text-green-400 font-medium text-right">
+                                ✨ No platform fee for this order!
+                              </p>
+                            )}
+                            
+                            {/* 💡 Helpful message: Dynamic tier-based incentive (checks DB for zero-fee tier) */}
+                            {platformFee > 0 && (() => {
+                              // Helper: Calculate fee for any amount based on DB config
+                              const calculateFeeForAmount = (amount: number): number => {
+                                if (amount < 100) return platformFeeConfig?.platformFeeBelow100 || 0;
+                                if (amount < 200) return platformFeeConfig?.platformFeeBelow200 || 0;
+                                return platformFeeConfig?.platformFeeAbove200 || 0;
+                              };
+                              
+                              // Find the next tier where fee is 0
+                              let nextZeroFeeTier = null;
+                              const tierBoundaries = [100, 200];
+                              
+                              for (const boundary of tierBoundaries) {
+                                if (subtotal < boundary && calculateFeeForAmount(boundary) === 0) {
+                                  nextZeroFeeTier = boundary;
+                                  break;
+                                }
+                              }
+                              
+                              // Show message only if there's a reachable zero-fee tier
+                              if (nextZeroFeeTier) {
+                                const amountNeeded = (nextZeroFeeTier - subtotal).toFixed(0);
+                                return (
+                                  <p className="text-xs text-blue-600 dark:text-blue-400 font-medium text-right">
+                                    💡 Add ₹{amountNeeded} more to waive platform fee!
+                                  </p>
+                                );
+                              }
+                              return null;
+                            })()}
                           </div>
                         )}
 

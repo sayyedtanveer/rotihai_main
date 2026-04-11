@@ -342,6 +342,24 @@ export const walletSettings = pgTable("wallet_settings", {
 export type WalletSettings = typeof walletSettings.$inferSelect;
 export type InsertWalletSettings = typeof walletSettings.$inferInsert;
 
+// 🆕 Payment Settings Table (stores admin-configured fees)
+export const paymentSettings = pgTable("payment_settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  merchantPhone: varchar("merchant_phone", { length: 20 }).notNull(),
+  merchantName: varchar("merchant_name", { length: 255 }).notNull(),
+  upiId: varchar("upi_id", { length: 100 }),
+  supportPhone: varchar("support_phone", { length: 20 }),
+  platformFeeEnabled: boolean("platform_fee_enabled").notNull().default(false),
+  platformFeeBelow100: integer("platform_fee_below_100").notNull().default(0),
+  platformFeeBelow200: integer("platform_fee_below_200").notNull().default(0),
+  platformFeeAbove200: integer("platform_fee_above_200").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export type PaymentSettings = typeof paymentSettings.$inferSelect;
+export type InsertPaymentSettings = typeof paymentSettings.$inferInsert;
+
 export const payoutTransactions = pgTable("payout_transactions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   chefId: text("chef_id").notNull(),

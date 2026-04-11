@@ -636,8 +636,8 @@ export default function Profile() {
                       </div>
                       )}
 
-                      {/* Apply Referral Code - Show only if eligible AND referral system is active */}
-                      {referralEligibility?.eligible && walletSettings?.isActive && (
+                      {/* ✅ Referral code entry only at CHECKOUT for new users - Hidden for now */}
+                      {false && referralEligibility?.eligible && walletSettings?.isActive && (
                         <>
                           <Separator />
                           <div>

@@ -66,6 +66,7 @@ __export(schema_exports, {
   orders: () => orders,
   partnerLoginSchema: () => partnerLoginSchema,
   partnerUsers: () => partnerUsers,
+  paymentSettings: () => paymentSettings,
   paymentStatusEnum: () => paymentStatusEnum,
   paymentVerificationLog: () => paymentVerificationLog,
   payoutTransactions: () => payoutTransactions,
@@ -95,7 +96,7 @@ import { pgTable, text, varchar, integer, decimal, boolean, timestamp, jsonb, in
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import * as crypto from "crypto";
-var adminRoleEnum, sessions, users, adminUsers, partnerUsers, categories, chefs, products, paymentStatusEnum, deliveryPersonnelStatusEnum, deliveryPersonnel, orders, paymentVerificationLog, deliverySettings, deliveryPartnerPayouts, cartSettings, discountTypeEnum, coupons, couponUsages, referrals, transactionTypeEnum, walletTransactions, walletSettings, payoutTransactions, referralRewards, subscriptionStatusEnum, subscriptionFrequencyEnum, deliveryLogStatusEnum, subscriptionPlans, subscriptions, subscriptionDeliveryLogs, insertCategorySchema, insertProductSchema, insertChefSchema, orderItemSchema, insertOrderSchema, insertUserSchema, userLoginSchema, insertAdminUserSchema, adminLoginSchema, insertPartnerUserSchema, partnerLoginSchema, insertSubscriptionPlanSchema, promotionalBanners, insertPromotionalBannerSchema, insertSubscriptionSchema, insertDeliverySettingSchema, insertSubscriptionDeliveryLogSchema, insertDeliveryPartnerPayoutSchema, insertCartSettingSchema, insertDeliveryPersonnelSchema, deliveryPersonnelLoginSchema, insertCouponSchema, insertReferralSchema, insertWalletTransactionSchema, insertReferralRewardSchema, deliveryTimeSlots, insertDeliveryTimeSlotsSchema, rotiSettings, insertRotiSettingsSchema, visitors, insertVisitorSchema, deliveryAreas, insertDeliveryAreasSchema, adminSettings, insertAdminSettingsSchema, pushSubscriptions, insertPushSubscriptionSchema, newsletterSubscribers, pendingBroadcasts, insertPendingBroadcastSchema, pendingCheckouts, insertPendingCheckoutSchema;
+var adminRoleEnum, sessions, users, adminUsers, partnerUsers, categories, chefs, products, paymentStatusEnum, deliveryPersonnelStatusEnum, deliveryPersonnel, orders, paymentVerificationLog, deliverySettings, deliveryPartnerPayouts, cartSettings, discountTypeEnum, coupons, couponUsages, referrals, transactionTypeEnum, walletTransactions, walletSettings, paymentSettings, payoutTransactions, referralRewards, subscriptionStatusEnum, subscriptionFrequencyEnum, deliveryLogStatusEnum, subscriptionPlans, subscriptions, subscriptionDeliveryLogs, insertCategorySchema, insertProductSchema, insertChefSchema, orderItemSchema, insertOrderSchema, insertUserSchema, userLoginSchema, insertAdminUserSchema, adminLoginSchema, insertPartnerUserSchema, partnerLoginSchema, insertSubscriptionPlanSchema, promotionalBanners, insertPromotionalBannerSchema, insertSubscriptionSchema, insertDeliverySettingSchema, insertSubscriptionDeliveryLogSchema, insertDeliveryPartnerPayoutSchema, insertCartSettingSchema, insertDeliveryPersonnelSchema, deliveryPersonnelLoginSchema, insertCouponSchema, insertReferralSchema, insertWalletTransactionSchema, insertReferralRewardSchema, deliveryTimeSlots, insertDeliveryTimeSlotsSchema, rotiSettings, insertRotiSettingsSchema, visitors, insertVisitorSchema, deliveryAreas, insertDeliveryAreasSchema, adminSettings, insertAdminSettingsSchema, pushSubscriptions, insertPushSubscriptionSchema, newsletterSubscribers, pendingBroadcasts, insertPendingBroadcastSchema, pendingCheckouts, insertPendingCheckoutSchema;
 var init_schema = __esm({
   "shared/schema.ts"() {
     "use strict";
@@ -449,6 +450,19 @@ var init_schema = __esm({
       referrerBonus: integer("referrer_bonus").notNull().default(100),
       referredBonus: integer("referred_bonus").notNull().default(50),
       isActive: boolean("is_active").notNull().default(true),
+      createdAt: timestamp("created_at").notNull().defaultNow(),
+      updatedAt: timestamp("updated_at").notNull().defaultNow()
+    });
+    paymentSettings = pgTable("payment_settings", {
+      id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+      merchantPhone: varchar("merchant_phone", { length: 20 }).notNull(),
+      merchantName: varchar("merchant_name", { length: 255 }).notNull(),
+      upiId: varchar("upi_id", { length: 100 }),
+      supportPhone: varchar("support_phone", { length: 20 }),
+      platformFeeEnabled: boolean("platform_fee_enabled").notNull().default(false),
+      platformFeeBelow100: integer("platform_fee_below_100").notNull().default(0),
+      platformFeeBelow200: integer("platform_fee_below_200").notNull().default(0),
+      platformFeeAbove200: integer("platform_fee_above_200").notNull().default(0),
       createdAt: timestamp("created_at").notNull().defaultNow(),
       updatedAt: timestamp("updated_at").notNull().defaultNow()
     });
@@ -1116,6 +1130,7 @@ __export(db_exports, {
   newsletterSubscribers: () => newsletterSubscribers2,
   orders: () => orders2,
   partnerUsers: () => partnerUsers2,
+  paymentSettings: () => paymentSettings2,
   paymentVerificationLog: () => paymentVerificationLog2,
   payoutTransactions: () => payoutTransactions2,
   pendingBroadcasts: () => pendingBroadcasts2,
@@ -1138,7 +1153,7 @@ __export(db_exports, {
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { sql as sql2 } from "drizzle-orm";
-var dbType, connectionString, pool, db, users2, sessions2, categories2, products2, orders2, chefs2, adminUsers2, partnerUsers2, subscriptions2, subscriptionPlans2, subscriptionDeliveryLogs2, deliverySettings2, deliveryPartnerPayouts2, cartSettings2, deliveryPersonnel2, coupons2, couponUsages2, referrals2, walletTransactions2, walletSettings2, referralRewards2, promotionalBanners2, deliveryTimeSlots2, rotiSettings2, visitors2, deliveryAreas2, adminSettings2, newsletterSubscribers2, pendingBroadcasts2, pendingCheckouts2, payoutTransactions2, paymentVerificationLog2;
+var dbType, connectionString, pool, db, users2, sessions2, categories2, products2, orders2, chefs2, adminUsers2, partnerUsers2, subscriptions2, subscriptionPlans2, subscriptionDeliveryLogs2, deliverySettings2, deliveryPartnerPayouts2, cartSettings2, deliveryPersonnel2, coupons2, couponUsages2, referrals2, walletTransactions2, walletSettings2, referralRewards2, promotionalBanners2, deliveryTimeSlots2, rotiSettings2, visitors2, deliveryAreas2, adminSettings2, newsletterSubscribers2, pendingBroadcasts2, pendingCheckouts2, payoutTransactions2, paymentVerificationLog2, paymentSettings2;
 var init_db = __esm({
   "shared/db.ts"() {
     "use strict";
@@ -1189,7 +1204,8 @@ var init_db = __esm({
       pendingBroadcasts: pendingBroadcasts2,
       pendingCheckouts: pendingCheckouts2,
       payoutTransactions: payoutTransactions2,
-      paymentVerificationLog: paymentVerificationLog2
+      paymentVerificationLog: paymentVerificationLog2,
+      paymentSettings: paymentSettings2
     } = schema_exports);
   }
 });
@@ -6450,6 +6466,105 @@ var init_pushService = __esm({
   }
 });
 
+// vite.config.ts
+var vite_config_exports = {};
+__export(vite_config_exports, {
+  default: () => vite_config_default
+});
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import path from "path";
+import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
+import fs from "fs";
+var versionPlugin, vite_config_default;
+var init_vite_config = __esm({
+  "vite.config.ts"() {
+    "use strict";
+    versionPlugin = {
+      name: "version-plugin",
+      apply: "build",
+      enforce: "post",
+      generateBundle() {
+        const now = /* @__PURE__ */ new Date();
+        const version = now.toISOString();
+        const timestamp2 = Date.now();
+        const buildId = `${timestamp2}-${Math.random().toString(36).substr(2, 9)}`;
+        const versionJson = JSON.stringify({
+          version,
+          timestamp: timestamp2,
+          buildId,
+          buildDate: now.toLocaleString()
+        }, null, 2);
+        console.log(`\u{1F4E6} Version plugin: Generated version ${buildId}`);
+        this.emitFile({
+          type: "asset",
+          fileName: "version.json",
+          source: versionJson
+        });
+        try {
+          const swSource = fs.readFileSync(
+            path.resolve(import.meta.dirname, "client", "public", "sw.js"),
+            "utf-8"
+          );
+          const swWithBuildId = swSource.replace("__SW_BUILD_ID__", `v-${buildId}`);
+          this.emitFile({
+            type: "asset",
+            fileName: "sw.js",
+            source: swWithBuildId
+          });
+          console.log(`\u{1F4E6} Version plugin: Injected build ID into sw.js \u2192 v-${buildId}`);
+        } catch (err) {
+          console.warn("\u26A0\uFE0F Version plugin: Could not inject build ID into sw.js:", err);
+        }
+      }
+    };
+    vite_config_default = defineConfig({
+      plugins: [
+        react(),
+        runtimeErrorOverlay(),
+        versionPlugin
+      ],
+      define: {
+        // Inject build timestamp for cache-busting (available as import.meta.env.VITE_BUILD_TIME)
+        "import.meta.env.VITE_BUILD_TIME": JSON.stringify(Date.now().toString())
+      },
+      resolve: {
+        alias: {
+          "@": path.resolve(import.meta.dirname, "client", "src"),
+          "@shared": path.resolve(import.meta.dirname, "shared"),
+          "@assets": path.resolve(import.meta.dirname, "attached_assets")
+        }
+      },
+      root: path.resolve(import.meta.dirname, "client"),
+      build: {
+        outDir: path.resolve(import.meta.dirname, "dist/public"),
+        emptyOutDir: true,
+        rollupOptions: {
+          output: {
+            // Disable aggressive caching - add timestamp to output files
+            entryFileNames: "[name].[hash].js",
+            chunkFileNames: "[name].[hash].js",
+            assetFileNames: "[name].[hash][extname]"
+          }
+        }
+      },
+      server: {
+        host: "0.0.0.0",
+        fs: {
+          strict: false
+        },
+        allowedHosts: true,
+        // Disable caching in dev mode - always fresh
+        middlewareMode: false,
+        hmr: {
+          host: "localhost",
+          port: 5173
+        }
+      }
+    });
+  }
+});
+
 // server/vite.ts
 var vite_exports = {};
 __export(vite_exports, {
@@ -6590,7 +6705,7 @@ var init_vite = __esm({
       }
       if (!viteConfig) {
         try {
-          const config = await import("../../vite.config");
+          const config = await Promise.resolve().then(() => (init_vite_config(), vite_config_exports));
           viteConfig = config.default;
         } catch (error) {
           console.error("\u274C Failed to load vite.config:", error);
@@ -7111,8 +7226,6 @@ init_schema();
 init_emailService();
 init_whatsappService();
 import jwt5 from "jsonwebtoken";
-import fs from "fs/promises";
-import path from "path";
 import { fromZodError } from "zod-validation-error";
 import { eq as eq2 } from "drizzle-orm";
 function registerAdminRoutes(app2) {
@@ -10535,25 +10648,50 @@ function registerAdminRoutes(app2) {
       res.status(500).json({ message: "Failed to fetch coupon statistics" });
     }
   });
-  const PAYMENT_SETTINGS_FILE = path.join(process.cwd(), "data", "payment-settings.json");
-  const ensureDataDir = async () => {
+  const initializePaymentSettings = async () => {
     try {
-      await fs.mkdir(path.join(process.cwd(), "data"), { recursive: true });
+      const existing = await db.query.paymentSettings.findFirst();
+      if (!existing) {
+        await db.insert(paymentSettings2).values({
+          merchantPhone: process.env.VITE_MERCHANT_PHONE || "9773765103",
+          merchantName: "RotiHai",
+          upiId: process.env.VITE_UPI_ID || "sayyedtanveer1410-1@oksbi",
+          supportPhone: "918169020290",
+          platformFeeEnabled: false,
+          platformFeeBelow100: 0,
+          platformFeeBelow200: 0,
+          platformFeeAbove200: 0
+        });
+        console.log("\u2705 Initialized default payment settings in database");
+      }
     } catch (error) {
+      console.error("Error initializing payment settings:", error);
     }
   };
+  initializePaymentSettings();
   const readPaymentSettings = async () => {
     try {
-      await ensureDataDir();
-      const data = await fs.readFile(PAYMENT_SETTINGS_FILE, "utf-8");
-      return JSON.parse(data);
+      const settings = await db.query.paymentSettings.findFirst();
+      if (!settings) {
+        return {
+          merchantPhone: process.env.VITE_MERCHANT_PHONE || "9773765103",
+          merchantName: "RotiHai",
+          upiId: process.env.VITE_UPI_ID || "sayyedtanveer1410-1@oksbi",
+          supportPhone: "918169020290",
+          platformFeeEnabled: false,
+          platformFeeBelow100: 0,
+          platformFeeBelow200: 0,
+          platformFeeAbove200: 0
+        };
+      }
+      return settings;
     } catch (error) {
+      console.error("Error reading payment settings from database:", error);
       return {
         merchantPhone: process.env.VITE_MERCHANT_PHONE || "9773765103",
-        upiId: process.env.VITE_UPI_ID || "sayyedtanveer1410-1@oksbi",
         merchantName: "RotiHai",
+        upiId: process.env.VITE_UPI_ID || "sayyedtanveer1410-1@oksbi",
         supportPhone: "918169020290",
-        // 🆕 Platform Fee Settings (configurable from admin)
         platformFeeEnabled: false,
         platformFeeBelow100: 0,
         platformFeeBelow200: 0,
@@ -10563,11 +10701,60 @@ function registerAdminRoutes(app2) {
   };
   const writePaymentSettings = async (settings) => {
     try {
-      await ensureDataDir();
-      await fs.writeFile(PAYMENT_SETTINGS_FILE, JSON.stringify(settings, null, 2), "utf-8");
-      return settings;
+      console.log("[PAYMENT-SETTINGS-WRITE] Starting write operation with settings:", {
+        platformFeeEnabled: settings.platformFeeEnabled,
+        platformFeeBelow100: settings.platformFeeBelow100,
+        platformFeeBelow200: settings.platformFeeBelow200,
+        platformFeeAbove200: settings.platformFeeAbove200
+      });
+      const existing = await db.query.paymentSettings.findFirst();
+      console.log("[PAYMENT-SETTINGS-WRITE] Existing record found:", !!existing, existing?.id);
+      let result;
+      if (existing) {
+        console.log("[PAYMENT-SETTINGS-WRITE] Executing UPDATE for ID:", existing.id);
+        const updated = await db.update(paymentSettings2).set({
+          merchantPhone: settings.merchantPhone,
+          merchantName: settings.merchantName,
+          upiId: settings.upiId,
+          supportPhone: settings.supportPhone,
+          platformFeeEnabled: settings.platformFeeEnabled,
+          platformFeeBelow100: settings.platformFeeBelow100,
+          platformFeeBelow200: settings.platformFeeBelow200,
+          platformFeeAbove200: settings.platformFeeAbove200,
+          updatedAt: /* @__PURE__ */ new Date()
+        }).where(eq2(paymentSettings2.id, existing.id)).returning();
+        result = updated[0];
+        console.log("[PAYMENT-SETTINGS-WRITE] \u2705 UPDATE successful, result:", {
+          id: result?.id,
+          platformFeeEnabled: result?.platformFeeEnabled,
+          platformFeeBelow100: result?.platformFeeBelow100
+        });
+      } else {
+        console.log("[PAYMENT-SETTINGS-WRITE] No existing record, executing INSERT");
+        const inserted = await db.insert(paymentSettings2).values({
+          merchantPhone: settings.merchantPhone,
+          merchantName: settings.merchantName,
+          upiId: settings.upiId,
+          supportPhone: settings.supportPhone,
+          platformFeeEnabled: settings.platformFeeEnabled,
+          platformFeeBelow100: settings.platformFeeBelow100,
+          platformFeeBelow200: settings.platformFeeBelow200,
+          platformFeeAbove200: settings.platformFeeAbove200
+        }).returning();
+        result = inserted[0];
+        console.log("[PAYMENT-SETTINGS-WRITE] \u2705 INSERT successful, result:", {
+          id: result?.id,
+          platformFeeEnabled: result?.platformFeeEnabled
+        });
+      }
+      console.log("[PAYMENT-SETTINGS-WRITE] \u2705 Database operation complete, returning result");
+      return result;
     } catch (error) {
-      console.error("Error writing payment settings:", error);
+      console.error("[PAYMENT-SETTINGS-WRITE] \u274C ERROR:", {
+        message: error?.message,
+        code: error?.code,
+        detail: error?.detail
+      });
       throw error;
     }
   };
@@ -10591,7 +10778,16 @@ function registerAdminRoutes(app2) {
   });
   app2.post("/api/admin/payment-settings", requireAdmin(), async (req, res) => {
     try {
+      console.log("[ADMIN-PAYMENT-SETTINGS] POST request received with body:", req.body);
       const { merchantPhone, upiId, merchantName, supportPhone, platformFeeEnabled, platformFeeBelow100, platformFeeBelow200, platformFeeAbove200 } = req.body;
+      console.log("[ADMIN-PAYMENT-SETTINGS] Extracted fields:", {
+        merchantPhone,
+        merchantName,
+        platformFeeEnabled,
+        platformFeeBelow100,
+        platformFeeBelow200,
+        platformFeeAbove200
+      });
       if (!merchantPhone || !merchantName) {
         res.status(400).json({ message: "Merchant phone and name are required" });
         return;
@@ -10601,24 +10797,30 @@ function registerAdminRoutes(app2) {
         res.status(400).json({ message: "Invalid merchant phone number. Use 10 digits or +91 format." });
         return;
       }
+      console.log("[ADMIN-PAYMENT-SETTINGS] Calling writePaymentSettings()...");
       const settings = await writePaymentSettings({
         merchantPhone,
         upiId: upiId || process.env.VITE_UPI_ID || "sayyedtanveer1410-1@oksbi",
         merchantName,
         supportPhone: supportPhone || "918169020290",
-        // 🆕 Platform Fee Settings
         platformFeeEnabled: !!platformFeeEnabled,
         platformFeeBelow100: Number(platformFeeBelow100) || 0,
         platformFeeBelow200: Number(platformFeeBelow200) || 0,
         platformFeeAbove200: Number(platformFeeAbove200) || 0
       });
-      console.log("\u2705 Admin updated payment settings:", { merchantPhone, merchantName });
+      console.log("[ADMIN-PAYMENT-SETTINGS] \u2705 Settings saved, returned data:", {
+        id: settings?.id,
+        platformFeeEnabled: settings?.platformFeeEnabled,
+        platformFeeBelow100: settings?.platformFeeBelow100,
+        platformFeeBelow200: settings?.platformFeeBelow200,
+        platformFeeAbove200: settings?.platformFeeAbove200
+      });
       res.json({
         message: "Payment settings updated successfully",
         settings
       });
     } catch (error) {
-      console.error("Error updating payment settings:", error);
+      console.error("[ADMIN-PAYMENT-SETTINGS] \u274C Error updating payment settings:", error);
       res.status(500).json({ message: error.message || "Failed to update payment settings" });
     }
   });
@@ -13943,22 +14145,22 @@ async function registerRoutes(app2) {
         let platformFee = 0;
         try {
           const paymentSettingsResponse = await fetch(`http://localhost:${process.env.PORT || 5e3}/api/payment-settings`);
-          const paymentSettings = paymentSettingsResponse.ok ? await paymentSettingsResponse.json() : {};
-          if (paymentSettings?.platformFeeEnabled) {
+          const paymentSettings3 = paymentSettingsResponse.ok ? await paymentSettingsResponse.json() : {};
+          if (paymentSettings3?.platformFeeEnabled) {
             const subtotalAmount = sanitized.subtotal || 0;
             if (subtotalAmount < 100) {
-              platformFee = paymentSettings.platformFeeBelow100 || 0;
+              platformFee = paymentSettings3.platformFeeBelow100 || 0;
             } else if (subtotalAmount < 200) {
-              platformFee = paymentSettings.platformFeeBelow200 || 0;
+              platformFee = paymentSettings3.platformFeeBelow200 || 0;
             } else {
-              platformFee = paymentSettings.platformFeeAbove200 || 0;
+              platformFee = paymentSettings3.platformFeeAbove200 || 0;
             }
           }
           sanitized.platformFee = platformFee;
           console.log("[PLATFORM-FEE] Calculated fee from payment settings:", {
             subtotal: sanitized.subtotal,
             fee: platformFee,
-            platformFeeEnabled: paymentSettings?.platformFeeEnabled
+            platformFeeEnabled: paymentSettings3?.platformFeeEnabled
           });
         } catch (pfErr) {
           console.error("[PLATFORM-FEE] Error calculating fee:", pfErr);
@@ -17292,7 +17494,7 @@ var imageExists = (filename) => {
 var enableVite2 = process.env.ENABLE_VITE === "true";
 if (enableVite2) {
   const dbUrl = process.env.DATABASE_URL || "";
-  const allowProdDb = process.env.ALLOW_PROD_DB_IN_DEV === "false";
+  const allowProdDb = process.env.ALLOW_PROD_DB_IN_DEV === "true";
   if (dbUrl.includes("rotihai_prod") && !allowProdDb) {
     console.error("\u274C \u274C \u274C CRITICAL ERROR \u274C \u274C \u274C");
     console.error("DEV SERVER IS USING PRODUCTION DATABASE!");

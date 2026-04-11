@@ -19,7 +19,7 @@ import {
   generateAccessToken as generateUserAccessToken,
   generateRefreshToken as generateUserRefreshToken,
 } from "./userAuth";
-import { db, walletSettings, referralRewards, orders } from "@shared/db";
+import { db, walletSettings, referralRewards, orders, paymentSettings } from "@shared/db";
 import { adminLoginSchema, insertAdminUserSchema, insertCategorySchema, insertProductSchema, insertDeliveryPersonnelSchema, insertDeliveryTimeSlotsSchema, insertReferralRewardSchema, insertCouponSchema } from "@shared/schema";
 import { fromZodError } from "zod-validation-error";
 import { broadcastOrderUpdate, broadcastNewOrder, notifyDeliveryAssignment, cancelPreparedOrderTimeout, broadcastProductAvailabilityUpdate, broadcastChefStatusUpdate, broadcastSubscriptionAssignmentToPartner, broadcastSubscriptionUpdate, broadcastWalletUpdate } from "./websocket";
@@ -4296,33 +4296,59 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  // ============ PAYMENT SETTINGS ENDPOINTS ============
+  // ============ PAYMENT SETTINGS ENDPOINTS (DATABASE) ============
 
-  const PAYMENT_SETTINGS_FILE = path.join(process.cwd(), "data", "payment-settings.json");
-
-  // Helper: Ensure data directory exists
-  const ensureDataDir = async () => {
+  // Helper: Initialize default payment settings in database (once)
+  const initializePaymentSettings = async () => {
     try {
-      await fs.mkdir(path.join(process.cwd(), "data"), { recursive: true });
+      const existing = await db.query.paymentSettings.findFirst();
+      if (!existing) {
+        await db.insert(paymentSettings).values({
+          merchantPhone: process.env.VITE_MERCHANT_PHONE || "9773765103",
+          merchantName: "RotiHai",
+          upiId: process.env.VITE_UPI_ID || "sayyedtanveer1410-1@oksbi",
+          supportPhone: "918169020290",
+          platformFeeEnabled: false,
+          platformFeeBelow100: 0,
+          platformFeeBelow200: 0,
+          platformFeeAbove200: 0,
+        });
+        console.log("✅ Initialized default payment settings in database");
+      }
     } catch (error) {
-      // Directory already exists
+      console.error("Error initializing payment settings:", error);
     }
   };
 
-  // Helper: Read payment settings from JSON file
+  // Call initialize on startup
+  initializePaymentSettings();
+
+  // Helper: Read payment settings from database
   const readPaymentSettings = async () => {
     try {
-      await ensureDataDir();
-      const data = await fs.readFile(PAYMENT_SETTINGS_FILE, 'utf-8');
-      return JSON.parse(data);
+      const settings = await db.query.paymentSettings.findFirst();
+      if (!settings) {
+        // Return defaults if table is empty
+        return {
+          merchantPhone: process.env.VITE_MERCHANT_PHONE || "9773765103",
+          merchantName: "RotiHai",
+          upiId: process.env.VITE_UPI_ID || "sayyedtanveer1410-1@oksbi",
+          supportPhone: "918169020290",
+          platformFeeEnabled: false,
+          platformFeeBelow100: 0,
+          platformFeeBelow200: 0,
+          platformFeeAbove200: 0,
+        };
+      }
+      return settings;
     } catch (error) {
-      // File doesn't exist or error reading - return defaults
+      console.error("Error reading payment settings from database:", error);
+      // Return safe defaults on error
       return {
         merchantPhone: process.env.VITE_MERCHANT_PHONE || "9773765103",
-        upiId: process.env.VITE_UPI_ID || "sayyedtanveer1410-1@oksbi",
         merchantName: "RotiHai",
+        upiId: process.env.VITE_UPI_ID || "sayyedtanveer1410-1@oksbi",
         supportPhone: "918169020290",
-        // 🆕 Platform Fee Settings (configurable from admin)
         platformFeeEnabled: false,
         platformFeeBelow100: 0,
         platformFeeBelow200: 0,
@@ -4331,14 +4357,77 @@ export function registerAdminRoutes(app: Express) {
     }
   };
 
-  // Helper: Write payment settings to JSON file
+  // Helper: Update payment settings in database
   const writePaymentSettings = async (settings: any) => {
     try {
-      await ensureDataDir();
-      await fs.writeFile(PAYMENT_SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf-8');
-      return settings;
+      console.log("[PAYMENT-SETTINGS-WRITE] Starting write operation with settings:", {
+        platformFeeEnabled: settings.platformFeeEnabled,
+        platformFeeBelow100: settings.platformFeeBelow100,
+        platformFeeBelow200: settings.platformFeeBelow200,
+        platformFeeAbove200: settings.platformFeeAbove200,
+      });
+
+      const existing = await db.query.paymentSettings.findFirst();
+      console.log("[PAYMENT-SETTINGS-WRITE] Existing record found:", !!existing, existing?.id);
+      
+      let result;
+      if (existing) {
+        // Update existing record
+        console.log("[PAYMENT-SETTINGS-WRITE] Executing UPDATE for ID:", existing.id);
+        
+        const updated = await db.update(paymentSettings)
+          .set({
+            merchantPhone: settings.merchantPhone,
+            merchantName: settings.merchantName,
+            upiId: settings.upiId,
+            supportPhone: settings.supportPhone,
+            platformFeeEnabled: settings.platformFeeEnabled,
+            platformFeeBelow100: settings.platformFeeBelow100,
+            platformFeeBelow200: settings.platformFeeBelow200,
+            platformFeeAbove200: settings.platformFeeAbove200,
+            updatedAt: new Date(),
+          })
+          .where(eq(paymentSettings.id, existing.id))
+          .returning();
+        
+        result = updated[0];
+        console.log("[PAYMENT-SETTINGS-WRITE] ✅ UPDATE successful, result:", {
+          id: result?.id,
+          platformFeeEnabled: result?.platformFeeEnabled,
+          platformFeeBelow100: result?.platformFeeBelow100,
+        });
+      } else {
+        // Insert new record
+        console.log("[PAYMENT-SETTINGS-WRITE] No existing record, executing INSERT");
+        
+        const inserted = await db.insert(paymentSettings)
+          .values({
+            merchantPhone: settings.merchantPhone,
+            merchantName: settings.merchantName,
+            upiId: settings.upiId,
+            supportPhone: settings.supportPhone,
+            platformFeeEnabled: settings.platformFeeEnabled,
+            platformFeeBelow100: settings.platformFeeBelow100,
+            platformFeeBelow200: settings.platformFeeBelow200,
+            platformFeeAbove200: settings.platformFeeAbove200,
+          })
+          .returning();
+        
+        result = inserted[0];
+        console.log("[PAYMENT-SETTINGS-WRITE] ✅ INSERT successful, result:", {
+          id: result?.id,
+          platformFeeEnabled: result?.platformFeeEnabled,
+        });
+      }
+      
+      console.log("[PAYMENT-SETTINGS-WRITE] ✅ Database operation complete, returning result");
+      return result;
     } catch (error) {
-      console.error("Error writing payment settings:", error);
+      console.error("[PAYMENT-SETTINGS-WRITE] ❌ ERROR:", {
+        message: (error as any)?.message,
+        code: (error as any)?.code,
+        detail: (error as any)?.detail,
+      });
       throw error;
     }
   };
@@ -4368,7 +4457,18 @@ export function registerAdminRoutes(app: Express) {
   // Admin: Save payment settings
   app.post("/api/admin/payment-settings", requireAdmin(), async (req: AuthenticatedAdminRequest, res) => {
     try {
+      console.log("[ADMIN-PAYMENT-SETTINGS] POST request received with body:", req.body);
+      
       const { merchantPhone, upiId, merchantName, supportPhone, platformFeeEnabled, platformFeeBelow100, platformFeeBelow200, platformFeeAbove200 } = req.body;
+
+      console.log("[ADMIN-PAYMENT-SETTINGS] Extracted fields:", {
+        merchantPhone,
+        merchantName,
+        platformFeeEnabled,
+        platformFeeBelow100,
+        platformFeeBelow200,
+        platformFeeAbove200,
+      });
 
       // Validate required fields
       if (!merchantPhone || !merchantName) {
@@ -4383,26 +4483,34 @@ export function registerAdminRoutes(app: Express) {
         return;
       }
 
-      // Save to file
+      // Save to database
+      console.log("[ADMIN-PAYMENT-SETTINGS] Calling writePaymentSettings()...");
+      
       const settings = await writePaymentSettings({
         merchantPhone,
         upiId: upiId || process.env.VITE_UPI_ID || "sayyedtanveer1410-1@oksbi",
         merchantName,
         supportPhone: supportPhone || "918169020290",
-        // 🆕 Platform Fee Settings
         platformFeeEnabled: !!platformFeeEnabled,
         platformFeeBelow100: Number(platformFeeBelow100) || 0,
         platformFeeBelow200: Number(platformFeeBelow200) || 0,
         platformFeeAbove200: Number(platformFeeAbove200) || 0,
       });
 
-      console.log("✅ Admin updated payment settings:", { merchantPhone, merchantName });
+      console.log("[ADMIN-PAYMENT-SETTINGS] ✅ Settings saved, returned data:", {
+        id: settings?.id,
+        platformFeeEnabled: settings?.platformFeeEnabled,
+        platformFeeBelow100: settings?.platformFeeBelow100,
+        platformFeeBelow200: settings?.platformFeeBelow200,
+        platformFeeAbove200: settings?.platformFeeAbove200,
+      });
+
       res.json({
         message: "Payment settings updated successfully",
         settings,
       });
     } catch (error: any) {
-      console.error("Error updating payment settings:", error);
+      console.error("[ADMIN-PAYMENT-SETTINGS] ❌ Error updating payment settings:", error);
       res.status(500).json({ message: error.message || "Failed to update payment settings" });
     }
   });
