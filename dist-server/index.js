@@ -8010,8 +8010,9 @@ function registerAdminRoutes(app2) {
       }
       const claimableStatuses = ["accepted_by_chef", "prepared"];
       if (!claimableStatuses.includes(order.status)) {
+        const statusMessage = order.status === "confirmed" ? `Order status is "${order.status}". Chef has not yet accepted this order. Please wait for the chef to accept before assigning delivery.` : `Order status is "${order.status}". Order must be in "accepted_by_chef" or "prepared" status before assignment.`;
         return res.status(400).json({
-          message: `Cannot assign delivery person. Order status is "${order.status}". Order must be in "accepted_by_chef" or "prepared" status.`,
+          message: statusMessage,
           currentStatus: order.status
         });
       }
@@ -12285,7 +12286,8 @@ function registerDeliveryRoutes(app2) {
       console.log(`  \u2705 Status check: "${order.status}" in [${claimableStatuses.join(", ")}]? ${claimableStatuses.includes(order.status) ? "YES" : "NO"}`);
       if (!claimableStatuses.includes(order.status)) {
         console.log(`  \u274C BLOCKED: Order status not claimable (waiting for chef to accept first)`);
-        return res.status(400).json({ message: "Order is not ready for delivery assignment yet. Waiting for chef to accept." });
+        const statusMessage = order.status === "confirmed" ? "Chef has not yet accepted this order. Please wait for the chef to accept before claiming." : "Order is not ready for delivery assignment yet. Please wait.";
+        return res.status(400).json({ message: statusMessage });
       }
       if (order.assignedTo) {
         console.log(`  \u274C BLOCKED: Order already assigned to ${order.assignedTo}`);
