@@ -141,6 +141,7 @@ export function useDeliveryNotifications() {
           if (["order_assigned", "order_confirmed", "order_update", "new_prepared_order", "order_claimed"].includes(broadcast.eventType)) {
             queryClient.invalidateQueries({ queryKey: ["/api/delivery/orders"] });
             queryClient.invalidateQueries({ queryKey: ["/api/delivery/available-orders"] });
+            console.log(`🔄 [PENDING] Invalidated orders and available-orders after ${broadcast.eventType} broadcast`);
           }
 
           processedIds.push(broadcast.id);
@@ -223,8 +224,10 @@ export function useDeliveryNotifications() {
         console.log("📨 Delivery WS message:", data.type);
 
         if (["order_assigned", "order_confirmed", "order_update", "new_prepared_order", "order_claimed"].includes(data.type)) {
-          queryClient.invalidateQueries({ queryKey: ["/api/delivery/orders"] });
-          queryClient.invalidateQueries({ queryKey: ["/api/delivery/available-orders"] });
+          // ✅ IMPROVED: Use refetchQueries to immediately fetch latest data
+          queryClient.refetchQueries({ queryKey: ["/api/delivery/orders"], type: "active" });
+          queryClient.refetchQueries({ queryKey: ["/api/delivery/available-orders"], type: "active" });
+          console.log(`🔄 [WS] Refetched orders and available-orders after ${data.type} event`);
         }
 
         // ✅ NEW: Handle order_claimed event - notify that someone else claimed the order
