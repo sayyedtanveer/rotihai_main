@@ -147,6 +147,12 @@ export default function DeliveryDashboard() {
   const claimOrderMutation = useMutation({
     mutationFn: async (orderId: string) => {
       const response = await apiRequest("POST", `/api/delivery/orders/${orderId}/claim`);
+      if (!response.ok) {
+        const data = await response.json();
+        const error = new Error(data?.message || "Failed to claim order");
+        (error as any).response = { data };
+        throw error;
+      }
       return response.json();
     },
     onSuccess: () => {
@@ -158,9 +164,9 @@ export default function DeliveryDashboard() {
       toast({ title: "Order claimed successfully! You can now pick it up." });
     },
     onError: (error: any) => {
-      const errorMessage = error.response?.data?.message || error.message || "Failed to claim order";
+      const errorMessage = error?.message || "Unable to claim this order";
       toast({ 
-        title: "Failed to claim order", 
+        title: "❌ Cannot claim order", 
         description: errorMessage,
         variant: "destructive" 
       });
@@ -170,6 +176,12 @@ export default function DeliveryDashboard() {
   const acceptOrderMutation = useMutation({
     mutationFn: async (orderId: string) => {
       const response = await apiRequest("POST", `/api/delivery/orders/${orderId}/accept`);
+      if (!response.ok) {
+        const data = await response.json();
+        const error = new Error(data?.message || "Failed to accept order");
+        (error as any).response = { data };
+        throw error;
+      }
       return response.json();
     },
     onSuccess: () => {
@@ -178,11 +190,25 @@ export default function DeliveryDashboard() {
       queryClient.invalidateQueries({ queryKey: ["/api/delivery/earnings"] });
       toast({ title: "Order accepted successfully" });
     },
+    onError: (error: any) => {
+      const errorMessage = error?.message || "Failed to accept order";
+      toast({
+        title: "Failed to accept order",
+        description: errorMessage,
+        variant: "destructive"
+      });
+    },
   });
 
   const pickupOrderMutation = useMutation({
     mutationFn: async (orderId: string) => {
       const response = await apiRequest("POST", `/api/delivery/orders/${orderId}/pickup`);
+      if (!response.ok) {
+        const data = await response.json();
+        const error = new Error(data?.message || "Failed to pick up order");
+        (error as any).response = { data };
+        throw error;
+      }
       return response.json();
     },
     onSuccess: () => {
@@ -191,11 +217,25 @@ export default function DeliveryDashboard() {
       queryClient.invalidateQueries({ queryKey: ["/api/delivery/earnings"] });
       toast({ title: "Order picked up successfully" });
     },
+    onError: (error: any) => {
+      const errorMessage = error?.message || "Failed to pick up order";
+      toast({
+        title: "Failed to pick up order",
+        description: errorMessage,
+        variant: "destructive"
+      });
+    },
   });
 
   const deliverOrderMutation = useMutation({
     mutationFn: async (orderId: string) => {
       const response = await apiRequest("POST", `/api/delivery/orders/${orderId}/deliver`);
+      if (!response.ok) {
+        const data = await response.json();
+        const error = new Error(data?.message || "Failed to mark order delivered");
+        (error as any).response = { data };
+        throw error;
+      }
       return response.json();
     },
     onSuccess: () => {
@@ -203,6 +243,14 @@ export default function DeliveryDashboard() {
       queryClient.invalidateQueries({ queryKey: ["/api/delivery/stats"] });
       queryClient.invalidateQueries({ queryKey: ["/api/delivery/earnings"] });
       toast({ title: "Order delivered successfully" });
+    },
+    onError: (error: any) => {
+      const errorMessage = error?.message || "Failed to mark order delivered";
+      toast({
+        title: "Failed to mark order delivered",
+        description: errorMessage,
+        variant: "destructive"
+      });
     },
   });
 
