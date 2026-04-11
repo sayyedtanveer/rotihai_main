@@ -6,7 +6,7 @@ import { registerAdminRoutes } from "./adminRoutes";
 import { registerPartnerRoutes } from "./partnerRoutes";
 import { registerDeliveryRoutes } from "./deliveryRoutes";
 import gpayVerificationRoutes from "./routes/gpay-verification";
-import { setupWebSocket, broadcastNewOrder, broadcastOrderUpdate, broadcastSubscriptionDelivery, broadcastNewSubscriptionToAdmin, broadcastSubscriptionAssignmentToPartner, broadcastWalletUpdate, broadcastOrderCancelledToDelivery } from "./websocket";
+import { setupWebSocket, broadcastNewOrder, broadcastOrderUpdate, broadcastSubscriptionDelivery, broadcastNewSubscriptionToAdmin, broadcastSubscriptionAssignmentToPartner, broadcastWalletUpdate, broadcastOrderCancelledToDelivery, broadcastPreparedOrderToAvailableDelivery } from "./websocket";
 import { hashPassword, verifyPassword, generateAccessToken, generateRefreshToken, requireUser, type AuthenticatedUserRequest } from "./userAuth";
 import { verifyToken as verifyUserToken } from "./userAuth";
 import { requireAdmin } from "./adminAuth";
@@ -2588,6 +2588,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         console.log(`✅ [ATOMIC] Payment confirmed - Order marked paid + Wallet deducted`);
+
+        // 📢 BROADCAST ON PAYMENT CONFIRMATION
+        if (updatedOrder) {
+          console.log(`\n📣 PAYMENT CONFIRMED - BROADCASTING TO CHEF & ALL AVAILABLE DELIVERY PERSONNEL`);
+          
+          // Broadcast to Chef/Partner
+          console.log(`\n  1️⃣ Broadcasting to Chef (chefId: ${updatedOrder.chefId})...`);
+          broadcastNewOrder(updatedOrder);
+          
+          // Broadcast to ALL available delivery personnel (regardless of assignment)
+          console.log(`  2️⃣ Broadcasting to ALL available delivery personnel...`);
+          await broadcastPreparedOrderToAvailableDelivery(updatedOrder);
+          
+          console.log(`✅ BROADCAST COMPLETE - Chef and delivery personnel notified on payment confirmation\n`);
+        }
 
       } catch (paymentError: any) {
         // ❌ If wallet deduction fails, entire payment fails

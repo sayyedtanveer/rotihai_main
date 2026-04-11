@@ -577,7 +577,28 @@ export async function broadcastPreparedOrderToAvailableDelivery(order: any) {
   const notificationStage = order.status === "accepted_by_chef" ? "CHEF_ACCEPTED" :
     order.status === "prepared" ? "FOOD_READY" : "ORDER_UPDATE";
 
-  console.log(`📣 Broadcasting order ${order.id} (status: ${order.status}, stage: ${notificationStage}) to all active delivery personnel`);
+  console.log(`
+📣 ========== BROADCAST TO AVAILABLE DELIVERY ==========`);
+  console.log(`Order: ${order.id}`);
+  console.log(`Status: ${order.status} (stage: ${notificationStage})`);
+  console.log(`Assigned To: ${order.assignedTo || 'NONE - Broadcasting to all'}`);
+  console.log(`\n📊 Total connected clients: ${clients.size}`);
+  
+  // List all connected delivery clients
+  let deliveryClientCount = 0;
+  const deliveryClientIds: string[] = [];
+  clients.forEach((client, clientId) => {
+    if (client.type === "delivery") {
+      deliveryClientCount++;
+      deliveryClientIds.push(clientId);
+      console.log(`  - Delivery client: ${clientId} (WebSocket: ${client.ws.readyState === WebSocket.OPEN ? 'OPEN' : 'CLOSED'})`)
+    }
+  });
+  console.log(`\n✓ Connected delivery clients: ${deliveryClientCount}`);
+  
+  if (deliveryClientCount === 0) {
+    console.log(`⚠️ WARNING: No delivery clients connected! Skipping real-time broadcast.`);
+  }
 
   // Import storage to check delivery personnel status
   const { storage } = await import("./storage");
@@ -585,6 +606,7 @@ export async function broadcastPreparedOrderToAvailableDelivery(order: any) {
   let deliveryPersonnelNotified = 0;
   const connectedDeliveryPersonIds = new Set<string>();
   const deliveryPersonsMap = new Map<string, any>();
+  const failedFetches: string[] = [];
 
   // PHASE 1: Collect all connected delivery person IDs & batch fetch their details in parallel
   const connectedDeliveryIds: string[] = [];
@@ -595,6 +617,9 @@ export async function broadcastPreparedOrderToAvailableDelivery(order: any) {
     }
   }
 
+  console.log(`\n🔍 PHASE 1: Fetching delivery personnel details...`);
+  console.log(`Connected delivery IDs: ${connectedDeliveryIds.length > 0 ? connectedDeliveryIds.join(", ") : "NONE"}`);
+
   // ✅ CRITICAL FIX: Batch fetch all delivery personnel in parallel (not sequential)
   if (connectedDeliveryIds.length > 0) {
     try {
@@ -602,14 +627,19 @@ export async function broadcastPreparedOrderToAvailableDelivery(order: any) {
         connectedDeliveryIds.map(id =>
           storage.getDeliveryPersonnelById(id).catch(err => {
             console.error(`⚠️ Failed to fetch delivery person ${id}:`, err);
+            failedFetches.push(id);
             return null;
           })
         )
       );
 
       results.forEach((person, index) => {
-        if (person && connectedDeliveryIds[index]) {
-          deliveryPersonsMap.set(connectedDeliveryIds[index], person);
+        const deliveryId = connectedDeliveryIds[index];
+        if (person) {
+          console.log(`  ✅ Fetched: ${deliveryId} → ${person.name} (isActive: ${person.isActive}, status: ${person.status})`);
+          deliveryPersonsMap.set(deliveryId, person);
+        } else {
+          console.log(`  ❌ Failed to fetch: ${deliveryId}`);
         }
       });
     } catch (error) {
@@ -617,40 +647,55 @@ export async function broadcastPreparedOrderToAvailableDelivery(order: any) {
     }
   }
 
+  console.log(`\n📡 PHASE 2: Sending real-time notifications...`);
+  
   // PHASE 2: Send real-time notifications using pre-fetched data (no more sequential awaits)
   for (const [deliveryPersonId, client] of Array.from(clients.entries())) {
     if (client.type === "delivery" && client.ws.readyState === WebSocket.OPEN) {
       const deliveryPerson = deliveryPersonsMap.get(deliveryPersonId);
-      if (deliveryPerson && deliveryPerson.isActive) {
-        try {
-          const message = {
-            type: "new_prepared_order",
-            order: order,
-            notificationStage: notificationStage,
-            message: notificationStage === "CHEF_ACCEPTED"
-              ? `🔔 New order alert! Chef accepted order #${order.id.slice(0, 8)} - start preparing to head out`
-              : `🍽️ Order #${order.id.slice(0, 8)} is ready for pickup!`
-          };
+      
+      if (!deliveryPerson) {
+        console.log(`  ⏭️ ${deliveryPersonId}: No person data fetched`);
+        continue;
+      }
+      
+      if (!deliveryPerson.isActive) {
+        console.log(`  ⏭️ ${deliveryPersonId} (${deliveryPerson.name}): Not active (isActive=${deliveryPerson.isActive})`);
+        continue;
+      }
+      
+      try {
+        const message = {
+          type: "new_prepared_order",
+          order: order,
+          notificationStage: notificationStage,
+          message: notificationStage === "CHEF_ACCEPTED"
+            ? `🔔 New order alert! Chef accepted order #${order.id.slice(0, 8)} - start preparing to head out`
+            : `🍽️ Order #${order.id.slice(0, 8)} is ready for pickup!`
+        };
 
-          client.ws.send(JSON.stringify(message));
-          console.log(`✅ [${notificationStage}] Sent to delivery person: ${deliveryPersonId} (${deliveryPerson.name})`);
-          deliveryPersonnelNotified++;
-        } catch (err) {
-          console.error(`❌ Failed to send notification to delivery person ${deliveryPersonId}:`, err);
-          // Continue to next delivery person - don't break the loop
-        }
+        client.ws.send(JSON.stringify(message));
+        console.log(`  ✅ Sent to: ${deliveryPersonId} (${deliveryPerson.name})`);
+        deliveryPersonnelNotified++;
+      } catch (err) {
+        console.error(`  ❌ Send failed to ${deliveryPersonId} (${deliveryPerson.name}):`, err);
+        // Continue to next delivery person - don't break the loop
       }
     }
   }
 
-  // PHASE 2: Create pending broadcasts for OFFLINE delivery personnel (so they get notified when they come online)
+  console.log(`\n💾 PHASE 3: Saving pending broadcasts for offline personnel...`);
+  // PHASE 3: Create pending broadcasts for OFFLINE delivery personnel (so they get notified when they come online)
   try {
     const activeDeliveryPersonnel = await storage.getAvailableDeliveryPersonnel();
+    let pendingSaved = 0;
+    
+    console.log(`Total active delivery personnel in DB: ${activeDeliveryPersonnel.length}`);
 
     for (const deliveryPerson of activeDeliveryPersonnel) {
       // Only save pending broadcast if NOT already connected
       if (!connectedDeliveryPersonIds.has(deliveryPerson.id)) {
-        console.log(`⏳ [${notificationStage}] Saving pending broadcast for offline delivery person: ${deliveryPerson.id} (${deliveryPerson.name})`);
+        console.log(`  ⏳ Saving pending for offline: ${deliveryPerson.id} (${deliveryPerson.name})`);
         savePendingBroadcast(deliveryPerson.id, "delivery", "new_prepared_order", {
           order: order,
           notificationStage: notificationStage,
@@ -658,8 +703,10 @@ export async function broadcastPreparedOrderToAvailableDelivery(order: any) {
             ? `🔔 New order alert! Chef accepted order #${order.id.slice(0, 8)} - start preparing to head out`
             : `🍽️ Order #${order.id.slice(0, 8)} is ready for pickup!`
         });
+        pendingSaved++;
       }
     }
+    console.log(`  ✅ Pending broadcasts saved: ${pendingSaved}`);
   } catch (error) {
     console.error(`⚠️ Error saving pending broadcasts for offline delivery personnel:`, error);
     // Don't fail the broadcast if pending broadcasts fail
@@ -680,6 +727,10 @@ export async function broadcastPreparedOrderToAvailableDelivery(order: any) {
 
   preparedOrderTimeouts.set(order.id, timeout);
 
+  console.log(`\n📊 BROADCAST SUMMARY`);
+  console.log(`Real-time notified: ${deliveryPersonnelNotified}`);
+  console.log(`Failed fetches: ${failedFetches.length > 0 ? failedFetches.join(", ") : "none"}`);
+  
   if (deliveryPersonnelNotified === 0) {
     console.log(`⚠️ WARNING: No available delivery personnel to notify for order ${order.id}`);
     console.log(`⚠️ Notifying admin immediately for manual assignment`);
@@ -688,9 +739,11 @@ export async function broadcastPreparedOrderToAvailableDelivery(order: any) {
     preparedOrderTimeouts.delete(order.id);
     await notifyAdminForManualAssignment(order.id);
   } else {
-    console.log(`✅ Notified ${deliveryPersonnelNotified} delivery personnel about order ${order.id}`);
+    console.log(`✅ Successfully notified ${deliveryPersonnelNotified} delivery personnel`);
     console.log(`⏰ Timeout set: Admin will be notified in 5 minutes if no one accepts`);
   }
+  
+  console.log(`================================================\n`);
 }
 
 // Function to notify admin when manual assignment is needed
