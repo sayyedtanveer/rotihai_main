@@ -158,9 +158,10 @@ export default function DeliveryDashboard() {
       toast({ title: "Order claimed successfully! You can now pick it up." });
     },
     onError: (error: any) => {
+      const errorMessage = error.response?.data?.message || error.message || "Failed to claim order";
       toast({ 
         title: "Failed to claim order", 
-        description: error.message,
+        description: errorMessage,
         variant: "destructive" 
       });
     },
