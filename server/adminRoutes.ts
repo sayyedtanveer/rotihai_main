@@ -4360,11 +4360,21 @@ export function registerAdminRoutes(app: Express) {
   // Helper: Update payment settings in database
   const writePaymentSettings = async (settings: any) => {
     try {
+      console.log("[PAYMENT-SETTINGS-WRITE] Starting write operation with settings:", {
+        platformFeeEnabled: settings.platformFeeEnabled,
+        platformFeeBelow100: settings.platformFeeBelow100,
+        platformFeeBelow200: settings.platformFeeBelow200,
+        platformFeeAbove200: settings.platformFeeAbove200,
+      });
+
       const existing = await db.query.paymentSettings.findFirst();
+      console.log("[PAYMENT-SETTINGS-WRITE] Existing record found:", !!existing, existing?.id);
       
       let result;
       if (existing) {
         // Update existing record
+        console.log("[PAYMENT-SETTINGS-WRITE] Executing UPDATE for ID:", existing.id);
+        
         const updated = await db.update(paymentSettings)
           .set({
             merchantPhone: settings.merchantPhone,
@@ -4379,22 +4389,45 @@ export function registerAdminRoutes(app: Express) {
           })
           .where(eq(paymentSettings.id, existing.id))
           .returning();
+        
         result = updated[0];
+        console.log("[PAYMENT-SETTINGS-WRITE] ✅ UPDATE successful, result:", {
+          id: result?.id,
+          platformFeeEnabled: result?.platformFeeEnabled,
+          platformFeeBelow100: result?.platformFeeBelow100,
+        });
       } else {
         // Insert new record
+        console.log("[PAYMENT-SETTINGS-WRITE] No existing record, executing INSERT");
+        
         const inserted = await db.insert(paymentSettings)
-          .values(settings)
+          .values({
+            merchantPhone: settings.merchantPhone,
+            merchantName: settings.merchantName,
+            upiId: settings.upiId,
+            supportPhone: settings.supportPhone,
+            platformFeeEnabled: settings.platformFeeEnabled,
+            platformFeeBelow100: settings.platformFeeBelow100,
+            platformFeeBelow200: settings.platformFeeBelow200,
+            platformFeeAbove200: settings.platformFeeAbove200,
+          })
           .returning();
+        
         result = inserted[0];
+        console.log("[PAYMENT-SETTINGS-WRITE] ✅ INSERT successful, result:", {
+          id: result?.id,
+          platformFeeEnabled: result?.platformFeeEnabled,
+        });
       }
       
-      console.log("[PAYMENT-SETTINGS] Updated in database:", { 
-        merchantPhone: settings.merchantPhone, 
-        platformFeeEnabled: settings.platformFeeEnabled 
-      });
+      console.log("[PAYMENT-SETTINGS-WRITE] ✅ Database operation complete, returning result");
       return result;
     } catch (error) {
-      console.error("[PAYMENT-SETTINGS] Error updating database:", error);
+      console.error("[PAYMENT-SETTINGS-WRITE] ❌ ERROR:", {
+        message: (error as any)?.message,
+        code: (error as any)?.code,
+        detail: (error as any)?.detail,
+      });
       throw error;
     }
   };
@@ -4424,7 +4457,18 @@ export function registerAdminRoutes(app: Express) {
   // Admin: Save payment settings
   app.post("/api/admin/payment-settings", requireAdmin(), async (req: AuthenticatedAdminRequest, res) => {
     try {
+      console.log("[ADMIN-PAYMENT-SETTINGS] POST request received with body:", req.body);
+      
       const { merchantPhone, upiId, merchantName, supportPhone, platformFeeEnabled, platformFeeBelow100, platformFeeBelow200, platformFeeAbove200 } = req.body;
+
+      console.log("[ADMIN-PAYMENT-SETTINGS] Extracted fields:", {
+        merchantPhone,
+        merchantName,
+        platformFeeEnabled,
+        platformFeeBelow100,
+        platformFeeBelow200,
+        platformFeeAbove200,
+      });
 
       // Validate required fields
       if (!merchantPhone || !merchantName) {
@@ -4440,6 +4484,8 @@ export function registerAdminRoutes(app: Express) {
       }
 
       // Save to database
+      console.log("[ADMIN-PAYMENT-SETTINGS] Calling writePaymentSettings()...");
+      
       const settings = await writePaymentSettings({
         merchantPhone,
         upiId: upiId || process.env.VITE_UPI_ID || "sayyedtanveer1410-1@oksbi",
@@ -4451,13 +4497,20 @@ export function registerAdminRoutes(app: Express) {
         platformFeeAbove200: Number(platformFeeAbove200) || 0,
       });
 
-      console.log("✅ Admin updated payment settings:", { merchantPhone, merchantName, platformFeeEnabled });
+      console.log("[ADMIN-PAYMENT-SETTINGS] ✅ Settings saved, returned data:", {
+        id: settings?.id,
+        platformFeeEnabled: settings?.platformFeeEnabled,
+        platformFeeBelow100: settings?.platformFeeBelow100,
+        platformFeeBelow200: settings?.platformFeeBelow200,
+        platformFeeAbove200: settings?.platformFeeAbove200,
+      });
+
       res.json({
         message: "Payment settings updated successfully",
         settings,
       });
     } catch (error: any) {
-      console.error("Error updating payment settings:", error);
+      console.error("[ADMIN-PAYMENT-SETTINGS] ❌ Error updating payment settings:", error);
       res.status(500).json({ message: error.message || "Failed to update payment settings" });
     }
   });

@@ -19,7 +19,7 @@ const enableVite = process.env.ENABLE_VITE === "true";
 // 🔒 DATABASE SAFETY CHECK: Prevent dev from using prod database (unless explicitly allowed)
 if (enableVite) {
   const dbUrl = process.env.DATABASE_URL || "";
-  const allowProdDb = process.env.ALLOW_PROD_DB_IN_DEV === "false";
+  const allowProdDb = process.env.ALLOW_PROD_DB_IN_DEV === "true";  // ✅ FIXED: Check for "true"
   
   if (dbUrl.includes("rotihai_prod") && !allowProdDb) {
     console.error("❌ ❌ ❌ CRITICAL ERROR ❌ ❌ ❌");

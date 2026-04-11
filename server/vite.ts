@@ -39,7 +39,8 @@ const loadVite = async () => {
   if (!viteConfig) {
     try {
       // @ts-ignore - vite.config only exists when ENABLE_VITE=true
-      const config = await import("../../vite.config");
+      // ✅ FIXED: ../vite.config.ts points to project root (one level up from server/)
+      const config = await import("../vite.config.ts");
       viteConfig = config.default;
     } catch (error) {
       console.error("❌ Failed to load vite.config:", error);

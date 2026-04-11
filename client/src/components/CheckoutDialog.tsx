@@ -533,6 +533,7 @@ export default function CheckoutDialog({
   });
 
   // ✅ FIX 1: Referral input visibility logic
+  // Show ONLY for brand new users (no account yet or first order)
   // Hide if: user already has an active referral (pendingBonus) OR has placed orders before
   const hasUsedReferral = isAuthenticated && !!user?.pendingBonus;
   const hasPlacedOrder = isAuthenticated && Array.isArray(userOrders) && userOrders.length > 0;
@@ -3606,11 +3607,52 @@ export default function CheckoutDialog({
 
                         {/* 🆕 Platform Fee (Convenience Fee) - Always show if enabled */}
                         {platformFeeConfig?.platformFeeEnabled && (
-                          <div className="flex justify-between text-sm">
-                            <span>Platform Fee (Convenience):</span>
-                            <span className={platformFee > 0 ? "font-medium" : "text-gray-500"}>
-                              ₹{platformFee.toFixed(2)}
-                            </span>
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-sm">
+                              <span>Platform Fee (Convenience):</span>
+                              <span className={platformFee > 0 ? "font-medium" : "text-gray-500"}>
+                                ₹{platformFee.toFixed(2)}
+                              </span>
+                            </div>
+                            
+                            {/* 🎉 Dynamic message when platform fee is 0 */}
+                            {platformFee === 0 && (
+                              <p className="text-xs text-green-600 dark:text-green-400 font-medium text-right">
+                                ✨ No platform fee for this order!
+                              </p>
+                            )}
+                            
+                            {/* 💡 Helpful message: Dynamic tier-based incentive (checks DB for zero-fee tier) */}
+                            {platformFee > 0 && (() => {
+                              // Helper: Calculate fee for any amount based on DB config
+                              const calculateFeeForAmount = (amount: number): number => {
+                                if (amount < 100) return platformFeeConfig?.platformFeeBelow100 || 0;
+                                if (amount < 200) return platformFeeConfig?.platformFeeBelow200 || 0;
+                                return platformFeeConfig?.platformFeeAbove200 || 0;
+                              };
+                              
+                              // Find the next tier where fee is 0
+                              let nextZeroFeeTier = null;
+                              const tierBoundaries = [100, 200];
+                              
+                              for (const boundary of tierBoundaries) {
+                                if (subtotal < boundary && calculateFeeForAmount(boundary) === 0) {
+                                  nextZeroFeeTier = boundary;
+                                  break;
+                                }
+                              }
+                              
+                              // Show message only if there's a reachable zero-fee tier
+                              if (nextZeroFeeTier) {
+                                const amountNeeded = (nextZeroFeeTier - subtotal).toFixed(0);
+                                return (
+                                  <p className="text-xs text-blue-600 dark:text-blue-400 font-medium text-right">
+                                    💡 Add ₹{amountNeeded} more to waive platform fee!
+                                  </p>
+                                );
+                              }
+                              return null;
+                            })()}
                           </div>
                         )}
 

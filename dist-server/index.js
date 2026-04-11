@@ -6466,6 +6466,105 @@ var init_pushService = __esm({
   }
 });
 
+// vite.config.ts
+var vite_config_exports = {};
+__export(vite_config_exports, {
+  default: () => vite_config_default
+});
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import path from "path";
+import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
+import fs from "fs";
+var versionPlugin, vite_config_default;
+var init_vite_config = __esm({
+  "vite.config.ts"() {
+    "use strict";
+    versionPlugin = {
+      name: "version-plugin",
+      apply: "build",
+      enforce: "post",
+      generateBundle() {
+        const now = /* @__PURE__ */ new Date();
+        const version = now.toISOString();
+        const timestamp2 = Date.now();
+        const buildId = `${timestamp2}-${Math.random().toString(36).substr(2, 9)}`;
+        const versionJson = JSON.stringify({
+          version,
+          timestamp: timestamp2,
+          buildId,
+          buildDate: now.toLocaleString()
+        }, null, 2);
+        console.log(`\u{1F4E6} Version plugin: Generated version ${buildId}`);
+        this.emitFile({
+          type: "asset",
+          fileName: "version.json",
+          source: versionJson
+        });
+        try {
+          const swSource = fs.readFileSync(
+            path.resolve(import.meta.dirname, "client", "public", "sw.js"),
+            "utf-8"
+          );
+          const swWithBuildId = swSource.replace("__SW_BUILD_ID__", `v-${buildId}`);
+          this.emitFile({
+            type: "asset",
+            fileName: "sw.js",
+            source: swWithBuildId
+          });
+          console.log(`\u{1F4E6} Version plugin: Injected build ID into sw.js \u2192 v-${buildId}`);
+        } catch (err) {
+          console.warn("\u26A0\uFE0F Version plugin: Could not inject build ID into sw.js:", err);
+        }
+      }
+    };
+    vite_config_default = defineConfig({
+      plugins: [
+        react(),
+        runtimeErrorOverlay(),
+        versionPlugin
+      ],
+      define: {
+        // Inject build timestamp for cache-busting (available as import.meta.env.VITE_BUILD_TIME)
+        "import.meta.env.VITE_BUILD_TIME": JSON.stringify(Date.now().toString())
+      },
+      resolve: {
+        alias: {
+          "@": path.resolve(import.meta.dirname, "client", "src"),
+          "@shared": path.resolve(import.meta.dirname, "shared"),
+          "@assets": path.resolve(import.meta.dirname, "attached_assets")
+        }
+      },
+      root: path.resolve(import.meta.dirname, "client"),
+      build: {
+        outDir: path.resolve(import.meta.dirname, "dist/public"),
+        emptyOutDir: true,
+        rollupOptions: {
+          output: {
+            // Disable aggressive caching - add timestamp to output files
+            entryFileNames: "[name].[hash].js",
+            chunkFileNames: "[name].[hash].js",
+            assetFileNames: "[name].[hash][extname]"
+          }
+        }
+      },
+      server: {
+        host: "0.0.0.0",
+        fs: {
+          strict: false
+        },
+        allowedHosts: true,
+        // Disable caching in dev mode - always fresh
+        middlewareMode: false,
+        hmr: {
+          host: "localhost",
+          port: 5173
+        }
+      }
+    });
+  }
+});
+
 // server/vite.ts
 var vite_exports = {};
 __export(vite_exports, {
@@ -6474,8 +6573,8 @@ __export(vite_exports, {
   setupVite: () => setupVite
 });
 import express from "express";
-import fs from "fs";
-import path from "path";
+import fs2 from "fs";
+import path2 from "path";
 import { nanoid as nanoid2 } from "nanoid";
 function log(message, source = "express") {
   const formattedTime = (/* @__PURE__ */ new Date()).toLocaleTimeString("en-US", {
@@ -6518,13 +6617,13 @@ async function setupVite(app2, server) {
     app2.use("*", async (req, res, next) => {
       const url = req.originalUrl;
       try {
-        const clientTemplate = path.resolve(
+        const clientTemplate = path2.resolve(
           import.meta.dirname,
           "..",
           "client",
           "index.html"
         );
-        let template = await fs.promises.readFile(clientTemplate, "utf-8");
+        let template = await fs2.promises.readFile(clientTemplate, "utf-8");
         template = template.replace(
           `src="/src/main.tsx"`,
           `src="/src/main.tsx?v=${nanoid2()}"`
@@ -6542,8 +6641,8 @@ async function setupVite(app2, server) {
   }
 }
 function serveStatic(app2) {
-  const distPath = path.resolve(import.meta.dirname, "..", "dist", "public");
-  if (!fs.existsSync(distPath)) {
+  const distPath = path2.resolve(import.meta.dirname, "..", "dist", "public");
+  if (!fs2.existsSync(distPath)) {
     const errorMsg = `\u274C CRITICAL: Frontend build not found: ${distPath}
     
     Cause: 'npm run build:client' was not run before deployment
@@ -6579,7 +6678,7 @@ function serveStatic(app2) {
       res.status(404).json({ message: "API endpoint not found" });
       return;
     }
-    res.sendFile(path.resolve(distPath, "index.html"));
+    res.sendFile(path2.resolve(distPath, "index.html"));
   });
 }
 var enableVite, createViteServer, createLogger, viteConfig, loadVite, getViteLogger;
@@ -6606,7 +6705,7 @@ var init_vite = __esm({
       }
       if (!viteConfig) {
         try {
-          const config = await import("../../vite.config");
+          const config = await Promise.resolve().then(() => (init_vite_config(), vite_config_exports));
           viteConfig = config.default;
         } catch (error) {
           console.error("\u274C Failed to load vite.config:", error);
@@ -10602,9 +10701,17 @@ function registerAdminRoutes(app2) {
   };
   const writePaymentSettings = async (settings) => {
     try {
+      console.log("[PAYMENT-SETTINGS-WRITE] Starting write operation with settings:", {
+        platformFeeEnabled: settings.platformFeeEnabled,
+        platformFeeBelow100: settings.platformFeeBelow100,
+        platformFeeBelow200: settings.platformFeeBelow200,
+        platformFeeAbove200: settings.platformFeeAbove200
+      });
       const existing = await db.query.paymentSettings.findFirst();
+      console.log("[PAYMENT-SETTINGS-WRITE] Existing record found:", !!existing, existing?.id);
       let result;
       if (existing) {
+        console.log("[PAYMENT-SETTINGS-WRITE] Executing UPDATE for ID:", existing.id);
         const updated = await db.update(paymentSettings2).set({
           merchantPhone: settings.merchantPhone,
           merchantName: settings.merchantName,
@@ -10617,17 +10724,37 @@ function registerAdminRoutes(app2) {
           updatedAt: /* @__PURE__ */ new Date()
         }).where(eq2(paymentSettings2.id, existing.id)).returning();
         result = updated[0];
+        console.log("[PAYMENT-SETTINGS-WRITE] \u2705 UPDATE successful, result:", {
+          id: result?.id,
+          platformFeeEnabled: result?.platformFeeEnabled,
+          platformFeeBelow100: result?.platformFeeBelow100
+        });
       } else {
-        const inserted = await db.insert(paymentSettings2).values(settings).returning();
+        console.log("[PAYMENT-SETTINGS-WRITE] No existing record, executing INSERT");
+        const inserted = await db.insert(paymentSettings2).values({
+          merchantPhone: settings.merchantPhone,
+          merchantName: settings.merchantName,
+          upiId: settings.upiId,
+          supportPhone: settings.supportPhone,
+          platformFeeEnabled: settings.platformFeeEnabled,
+          platformFeeBelow100: settings.platformFeeBelow100,
+          platformFeeBelow200: settings.platformFeeBelow200,
+          platformFeeAbove200: settings.platformFeeAbove200
+        }).returning();
         result = inserted[0];
+        console.log("[PAYMENT-SETTINGS-WRITE] \u2705 INSERT successful, result:", {
+          id: result?.id,
+          platformFeeEnabled: result?.platformFeeEnabled
+        });
       }
-      console.log("[PAYMENT-SETTINGS] Updated in database:", {
-        merchantPhone: settings.merchantPhone,
-        platformFeeEnabled: settings.platformFeeEnabled
-      });
+      console.log("[PAYMENT-SETTINGS-WRITE] \u2705 Database operation complete, returning result");
       return result;
     } catch (error) {
-      console.error("[PAYMENT-SETTINGS] Error updating database:", error);
+      console.error("[PAYMENT-SETTINGS-WRITE] \u274C ERROR:", {
+        message: error?.message,
+        code: error?.code,
+        detail: error?.detail
+      });
       throw error;
     }
   };
@@ -10651,7 +10778,16 @@ function registerAdminRoutes(app2) {
   });
   app2.post("/api/admin/payment-settings", requireAdmin(), async (req, res) => {
     try {
+      console.log("[ADMIN-PAYMENT-SETTINGS] POST request received with body:", req.body);
       const { merchantPhone, upiId, merchantName, supportPhone, platformFeeEnabled, platformFeeBelow100, platformFeeBelow200, platformFeeAbove200 } = req.body;
+      console.log("[ADMIN-PAYMENT-SETTINGS] Extracted fields:", {
+        merchantPhone,
+        merchantName,
+        platformFeeEnabled,
+        platformFeeBelow100,
+        platformFeeBelow200,
+        platformFeeAbove200
+      });
       if (!merchantPhone || !merchantName) {
         res.status(400).json({ message: "Merchant phone and name are required" });
         return;
@@ -10661,6 +10797,7 @@ function registerAdminRoutes(app2) {
         res.status(400).json({ message: "Invalid merchant phone number. Use 10 digits or +91 format." });
         return;
       }
+      console.log("[ADMIN-PAYMENT-SETTINGS] Calling writePaymentSettings()...");
       const settings = await writePaymentSettings({
         merchantPhone,
         upiId: upiId || process.env.VITE_UPI_ID || "sayyedtanveer1410-1@oksbi",
@@ -10671,13 +10808,19 @@ function registerAdminRoutes(app2) {
         platformFeeBelow200: Number(platformFeeBelow200) || 0,
         platformFeeAbove200: Number(platformFeeAbove200) || 0
       });
-      console.log("\u2705 Admin updated payment settings:", { merchantPhone, merchantName, platformFeeEnabled });
+      console.log("[ADMIN-PAYMENT-SETTINGS] \u2705 Settings saved, returned data:", {
+        id: settings?.id,
+        platformFeeEnabled: settings?.platformFeeEnabled,
+        platformFeeBelow100: settings?.platformFeeBelow100,
+        platformFeeBelow200: settings?.platformFeeBelow200,
+        platformFeeAbove200: settings?.platformFeeAbove200
+      });
       res.json({
         message: "Payment settings updated successfully",
         settings
       });
     } catch (error) {
-      console.error("Error updating payment settings:", error);
+      console.error("[ADMIN-PAYMENT-SETTINGS] \u274C Error updating payment settings:", error);
       res.status(500).json({ message: error.message || "Failed to update payment settings" });
     }
   });
@@ -17351,7 +17494,7 @@ var imageExists = (filename) => {
 var enableVite2 = process.env.ENABLE_VITE === "true";
 if (enableVite2) {
   const dbUrl = process.env.DATABASE_URL || "";
-  const allowProdDb = process.env.ALLOW_PROD_DB_IN_DEV === "false";
+  const allowProdDb = process.env.ALLOW_PROD_DB_IN_DEV === "true";
   if (dbUrl.includes("rotihai_prod") && !allowProdDb) {
     console.error("\u274C \u274C \u274C CRITICAL ERROR \u274C \u274C \u274C");
     console.error("DEV SERVER IS USING PRODUCTION DATABASE!");
@@ -17479,7 +17622,7 @@ app.use((req, res, next) => {
 });
 app.use((req, res, next) => {
   const start = Date.now();
-  const path2 = req.path;
+  const path3 = req.path;
   let capturedJsonResponse = void 0;
   const originalResJson = res.json;
   res.json = function(bodyJson, ...args) {
@@ -17488,8 +17631,8 @@ app.use((req, res, next) => {
   };
   res.on("finish", () => {
     const duration = Date.now() - start;
-    if (path2.startsWith("/api")) {
-      let logLine = `${req.method} ${path2} ${res.statusCode} in ${duration}ms`;
+    if (path3.startsWith("/api")) {
+      let logLine = `${req.method} ${path3} ${res.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
