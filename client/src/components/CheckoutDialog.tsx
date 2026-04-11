@@ -32,6 +32,7 @@ import { Loader2, Clock, MapPin, CheckCircle2 } from "lucide-react";
 import { getDeliveryMessage, calculateDistance as calculateDistanceLoc } from "@/lib/locationUtils";
 import { calculateDistance, calculateDelivery } from "@shared/deliveryUtils";
 import api from "@/lib/apiClient";
+import { getApiUrl } from "@/lib/apiBase";
 import { useDeliveryLocation } from "@/contexts/DeliveryLocationContext";
 import { getAreaSuggestions } from "@/lib/deliveryAreas";
 import { getStoredPincodeValidation } from "@/lib/pincodeUtils";
@@ -1408,7 +1409,7 @@ export default function CheckoutDialog({
     const fetchPlatformFeeConfig = async () => {
       try {
         console.log("[CHECKOUT] Fetching platform fee config from /api/payment-settings...");
-        const response = await fetch("/api/payment-settings");
+        const response = await fetch(getApiUrl("/api/payment-settings"));
         if (response.ok) {
           const config = await response.json();
           setPlatformFeeConfig(config);
