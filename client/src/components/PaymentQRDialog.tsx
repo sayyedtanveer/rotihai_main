@@ -91,14 +91,22 @@ export default function PaymentQRDialog({
   useEffect(() => {
     const fetchPaymentSettings = async () => {
       try {
-        const response = await fetch(getApiUrl("/api/payment-settings"));
+        const url = getApiUrl("/api/payment-settings");
+        console.log("[PAYMENT QR] DEBUG: Calling API URL:", url);
+        
+        const response = await fetch(url);
+        console.log("[PAYMENT QR] DEBUG: Response status:", response.status, response.statusText);
+        
         if (response.ok) {
           const settings = await response.json();
           setPaymentSettings(settings);
-          console.log("[PAYMENT QR] Fetched payment settings:", settings);
+          console.log("[PAYMENT QR] ✅ Fetched payment settings:", settings);
+        } else {
+          const errorText = await response.text();
+          console.warn("[PAYMENT QR] ❌ API returned error:", response.status, errorText);
         }
       } catch (error) {
-        console.warn("[PAYMENT QR] Failed to fetch payment settings, using defaults:", error);
+        console.warn("[PAYMENT QR] ❌ Failed to fetch payment settings:", error);
         // Use defaults if fetch fails
       }
     };
