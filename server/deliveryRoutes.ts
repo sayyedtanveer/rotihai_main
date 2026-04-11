@@ -63,7 +63,7 @@ export function registerDeliveryRoutes(app: Express) {
       // Get all orders
       const allOrders = await storage.getAllOrders();
       const claimableOrders = allOrders.filter(order => {
-        const validStatuses = ["confirmed", "accepted_by_chef", "preparing", "prepared"];
+        const validStatuses = ["accepted_by_chef", "prepared"];
         return validStatuses.includes(order.status) && !order.assignedTo;
       });
 
@@ -220,7 +220,7 @@ export function registerDeliveryRoutes(app: Express) {
       const availableOrders = allOrders.filter(order => {
         // ✅ FIXED: Show orders as soon as payment is confirmed, chef accepts, or food is ready
         // "confirmed" = payment just confirmed (delivery boys can see immediately)
-        // "accepted_by_chef" = chef accepted the order
+        // "accepted_by_chef" = chef accepted the order (now claimable)
         // "prepared" = food is ready for pickup
         const validStatuses = ["confirmed", "accepted_by_chef", "prepared"];
         const isValid = validStatuses.includes(order.status) && !order.assignedTo;

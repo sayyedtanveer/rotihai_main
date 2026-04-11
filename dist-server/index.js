@@ -2753,8 +2753,7 @@ var init_storage = __esm({
               assignedTo: deliveryPersonId,
               assignedAt: /* @__PURE__ */ new Date(),
               deliveryPersonName: deliveryPerson.name,
-              deliveryPersonPhone: deliveryPerson.phone,
-              status: "assigned"
+              deliveryPersonPhone: deliveryPerson.phone
             }).where(and(eq(orders2.id, orderId), isNull(orders2.assignedTo))).returning();
             if (!updatedOrder) {
               return null;
@@ -8004,16 +8003,28 @@ function registerAdminRoutes(app2) {
         res.status(400).json({ message: "Delivery person is not active" });
         return;
       }
-      let order = await storage.assignOrderToDeliveryPerson(id, deliveryPersonId);
+      const order = await storage.getOrderById(id);
       if (!order) {
         res.status(404).json({ message: "Order not found" });
         return;
       }
+      const claimableStatuses = ["accepted_by_chef", "prepared"];
+      if (!claimableStatuses.includes(order.status)) {
+        return res.status(400).json({
+          message: `Cannot assign delivery person. Order status is "${order.status}". Order must be in "accepted_by_chef" or "prepared" status.`,
+          currentStatus: order.status
+        });
+      }
+      let assignedOrder = await storage.assignOrderToDeliveryPerson(id, deliveryPersonId);
+      if (!assignedOrder) {
+        res.status(404).json({ message: "Order could not be assigned (already assigned or not found)" });
+        return;
+      }
       cancelPreparedOrderTimeout(id);
       console.log(`\u2705 Admin assigned order ${id} to ${deliveryPerson.name} (${deliveryPerson.phone})`);
-      broadcastOrderUpdate(order);
-      notifyDeliveryAssignment(order, deliveryPersonId);
-      res.json(order);
+      broadcastOrderUpdate(assignedOrder);
+      notifyDeliveryAssignment(assignedOrder, deliveryPersonId);
+      res.json(assignedOrder);
     } catch (error) {
       console.error("Assign order error:", error);
       res.status(500).json({ message: "Failed to assign order" });
@@ -11559,7 +11570,7 @@ function registerPartnerRoutes(app2) {
       }
       console.log(`\u{1F504} Chef ${req.partner?.chefId} accepting order ${orderId}`);
       const [updatedOrder] = await db.update(orders2).set({
-        status: "preparing",
+        status: "accepted_by_chef",
         approvedBy: partnerId,
         approvedAt: /* @__PURE__ */ new Date()
       }).where(eq3(orders2.id, orderId)).returning();
@@ -12094,7 +12105,7 @@ function registerDeliveryRoutes(app2) {
       }
       const allOrders = await storage.getAllOrders();
       const claimableOrders = allOrders.filter((order) => {
-        const validStatuses = ["confirmed", "accepted_by_chef", "preparing", "prepared"];
+        const validStatuses = ["accepted_by_chef", "prepared"];
         return validStatuses.includes(order.status) && !order.assignedTo;
       });
       res.json({

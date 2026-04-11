@@ -766,10 +766,26 @@ export function registerAdminRoutes(app: Express) {
         return;
       }
 
-      // First assign the delivery person (this will populate name and phone)
-      let order = await storage.assignOrderToDeliveryPerson(id, deliveryPersonId);
+      // Check order status — can only assign after chef accepts
+      const order = await storage.getOrderById(id);
       if (!order) {
         res.status(404).json({ message: "Order not found" });
+        return;
+      }
+
+      // ✅ IMPORTANT: Same validation as delivery boy claiming (only assign claimable statuses)
+      const claimableStatuses = ["accepted_by_chef", "prepared"];
+      if (!claimableStatuses.includes(order.status)) {
+        return res.status(400).json({ 
+          message: `Cannot assign delivery person. Order status is "${order.status}". Order must be in "accepted_by_chef" or "prepared" status.`,
+          currentStatus: order.status
+        });
+      }
+
+      // First assign the delivery person (this will populate name and phone)
+      let assignedOrder = await storage.assignOrderToDeliveryPerson(id, deliveryPersonId);
+      if (!assignedOrder) {
+        res.status(404).json({ message: "Order could not be assigned (already assigned or not found)" });
         return;
       }
 
@@ -778,9 +794,9 @@ export function registerAdminRoutes(app: Express) {
 
       console.log(`✅ Admin assigned order ${id} to ${deliveryPerson.name} (${deliveryPerson.phone})`);
 
-      broadcastOrderUpdate(order);
-      notifyDeliveryAssignment(order, deliveryPersonId);
-      res.json(order);
+      broadcastOrderUpdate(assignedOrder);
+      notifyDeliveryAssignment(assignedOrder, deliveryPersonId);
+      res.json(assignedOrder);
     } catch (error) {
       console.error("Assign order error:", error);
       res.status(500).json({ message: "Failed to assign order" });
