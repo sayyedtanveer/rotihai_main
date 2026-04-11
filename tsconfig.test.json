@@ -4,5 +4,5 @@
     "noEmit": false,
     "jsx": "react-jsx"
   },
-  "include": ["__tests__/**/*", "node_modules/@types/**/*"]
+  "include": ["__tests__/**/*", "server/__tests__/**/*", "node_modules/@types/**/*"]
 }

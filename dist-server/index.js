@@ -1717,7 +1717,7 @@ var init_storage = __esm({
       // Coupons
       async verifyCoupon(code, orderAmount, userId) {
         const coupon = await db.query.coupons.findFirst({
-          where: (coupons3, { eq: eq10, and: and5 }) => and5(eq10(coupons3.code, code.toUpperCase()), eq10(coupons3.isActive, true))
+          where: (coupons3, { eq: eq10, and: and6 }) => and6(eq10(coupons3.code, code.toUpperCase()), eq10(coupons3.isActive, true))
         });
         if (!coupon) throw new Error("Invalid coupon code");
         console.log("\u{1F9FE} Coupon validity check:", {
@@ -1741,7 +1741,7 @@ var init_storage = __esm({
         }
         if (userId && coupon.perUserLimit) {
           const userUsageCount = await db.query.couponUsages.findMany({
-            where: (usages, { eq: eq10, and: and5 }) => and5(eq10(usages.couponId, coupon.id), eq10(usages.userId, userId))
+            where: (usages, { eq: eq10, and: and6 }) => and6(eq10(usages.couponId, coupon.id), eq10(usages.userId, userId))
           });
           if (userUsageCount.length >= coupon.perUserLimit) {
             throw new Error(`You have already used this coupon ${coupon.perUserLimit} time(s)`);
@@ -1787,7 +1787,7 @@ var init_storage = __esm({
       }
       async getCouponUserUsage(couponId, userId) {
         const usages = await db.query.couponUsages.findMany({
-          where: (usages2, { eq: eq10, and: and5 }) => and5(eq10(usages2.couponId, couponId), eq10(usages2.userId, userId))
+          where: (usages2, { eq: eq10, and: and6 }) => and6(eq10(usages2.couponId, couponId), eq10(usages2.userId, userId))
         });
         return usages.length;
       }
@@ -1988,7 +1988,7 @@ var init_storage = __esm({
       // Get active subscriptions count for a chef
       async getActiveSubscriptionCountByChef(chefId) {
         const result = await db.query.subscriptions.findMany({
-          where: (s, { and: and5, eq: eq10 }) => and5(
+          where: (s, { and: and6, eq: eq10 }) => and6(
             eq10(s.chefId, chefId),
             eq10(s.status, "active")
           )
@@ -1998,7 +1998,7 @@ var init_storage = __esm({
       // Find the best available chef for a category (load balancing)
       async findBestChefForCategory(categoryId) {
         const activeChefs = await db.query.chefs.findMany({
-          where: (c, { and: and5, eq: eq10 }) => and5(
+          where: (c, { and: and6, eq: eq10 }) => and6(
             eq10(c.categoryId, categoryId),
             eq10(c.isActive, true)
           )
@@ -2028,7 +2028,7 @@ var init_storage = __esm({
       // Get active subscriptions by chef
       async getActiveSubscriptionsByChef(chefId) {
         const subs = await db.query.subscriptions.findMany({
-          where: (s, { and: and5, eq: eq10 }) => and5(
+          where: (s, { and: and6, eq: eq10 }) => and6(
             eq10(s.chefId, chefId),
             eq10(s.status, "active")
           )
@@ -2038,7 +2038,7 @@ var init_storage = __esm({
       // Get active AND paused subscriptions for a chef (for partner dashboard)
       async getActiveAndPausedSubscriptionsByChef(chefId) {
         const subs = await db.query.subscriptions.findMany({
-          where: (s, { and: and5, eq: eq10, inArray: inArray2 }) => and5(
+          where: (s, { and: and6, eq: eq10, inArray: inArray2 }) => and6(
             eq10(s.chefId, chefId),
             inArray2(s.status, ["active", "paused"])
             // ✅ Include both active and paused
@@ -2059,7 +2059,7 @@ var init_storage = __esm({
         const endOfDay = new Date(date);
         endOfDay.setHours(23, 59, 59, 999);
         return db.query.subscriptionDeliveryLogs.findMany({
-          where: (log3, { and: and5, gte: gte3, lte: lte2 }) => and5(
+          where: (log3, { and: and6, gte: gte3, lte: lte2 }) => and6(
             gte3(log3.date, startOfDay),
             lte2(log3.date, endOfDay)
           )
@@ -2102,7 +2102,7 @@ var init_storage = __esm({
         const endOfDay = new Date(date);
         endOfDay.setHours(23, 59, 59, 999);
         return db.query.subscriptionDeliveryLogs.findFirst({
-          where: (log3, { and: and5, eq: eq10, gte: gte3, lte: lte2 }) => and5(
+          where: (log3, { and: and6, eq: eq10, gte: gte3, lte: lte2 }) => and6(
             eq10(log3.subscriptionId, subscriptionId),
             gte3(log3.date, startOfDay),
             lte2(log3.date, endOfDay)
@@ -2458,7 +2458,7 @@ var init_storage = __esm({
       // NEW: Get delivery settings filtered by pincode
       async getDeliverySettingsByPincode(pincode) {
         return db.query.deliverySettings.findMany({
-          where: (ds, { eq: eq10, and: and5, or: or2, isNull: isNull3 }) => and5(
+          where: (ds, { eq: eq10, and: and6, or: or2, isNull: isNull3 }) => and6(
             eq10(ds.isActive, true),
             or2(
               eq10(ds.pincode, pincode),
@@ -2712,7 +2712,7 @@ var init_storage = __esm({
             const refCode = updatedOrder.referralCode;
             console.log(`\u{1F381} [REFERRAL CLAWBACK] Order rejected - checking for referral to reverse for user: ${userId}`);
             const referral = await db.query.referrals.findFirst({
-              where: (r, { eq: eq10, and: and5 }) => and5(
+              where: (r, { eq: eq10, and: and6 }) => and6(
                 eq10(r.referredId, userId),
                 eq10(r.status, "pending"),
                 eq10(r.referralCode, refCode)
@@ -2747,20 +2747,30 @@ var init_storage = __esm({
           if (!deliveryPerson) {
             throw new Error("Delivery person not found");
           }
-          console.log(`\u{1F4E6} Assigning order ${orderId} to delivery person ${deliveryPerson.name} (${deliveryPerson.phone})`);
-          const [updatedOrder] = await db.update(orders2).set({
-            assignedTo: deliveryPersonId,
-            assignedAt: /* @__PURE__ */ new Date(),
-            deliveryPersonName: deliveryPerson.name,
-            deliveryPersonPhone: deliveryPerson.phone
-          }).where(eq(orders2.id, orderId)).returning();
-          if (!updatedOrder) {
-            throw new Error("Failed to update order");
+          console.log(`\u{1F4E6} Attempting atomic assign of order ${orderId} to delivery person ${deliveryPerson.name} (${deliveryPerson.phone})`);
+          const result = await db.transaction(async (tx) => {
+            const [updatedOrder] = await tx.update(orders2).set({
+              assignedTo: deliveryPersonId,
+              assignedAt: /* @__PURE__ */ new Date(),
+              deliveryPersonName: deliveryPerson.name,
+              deliveryPersonPhone: deliveryPerson.phone,
+              status: "assigned"
+            }).where(and(eq(orders2.id, orderId), isNull(orders2.assignedTo))).returning();
+            if (!updatedOrder) {
+              return null;
+            }
+            await tx.update(deliveryPersonnel2).set({ status: "busy" }).where(eq(deliveryPersonnel2.id, deliveryPersonId));
+            return updatedOrder;
+          });
+          if (!result) {
+            const latest = await this.getOrderById(orderId);
+            const err = new Error("Order already assigned");
+            err.code = "ALREADY_ASSIGNED";
+            err.current = latest;
+            throw err;
           }
-          await db.update(deliveryPersonnel2).set({ status: "busy" }).where(eq(deliveryPersonnel2.id, deliveryPersonId));
-          console.log(`\u2705 Order ${orderId} assigned successfully. Delivery person: ${deliveryPerson.name} (${deliveryPerson.phone})`);
-          console.log(`\u2705 Updated order fields - deliveryPersonName: ${updatedOrder.deliveryPersonName}, deliveryPersonPhone: ${updatedOrder.deliveryPersonPhone}`);
-          return this.mapOrder(updatedOrder);
+          console.log(`\u2705 Order ${orderId} assigned successfully to ${deliveryPerson.name} (${deliveryPerson.phone})`);
+          return this.mapOrder(result);
         } catch (error) {
           console.error("Error assigning order to delivery person:", error);
           throw error;
@@ -2897,7 +2907,7 @@ var init_storage = __esm({
           startOfMonth.setDate(1);
           startOfMonth.setHours(0, 0, 0, 0);
           const monthlyReferrals = await tx.query.referrals.findMany({
-            where: (r, { and: and5, eq: eqOp, gte: gteOp }) => and5(
+            where: (r, { and: and6, eq: eqOp, gte: gteOp }) => and6(
               eqOp(r.referrerId, referrer.id),
               gteOp(r.createdAt, startOfMonth)
             )
@@ -2927,7 +2937,7 @@ var init_storage = __esm({
         let result = null;
         await db.transaction(async (tx) => {
           const referral = await tx.query.referrals.findFirst({
-            where: (r, { and: and5, eq: eqOp }) => and5(
+            where: (r, { and: and6, eq: eqOp }) => and6(
               eqOp(r.referredId, userId),
               eqOp(r.status, "pending")
             )
@@ -2949,7 +2959,7 @@ var init_storage = __esm({
           startOfMonth.setDate(1);
           startOfMonth.setHours(0, 0, 0, 0);
           const completedThisMonth = await tx.query.referrals.findMany({
-            where: (r, { and: and5, eq: eqOp, gte: gteOp }) => and5(
+            where: (r, { and: and6, eq: eqOp, gte: gteOp }) => and6(
               eqOp(r.referrerId, referral.referrerId),
               eqOp(r.status, "completed"),
               gteOp(r.createdAt, startOfMonth)
@@ -4001,7 +4011,7 @@ var init_storage = __esm({
           const startOfDay = new Date(filterDate.setHours(0, 0, 0, 0));
           const endOfDay = new Date(filterDate.setHours(23, 59, 59, 999));
           return db.query.walletTransactions.findMany({
-            where: (wt, { and: and5, gte: gteOp, lte: lteOp }) => and5(
+            where: (wt, { and: and6, gte: gteOp, lte: lteOp }) => and6(
               gteOp(wt.createdAt, startOfDay),
               lteOp(wt.createdAt, endOfDay)
             ),
@@ -4268,7 +4278,7 @@ var init_storage = __esm({
         }
         console.log(`[PENDING-CHECKOUT-CLEANUP] Phone: ${currentCheckout.phone}, Current ID: ${id}`);
         const otherCheckouts = await db.query.pendingCheckouts.findMany({
-          where: (pc, { eq: eq10, and: and5 }) => and5(
+          where: (pc, { eq: eq10, and: and6 }) => and6(
             eq10(pc.phone, currentCheckout.phone),
             eq10(pc.status, "pending")
           )
@@ -4648,6 +4658,8 @@ __export(websocket_exports, {
   broadcastChefUnavailableNotification: () => broadcastChefUnavailableNotification,
   broadcastNewOrder: () => broadcastNewOrder,
   broadcastNewSubscriptionToAdmin: () => broadcastNewSubscriptionToAdmin,
+  broadcastOrderCancelledToDelivery: () => broadcastOrderCancelledToDelivery,
+  broadcastOrderClaimed: () => broadcastOrderClaimed,
   broadcastOrderUpdate: () => broadcastOrderUpdate,
   broadcastOverdueChefNotification: () => broadcastOverdueChefNotification,
   broadcastPreparedOrderToAvailableDelivery: () => broadcastPreparedOrderToAvailableDelivery,
@@ -4662,13 +4674,44 @@ __export(websocket_exports, {
   setupWebSocket: () => setupWebSocket
 });
 import { WebSocketServer, WebSocket } from "ws";
-async function savePendingBroadcast(recipientId, recipientType, type, data) {
+function normalizeBroadcastPayload(eventType, data) {
+  const normalized = {
+    eventType,
+    payload: {},
+    timestamp: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  if (!data) return normalized;
+  if (data.orderId) normalized.payload.orderId = data.orderId;
+  else if (data.id && eventType.includes("order")) normalized.payload.orderId = data.id;
+  else if (data.data?.orderId) normalized.payload.orderId = data.data.orderId;
+  if (data.message) normalized.payload.message = data.message;
+  if (data.deliveryPersonName) normalized.payload.deliveryPersonName = data.deliveryPersonName;
+  if (data.order && typeof data.order === "object") {
+    normalized.payload.order = data.order;
+  } else if (data.data && typeof data.data === "object" && data.data.id && data.data.status) {
+    normalized.payload.order = data.data;
+  }
+  const standardFields = ["orderId", "message", "deliveryPersonName", "order"];
+  const extraFields = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (!standardFields.includes(key) && key !== "type") {
+      extraFields[key] = value;
+    }
+  }
+  if (Object.keys(extraFields).length > 0) {
+    normalized.payload.metadata = extraFields;
+  }
+  return normalized;
+}
+async function savePendingBroadcast(recipientId, recipientType, eventType, data) {
   try {
+    const normalizedPayload = normalizeBroadcastPayload(eventType, data);
     await db.insert(pendingBroadcasts2).values({
       recipientId: String(recipientId),
       recipientType,
-      eventType: type,
-      payload: data
+      eventType: normalizedPayload.eventType,
+      payload: normalizedPayload
+      // Save standardized payload
     });
   } catch (err) {
     console.error(`[PendingBroadcast Error] Failed to save for ${recipientType} ${recipientId}:`, err);
@@ -5088,12 +5131,38 @@ async function broadcastPreparedOrderToAvailableDelivery(order) {
   const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
   let deliveryPersonnelNotified = 0;
   const connectedDeliveryPersonIds = /* @__PURE__ */ new Set();
+  const deliveryPersonsMap = /* @__PURE__ */ new Map();
+  const connectedDeliveryIds = [];
   for (const [deliveryPersonId, client] of Array.from(clients.entries())) {
-    if (client.type === "delivery") {
+    if (client.type === "delivery" && client.ws.readyState === WebSocket.OPEN) {
       connectedDeliveryPersonIds.add(deliveryPersonId);
-      if (client.ws.readyState === WebSocket.OPEN) {
-        const deliveryPerson = await storage2.getDeliveryPersonnelById(deliveryPersonId);
-        if (deliveryPerson && deliveryPerson.isActive) {
+      connectedDeliveryIds.push(deliveryPersonId);
+    }
+  }
+  if (connectedDeliveryIds.length > 0) {
+    try {
+      const results = await Promise.all(
+        connectedDeliveryIds.map(
+          (id) => storage2.getDeliveryPersonnelById(id).catch((err) => {
+            console.error(`\u26A0\uFE0F Failed to fetch delivery person ${id}:`, err);
+            return null;
+          })
+        )
+      );
+      results.forEach((person, index2) => {
+        if (person && connectedDeliveryIds[index2]) {
+          deliveryPersonsMap.set(connectedDeliveryIds[index2], person);
+        }
+      });
+    } catch (error) {
+      console.error(`\u26A0\uFE0F Error fetching delivery personnel details:`, error);
+    }
+  }
+  for (const [deliveryPersonId, client] of Array.from(clients.entries())) {
+    if (client.type === "delivery" && client.ws.readyState === WebSocket.OPEN) {
+      const deliveryPerson = deliveryPersonsMap.get(deliveryPersonId);
+      if (deliveryPerson && deliveryPerson.isActive) {
+        try {
           const message = {
             type: "new_prepared_order",
             order,
@@ -5103,6 +5172,8 @@ async function broadcastPreparedOrderToAvailableDelivery(order) {
           client.ws.send(JSON.stringify(message));
           console.log(`\u2705 [${notificationStage}] Sent to delivery person: ${deliveryPersonId} (${deliveryPerson.name})`);
           deliveryPersonnelNotified++;
+        } catch (err) {
+          console.error(`\u274C Failed to send notification to delivery person ${deliveryPersonId}:`, err);
         }
       }
     }
@@ -5382,6 +5453,83 @@ function broadcastWalletUpdate(userId, newBalance) {
   });
   console.log(`\u{1F4B3} [BROADCAST] Summary: Sent=${sentCount}, Skipped=${skippedCount}
 `);
+}
+function safeSend(client, message, context = "") {
+  if (!client || !client.ws || client.ws.readyState !== WebSocket.OPEN) {
+    return false;
+  }
+  try {
+    const msgStr = typeof message === "string" ? message : JSON.stringify(message);
+    client.ws.send(msgStr);
+    return true;
+  } catch (err) {
+    console.error(`\u274C [safeSend] ${context} - Failed to send to ${client.type} ${client.id}:`, err);
+    return false;
+  }
+}
+async function broadcastOrderClaimed(orderId, claimedByDeliveryPersonId, deliveryPersonName) {
+  const message = JSON.stringify({
+    type: "order_claimed",
+    orderId,
+    claimedBy: claimedByDeliveryPersonId,
+    deliveryPersonName,
+    message: `Order #${orderId.slice(0, 8)} was just claimed by ${deliveryPersonName}`
+  });
+  const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
+  console.log(`\u{1F4E2} [ORDER CLAIMED] Broadcasting to all delivery boys except ${claimedByDeliveryPersonId}`);
+  let sentCount = 0;
+  let failedCount = 0;
+  const connectedDeliveryPersonIds = /* @__PURE__ */ new Set();
+  for (const [clientId, client] of Array.from(clients.entries())) {
+    if (client.type === "delivery" && clientId !== claimedByDeliveryPersonId) {
+      connectedDeliveryPersonIds.add(clientId);
+      if (safeSend(client, message, `[ORDER_CLAIMED] to ${clientId}`)) {
+        sentCount++;
+        console.log(`\u2705 Sent order_claimed notification to delivery person: ${clientId}`);
+      } else {
+        failedCount++;
+      }
+    }
+  }
+  try {
+    const activeDeliveryPersonnel = await storage2.getAvailableDeliveryPersonnel();
+    for (const deliveryPerson of activeDeliveryPersonnel) {
+      if (!connectedDeliveryPersonIds.has(deliveryPerson.id) && deliveryPerson.id !== claimedByDeliveryPersonId) {
+        console.log(`\u23F3 Saving pending order_claimed broadcast for offline delivery person: ${deliveryPerson.id} (${deliveryPerson.name})`);
+        savePendingBroadcast(deliveryPerson.id, "delivery", "order_claimed", {
+          orderId,
+          claimedBy: claimedByDeliveryPersonId,
+          deliveryPersonName,
+          message: `Order #${orderId.slice(0, 8)} was just claimed by ${deliveryPersonName}`
+        });
+      }
+    }
+  } catch (error) {
+    console.error(`\u26A0\uFE0F Error saving pending order_claimed broadcasts:`, error);
+  }
+  console.log(`\u{1F4E2} [ORDER CLAIMED] Summary: Sent=${sentCount}, Failed=${failedCount}`);
+}
+async function broadcastOrderCancelledToDelivery(deliveryPersonId, orderId, reason) {
+  const message = {
+    type: "order_cancelled",
+    orderId,
+    reason: reason || "Order cancelled",
+    message: `Order #${orderId.slice(0, 8)} has been cancelled`
+  };
+  console.log(`\u{1F4E1} [ORDER CANCELLED] Notifying delivery person ${deliveryPersonId} about cancellation of ${orderId}`);
+  const client = clients.get(deliveryPersonId);
+  if (client && client.type === "delivery" && client.ws.readyState === WebSocket.OPEN) {
+    if (safeSend(client, message, `[ORDER_CANCELLED] to ${deliveryPersonId}`)) {
+      console.log(`\u2705 Sent cancellation to connected delivery person ${deliveryPersonId}`);
+      return;
+    }
+  }
+  try {
+    console.log(`\u23F3 Saving pending order_cancelled broadcast for offline delivery person: ${deliveryPersonId}`);
+    await savePendingBroadcast(deliveryPersonId, "delivery", "order_cancelled", message);
+  } catch (error) {
+    console.error(`\u26A0\uFE0F Error saving pending order_cancelled broadcast for ${deliveryPersonId}:`, error);
+  }
 }
 var clients, preparedOrderTimeouts, PREPARED_ORDER_TIMEOUT_MS;
 var init_websocket = __esm({
@@ -6334,7 +6482,7 @@ __export(pushService_exports, {
   sendPushToAllAdmins: () => sendPushToAllAdmins,
   sendPushToUser: () => sendPushToUser
 });
-import { eq as eq7, and as and3 } from "drizzle-orm";
+import { eq as eq7, and as and4 } from "drizzle-orm";
 async function sendPushToUser(userId, userType, notification) {
   try {
     if (!webpush || !vapidPublicKey || !vapidPrivateKey) {
@@ -6342,7 +6490,7 @@ async function sendPushToUser(userId, userType, notification) {
       return { success: false, reason: "VAPID keys not configured" };
     }
     const subscriptions4 = await db.select().from(pushSubscriptions).where(
-      and3(
+      and4(
         eq7(pushSubscriptions.userId, userId),
         eq7(pushSubscriptions.userType, userType),
         eq7(pushSubscriptions.isActive, true)
@@ -6399,7 +6547,7 @@ async function sendPushToAllAdmins(notification) {
       return { success: false, reason: "VAPID keys not configured" };
     }
     const subscriptions4 = await db.select().from(pushSubscriptions).where(
-      and3(
+      and4(
         eq7(pushSubscriptions.userType, "admin"),
         eq7(pushSubscriptions.isActive, true)
       )
@@ -6743,7 +6891,7 @@ async function verifyPendingGPayPayments() {
     console.log("[GPAY-POLLING] Starting Google Pay payment verification...");
     const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1e3);
     const pendingOrders = await db.query.orders.findMany({
-      where: (o, { and: and5, eq: eq10, gte: gte3, isNull: isNull3, lte: lte2, lt: lt2 }) => and5(
+      where: (o, { and: and6, eq: eq10, gte: gte3, isNull: isNull3, lte: lte2, lt: lt2 }) => and6(
         eq10(o.paymentStatus, "pending"),
         eq10(o.paymentSource, "google-pay"),
         gte3(o.createdAt, fifteenMinutesAgo),
@@ -6852,7 +7000,7 @@ async function autoResumeSubscriptions() {
   try {
     const now = /* @__PURE__ */ new Date();
     const pausedSubscriptions = await db.query.subscriptions.findMany({
-      where: (s, { and: and5, eq: eq10, lte: lte2, isNotNull }) => and5(
+      where: (s, { and: and6, eq: eq10, lte: lte2, isNotNull }) => and6(
         eq10(s.status, "paused"),
         isNotNull(s.pauseResumeDate),
         lte2(s.pauseResumeDate, now)
@@ -6888,7 +7036,7 @@ async function generateDailyDeliveryLogs() {
     const today = /* @__PURE__ */ new Date();
     today.setHours(0, 0, 0, 0);
     const allSubscriptions = await db.query.subscriptions.findMany({
-      where: (s, { and: and5, eq: eq10 }) => and5(
+      where: (s, { and: and6, eq: eq10 }) => and6(
         eq10(s.status, "active"),
         eq10(s.isPaid, true)
       )
@@ -6932,7 +7080,7 @@ async function updateNextDeliveryDates() {
     const today = /* @__PURE__ */ new Date();
     today.setHours(0, 0, 0, 0);
     const subscriptionsToUpdate = await db.query.subscriptions.findMany({
-      where: (s, { and: and5, eq: eq10, lte: lte2 }) => and5(
+      where: (s, { and: and6, eq: eq10, lte: lte2 }) => and6(
         eq10(s.status, "active"),
         eq10(s.isPaid, true),
         lte2(s.nextDeliveryDate, today)
@@ -6960,7 +7108,7 @@ async function sendScheduledOrder2HourNotifications() {
   try {
     const now = /* @__PURE__ */ new Date();
     const allScheduledOrders = await db.query.orders.findMany({
-      where: (o, { and: and5, eq: eq10, isNotNull }) => and5(
+      where: (o, { and: and6, eq: eq10, isNotNull }) => and6(
         eq10(o.status, "approved"),
         isNotNull(o.deliveryTime),
         isNotNull(o.deliveryDate)
@@ -7104,7 +7252,7 @@ async function expirePendingPaymentOrders() {
     const now = /* @__PURE__ */ new Date();
     console.log(`[EXPIRY-CHECK] Checking for pending payment orders with expiresAt <= ${now.toISOString()}...`);
     const expiredOrders = await db.query.orders.findMany({
-      where: (o, { and: and5, eq: eq10, lt: lt2, isNull: isNull3 }) => and5(
+      where: (o, { and: and6, eq: eq10, lt: lt2, isNull: isNull3 }) => and6(
         eq10(o.paymentStatus, "pending"),
         lt2(o.expiresAt, now),
         // ✅ Using expiresAt column (not createdAt calculation)
@@ -7205,7 +7353,7 @@ dotenv.config();
 
 // server/index.ts
 import express2 from "express";
-import { sql as sql4 } from "drizzle-orm";
+import { sql as sql5 } from "drizzle-orm";
 import cookieParser from "cookie-parser";
 import multer from "multer";
 
@@ -11118,7 +11266,7 @@ function registerAdminRoutes(app2) {
       const thirtyDaysAgo = /* @__PURE__ */ new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
       const allLogs = await db.query.subscriptionDeliveryLogs.findMany({
-        where: (logs, { and: and5, eq: eq10, gte: gte3 }) => and5(
+        where: (logs, { and: and6, eq: eq10, gte: gte3 }) => and6(
           eq10(logs.deliveryPersonId, chefId),
           gte3(logs.date, thirtyDaysAgo)
         )
@@ -11161,7 +11309,7 @@ function registerAdminRoutes(app2) {
       const performanceData = await Promise.all(
         allChefs.map(async (chef) => {
           const logs = await db.query.subscriptionDeliveryLogs.findMany({
-            where: (l, { and: and5, eq: eq10, gte: gte3 }) => and5(
+            where: (l, { and: and6, eq: eq10, gte: gte3 }) => and6(
               eq10(l.deliveryPersonId, chef.id),
               gte3(l.date, thirtyDaysAgo)
             )
@@ -11801,7 +11949,7 @@ function registerPartnerRoutes(app2) {
       const chefId = req.partner?.chefId;
       if (!chefId) return res.status(401).json({ message: "Unauthorized" });
       const pending = await db.query.pendingBroadcasts.findMany({
-        where: (pb, { eq: eq10, and: and5 }) => and5(
+        where: (pb, { eq: eq10, and: and6 }) => and6(
           eq10(pb.recipientId, String(chefId)),
           eq10(pb.recipientType, "chef"),
           eq10(pb.isDelivered, false)
@@ -11822,10 +11970,10 @@ function registerPartnerRoutes(app2) {
       if (!Array.isArray(ids) || ids.length === 0) {
         return res.json({ success: true });
       }
-      const { eq: eq10, inArray: inArray2, and: and5 } = await import("drizzle-orm");
+      const { eq: eq10, inArray: inArray2, and: and6 } = await import("drizzle-orm");
       const { pendingBroadcasts: pendingBroadcasts3 } = await Promise.resolve().then(() => (init_db(), db_exports));
       await db.update(pendingBroadcasts3).set({ isDelivered: true }).where(
-        and5(
+        and6(
           eq10(pendingBroadcasts3.recipientId, String(chefId)),
           eq10(pendingBroadcasts3.recipientType, "chef"),
           inArray2(pendingBroadcasts3.id, ids)
@@ -11847,7 +11995,7 @@ init_websocket();
 init_whatsappService();
 init_emailService();
 init_db();
-import { eq as eq4 } from "drizzle-orm";
+import { eq as eq4, and as and2, sql as sql4 } from "drizzle-orm";
 function registerDeliveryRoutes(app2) {
   function isDeliveryDay3(date, frequency, deliveryDays) {
     if (!deliveryDays || deliveryDays.length === 0) return false;
@@ -12082,6 +12230,7 @@ function registerDeliveryRoutes(app2) {
       console.log(`\u{1F7E2} Order ${orderId} assigned to delivery person. Chef must mark prepared manually.`);
       cancelPreparedOrderTimeout(orderId);
       broadcastOrderUpdate(assignedOrder);
+      await broadcastOrderClaimed(orderId, deliveryPersonId, deliveryPerson.name);
       return res.json({
         ...assignedOrder,
         assignmentMessage: "Order assigned. Chef will mark it prepared manually."
@@ -12102,11 +12251,18 @@ function registerDeliveryRoutes(app2) {
         return;
       }
       if (order.assignedTo !== deliveryPersonId) {
-        res.status(403).json({ message: "Order not assigned to you" });
+        if (order.assignedTo) {
+          res.status(403).json({
+            message: "Order has been claimed by another delivery person",
+            claimedBy: order.deliveryPersonName || "Another driver"
+          });
+        } else {
+          res.status(403).json({ message: "Order is not assigned to you" });
+        }
         return;
       }
       if (order.status === "accepted_by_delivery") {
-        console.log(`\u2705 Order ${orderId} already accepted`);
+        console.log(`\u2705 Order ${orderId} already accepted by you`);
         res.json(order);
         return;
       }
@@ -12132,6 +12288,61 @@ function registerDeliveryRoutes(app2) {
     } catch (error) {
       console.error("Error accepting order:", error);
       res.status(500).json({ message: "Failed to accept order" });
+    }
+  });
+  app2.post("/api/delivery/orders/:id/reject", requireDeliveryAuth(), async (req, res) => {
+    try {
+      const orderId = req.params.id;
+      const deliveryPersonId = req.delivery.deliveryId;
+      const { reason } = req.body;
+      console.log(`\u{1F6AB} Delivery person ${deliveryPersonId} rejecting order ${orderId}. Reason: ${reason || "Not provided"}`);
+      const order = await storage.getOrderById(orderId);
+      if (!order) {
+        res.status(404).json({ message: "Order not found" });
+        return;
+      }
+      if (order.assignedTo !== deliveryPersonId) {
+        res.status(403).json({ message: "Order not assigned to you" });
+        return;
+      }
+      const allowedStates = ["assigned", "accepted_by_delivery"];
+      if (!allowedStates.includes(order.status)) {
+        res.status(400).json({
+          message: `Cannot reject order in "${order.status}" status. Can only reject after claiming.`,
+          currentStatus: order.status
+        });
+        return;
+      }
+      const deliveryPerson = await storage.getDeliveryPersonnelById(deliveryPersonId);
+      const result = await db.transaction(async (tx) => {
+        const [updatedOrder] = await tx.update(orders2).set({
+          status: "prepared",
+          assignedTo: null,
+          assignedAt: null,
+          deliveryPersonName: null,
+          deliveryPersonPhone: null
+        }).where(eq4(orders2.id, orderId)).returning();
+        await tx.update(deliveryPersonnel2).set({ status: "available" }).where(eq4(deliveryPersonnel2.id, deliveryPersonId));
+        return updatedOrder;
+      });
+      if (!result) {
+        console.error(`\u274C REJECT FAILED: Could not update order ${orderId}`);
+        res.status(500).json({ message: "Failed to reject order" });
+        return;
+      }
+      console.log(`\u2705 Order ${orderId} rejected by ${deliveryPerson?.name || "delivery person"}. Reason: ${reason || "Not provided"}`);
+      if (reason) {
+        console.log(`\u{1F4CA} Rejection analytics - OrderID: ${orderId}, DeliveryPersonID: ${deliveryPersonId}, Reason: ${reason}`);
+      }
+      broadcastOrderUpdate(result);
+      res.json({
+        message: "Order rejected successfully",
+        order: result,
+        success: true
+      });
+    } catch (error) {
+      console.error(`\u274C REJECT ERROR for order ${req.params.id}:`, error);
+      res.status(500).json({ message: "Failed to reject order" });
     }
   });
   app2.post("/api/delivery/orders/:id/pickup", requireDeliveryAuth(), async (req, res) => {
@@ -12501,15 +12712,36 @@ function registerDeliveryRoutes(app2) {
     try {
       const deliveryPersonId = req.delivery.deliveryId;
       if (!deliveryPersonId) return res.status(401).json({ message: "Unauthorized" });
+      const page = Math.max(1, parseInt(req.query.page) || 1);
+      const limit = Math.min(100, parseInt(req.query.limit) || 50);
+      const offset = (page - 1) * limit;
       const pending = await db.query.pendingBroadcasts.findMany({
-        where: (pb, { eq: eq10, and: and5 }) => and5(
+        where: (pb, { eq: eq10, and: and6 }) => and6(
           eq10(pb.recipientId, String(deliveryPersonId)),
           eq10(pb.recipientType, "delivery"),
           eq10(pb.isDelivered, false)
         ),
-        orderBy: (pb, { asc: asc2 }) => [asc2(pb.createdAt)]
+        orderBy: (pb, { asc: asc2 }) => [asc2(pb.createdAt)],
+        limit,
+        offset
       });
-      res.json(pending);
+      const countResult = await db.select({ count: sql4`count(*)::int` }).from(pendingBroadcasts2).where(and2(
+        eq4(pendingBroadcasts2.recipientId, String(deliveryPersonId)),
+        eq4(pendingBroadcasts2.recipientType, "delivery"),
+        eq4(pendingBroadcasts2.isDelivered, false)
+      ));
+      const total = countResult[0]?.count || 0;
+      const totalPages = Math.ceil(total / limit);
+      res.json({
+        data: pending,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages,
+          hasMore: page < totalPages
+        }
+      });
     } catch (error) {
       console.error("Error fetching pending broadcasts:", error);
       res.status(500).json({ message: "Failed to fetch pending broadcasts" });
@@ -12523,10 +12755,10 @@ function registerDeliveryRoutes(app2) {
       if (!Array.isArray(ids) || ids.length === 0) {
         return res.json({ success: true });
       }
-      const { eq: eq10, inArray: inArray2, and: and5 } = await import("drizzle-orm");
+      const { eq: eq10, inArray: inArray2, and: and6 } = await import("drizzle-orm");
       const { pendingBroadcasts: pendingBroadcasts3 } = await Promise.resolve().then(() => (init_db(), db_exports));
       await db.update(pendingBroadcasts3).set({ isDelivered: true }).where(
-        and5(
+        and6(
           eq10(pendingBroadcasts3.recipientId, String(deliveryPersonId)),
           eq10(pendingBroadcasts3.recipientType, "delivery"),
           inArray2(pendingBroadcasts3.id, ids)
@@ -13610,7 +13842,7 @@ async function registerRoutes(app2) {
         return res.status(400).json({ valid: false, message: "Invalid referral code" });
       }
       const firstReferrerOrder = await db.query.orders.findFirst({
-        where: (o, { and: and5, eq: eqOp }) => and5(
+        where: (o, { and: and6, eq: eqOp }) => and6(
           eqOp(o.userId, referrer.id),
           eqOp(o.status, "delivered")
         )
@@ -14386,9 +14618,9 @@ async function registerRoutes(app2) {
             console.log(`\u{1F50D} [REFERRAL-COMPLETION] Looking for pending referral for userId: ${userId}`);
             const { db: database } = await Promise.resolve().then(() => (init_db(), db_exports));
             const { referrals: referralsTable } = await Promise.resolve().then(() => (init_db(), db_exports));
-            const { eq: eq10, and: and5 } = await import("drizzle-orm");
+            const { eq: eq10, and: and6 } = await import("drizzle-orm");
             const pendingReferral = await database.query.referrals.findFirst({
-              where: (r, { eq: eq11, and: and6 }) => and6(
+              where: (r, { eq: eq11, and: and7 }) => and7(
                 eq11(r.referredId, userId),
                 eq11(r.status, "pending")
               )
@@ -14744,22 +14976,40 @@ async function registerRoutes(app2) {
           currentPaymentStatus: order.paymentStatus
         });
       }
-      const updatedOrder = await db.update(orders2).set({
-        status: "cancelled"
-      }).where(eq8(orders2.id, id)).returning();
-      if (!updatedOrder || updatedOrder.length === 0) {
-        console.log(`\u274C CANCEL FAILED: Database update failed for order ${id}`);
-        return res.status(500).json({
-          message: "Failed to update order status",
-          errorCode: "DATABASE_UPDATE_FAILED"
-        });
+      const txResult = await db.transaction(async (tx) => {
+        const [existing] = await tx.select().from(orders2).where(eq8(orders2.id, id)).limit(1);
+        if (!existing) return null;
+        const prevAssignedTo2 = existing.assignedTo;
+        const [updatedOrder2] = await tx.update(orders2).set({
+          status: "cancelled",
+          assignedTo: null,
+          assignedAt: null,
+          deliveryPersonName: null,
+          deliveryPersonPhone: null
+        }).where(eq8(orders2.id, id)).returning();
+        if (prevAssignedTo2) {
+          await tx.update(deliveryPersonnel2).set({ status: "available" }).where(eq8(deliveryPersonnel2.id, prevAssignedTo2));
+        }
+        return { updatedOrder: updatedOrder2, prevAssignedTo: prevAssignedTo2 };
+      });
+      if (!txResult) {
+        console.log(`\u274C CANCEL FAILED: Order ${id} not found during transaction`);
+        return res.status(404).json({ message: "Order not found", errorCode: "ORDER_NOT_FOUND" });
       }
-      console.log(`\u2705 Order ${id} successfully cancelled - Status: ${updatedOrder[0].status}`);
+      const { updatedOrder, prevAssignedTo } = txResult;
+      console.log(`\u2705 Order ${id} successfully cancelled - Status: ${updatedOrder.status}`);
       console.log(`\u{1F4E1} Broadcasting cancellation to admin...`);
-      broadcastOrderUpdate(updatedOrder[0]);
+      broadcastOrderUpdate(updatedOrder);
+      if (prevAssignedTo) {
+        try {
+          await broadcastOrderCancelledToDelivery(prevAssignedTo, id, "Order cancelled by customer");
+        } catch (err) {
+          console.error(`\u26A0\uFE0F Error broadcasting cancellation to delivery ${prevAssignedTo}:`, err);
+        }
+      }
       res.json({
         message: "Order cancelled successfully",
-        order: updatedOrder[0],
+        order: updatedOrder,
         success: true
       });
     } catch (error) {
@@ -17232,9 +17482,9 @@ async function registerRoutes(app2) {
           }
           const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
           const { pushSubscriptions: pushSubscriptions2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-          const { eq: eq10, and: and5 } = await import("drizzle-orm");
+          const { eq: eq10, and: and6 } = await import("drizzle-orm");
           const existing = await db2.select().from(pushSubscriptions2).where(
-            and5(
+            and6(
               eq10(pushSubscriptions2.userId, userId),
               eq10(pushSubscriptions2.userType, userType)
             )
@@ -17278,9 +17528,9 @@ async function registerRoutes(app2) {
           }
           const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
           const { pushSubscriptions: pushSubscriptions2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-          const { eq: eq10, and: and5 } = await import("drizzle-orm");
+          const { eq: eq10, and: and6 } = await import("drizzle-orm");
           await db2.update(pushSubscriptions2).set({ isActive: false }).where(
-            and5(
+            and6(
               eq10(pushSubscriptions2.userId, userId),
               eq10(pushSubscriptions2.userType, userType)
             )
@@ -17895,7 +18145,7 @@ app.use((req, res, next) => {
   app.get("/api/health", async (_req, res) => {
     try {
       const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-      await db2.execute(sql4`SELECT 1`);
+      await db2.execute(sql5`SELECT 1`);
       res.json({
         status: "ok",
         db: "connected",

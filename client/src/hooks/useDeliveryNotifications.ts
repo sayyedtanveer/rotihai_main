@@ -34,20 +34,74 @@ export function useDeliveryNotifications() {
       const { default: api } = await import("@/lib/apiClient");
       console.log("[NOTIFICATIONS] Step 3️⃣ API/axios imported successfully");
       
-      // Step 4: Make the request - interceptor will add Authorization header
-      console.log("[NOTIFICATIONS] Step 4️⃣ Making request to /api/delivery/notifications/pending");
-      const { data: pending } = await api.get("/api/delivery/notifications/pending");
+      // Step 4: Make the request with pagination to prevent broadcast storms
+      console.log("[NOTIFICATIONS] Step 4️⃣ Making paginated request to /api/delivery/notifications/pending");
       
-      console.log("[NOTIFICATIONS] Step 5️⃣ ✅ SUCCESS! Received pending:", pending?.length || 0, 'items');
+      const BATCH_SIZE = 50;
+      const BATCH_DELAY_MS = 500;
+      let page = 1;
+      let hasMore = true;
+      let totalProcessed = 0;
+      let pendingBroadcasts: any[] = [];
 
-      if (Array.isArray(pending) && pending.length > 0) {
-        console.log(`📥 Recovered ${pending.length} pending broadcasts`);
+      while (hasMore) {
+        console.log(`[NOTIFICATIONS] Fetching pending broadcasts - Page ${page}`);
+        
+        const response = await api.get("/api/delivery/notifications/pending", {
+          params: { page, limit: BATCH_SIZE }
+        });
+
+        // Support both old format (array) and new paginated format
+        const batch = Array.isArray(response.data) ? response.data : response.data?.data || [];
+        const pagination = response.data?.pagination;
+
+        if (batch.length === 0) {
+          console.log(`[NOTIFICATIONS] ✅ No more pending broadcasts (fetched ${totalProcessed} total)`);
+          break;
+        }
+
+        console.log(`📥 Processing batch ${page}: ${batch.length} broadcasts, has more: ${pagination?.hasMore || false}`);
+        pendingBroadcasts = pendingBroadcasts.concat(batch);
+        totalProcessed += batch.length;
+
+        // Check if there are more pages
+        hasMore = pagination?.hasMore || false;
+        
+        // If more pages exist, wait before fetching next batch to stagger processing
+        if (hasMore) {
+          console.log(`⏳ Waiting ${BATCH_DELAY_MS}ms before fetching next batch...`);
+          await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
+        }
+
+        page++;
+      }
+
+      console.log("[NOTIFICATIONS] Step 5️⃣ ✅ SUCCESS! Received pending:", totalProcessed, 'items');
+
+      if (Array.isArray(pendingBroadcasts) && pendingBroadcasts.length > 0) {
+        console.log(`📥 Recovered ${pendingBroadcasts.length} pending broadcasts`);
 
         let newOrdersCountLocal = 0;
         const processedIds: string[] = [];
 
-        pending.forEach((broadcast: any) => {
-          if (["order_assigned", "order_confirmed", "new_prepared_order"].includes(broadcast.eventType)) {
+        pendingBroadcasts.forEach((broadcast: any) => {
+          // ✅ Handle order_claimed pending broadcasts
+          if (broadcast.eventType === "order_claimed") {
+            const orderId = broadcast.payload?.orderId;
+            const deliveryPersonName = broadcast.payload?.deliveryPersonName;
+            if (orderId) {
+              console.log(`📢 Recovered pending: Order #${orderId.slice(0, 8)} was claimed by ${deliveryPersonName}`);
+              toast({
+                title: "Order Claimed",
+                description: `${deliveryPersonName} just claimed order #${orderId.slice(0, 8)}`,
+                duration: 4000,
+              });
+              // Refresh available orders since this order is no longer available
+              queryClient.invalidateQueries({ queryKey: ["/api/delivery/available-orders"] });
+            }
+          }
+          // Handle order assignment and preparation notifications
+          else if (["order_assigned", "order_confirmed", "new_prepared_order"].includes(broadcast.eventType)) {
             const order = broadcast.payload?.data || broadcast.payload?.order;
             if (order && !processedOrderIds.current.has(order.id)) {
               processedOrderIds.current.add(order.id);
@@ -84,7 +138,7 @@ export function useDeliveryNotifications() {
             }
           }
 
-          if (["order_assigned", "order_confirmed", "order_update", "new_prepared_order"].includes(broadcast.eventType)) {
+          if (["order_assigned", "order_confirmed", "order_update", "new_prepared_order", "order_claimed"].includes(broadcast.eventType)) {
             queryClient.invalidateQueries({ queryKey: ["/api/delivery/orders"] });
             queryClient.invalidateQueries({ queryKey: ["/api/delivery/available-orders"] });
           }
@@ -168,9 +222,22 @@ export function useDeliveryNotifications() {
         const data = JSON.parse(event.data);
         console.log("📨 Delivery WS message:", data.type);
 
-        if (["order_assigned", "order_confirmed", "order_update", "new_prepared_order"].includes(data.type)) {
+        if (["order_assigned", "order_confirmed", "order_update", "new_prepared_order", "order_claimed"].includes(data.type)) {
           queryClient.invalidateQueries({ queryKey: ["/api/delivery/orders"] });
           queryClient.invalidateQueries({ queryKey: ["/api/delivery/available-orders"] });
+        }
+
+        // ✅ NEW: Handle order_claimed event - notify that someone else claimed the order
+        if (data.type === "order_claimed") {
+          console.log(`📢 Order #${data.orderId.slice(0, 8)} was claimed by ${data.deliveryPersonName}`);
+          toast({
+            title: "Order Claimed",
+            description: `${data.deliveryPersonName} just claimed order #${data.orderId.slice(0, 8)}`,
+            duration: 4000,
+          });
+          // Refresh available orders list since this order is no longer available
+          queryClient.invalidateQueries({ queryKey: ["/api/delivery/available-orders"] });
+          return;
         }
 
         if (["order_assigned", "order_confirmed", "new_prepared_order"].includes(data.type)) {

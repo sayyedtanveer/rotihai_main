@@ -2280,31 +2280,45 @@ export class MemStorage implements IStorage {
         throw new Error("Delivery person not found");
       }
 
-      console.log(`📦 Assigning order ${orderId} to delivery person ${deliveryPerson.name} (${deliveryPerson.phone})`);
+      console.log(`📦 Attempting atomic assign of order ${orderId} to delivery person ${deliveryPerson.name} (${deliveryPerson.phone})`);
 
-      const [updatedOrder] = await db
-        .update(orders)
-        .set({
-          assignedTo: deliveryPersonId,
-          assignedAt: new Date(),
-          deliveryPersonName: deliveryPerson.name,
-          deliveryPersonPhone: deliveryPerson.phone
-        })
-        .where(eq(orders.id, orderId))
-        .returning();
+      // Perform atomic check-and-set inside a transaction to avoid race conditions.
+      const result = await db.transaction(async (tx) => {
+        // Try to update the order only if it's currently unassigned
+        const [updatedOrder] = await tx
+          .update(orders)
+          .set({
+            assignedTo: deliveryPersonId,
+            assignedAt: new Date(),
+            deliveryPersonName: deliveryPerson.name,
+            deliveryPersonPhone: deliveryPerson.phone,
+            status: 'assigned'
+          })
+          .where(and(eq(orders.id, orderId), isNull(orders.assignedTo)))
+          .returning();
 
-      if (!updatedOrder) {
-        throw new Error("Failed to update order");
+        if (!updatedOrder) {
+          // Nothing updated — someone else claimed the order already
+          return null;
+        }
+
+        // Mark delivery person busy inside same transaction
+        await tx.update(deliveryPersonnel).set({ status: "busy" }).where(eq(deliveryPersonnel.id, deliveryPersonId));
+
+        return updatedOrder;
+      });
+
+      if (!result) {
+        // Order was already assigned by another process
+        const latest = await this.getOrderById(orderId);
+        const err: any = new Error("Order already assigned");
+        err.code = "ALREADY_ASSIGNED";
+        err.current = latest;
+        throw err;
       }
 
-      // Update delivery person status to busy
-      await db.update(deliveryPersonnel).set({ status: "busy" }).where(eq(deliveryPersonnel.id, deliveryPersonId));
-
-      console.log(`✅ Order ${orderId} assigned successfully. Delivery person: ${deliveryPerson.name} (${deliveryPerson.phone})`);
-      console.log(`✅ Updated order fields - deliveryPersonName: ${updatedOrder.deliveryPersonName}, deliveryPersonPhone: ${updatedOrder.deliveryPersonPhone}`);
-
-      // Return the mapped order to ensure all fields are properly formatted
-      return this.mapOrder(updatedOrder);
+      console.log(`✅ Order ${orderId} assigned successfully to ${deliveryPerson.name} (${deliveryPerson.phone})`);
+      return this.mapOrder(result);
     } catch (error) {
       console.error("Error assigning order to delivery person:", error);
       throw error;

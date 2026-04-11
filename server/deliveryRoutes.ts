@@ -2,11 +2,11 @@ import type { Express } from "express";
 import { storage } from "./storage";
 import { hashPassword, verifyPassword, generateDeliveryToken, generateRefreshToken, verifyToken, requireDeliveryAuth, type AuthenticatedDeliveryRequest } from "./deliveryAuth";
 import { deliveryPersonnelLoginSchema, insertDeliveryPersonnelSchema } from "@shared/schema";
-import { broadcastOrderUpdate, notifyDeliveryAssignment, cancelPreparedOrderTimeout, broadcastWalletUpdate } from "./websocket";
+import { broadcastOrderUpdate, notifyDeliveryAssignment, cancelPreparedOrderTimeout, broadcastWalletUpdate, broadcastOrderClaimed } from "./websocket";
 import { sendDeliveryCompletedNotification, sendMissedDeliveryNotification } from "./whatsappService";
 import { sendMissedDeliveryEmail } from "./emailService";
-import { db, orders } from "@shared/db";
-import { eq } from "drizzle-orm";
+import { db, orders, deliveryPersonnel, pendingBroadcasts } from "@shared/db";
+import { eq, and, sql } from "drizzle-orm";
 
 export function registerDeliveryRoutes(app: Express) {
   // ✅ Helper function: Check if date is a scheduled delivery day based on plan frequency
@@ -305,6 +305,9 @@ export function registerDeliveryRoutes(app: Express) {
 
       broadcastOrderUpdate(assignedOrder);
 
+      // ✅ NEW: Send explicit order_claimed notification to ALL other connected delivery boys (and save for offline)
+      await broadcastOrderClaimed(orderId, deliveryPersonId, deliveryPerson.name);
+
       return res.json({
         ...assignedOrder,
         assignmentMessage: "Order assigned. Chef will mark it prepared manually."
@@ -331,13 +334,21 @@ export function registerDeliveryRoutes(app: Express) {
       }
 
       if (order.assignedTo !== deliveryPersonId) {
-        res.status(403).json({ message: "Order not assigned to you" });
+        // ✅ STRICT VALIDATION: If assigned to someone else, deny access
+        if (order.assignedTo) {
+          res.status(403).json({ 
+            message: "Order has been claimed by another delivery person",
+            claimedBy: order.deliveryPersonName || "Another driver"
+          });
+        } else {
+          res.status(403).json({ message: "Order is not assigned to you" });
+        }
         return;
       }
 
       // If already accepted by this delivery person, return success (idempotent)
       if (order.status === "accepted_by_delivery") {
-        console.log(`✅ Order ${orderId} already accepted`);
+        console.log(`✅ Order ${orderId} already accepted by you`);
         res.json(order);
         return;
       }
@@ -374,6 +385,89 @@ export function registerDeliveryRoutes(app: Express) {
     } catch (error) {
       console.error("Error accepting order:", error);
       res.status(500).json({ message: "Failed to accept order" });
+    }
+  });
+
+  // ✅ NEW: Reject order endpoint - allows delivery person to reject a claimed/assigned order
+  app.post("/api/delivery/orders/:id/reject", requireDeliveryAuth(), async (req: AuthenticatedDeliveryRequest, res) => {
+    try {
+      const orderId = req.params.id;
+      const deliveryPersonId = req.delivery!.deliveryId;
+      const { reason } = req.body;
+
+      console.log(`🚫 Delivery person ${deliveryPersonId} rejecting order ${orderId}. Reason: ${reason || 'Not provided'}`);
+
+      const order = await storage.getOrderById(orderId);
+      if (!order) {
+        res.status(404).json({ message: "Order not found" });
+        return;
+      }
+
+      // Verify this delivery person is the one assigned
+      if (order.assignedTo !== deliveryPersonId) {
+        res.status(403).json({ message: "Order not assigned to you" });
+        return;
+      }
+
+      // Allow rejection only from certain states (assigned or accepted_by_delivery states)
+      const allowedStates = ["assigned", "accepted_by_delivery"];
+      if (!allowedStates.includes(order.status)) {
+        res.status(400).json({ 
+          message: `Cannot reject order in "${order.status}" status. Can only reject after claiming.`,
+          currentStatus: order.status
+        });
+        return;
+      }
+
+      // Get delivery person to release
+      const deliveryPerson = await storage.getDeliveryPersonnelById(deliveryPersonId);
+      
+      // Atomically reject: clear assignment, reset status, mark delivery person available
+      const result = await db.transaction(async (tx) => {
+        const [updatedOrder] = await tx
+          .update(orders)
+          .set({
+            status: 'prepared',
+            assignedTo: null,
+            assignedAt: null,
+            deliveryPersonName: null,
+            deliveryPersonPhone: null
+          })
+          .where(eq(orders.id, orderId))
+          .returning();
+
+        // Mark delivery person available again
+        await tx.update(deliveryPersonnel)
+          .set({ status: "available" })
+          .where(eq(deliveryPersonnel.id, deliveryPersonId));
+
+        return updatedOrder;
+      });
+
+      if (!result) {
+        console.error(`❌ REJECT FAILED: Could not update order ${orderId}`);
+        res.status(500).json({ message: "Failed to reject order" });
+        return;
+      }
+
+      console.log(`✅ Order ${orderId} rejected by ${deliveryPerson?.name || 'delivery person'}. Reason: ${reason || 'Not provided'}`);
+
+      // Log rejection reason to console for analytics (can be enhanced with DB logging later)
+      if (reason) {
+        console.log(`📊 Rejection analytics - OrderID: ${orderId}, DeliveryPersonID: ${deliveryPersonId}, Reason: ${reason}`);
+      }
+
+      // Broadcast order back to available delivery personnel (order is now available again)
+      broadcastOrderUpdate(result);
+
+      res.json({
+        message: "Order rejected successfully",
+        order: result,
+        success: true
+      });
+    } catch (error) {
+      console.error(`❌ REJECT ERROR for order ${req.params.id}:`, error);
+      res.status(500).json({ message: "Failed to reject order" });
     }
   });
 
@@ -841,6 +935,12 @@ export function registerDeliveryRoutes(app: Express) {
       const deliveryPersonId = req.delivery!.deliveryId;
       if (!deliveryPersonId) return res.status(401).json({ message: "Unauthorized" });
 
+      // ✅ NEW: Support pagination to prevent broadcast storms on reconnect
+      const page = Math.max(1, parseInt(req.query.page as string) || 1);
+      const limit = Math.min(100, parseInt(req.query.limit as string) || 50); // Max 100, default 50
+      const offset = (page - 1) * limit;
+
+      // Fetch pending broadcasts with pagination
       const pending = await db.query.pendingBroadcasts.findMany({
         where: (pb, { eq, and }) => and(
           eq(pb.recipientId, String(deliveryPersonId)),
@@ -848,9 +948,33 @@ export function registerDeliveryRoutes(app: Express) {
           eq(pb.isDelivered, false)
         ),
         orderBy: (pb, { asc }) => [asc(pb.createdAt)],
+        limit,
+        offset,
       });
 
-      res.json(pending);
+      // Get total count for pagination metadata (optional, helps client know if more pages exist)
+      const countResult = await db.select({ count: sql`count(*)::int` as any })
+        .from(pendingBroadcasts)
+        .where(and(
+          eq(pendingBroadcasts.recipientId, String(deliveryPersonId)),
+          eq(pendingBroadcasts.recipientType, "delivery"),
+          eq(pendingBroadcasts.isDelivered, false)
+        ));
+
+      const total = countResult[0]?.count || 0;
+      const totalPages = Math.ceil(total / limit);
+
+      // ✅ Return paginated response with metadata
+      res.json({
+        data: pending,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages,
+          hasMore: page < totalPages
+        }
+      });
     } catch (error) {
       console.error("Error fetching pending broadcasts:", error);
       res.status(500).json({ message: "Failed to fetch pending broadcasts" });
