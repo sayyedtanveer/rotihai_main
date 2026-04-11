@@ -218,8 +218,11 @@ export function registerDeliveryRoutes(app: Express) {
       console.log(`📋 Total orders in system: ${allOrders.length}`);
 
       const availableOrders = allOrders.filter(order => {
-        // Option B: Only show orders after chef accepts (not while confirming or preparing)
-        const validStatuses = ["accepted_by_chef", "prepared"];
+        // ✅ FIXED: Show orders as soon as payment is confirmed, chef accepts, or food is ready
+        // "confirmed" = payment just confirmed (delivery boys can see immediately)
+        // "accepted_by_chef" = chef accepted the order
+        // "prepared" = food is ready for pickup
+        const validStatuses = ["confirmed", "accepted_by_chef", "prepared"];
         const isValid = validStatuses.includes(order.status) && !order.assignedTo;
         if (isValid) {
           console.log(`  ✅ Order ${order.id}: status=${order.status}, assignedTo=${order.assignedTo || "none"}`);
@@ -271,15 +274,15 @@ export function registerDeliveryRoutes(app: Express) {
         return res.status(404).json({ message: "Order not found" });
       }
 
-      // Valid claim statuses — IMPORTANT: Option B: Only after chef accepts
-      // "accepted_by_chef" = chef accepted (earliest point to claim)
-      // "prepared" = chef marked ready for delivery
-      // NOTE: "confirmed" and "preparing" removed to enforce chef acceptance first
-      const validStatuses = ["accepted_by_chef", "prepared"];
-      console.log(`  ✅ Status check: "${order.status}" in [${validStatuses.join(', ')}]? ${validStatuses.includes(order.status) ? 'YES' : 'NO'}`);
-      if (!validStatuses.includes(order.status)) {
-        console.log(`  ❌ BLOCKED: Order status not claimable`);
-        return res.status(400).json({ message: "Order is not available for delivery assignment" });
+      // Valid claim statuses — IMPORTANT: Only claimable AFTER chef accepts
+      // "confirmed" = payment just confirmed (visible but NOT claimable - waiting for chef)
+      // "accepted_by_chef" = chef accepted (NOW claimable) ✅
+      // "prepared" = chef marked ready for delivery (also claimable) ✅
+      const claimableStatuses = ["accepted_by_chef", "prepared"];
+      console.log(`  ✅ Status check: "${order.status}" in [${claimableStatuses.join(', ')}]? ${claimableStatuses.includes(order.status) ? 'YES' : 'NO'}`);
+      if (!claimableStatuses.includes(order.status)) {
+        console.log(`  ❌ BLOCKED: Order status not claimable (waiting for chef to accept first)`);
+        return res.status(400).json({ message: "Order is not ready for delivery assignment yet. Waiting for chef to accept." });
       }
 
       if (order.assignedTo) {

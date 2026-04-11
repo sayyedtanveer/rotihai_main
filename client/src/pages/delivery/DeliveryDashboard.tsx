@@ -114,12 +114,16 @@ export default function DeliveryDashboard() {
     queryKey: ["/api/delivery/orders"],
     enabled: isAuthenticated,
     retry: 1,
+    refetchOnWindowFocus: true,
+    staleTime: 0, // Always consider data stale for immediate refetch on invalidation
   });
 
   const { data: availableOrders = [] } = useQuery<any[]>({
     queryKey: ["/api/delivery/available-orders"],
     enabled: isAuthenticated,
     retry: 1,
+    refetchOnWindowFocus: true,
+    staleTime: 0, // Always consider data stale for immediate refetch on invalidation
   });
 
   const { data: deliverySlots = [] } = useQuery<any[]>({
