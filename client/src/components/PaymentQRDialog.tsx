@@ -93,20 +93,25 @@ export default function PaymentQRDialog({
       try {
         const url = getApiUrl("/api/payment-settings");
         console.log("[PAYMENT QR] DEBUG: Calling API URL:", url);
+        alert("[PAYMENT QR] API URL: " + url);
         
         const response = await fetch(url);
         console.log("[PAYMENT QR] DEBUG: Response status:", response.status, response.statusText);
+        alert("[PAYMENT QR] Response Status: " + response.status + " " + response.statusText);
         
         if (response.ok) {
           const settings = await response.json();
           setPaymentSettings(settings);
           console.log("[PAYMENT QR] ✅ Fetched payment settings:", settings);
+          alert("[PAYMENT QR] ✅ SUCCESS: platformFeeEnabled = " + settings.platformFeeEnabled);
         } else {
           const errorText = await response.text();
           console.warn("[PAYMENT QR] ❌ API returned error:", response.status, errorText);
+          alert("[PAYMENT QR] ❌ ERROR " + response.status + ": " + errorText.substring(0, 100));
         }
       } catch (error) {
         console.warn("[PAYMENT QR] ❌ Failed to fetch payment settings:", error);
+        alert("[PAYMENT QR] ❌ FETCH ERROR: " + (error instanceof Error ? error.message : String(error)));
         // Use defaults if fetch fails
       }
     };
