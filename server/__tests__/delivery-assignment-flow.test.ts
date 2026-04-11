@@ -19,6 +19,8 @@ describe('Delivery Assignment Flow - End to End', () => {
       name: 'Test Category',
       description: 'Test category for delivery flow',
       image: 'https://example.com/category.jpg',
+      iconName: 'food',
+      itemCount: '0',
     });
 
     // Create test chef
@@ -31,7 +33,20 @@ describe('Delivery Assignment Flow - End to End', () => {
       categoryId: testCategory.id,
       latitude: 19.0760,
       longitude: 72.8777,
-    });
+      address: '123 Test Chef St, Mumbai',
+      addressBuilding: 'Building A',
+      addressStreet: 'Test Street',
+      addressArea: 'Test Area',
+      addressCity: 'Mumbai',
+      addressPincode: '400001',
+      phone: '+919876543200',
+      isActive: true,
+      isVerified: false,
+      defaultDeliveryFee: 20,
+      deliveryFeePerKm: 5,
+      freeDeliveryThreshold: 200,
+      maxDeliveryDistanceKm: 5,
+    } as any);
 
     // Create test product
     testProduct = await storage.createProduct({
@@ -58,6 +73,9 @@ describe('Delivery Assignment Flow - End to End', () => {
       passwordHash: await hashPassword('password123'),
       walletBalance: 1000,
       referralCode: null,
+      address: '123 Test User St, Mumbai',
+      latitude: 19.0760,
+      longitude: 72.8777,
     });
 
     userToken = generateAccessToken(testUser);
@@ -69,8 +87,12 @@ describe('Delivery Assignment Flow - End to End', () => {
       phone: '+919876543211',
       email: 'delivery@example.com',
       passwordHash: deliveryPasswordHash,
+      password: 'delivery123',
       status: 'available',
       currentLocation: null,
+      rating: 4.8,
+      isActive: true,
+      totalDeliveries: 0,
     });
   });
 
@@ -88,6 +110,7 @@ describe('Delivery Assignment Flow - End to End', () => {
     // Step 1: User places an order
     console.log('📝 Step 1: User places an order');
     testOrder = await storage.createOrder({
+      status: 'pending',
       customerName: testUser.name,
       phone: testUser.phone,
       email: testUser.email,
@@ -225,6 +248,7 @@ describe('Delivery Assignment Flow - End to End', () => {
   it('should handle delivery person name and phone in tracking', async () => {
     // Create a new order for this test
     const trackingOrder = await storage.createOrder({
+      status: 'pending',
       customerName: 'Tracking Test User',
       phone: '+919876543212',
       email: 'tracking@example.com',
@@ -284,8 +308,12 @@ describe('Delivery Assignment Flow - End to End', () => {
       phone: '+919876543213',
       email: 'unavailable@example.com',
       passwordHash: unavailableDeliveryHash,
+      password: 'unavailable123',
       status: 'busy',
       currentLocation: null,
+      rating: 4.5,
+      isActive: true,
+      totalDeliveries: 0,
     });
 
     // Get available delivery personnel

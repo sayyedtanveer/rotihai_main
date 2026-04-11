@@ -6,13 +6,13 @@ import { registerAdminRoutes } from "./adminRoutes";
 import { registerPartnerRoutes } from "./partnerRoutes";
 import { registerDeliveryRoutes } from "./deliveryRoutes";
 import gpayVerificationRoutes from "./routes/gpay-verification";
-import { setupWebSocket, broadcastNewOrder, broadcastOrderUpdate, broadcastSubscriptionDelivery, broadcastNewSubscriptionToAdmin, broadcastSubscriptionAssignmentToPartner, broadcastWalletUpdate } from "./websocket";
+import { setupWebSocket, broadcastNewOrder, broadcastOrderUpdate, broadcastSubscriptionDelivery, broadcastNewSubscriptionToAdmin, broadcastSubscriptionAssignmentToPartner, broadcastWalletUpdate, broadcastOrderCancelledToDelivery } from "./websocket";
 import { hashPassword, verifyPassword, generateAccessToken, generateRefreshToken, requireUser, type AuthenticatedUserRequest } from "./userAuth";
 import { verifyToken as verifyUserToken } from "./userAuth";
 import { requireAdmin } from "./adminAuth";
 import { sendEmail, createWelcomeEmail, createPasswordResetEmail, createPasswordChangeConfirmationEmail, sendOrderConfirmationEmail } from "./emailService";
 import { sendOrderPlacedAdminNotification } from "./whatsappService";
-import { db, subscriptions, orders, walletSettings, referralRewards, newsletterSubscribers, users } from "@shared/db";
+import { db, subscriptions, orders, walletSettings, referralRewards, newsletterSubscribers, users, deliveryPersonnel } from "@shared/db";
 import { eq } from "drizzle-orm";
 import { ZodError } from "zod";
 import axios from "axios";
@@ -2710,31 +2710,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Update order status to cancelled
-      const updatedOrder = await db.update(orders)
-        .set({ 
-          status: "cancelled",
-        })
-        .where(eq(orders.id, id))
-        .returning();
+      // Atomically cancel order and, if assigned, release the delivery person and capture who was assigned
+      const txResult = await db.transaction(async (tx) => {
+        const [existing] = await tx.select().from(orders).where(eq(orders.id, id)).limit(1);
+        if (!existing) return null;
 
-      if (!updatedOrder || updatedOrder.length === 0) {
-        console.log(`❌ CANCEL FAILED: Database update failed for order ${id}`);
-        return res.status(500).json({ 
-          message: "Failed to update order status",
-          errorCode: "DATABASE_UPDATE_FAILED"
-        });
+        const prevAssignedTo = existing.assignedTo;
+
+        const [updatedOrder] = await tx.update(orders)
+          .set({
+            status: "cancelled",
+            assignedTo: null,
+            assignedAt: null,
+            deliveryPersonName: null,
+            deliveryPersonPhone: null
+          })
+          .where(eq(orders.id, id))
+          .returning();
+
+        if (prevAssignedTo) {
+          // mark delivery person available again
+          await tx.update(deliveryPersonnel).set({ status: "available" }).where(eq(deliveryPersonnel.id, prevAssignedTo));
+        }
+
+        return { updatedOrder, prevAssignedTo };
+      });
+
+      if (!txResult) {
+        console.log(`❌ CANCEL FAILED: Order ${id} not found during transaction`);
+        return res.status(404).json({ message: "Order not found", errorCode: "ORDER_NOT_FOUND" });
       }
 
-      console.log(`✅ Order ${id} successfully cancelled - Status: ${updatedOrder[0].status}`);
+      const { updatedOrder, prevAssignedTo } = txResult;
+
+      console.log(`✅ Order ${id} successfully cancelled - Status: ${updatedOrder.status}`);
 
       // Broadcast order cancellation to admin in real-time
       console.log(`📡 Broadcasting cancellation to admin...`);
-      broadcastOrderUpdate(updatedOrder[0]);
+      broadcastOrderUpdate(updatedOrder);
+
+      // Notify assigned delivery person (real-time or pending) if there was one
+      if (prevAssignedTo) {
+        try {
+          await broadcastOrderCancelledToDelivery(prevAssignedTo, id, "Order cancelled by customer");
+        } catch (err) {
+          console.error(`⚠️ Error broadcasting cancellation to delivery ${prevAssignedTo}:`, err);
+        }
+      }
 
       res.json({
         message: "Order cancelled successfully",
-        order: updatedOrder[0],
+        order: updatedOrder,
         success: true
       });
     } catch (error: any) {

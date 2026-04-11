@@ -34,19 +34,57 @@ export function useDeliveryNotifications() {
       const { default: api } = await import("@/lib/apiClient");
       console.log("[NOTIFICATIONS] Step 3️⃣ API/axios imported successfully");
       
-      // Step 4: Make the request - interceptor will add Authorization header
-      console.log("[NOTIFICATIONS] Step 4️⃣ Making request to /api/delivery/notifications/pending");
-      const { data: pending } = await api.get("/api/delivery/notifications/pending");
+      // Step 4: Make the request with pagination to prevent broadcast storms
+      console.log("[NOTIFICATIONS] Step 4️⃣ Making paginated request to /api/delivery/notifications/pending");
       
-      console.log("[NOTIFICATIONS] Step 5️⃣ ✅ SUCCESS! Received pending:", pending?.length || 0, 'items');
+      const BATCH_SIZE = 50;
+      const BATCH_DELAY_MS = 500;
+      let page = 1;
+      let hasMore = true;
+      let totalProcessed = 0;
+      let pendingBroadcasts: any[] = [];
 
-      if (Array.isArray(pending) && pending.length > 0) {
-        console.log(`📥 Recovered ${pending.length} pending broadcasts`);
+      while (hasMore) {
+        console.log(`[NOTIFICATIONS] Fetching pending broadcasts - Page ${page}`);
+        
+        const response = await api.get("/api/delivery/notifications/pending", {
+          params: { page, limit: BATCH_SIZE }
+        });
+
+        // Support both old format (array) and new paginated format
+        const batch = Array.isArray(response.data) ? response.data : response.data?.data || [];
+        const pagination = response.data?.pagination;
+
+        if (batch.length === 0) {
+          console.log(`[NOTIFICATIONS] ✅ No more pending broadcasts (fetched ${totalProcessed} total)`);
+          break;
+        }
+
+        console.log(`📥 Processing batch ${page}: ${batch.length} broadcasts, has more: ${pagination?.hasMore || false}`);
+        pendingBroadcasts = pendingBroadcasts.concat(batch);
+        totalProcessed += batch.length;
+
+        // Check if there are more pages
+        hasMore = pagination?.hasMore || false;
+        
+        // If more pages exist, wait before fetching next batch to stagger processing
+        if (hasMore) {
+          console.log(`⏳ Waiting ${BATCH_DELAY_MS}ms before fetching next batch...`);
+          await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
+        }
+
+        page++;
+      }
+
+      console.log("[NOTIFICATIONS] Step 5️⃣ ✅ SUCCESS! Received pending:", totalProcessed, 'items');
+
+      if (Array.isArray(pendingBroadcasts) && pendingBroadcasts.length > 0) {
+        console.log(`📥 Recovered ${pendingBroadcasts.length} pending broadcasts`);
 
         let newOrdersCountLocal = 0;
         const processedIds: string[] = [];
 
-        pending.forEach((broadcast: any) => {
+        pendingBroadcasts.forEach((broadcast: any) => {
           // ✅ Handle order_claimed pending broadcasts
           if (broadcast.eventType === "order_claimed") {
             const orderId = broadcast.payload?.orderId;

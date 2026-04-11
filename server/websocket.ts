@@ -6,18 +6,79 @@ import { verifyToken as verifyPartnerToken } from "./partnerAuth";
 import type { Order } from "@shared/schema";
 import { db, pendingBroadcasts } from "@shared/db";
 
-async function savePendingBroadcast(recipientId: string, recipientType: "chef" | "delivery", type: string, data: any) {
+// ✅ Standardized broadcast payload structure for all pending broadcasts
+interface StandardizedBroadcastPayload {
+  eventType: string;
+  payload: {
+    orderId?: string;
+    order?: any;
+    deliveryPersonName?: string;
+    message?: string;
+    metadata?: Record<string, any>;
+  };
+  timestamp: string;
+  sourceAction?: string;
+}
+
+// ✅ Helper: Normalize any broadcast data to standard format
+function normalizeBroadcastPayload(eventType: string, data: any): StandardizedBroadcastPayload {
+  // Ensure payload always has a standard structure
+  const normalized: StandardizedBroadcastPayload = {
+    eventType,
+    payload: {},
+    timestamp: new Date().toISOString(),
+  };
+
+  if (!data) return normalized;
+
+  // Extract orderId from various possible locations
+  if (data.orderId) normalized.payload.orderId = data.orderId;
+  else if (data.id && eventType.includes('order')) normalized.payload.orderId = data.id;
+  else if (data.data?.orderId) normalized.payload.orderId = data.data.orderId;
+
+  // Extract and normalize message fields
+  if (data.message) normalized.payload.message = data.message;
+  if (data.deliveryPersonName) normalized.payload.deliveryPersonName = data.deliveryPersonName;
+  
+  // If data has full order, include it
+  if (data.order && typeof data.order === 'object') {
+    normalized.payload.order = data.order;
+  } else if (data.data && typeof data.data === 'object' && data.data.id && data.data.status) {
+    // data.data looks like an order
+    normalized.payload.order = data.data;
+  }
+
+  // Preserve any additional fields in metadata
+  const standardFields = ['orderId', 'message', 'deliveryPersonName', 'order'];
+  const extraFields: Record<string, any> = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (!standardFields.includes(key) && key !== 'type') {
+      extraFields[key] = value;
+    }
+  }
+  if (Object.keys(extraFields).length > 0) {
+    normalized.payload.metadata = extraFields;
+  }
+
+  return normalized;
+}
+
+async function savePendingBroadcast(recipientId: string, recipientType: "chef" | "delivery", eventType: string, data: any) {
   try {
+    // Normalize the payload to standard format
+    const normalizedPayload = normalizeBroadcastPayload(eventType, data);
+    
     await db.insert(pendingBroadcasts).values({
       recipientId: String(recipientId),
       recipientType,
-      eventType: type,
-      payload: data
+      eventType: normalizedPayload.eventType,
+      payload: normalizedPayload // Save standardized payload
     });
   } catch (err) {
     console.error(`[PendingBroadcast Error] Failed to save for ${recipientType} ${recipientId}:`, err);
   }
 }
+
 
 interface ConnectedClient {
   ws: WebSocket;
@@ -972,5 +1033,33 @@ export async function broadcastOrderClaimed(orderId: string, claimedByDeliveryPe
   }
 
   console.log(`📢 [ORDER CLAIMED] Summary: Sent=${sentCount}, Failed=${failedCount}`);
+}
+
+// Broadcast order cancellation to a specific delivery person (real-time if connected, pending otherwise)
+export async function broadcastOrderCancelledToDelivery(deliveryPersonId: string, orderId: string, reason?: string) {
+  const message = {
+    type: "order_cancelled",
+    orderId,
+    reason: reason || "Order cancelled",
+    message: `Order #${orderId.slice(0,8)} has been cancelled`
+  };
+
+  console.log(`📡 [ORDER CANCELLED] Notifying delivery person ${deliveryPersonId} about cancellation of ${orderId}`);
+
+  const client = clients.get(deliveryPersonId);
+  if (client && client.type === "delivery" && client.ws.readyState === WebSocket.OPEN) {
+    if (safeSend(client, message, `[ORDER_CANCELLED] to ${deliveryPersonId}`)) {
+      console.log(`✅ Sent cancellation to connected delivery person ${deliveryPersonId}`);
+      return;
+    }
+  }
+
+  // Fallback: save pending broadcast for delivery person
+  try {
+    console.log(`⏳ Saving pending order_cancelled broadcast for offline delivery person: ${deliveryPersonId}`);
+    await savePendingBroadcast(deliveryPersonId, "delivery", "order_cancelled", message);
+  } catch (error) {
+    console.error(`⚠️ Error saving pending order_cancelled broadcast for ${deliveryPersonId}:`, error);
+  }
 }
 
