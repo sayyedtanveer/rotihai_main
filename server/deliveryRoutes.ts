@@ -282,7 +282,11 @@ export function registerDeliveryRoutes(app: Express) {
       console.log(`  ✅ Status check: "${order.status}" in [${claimableStatuses.join(', ')}]? ${claimableStatuses.includes(order.status) ? 'YES' : 'NO'}`);
       if (!claimableStatuses.includes(order.status)) {
         console.log(`  ❌ BLOCKED: Order status not claimable (waiting for chef to accept first)`);
-        return res.status(400).json({ message: "Order is not ready for delivery assignment yet. Waiting for chef to accept." });
+        // Provide specific message based on current status
+        const statusMessage = order.status === "confirmed" 
+          ? "Chef has not yet accepted this order. Please wait for the chef to accept before claiming."
+          : "Order is not ready for delivery assignment yet. Please wait.";
+        return res.status(400).json({ message: statusMessage });
       }
 
       if (order.assignedTo) {
