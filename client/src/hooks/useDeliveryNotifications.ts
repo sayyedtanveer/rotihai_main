@@ -47,7 +47,23 @@ export function useDeliveryNotifications() {
         const processedIds: string[] = [];
 
         pending.forEach((broadcast: any) => {
-          if (["order_assigned", "order_confirmed", "new_prepared_order"].includes(broadcast.eventType)) {
+          // ✅ Handle order_claimed pending broadcasts
+          if (broadcast.eventType === "order_claimed") {
+            const orderId = broadcast.payload?.orderId;
+            const deliveryPersonName = broadcast.payload?.deliveryPersonName;
+            if (orderId) {
+              console.log(`📢 Recovered pending: Order #${orderId.slice(0, 8)} was claimed by ${deliveryPersonName}`);
+              toast({
+                title: "Order Claimed",
+                description: `${deliveryPersonName} just claimed order #${orderId.slice(0, 8)}`,
+                duration: 4000,
+              });
+              // Refresh available orders since this order is no longer available
+              queryClient.invalidateQueries({ queryKey: ["/api/delivery/available-orders"] });
+            }
+          }
+          // Handle order assignment and preparation notifications
+          else if (["order_assigned", "order_confirmed", "new_prepared_order"].includes(broadcast.eventType)) {
             const order = broadcast.payload?.data || broadcast.payload?.order;
             if (order && !processedOrderIds.current.has(order.id)) {
               processedOrderIds.current.add(order.id);
@@ -84,7 +100,7 @@ export function useDeliveryNotifications() {
             }
           }
 
-          if (["order_assigned", "order_confirmed", "order_update", "new_prepared_order"].includes(broadcast.eventType)) {
+          if (["order_assigned", "order_confirmed", "order_update", "new_prepared_order", "order_claimed"].includes(broadcast.eventType)) {
             queryClient.invalidateQueries({ queryKey: ["/api/delivery/orders"] });
             queryClient.invalidateQueries({ queryKey: ["/api/delivery/available-orders"] });
           }
@@ -168,9 +184,22 @@ export function useDeliveryNotifications() {
         const data = JSON.parse(event.data);
         console.log("📨 Delivery WS message:", data.type);
 
-        if (["order_assigned", "order_confirmed", "order_update", "new_prepared_order"].includes(data.type)) {
+        if (["order_assigned", "order_confirmed", "order_update", "new_prepared_order", "order_claimed"].includes(data.type)) {
           queryClient.invalidateQueries({ queryKey: ["/api/delivery/orders"] });
           queryClient.invalidateQueries({ queryKey: ["/api/delivery/available-orders"] });
+        }
+
+        // ✅ NEW: Handle order_claimed event - notify that someone else claimed the order
+        if (data.type === "order_claimed") {
+          console.log(`📢 Order #${data.orderId.slice(0, 8)} was claimed by ${data.deliveryPersonName}`);
+          toast({
+            title: "Order Claimed",
+            description: `${data.deliveryPersonName} just claimed order #${data.orderId.slice(0, 8)}`,
+            duration: 4000,
+          });
+          // Refresh available orders list since this order is no longer available
+          queryClient.invalidateQueries({ queryKey: ["/api/delivery/available-orders"] });
+          return;
         }
 
         if (["order_assigned", "order_confirmed", "new_prepared_order"].includes(data.type)) {

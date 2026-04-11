@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { storage } from "./storage";
 import { hashPassword, verifyPassword, generateDeliveryToken, generateRefreshToken, verifyToken, requireDeliveryAuth, type AuthenticatedDeliveryRequest } from "./deliveryAuth";
 import { deliveryPersonnelLoginSchema, insertDeliveryPersonnelSchema } from "@shared/schema";
-import { broadcastOrderUpdate, notifyDeliveryAssignment, cancelPreparedOrderTimeout, broadcastWalletUpdate } from "./websocket";
+import { broadcastOrderUpdate, notifyDeliveryAssignment, cancelPreparedOrderTimeout, broadcastWalletUpdate, broadcastOrderClaimed } from "./websocket";
 import { sendDeliveryCompletedNotification, sendMissedDeliveryNotification } from "./whatsappService";
 import { sendMissedDeliveryEmail } from "./emailService";
 import { db, orders } from "@shared/db";
@@ -305,6 +305,9 @@ export function registerDeliveryRoutes(app: Express) {
 
       broadcastOrderUpdate(assignedOrder);
 
+      // ✅ NEW: Send explicit order_claimed notification to ALL other connected delivery boys (and save for offline)
+      await broadcastOrderClaimed(orderId, deliveryPersonId, deliveryPerson.name);
+
       return res.json({
         ...assignedOrder,
         assignmentMessage: "Order assigned. Chef will mark it prepared manually."
@@ -331,13 +334,21 @@ export function registerDeliveryRoutes(app: Express) {
       }
 
       if (order.assignedTo !== deliveryPersonId) {
-        res.status(403).json({ message: "Order not assigned to you" });
+        // ✅ STRICT VALIDATION: If assigned to someone else, deny access
+        if (order.assignedTo) {
+          res.status(403).json({ 
+            message: "Order has been claimed by another delivery person",
+            claimedBy: order.deliveryPersonName || "Another driver"
+          });
+        } else {
+          res.status(403).json({ message: "Order is not assigned to you" });
+        }
         return;
       }
 
       // If already accepted by this delivery person, return success (idempotent)
       if (order.status === "accepted_by_delivery") {
-        console.log(`✅ Order ${orderId} already accepted`);
+        console.log(`✅ Order ${orderId} already accepted by you`);
         res.json(order);
         return;
       }

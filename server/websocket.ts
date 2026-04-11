@@ -523,18 +523,45 @@ export async function broadcastPreparedOrderToAvailableDelivery(order: any) {
 
   let deliveryPersonnelNotified = 0;
   const connectedDeliveryPersonIds = new Set<string>();
+  const deliveryPersonsMap = new Map<string, any>();
 
-  // PHASE 1: Broadcast to all CONNECTED delivery personnel (they can self-filter based on availability)
+  // PHASE 1: Collect all connected delivery person IDs & batch fetch their details in parallel
+  const connectedDeliveryIds: string[] = [];
   for (const [deliveryPersonId, client] of Array.from(clients.entries())) {
-    if (client.type === "delivery") {
-      // Track ALL delivery clients to avoid duplicate pending broadcasts
+    if (client.type === "delivery" && client.ws.readyState === WebSocket.OPEN) {
       connectedDeliveryPersonIds.add(deliveryPersonId);
-      
-      // Only send real-time notification if WebSocket is OPEN
-      if (client.ws.readyState === WebSocket.OPEN) {
-        // Verify delivery person is active before notifying
-        const deliveryPerson = await storage.getDeliveryPersonnelById(deliveryPersonId);
-        if (deliveryPerson && deliveryPerson.isActive) {
+      connectedDeliveryIds.push(deliveryPersonId);
+    }
+  }
+
+  // ✅ CRITICAL FIX: Batch fetch all delivery personnel in parallel (not sequential)
+  if (connectedDeliveryIds.length > 0) {
+    try {
+      const results = await Promise.all(
+        connectedDeliveryIds.map(id =>
+          storage.getDeliveryPersonnelById(id).catch(err => {
+            console.error(`⚠️ Failed to fetch delivery person ${id}:`, err);
+            return null;
+          })
+        )
+      );
+
+      results.forEach((person, index) => {
+        if (person && connectedDeliveryIds[index]) {
+          deliveryPersonsMap.set(connectedDeliveryIds[index], person);
+        }
+      });
+    } catch (error) {
+      console.error(`⚠️ Error fetching delivery personnel details:`, error);
+    }
+  }
+
+  // PHASE 2: Send real-time notifications using pre-fetched data (no more sequential awaits)
+  for (const [deliveryPersonId, client] of Array.from(clients.entries())) {
+    if (client.type === "delivery" && client.ws.readyState === WebSocket.OPEN) {
+      const deliveryPerson = deliveryPersonsMap.get(deliveryPersonId);
+      if (deliveryPerson && deliveryPerson.isActive) {
+        try {
           const message = {
             type: "new_prepared_order",
             order: order,
@@ -547,6 +574,9 @@ export async function broadcastPreparedOrderToAvailableDelivery(order: any) {
           client.ws.send(JSON.stringify(message));
           console.log(`✅ [${notificationStage}] Sent to delivery person: ${deliveryPersonId} (${deliveryPerson.name})`);
           deliveryPersonnelNotified++;
+        } catch (err) {
+          console.error(`❌ Failed to send notification to delivery person ${deliveryPersonId}:`, err);
+          // Continue to next delivery person - don't break the loop
         }
       }
     }
@@ -874,5 +904,73 @@ export function broadcastWalletUpdate(userId: string, newBalance: number) {
   });
 
   console.log(`💳 [BROADCAST] Summary: Sent=${sentCount}, Skipped=${skippedCount}\n`);
+}
+
+// ✅ Helper: Safely send WebSocket message with error handling
+function safeSend(client: ConnectedClient, message: string | object, context: string = ""): boolean {
+  if (!client || !client.ws || client.ws.readyState !== WebSocket.OPEN) {
+    return false;
+  }
+  try {
+    const msgStr = typeof message === "string" ? message : JSON.stringify(message);
+    client.ws.send(msgStr);
+    return true;
+  } catch (err) {
+    console.error(`❌ [safeSend] ${context} - Failed to send to ${client.type} ${client.id}:`, err);
+    return false;
+  }
+}
+
+// ✅ NEW: Broadcast order claimed event to all OTHER delivery boys (including offline via pending broadcasts)
+export async function broadcastOrderClaimed(orderId: string, claimedByDeliveryPersonId: string, deliveryPersonName: string) {
+  const message = JSON.stringify({
+    type: "order_claimed",
+    orderId: orderId,
+    claimedBy: claimedByDeliveryPersonId,
+    deliveryPersonName: deliveryPersonName,
+    message: `Order #${orderId.slice(0, 8)} was just claimed by ${deliveryPersonName}`
+  });
+
+  const { storage } = await import("./storage");
+
+  console.log(`📢 [ORDER CLAIMED] Broadcasting to all delivery boys except ${claimedByDeliveryPersonId}`);
+  let sentCount = 0;
+  let failedCount = 0;
+  const connectedDeliveryPersonIds = new Set<string>();
+
+  // PHASE 1: Send to all CONNECTED delivery personnel (except the claimer)
+  for (const [clientId, client] of Array.from(clients.entries())) {
+    if (client.type === "delivery" && clientId !== claimedByDeliveryPersonId) {
+      connectedDeliveryPersonIds.add(clientId);
+      if (safeSend(client, message, `[ORDER_CLAIMED] to ${clientId}`)) {
+        sentCount++;
+        console.log(`✅ Sent order_claimed notification to delivery person: ${clientId}`);
+      } else {
+        failedCount++;
+      }
+    }
+  }
+
+  // PHASE 2: Save pending broadcast for OFFLINE delivery personnel (except the claimer)
+  try {
+    const activeDeliveryPersonnel = await storage.getAvailableDeliveryPersonnel();
+
+    for (const deliveryPerson of activeDeliveryPersonnel) {
+      // Only save pending broadcast if NOT connected and NOT the claimer
+      if (!connectedDeliveryPersonIds.has(deliveryPerson.id) && deliveryPerson.id !== claimedByDeliveryPersonId) {
+        console.log(`⏳ Saving pending order_claimed broadcast for offline delivery person: ${deliveryPerson.id} (${deliveryPerson.name})`);
+        savePendingBroadcast(deliveryPerson.id, "delivery", "order_claimed", {
+          orderId: orderId,
+          claimedBy: claimedByDeliveryPersonId,
+          deliveryPersonName: deliveryPersonName,
+          message: `Order #${orderId.slice(0, 8)} was just claimed by ${deliveryPersonName}`
+        });
+      }
+    }
+  } catch (error) {
+    console.error(`⚠️ Error saving pending order_claimed broadcasts:`, error);
+  }
+
+  console.log(`📢 [ORDER CLAIMED] Summary: Sent=${sentCount}, Failed=${failedCount}`);
 }
 

@@ -4648,6 +4648,7 @@ __export(websocket_exports, {
   broadcastChefUnavailableNotification: () => broadcastChefUnavailableNotification,
   broadcastNewOrder: () => broadcastNewOrder,
   broadcastNewSubscriptionToAdmin: () => broadcastNewSubscriptionToAdmin,
+  broadcastOrderClaimed: () => broadcastOrderClaimed,
   broadcastOrderUpdate: () => broadcastOrderUpdate,
   broadcastOverdueChefNotification: () => broadcastOverdueChefNotification,
   broadcastPreparedOrderToAvailableDelivery: () => broadcastPreparedOrderToAvailableDelivery,
@@ -5088,12 +5089,38 @@ async function broadcastPreparedOrderToAvailableDelivery(order) {
   const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
   let deliveryPersonnelNotified = 0;
   const connectedDeliveryPersonIds = /* @__PURE__ */ new Set();
+  const deliveryPersonsMap = /* @__PURE__ */ new Map();
+  const connectedDeliveryIds = [];
   for (const [deliveryPersonId, client] of Array.from(clients.entries())) {
-    if (client.type === "delivery") {
+    if (client.type === "delivery" && client.ws.readyState === WebSocket.OPEN) {
       connectedDeliveryPersonIds.add(deliveryPersonId);
-      if (client.ws.readyState === WebSocket.OPEN) {
-        const deliveryPerson = await storage2.getDeliveryPersonnelById(deliveryPersonId);
-        if (deliveryPerson && deliveryPerson.isActive) {
+      connectedDeliveryIds.push(deliveryPersonId);
+    }
+  }
+  if (connectedDeliveryIds.length > 0) {
+    try {
+      const results = await Promise.all(
+        connectedDeliveryIds.map(
+          (id) => storage2.getDeliveryPersonnelById(id).catch((err) => {
+            console.error(`\u26A0\uFE0F Failed to fetch delivery person ${id}:`, err);
+            return null;
+          })
+        )
+      );
+      results.forEach((person, index2) => {
+        if (person && connectedDeliveryIds[index2]) {
+          deliveryPersonsMap.set(connectedDeliveryIds[index2], person);
+        }
+      });
+    } catch (error) {
+      console.error(`\u26A0\uFE0F Error fetching delivery personnel details:`, error);
+    }
+  }
+  for (const [deliveryPersonId, client] of Array.from(clients.entries())) {
+    if (client.type === "delivery" && client.ws.readyState === WebSocket.OPEN) {
+      const deliveryPerson = deliveryPersonsMap.get(deliveryPersonId);
+      if (deliveryPerson && deliveryPerson.isActive) {
+        try {
           const message = {
             type: "new_prepared_order",
             order,
@@ -5103,6 +5130,8 @@ async function broadcastPreparedOrderToAvailableDelivery(order) {
           client.ws.send(JSON.stringify(message));
           console.log(`\u2705 [${notificationStage}] Sent to delivery person: ${deliveryPersonId} (${deliveryPerson.name})`);
           deliveryPersonnelNotified++;
+        } catch (err) {
+          console.error(`\u274C Failed to send notification to delivery person ${deliveryPersonId}:`, err);
         }
       }
     }
@@ -5382,6 +5411,61 @@ function broadcastWalletUpdate(userId, newBalance) {
   });
   console.log(`\u{1F4B3} [BROADCAST] Summary: Sent=${sentCount}, Skipped=${skippedCount}
 `);
+}
+function safeSend(client, message, context = "") {
+  if (!client || !client.ws || client.ws.readyState !== WebSocket.OPEN) {
+    return false;
+  }
+  try {
+    const msgStr = typeof message === "string" ? message : JSON.stringify(message);
+    client.ws.send(msgStr);
+    return true;
+  } catch (err) {
+    console.error(`\u274C [safeSend] ${context} - Failed to send to ${client.type} ${client.id}:`, err);
+    return false;
+  }
+}
+async function broadcastOrderClaimed(orderId, claimedByDeliveryPersonId, deliveryPersonName) {
+  const message = JSON.stringify({
+    type: "order_claimed",
+    orderId,
+    claimedBy: claimedByDeliveryPersonId,
+    deliveryPersonName,
+    message: `Order #${orderId.slice(0, 8)} was just claimed by ${deliveryPersonName}`
+  });
+  const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
+  console.log(`\u{1F4E2} [ORDER CLAIMED] Broadcasting to all delivery boys except ${claimedByDeliveryPersonId}`);
+  let sentCount = 0;
+  let failedCount = 0;
+  const connectedDeliveryPersonIds = /* @__PURE__ */ new Set();
+  for (const [clientId, client] of Array.from(clients.entries())) {
+    if (client.type === "delivery" && clientId !== claimedByDeliveryPersonId) {
+      connectedDeliveryPersonIds.add(clientId);
+      if (safeSend(client, message, `[ORDER_CLAIMED] to ${clientId}`)) {
+        sentCount++;
+        console.log(`\u2705 Sent order_claimed notification to delivery person: ${clientId}`);
+      } else {
+        failedCount++;
+      }
+    }
+  }
+  try {
+    const activeDeliveryPersonnel = await storage2.getAvailableDeliveryPersonnel();
+    for (const deliveryPerson of activeDeliveryPersonnel) {
+      if (!connectedDeliveryPersonIds.has(deliveryPerson.id) && deliveryPerson.id !== claimedByDeliveryPersonId) {
+        console.log(`\u23F3 Saving pending order_claimed broadcast for offline delivery person: ${deliveryPerson.id} (${deliveryPerson.name})`);
+        savePendingBroadcast(deliveryPerson.id, "delivery", "order_claimed", {
+          orderId,
+          claimedBy: claimedByDeliveryPersonId,
+          deliveryPersonName,
+          message: `Order #${orderId.slice(0, 8)} was just claimed by ${deliveryPersonName}`
+        });
+      }
+    }
+  } catch (error) {
+    console.error(`\u26A0\uFE0F Error saving pending order_claimed broadcasts:`, error);
+  }
+  console.log(`\u{1F4E2} [ORDER CLAIMED] Summary: Sent=${sentCount}, Failed=${failedCount}`);
 }
 var clients, preparedOrderTimeouts, PREPARED_ORDER_TIMEOUT_MS;
 var init_websocket = __esm({
@@ -12082,6 +12166,7 @@ function registerDeliveryRoutes(app2) {
       console.log(`\u{1F7E2} Order ${orderId} assigned to delivery person. Chef must mark prepared manually.`);
       cancelPreparedOrderTimeout(orderId);
       broadcastOrderUpdate(assignedOrder);
+      await broadcastOrderClaimed(orderId, deliveryPersonId, deliveryPerson.name);
       return res.json({
         ...assignedOrder,
         assignmentMessage: "Order assigned. Chef will mark it prepared manually."
@@ -12102,11 +12187,18 @@ function registerDeliveryRoutes(app2) {
         return;
       }
       if (order.assignedTo !== deliveryPersonId) {
-        res.status(403).json({ message: "Order not assigned to you" });
+        if (order.assignedTo) {
+          res.status(403).json({
+            message: "Order has been claimed by another delivery person",
+            claimedBy: order.deliveryPersonName || "Another driver"
+          });
+        } else {
+          res.status(403).json({ message: "Order is not assigned to you" });
+        }
         return;
       }
       if (order.status === "accepted_by_delivery") {
-        console.log(`\u2705 Order ${orderId} already accepted`);
+        console.log(`\u2705 Order ${orderId} already accepted by you`);
         res.json(order);
         return;
       }
