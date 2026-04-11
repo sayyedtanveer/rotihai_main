@@ -92,31 +92,17 @@ export default function PaymentQRDialog({
     const fetchPaymentSettings = async () => {
       try {
         const url = getApiUrl(`/api/payment-settings`);
-        console.log("[PAYMENT QR] DEBUG: Calling API URL:", url);
-        alert("[PAYMENT QR] CALCULATED URL: " + url);
-        
-        const fetchPromise = fetch(url);
-        alert("[PAYMENT QR] FETCH STARTED to: " + url);
-        
-        const response = await fetchPromise;
-        console.log("[PAYMENT QR] DEBUG: Final URL after fetch:", response.url);
-        console.log("[PAYMENT QR] DEBUG: Response status:", response.status, response.statusText);
-        alert("[PAYMENT QR] ACTUAL REQUEST URL: " + response.url);
-        alert("[PAYMENT QR] Response Status: " + response.status + " " + response.statusText);
+        const response = await fetch(url);
         
         if (response.ok) {
           const settings = await response.json();
           setPaymentSettings(settings);
-          console.log("[PAYMENT QR] ✅ Fetched payment settings:", settings);
-          alert("[PAYMENT QR] ✅ SUCCESS: platformFeeEnabled = " + settings.platformFeeEnabled);
         } else {
           const errorText = await response.text();
-          console.warn("[PAYMENT QR] ❌ API returned error:", response.status, errorText);
-          alert("[PAYMENT QR] ❌ ERROR " + response.status + ": " + errorText.substring(0, 100));
+          console.warn("[PAYMENT QR] API returned error:", response.status, errorText);
         }
       } catch (error) {
-        console.warn("[PAYMENT QR] ❌ Failed to fetch payment settings:", error);
-        alert("[PAYMENT QR] ❌ FETCH ERROR: " + (error instanceof Error ? error.message : String(error)));
+        console.warn("[PAYMENT QR] Failed to fetch payment settings:", error);
         // Use defaults if fetch fails
       }
     };
