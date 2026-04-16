@@ -77,6 +77,7 @@ export default function PaymentQRDialog({
   const [hasPaid, setHasPaid] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
   const [upiIntent, setUpiIntent] = useState("");
+  const [paymentMode, setPaymentMode] = useState<"online" | "cod">("online");
   const [showQRCode, setShowQRCode] = useState(false); // ✅ Collapsible QR (closed by default)
   const [accountCreatedAfterPayment, setAccountCreatedAfterPayment] = useState(false);
   const [createdAccountPassword, setCreatedAccountPassword] = useState<string | null>(null);
@@ -87,13 +88,28 @@ export default function PaymentQRDialog({
   const [, setLocation] = useLocation();
   const isMobile = isMobileDevice();
 
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const timer = setTimeout(() => {
+      if (!hasPaid) {
+        toast({
+          title: "⚠️ Action Required",
+          description: "After payment, tap 'I paid' and Confirm to place your order",
+        });
+      }
+    }, 30000); // 15 sec
+
+    return () => clearTimeout(timer);
+  }, [isOpen, hasPaid, toast]);
+
   // ✅ Fetch payment settings dynamically on component mount
   useEffect(() => {
     const fetchPaymentSettings = async () => {
       try {
         const url = getApiUrl(`/api/payment-settings`);
         const response = await fetch(url);
-        
+
         if (response.ok) {
           const settings = await response.json();
           setPaymentSettings(settings);
@@ -190,7 +206,7 @@ export default function PaymentQRDialog({
   const handlePayWithApp = (app: "gpay" | "phonepe" | "paytm") => {
     try {
       const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-      
+
       if (app === "gpay") {
         if (isIOS) {
           // iOS: Open Google Pay app from App Store
@@ -240,7 +256,7 @@ export default function PaymentQRDialog({
       // ✅ OPTION NEW: Order already created at checkout - just confirm it
       if (orderIdFromCheckout) {
         console.log("[PAYMENT QR] OPTION NEW: Confirming existing order...", orderIdFromCheckout);
-        
+
         // Confirm payment for existing order
         const paymentResponse = await fetch(getApiUrl(`/api/orders/${orderIdFromCheckout}/payment-confirmed`), {
           method: "POST",
@@ -286,27 +302,27 @@ export default function PaymentQRDialog({
         // 1. NEW user (account just created) → Show account dialog with credentials
         // 2. EXISTING user (account already exists, not logged in) → Auto-login, go to tracking
         // 3. ALREADY logged in → Go directly to tracking
-        
+
         // ✅ KEY: Only show dialog for NEW accounts, NOT for existing users
         const shouldShowAccountDialog = paymentResult.userCreated;
-        
+
         if (shouldShowAccountDialog) {
           console.log("[PAYMENT QR] New account created on payment - showing credentials dialog");
-          
+
           // Store tokens for auto-login when user dismisses dialog
           if (paymentResult.accessToken && paymentResult.refreshToken) {
             localStorage.setItem("userToken", paymentResult.accessToken);
             localStorage.setItem("refreshToken", paymentResult.refreshToken);
             console.log("[PAYMENT QR] Tokens stored for auto-login");
           }
-          
+
           setCreatedAccountPassword(paymentResult.defaultPassword || "");
           setCreatedOrderId(orderIdFromCheckout || "");
           setShowAccountDialog(true);  // ✅ Show account credentials dialog
-          
+
           // ✅ FIX 1: Invalidate wallet after new account created
           queryClient.invalidateQueries({ queryKey: ['/api/user/profile'] });
-          
+
           toast({
             title: "✓ Payment Confirmed!",
             description: "Your account has been created!",
@@ -314,11 +330,11 @@ export default function PaymentQRDialog({
         } else if (!isAuthenticated && paymentResult.accessToken) {
           // ✅ EXISTING user just logged in (or first login after admin creation) - auto-login and go to tracking
           console.log("[PAYMENT QR] Existing user - auto-logging in and going to tracking");
-          
+
           // Store tokens for login
           localStorage.setItem("userToken", paymentResult.accessToken);
           localStorage.setItem("refreshToken", paymentResult.refreshToken);
-          
+
           toast({
             title: "Payment Confirmed!",
             description: "You're logged in. Go to track your order.",
@@ -326,7 +342,7 @@ export default function PaymentQRDialog({
 
           // Invalidate query and wait for refetch before navigating
           queryClient.invalidateQueries({ queryKey: ['/api/user/profile'] });
-          
+
           // ✅ Wait 200ms to ensure profile query completes and user is authenticated
           setTimeout(() => {
             setLocation(`/track/${orderIdFromCheckout}`);
@@ -337,7 +353,7 @@ export default function PaymentQRDialog({
         } else {
           // ✅ User already logged in - go directly to tracking
           console.log("[PAYMENT QR] User already logged in - skipping account dialog");
-          
+
           toast({
             title: "Payment Confirmed!",
             description: "Your order is being prepared",
@@ -362,7 +378,7 @@ export default function PaymentQRDialog({
       // ✅ OPTION A (OLD): Create order + account on payment confirmation
       if (isOptionA && paymentData) {
         console.log("[PAYMENT QR] OPTION A: Creating order on payment confirmation...");
-        
+
         // Step 1: Create order
         const orderResponse = await api.post("/api/orders", paymentData.orderData);
         const orderResult = orderResponse.data;
@@ -427,7 +443,7 @@ export default function PaymentQRDialog({
           }
           console.log(`✅ New user auto-logged in with tokens`);
           setAccountCreatedAfterPayment(true);
-          
+
           // Capture the default password from API response
           if (paymentData_res.defaultPassword) {
             setCreatedAccountPassword(paymentData_res.defaultPassword);
@@ -482,11 +498,11 @@ export default function PaymentQRDialog({
             onClose();
           }, 100);
         }
-      } 
+      }
       // ✅ Legacy flow: Payment confirmation for pre-existing orders (subscriptions, etc.)
       else {
         console.log("[PAYMENT QR] Legacy flow: Confirming payment for order ID:", orderId);
-        
+
         const response = await fetch(getApiUrl(`/api/orders/${orderId}/payment-confirmed`), {
           method: "POST",
           headers: {
@@ -526,12 +542,12 @@ export default function PaymentQRDialog({
         // 1. NEW user → Show account dialog with credentials
         // 2. EXISTING user, not logged in → Auto-login, go to tracking  
         // 3. Already logged in → Go directly to tracking
-        
+
         const shouldShowAccountDialog = data.userCreated;
-        
+
         if (shouldShowAccountDialog) {
           console.log("[PAYMENT QR] New account created - showing credentials dialog");
-          
+
           // Store tokens for auto-login
           if (data.accessToken) {
             localStorage.setItem("userToken", data.accessToken);
@@ -540,11 +556,11 @@ export default function PaymentQRDialog({
             }
             console.log("[PAYMENT QR] Tokens stored for auto-login");
           }
-          
+
           setCreatedAccountPassword(data.defaultPassword || "");
           setCreatedOrderId(orderId || "");
           setShowAccountDialog(true);
-          
+
           toast({
             title: "✓ Payment Confirmed!",
             description: "Your account has been created!",
@@ -552,13 +568,13 @@ export default function PaymentQRDialog({
         } else if (!isAuthenticated && data.accessToken) {
           // ✅ Existing user not logged in - auto-login and track
           console.log("[PAYMENT QR] Existing user - auto-logging in and tracking");
-          
+
           // Store tokens for auto-login
           localStorage.setItem("userToken", data.accessToken);
           if (data.refreshToken) {
             localStorage.setItem("refreshToken", data.refreshToken);
           }
-          
+
           toast({
             title: "✓ Payment Confirmed!",
             description: "You're logged in. Go to track your order.",
@@ -575,7 +591,7 @@ export default function PaymentQRDialog({
         } else {
           // User already logged in - go to tracking
           console.log("[PAYMENT QR] User already logged in - going to tracking");
-          
+
           toast({
             title: "✓ Payment Confirmed!",
             description: "Your order has been submitted.",
@@ -609,7 +625,7 @@ export default function PaymentQRDialog({
 
   const handleCancelPayment = async () => {
     console.log("[PAYMENT QR] Cancel clicked - cancelling order and saving pending checkout");
-    
+
     try {
       // ✅ STEP 1: Cancel the order
       if (orderIdFromCheckout) {
@@ -618,7 +634,7 @@ export default function PaymentQRDialog({
           console.log(`[PAYMENT QR] Sending POST request to /api/orders/${orderIdFromCheckout}/cancel`);
           const cancelResponse = await api.post(`/api/orders/${orderIdFromCheckout}/cancel`);
           console.log("[PAYMENT QR] ✅ Order cancelled successfully:", cancelResponse.data);
-          
+
           toast({
             title: "✓ Order Cancelled",
             description: `Order #${orderIdFromCheckout.slice(0, 8)} has been cancelled successfully.`,
@@ -630,7 +646,7 @@ export default function PaymentQRDialog({
             message: cancelError.message,
             errorCode: cancelError.response?.data?.errorCode
           });
-          
+
           // Show specific error message to user
           const errorMessage = cancelError.response?.data?.message || "Failed to cancel order";
           toast({
@@ -644,7 +660,7 @@ export default function PaymentQRDialog({
 
       // ✅ STEP 2: Save pending checkout for cart recovery
       const orderData = paymentData?.orderData || {};
-      
+
       const pendingCheckoutData = {
         orderId: orderIdFromCheckout,  // Link back to the cancelled order
         phone: phone || orderData.customerPhone || "",
@@ -676,10 +692,10 @@ export default function PaymentQRDialog({
       };
 
       console.log("[PAYMENT QR] Saving pending checkout for cart recovery:", pendingCheckoutData);
-      
+
       const response = await api.post("/api/pending-checkouts", pendingCheckoutData);
       console.log("[PAYMENT QR] ✅ Pending checkout saved:", response.data.id);
-      
+
       toast({
         title: "✓ Checkout Saved",
         description: "Your cart has been saved. You can resume payment anytime.",
@@ -722,235 +738,308 @@ export default function PaymentQRDialog({
         onOpenChange={(open) => {
           console.log("[PAYMENT QR] Dialog onOpenChange called with open:", open);
           if (!open) {
+            if (!hasPaid) {
+              const confirmLeave = window.confirm(
+                "You haven't confirmed payment. Your order will not be placed. Continue?"
+              );
+              if (!confirmLeave) return;
+            }
             // Close is being triggered - only allow it to proceed
             // (outside clicks are already blocked by onPointerDownOutside and onEscapeKeyDown)
             onClose();
           }
         }}
       >
-      <DialogContent
-        className="w-full max-w-md mx-auto max-h-[95vh] overflow-y-auto"
-        {...handlePaymentQRDialogContentProps}
-      >
-        <DialogHeader>
-          <DialogTitle>Complete Payment</DialogTitle>
-          <DialogDescription>Choose your preferred payment method</DialogDescription>
-        </DialogHeader>
+        <DialogContent
+          className="w-full max-w-md mx-auto max-h-[90vh] overflow-hidden"
+          {...handlePaymentQRDialogContentProps}
+        >
+          <DialogHeader>
+            <DialogTitle>Complete Payment</DialogTitle>
+            <DialogDescription>Choose your preferred payment method</DialogDescription>
+          </DialogHeader>
 
-        <div className="space-y-2">
-          {/* ✅ SECTION 1: UPI ID - COMPACT, TOP */}
-          {upiIntent && (
-            <div className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-950/40 dark:to-emerald-950/40 border-2 border-green-400 dark:border-green-600 rounded-lg p-2 space-y-1.5">
-              <p className="text-xs font-bold text-green-700 dark:text-green-300">💚 UPI ID</p>
-              <div className="bg-white dark:bg-slate-800 rounded p-2 flex items-center justify-between">
-                <div className="flex flex-col">
-                  <span className="text-xs font-mono font-bold text-green-600 dark:text-green-400">{paymentSettings.upiId}</span>
-                </div>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={copyUpiId}
-                  data-testid="button-copy-upi"
-                  className="hover:bg-green-100 dark:hover:bg-green-900/30 h-7 w-7 p-0"
+          <div className="space-y-2">
+            {/* Payment Mode Selector */}
+            <div className="mb-4">
+              <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">
+                <button
+                  className={`flex-1 py-2 text-sm font-semibold rounded-md transition-all ${paymentMode === "online" ? "bg-white dark:bg-slate-700 shadow border border-slate-200 dark:border-slate-600 text-slate-900 dark:text-white" : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"}`}
+                  onClick={() => { setPaymentMode("online"); setHasPaid(false); }}
                 >
-                  <Copy className="h-3.5 w-3.5" />
-                </Button>
+                  💳 Pay Online
+                </button>
+                <button
+                  className={`flex-1 py-2 text-sm font-semibold rounded-md transition-all ${paymentMode === "cod" ? "bg-white dark:bg-slate-700 shadow border border-slate-200 dark:border-slate-600 text-slate-900 dark:text-white" : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"} ${!isAuthenticated ? "opacity-60 cursor-not-allowed" : ""}`}
+                  onClick={() => { 
+                    if (!isAuthenticated) {
+                      toast({
+                        title: "Login Required",
+                        description: "Cash on Delivery is strictly available for registered users only.",
+                        variant: "destructive"
+                      });
+                      return;
+                    }
+                    setPaymentMode("cod"); 
+                    setHasPaid(false); 
+                  }}
+                >
+                  💵 Cash on Delivery {!isAuthenticated && "🔒"}
+                </button>
               </div>
-            </div>
-          )}
-
-          {/* ✅ SECTION 2: PAYMENT NUMBER - COMPACT */}
-          {upiIntent && paymentSettings.merchantPhone && (
-            <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-300 dark:border-blue-700 rounded-lg p-2">
-              <div className="flex items-start gap-2">
-                <Smartphone className="h-4 w-4 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
-                <div className="flex-1">
-                  <p className="text-xs font-bold text-blue-700 dark:text-blue-300">📱 {paymentSettings.merchantPhone}</p>
-                  <p className="text-xs text-blue-600 dark:text-blue-400">Send payment directly</p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ✅ SECTION 3: QR CODE - COLLAPSIBLE (CLOSED BY DEFAULT) */}
-          {upiIntent && (
-            <div className="border border-slate-300 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-900/20">
-              <button
-                onClick={() => setShowQRCode(!showQRCode)}
-                className="w-full flex items-center justify-between p-2 hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-colors"
-              >
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-slate-700 dark:text-slate-300">🔲 Scan QR Code</span>
-                </div>
-                <span className="text-xs text-slate-500">{showQRCode ? '▼' : '▶'}</span>
-              </button>
-              {showQRCode && (
-                <div className="border-t border-slate-300 dark:border-slate-600 flex flex-col items-center p-2 bg-muted/30">
-                  <div className="bg-white dark:bg-slate-800 p-1.5 rounded-lg shadow-sm">
-                    <canvas ref={canvasRef} data-testid="payment-qr-canvas" className="w-[120px] h-[120px]" />
-                  </div>
-                  <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">Use any UPI app</p>
-                </div>
+              {!isAuthenticated && (
+                <p className="text-[11px] text-center text-slate-500 dark:text-slate-400 mt-1.5 font-medium">
+                  🔒 COD is available for registered users only.
+                </p>
               )}
             </div>
-          )}
 
-          {/* ✅ SECTION 4: PAY WITH APP BUTTONS - SUBTLE & COMPACT */}
-          {upiIntent && (
-            <div className="bg-slate-50 dark:bg-slate-900/30 rounded-lg p-2.5 border border-slate-200 dark:border-slate-700 space-y-1.5">
-              <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 text-center">💳 Quick Payment</p>
-              
-              <div className="flex gap-1.5 justify-center">
-                <Button
-                  variant="default"
-                  className="flex flex-col items-center justify-center gap-0.5 h-14 w-20 bg-blue-600 hover:bg-blue-700 text-white font-semibold border-0 transition-all rounded-lg"
-                  onClick={() => handlePayWithApp("gpay")}
-                  data-testid="button-pay-gpay"
-                >
-                  <span className="text-base">💳</span>
-                  <span className="text-xs">Google Pay</span>
-                </Button>
-                <Button
-                  variant="outline"
-                  disabled
-                  className="flex flex-col items-center justify-center gap-0.5 h-14 w-20 opacity-35 cursor-not-allowed rounded-lg"
-                  data-testid="button-pay-phonepe"
-                  title="Coming soon"
-                >
-                  <span className="text-base">📱</span>
-                  <span className="text-xs">PhonePe</span>
-                </Button>
-                <Button
-                  variant="outline"
-                  disabled
-                  className="flex flex-col items-center justify-center gap-0.5 h-14 w-20 opacity-35 cursor-not-allowed rounded-lg"
-                  data-testid="button-pay-paytm"
-                  title="Coming soon"
-                >
-                  <span className="text-base">💰</span>
-                  <span className="text-xs">Paytm</span>
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {/* ✅ SECTION 5: AMOUNT SUMMARY - COMPACT */}
-          <div className="bg-slate-50 dark:bg-slate-900/30 p-2 rounded-lg border border-slate-200 dark:border-slate-700">
-            <div className="flex justify-between items-center">
-              <span className="text-xs font-medium text-slate-700 dark:text-slate-300">Total:</span>
-              <span className="text-base font-bold text-slate-900 dark:text-white">₹{amount}</span>
-            </div>
-          </div>
-
-          {/* ✅ SECTION 6: CONFIRMATION CHECKBOX - ALWAYS VISIBLE, NO SCROLL */}
-          <div className="flex items-start gap-2 p-2 bg-amber-50 dark:bg-amber-950/20 rounded-lg border border-amber-200 dark:border-amber-800">
-            <Checkbox
-              id="payment-confirm"
-              checked={hasPaid}
-              onCheckedChange={(checked) => {
-                const newVal = checked as boolean;
-                console.log("[PAYMENT QR] Payment confirmation checkbox changed:", newVal);
-                setHasPaid(newVal);
-              }}
-              data-testid="checkbox-payment-confirmed"
-              className="mt-0.5 h-4 w-4"
-            />
-            <label
-              htmlFor="payment-confirm"
-              className="text-xs leading-snug peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer text-amber-900 dark:text-amber-100"
-            >
-              I paid ₹{amount}
-            </label>
-          </div>
-
-          {/* ✅ SECTION 7: QUICK INSTRUCTIONS */}
-          <div className="bg-blue-50 dark:bg-blue-950/30 p-2 rounded-lg border border-blue-200 dark:border-blue-800">
-            <p className="text-xs text-blue-700 dark:text-blue-300 leading-tight">
-              <strong>📝 Steps:</strong> Pay using UPI ID/QR/Number → Check box → Confirm
-            </p>
-          </div>
-
-          {/* Account Info - Show only after payment confirmed OR if already created */}
-          {(accountCreatedAfterPayment || (accountCreated && hasPaid)) && (
-            <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-2 space-y-1">
-              <div className="flex items-center gap-1">
-                <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
-                <p className="text-xs font-semibold text-green-800 dark:text-green-200">Account Created!</p>
-              </div>
-              <div className="bg-white dark:bg-slate-800 rounded p-1.5 border border-green-200 dark:border-green-700 text-xs">
-                <div className="space-y-0.5">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Phone:</span>
-                    <span className="font-mono font-bold">{phone}</span>
+            {/* ✅ SECTION 1: UPI ID - COMPACT, TOP */}
+            {paymentMode === "online" && upiIntent && (
+              <div className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-950/40 dark:to-emerald-950/40 border-2 border-green-400 dark:border-green-600 rounded-lg p-2 space-y-1.5">
+                <p className="text-xs font-bold text-green-700 dark:text-green-300">💚 UPI ID</p>
+                <div className="bg-white dark:bg-slate-800 rounded p-2 flex items-center justify-between">
+                  <div className="flex flex-col">
+                    <span className="text-xs font-mono font-bold text-green-600 dark:text-green-400">{paymentSettings.upiId}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Password:</span>
-                    <span className="font-mono font-bold text-green-600 dark:text-green-400">
-                      {createdAccountPassword || defaultPassword || phone?.slice(-6)}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={copyUpiId}
+                    data-testid="button-copy-upi"
+                    className="hover:bg-green-100 dark:hover:bg-green-900/30 h-7 w-7 p-0"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* ✅ SECTION 2: PAYMENT NUMBER - COMPACT */}
+            {paymentMode === "online" && upiIntent && paymentSettings.merchantPhone && (
+              <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-300 dark:border-blue-700 rounded-lg p-2">
+                <div className="flex items-start gap-2">
+                  <Smartphone className="h-4 w-4 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="text-xs font-bold text-blue-700 dark:text-blue-300">📱 {paymentSettings.merchantPhone}</p>
+                    <p className="text-xs text-blue-600 dark:text-blue-400">Send payment directly</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ✅ SECTION 3: QR CODE - COLLAPSIBLE (CLOSED BY DEFAULT) */}
+            {paymentMode === "online" && upiIntent && (
+              <div className="border border-slate-300 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-900/20">
+                <button
+                  onClick={() => setShowQRCode(!showQRCode)}
+                  className="w-full flex items-center justify-between p-2 hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-slate-700 dark:text-slate-300">🔲 Scan QR Code</span>
+                  </div>
+                  <span className="text-xs text-slate-500">{showQRCode ? '▼' : '▶'}</span>
+                </button>
+                {showQRCode && (
+                  <div className="border-t border-slate-300 dark:border-slate-600 flex flex-col items-center p-2 bg-muted/30">
+                    <div className="bg-white dark:bg-slate-800 p-1.5 rounded-lg shadow-sm">
+                      <canvas ref={canvasRef} data-testid="payment-qr-canvas" className="w-[120px] h-[120px]" />
+                    </div>
+                    <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">Use any UPI app</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ✅ SECTION 4: PAY WITH APP BUTTONS - SUBTLE & COMPACT */}
+            {paymentMode === "online" && upiIntent && (
+              <div className="bg-slate-50 dark:bg-slate-900/30 rounded-lg p-2.5 border border-slate-200 dark:border-slate-700 space-y-1.5">
+                <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 text-center">💳 Quick Payment</p>
+
+                <div className="flex gap-1.5 justify-center">
+                  <Button
+                    variant="default"
+                    className="flex flex-col items-center justify-center gap-0.5 h-14 w-20 bg-blue-600 hover:bg-blue-700 text-white font-semibold border-0 transition-all rounded-lg"
+                    onClick={() => handlePayWithApp("gpay")}
+                    data-testid="button-pay-gpay"
+                  >
+                    <span className="text-base">💳</span>
+                    <span className="text-xs">Google Pay</span>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    disabled
+                    className="flex flex-col items-center justify-center gap-0.5 h-14 w-20 opacity-35 cursor-not-allowed rounded-lg"
+                    data-testid="button-pay-phonepe"
+                    title="Coming soon"
+                  >
+                    <span className="text-base">📱</span>
+                    <span className="text-xs">PhonePe</span>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    disabled
+                    className="flex flex-col items-center justify-center gap-0.5 h-14 w-20 opacity-35 cursor-not-allowed rounded-lg"
+                    data-testid="button-pay-paytm"
+                    title="Coming soon"
+                  >
+                    <span className="text-base">💰</span>
+                    <span className="text-xs">Paytm</span>
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* ✅ SECTION 5: AMOUNT SUMMARY - COMPACT */}
+            <div className="bg-slate-50 dark:bg-slate-900/30 p-2 rounded-lg border border-slate-200 dark:border-slate-700">
+              <div className="flex justify-between items-center">
+                <span className="text-xs font-medium text-slate-700 dark:text-slate-300">Total:</span>
+                <span className="text-base font-bold text-slate-900 dark:text-white">₹{amount}</span>
+              </div>
+            </div>
+
+            {/* ✅ SECTION 6: CONFIRMATION CHECKBOX - ALWAYS VISIBLE, NO SCROLL */}
+            {/* <img
+            src="/confirm-payment.gif"
+            alt="How to confirm payment"
+            className="w-full max-h-20 object-contain"
+          /> */}
+            <div className="flex items-start gap-2 p-3 bg-amber-100 dark:bg-amber-950/40 rounded-lg border-2 border-amber-400 animate-pulse">
+              <Checkbox
+                id="payment-confirm"
+                checked={hasPaid}
+                onCheckedChange={(checked) => {
+                  const newVal = checked as boolean;
+                  console.log("[PAYMENT QR] Payment confirmation checkbox changed:", newVal);
+                  setHasPaid(newVal);
+                }}
+                data-testid="checkbox-payment-confirmed"
+                className="mt-0.5 h-4 w-4"
+              />
+              <div className="flex flex-col">
+                <div>
+                  <label
+                    htmlFor="payment-confirm"
+                    className="text-xs leading-snug peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer text-amber-900 dark:text-amber-100 font-bold"
+                  >
+                    {paymentMode === "online" ? `I paid ₹${amount}` : `I will pay ₹${amount} on delivery`}
+                  </label>
+                  {!hasPaid && (
+                    <span className="ml-2 text-xs text-amber-800 animate-bounce delay-150 inline-block">
+                      👈 {paymentMode === "online" ? "Tap here after payment" : "Tap here to confirm"}
                     </span>
+                  )}
+                </div>
+                {hasPaid && (
+                  <p className="text-xs text-green-700 mt-1 animate-pulse">
+                    👉 Now tap Confirm to place your order
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* ✅ SECTION 7: QUICK INSTRUCTIONS */}
+            <div className={`${paymentMode === "online" ? "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800" : "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800"} p-2 rounded-lg border`}>
+              <p className={`text-xs ${paymentMode === "online" ? "text-blue-700 dark:text-blue-300" : "text-emerald-700 dark:text-emerald-300"} leading-tight`}>
+                <strong>📝 Steps:</strong> {paymentMode === "online" ? "Pay using UPI ID/QR/Number → Check box → Confirm" : "Select Cash on Delivery → Check box → Confirm"}
+              </p>
+            </div>
+
+            {/* Account Info - Show only after payment confirmed OR if already created */}
+            {(accountCreatedAfterPayment || (accountCreated && hasPaid)) && (
+              <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-2 space-y-1">
+                <div className="flex items-center gap-1">
+                  <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
+                  <p className="text-xs font-semibold text-green-800 dark:text-green-200">Account Created!</p>
+                </div>
+                <div className="bg-white dark:bg-slate-800 rounded p-1.5 border border-green-200 dark:border-green-700 text-xs">
+                  <div className="space-y-0.5">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Phone:</span>
+                      <span className="font-mono font-bold">{phone}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Password:</span>
+                      <span className="font-mono font-bold text-green-600 dark:text-green-400">
+                        {createdAccountPassword || defaultPassword || phone?.slice(-6)}
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
+            )}
+
+            {/* ✅ ACTION BUTTONS - COMPACT, ALWAYS VISIBLE */}
+            <div className="flex gap-2 pt-1">
+              <Button
+                variant="outline"
+                onClick={handleCancelPayment}
+                className="flex-1 h-9 text-sm"
+                data-testid="button-cancel-payment"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleConfirmPayment}
+                disabled={!hasPaid || isConfirming || isSubmitting}
+                className={`flex-1 h-9 text-sm bg-green-600 hover:bg-green-700 text-white ${hasPaid ? "animate-pulse" : ""}`}
+                data-testid="button-confirm-payment"
+              >
+                {isConfirming || isSubmitting ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                    {isSubmitting ? "Processing..." : "Confirming..."}
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                    Confirm
+                  </>
+                )}
+              </Button>
             </div>
-          )}
-
-          {/* ✅ ACTION BUTTONS - COMPACT, ALWAYS VISIBLE */}
-          <div className="flex gap-2 pt-1">
-            <Button
-              variant="outline"
-              onClick={handleCancelPayment}
-              className="flex-1 h-9 text-sm"
-              data-testid="button-cancel-payment"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleConfirmPayment}
-              disabled={!hasPaid || isConfirming || isSubmitting}
-              className="flex-1 h-9 text-sm bg-green-600 hover:bg-green-700 text-white"
-              data-testid="button-confirm-payment"
-            >
-              {isConfirming || isSubmitting ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
-                  {isSubmitting ? "Processing..." : "Confirming..."}
-                </>
-              ) : (
-                <>
-                  <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
-                  Confirm
-                </>
-              )}
-            </Button>
+            {!hasPaid && !isConfirming && (
+              <div className="fixed bottom-16 left-0 right-0 mx-auto max-w-md px-4 z-50">
+                <div className="bg-amber-100 border border-amber-400 text-amber-800 text-sm p-2 rounded shadow animate-bounce text-center">
+                  ⚠️ {paymentMode === "online" ? "After payment, please check the box and tap Confirm" : "Please check the box and tap Confirm to place your order"}
+                </div>
+              </div>
+            )}
+            {hasPaid && !isConfirming && (
+              <div className="fixed bottom-16 left-0 right-0 mx-auto max-w-md px-4 z-50">
+                <div className="bg-green-100 border border-green-400 text-green-800 text-sm p-2 rounded shadow animate-bounce text-center">
+                  ✅ Payment done? Tap "Confirm" to place your order
+                </div>
+              </div>
+            )}
           </div>
-        </div>
-      </DialogContent>
-    </Dialog>
+        </DialogContent>
+      </Dialog>
 
-    {/* Account Created Dialog - shown after new account is created during payment */}
-    <AccountCreatedDialog
-      isOpen={showAccountDialog}
-      onClose={() => {
-        setShowAccountDialog(false);
-      }}
-      phone={phone || ""}
-      password={createdAccountPassword || ""}
-      orderId={createdOrderId || ""}
-      customerName={customerName || ""}
-      onGoToTrack={() => {
-        setShowAccountDialog(false);
-        // ✅ IMPORTANT: Invalidate user profile query AND wait for refetch to complete
-        // This ensures useAuth fetches the user profile with the new token before we navigate
-        queryClient.invalidateQueries({ queryKey: ['/api/user/profile'] });
-        // Give the query refetch time to complete (50ms should be enough for network + state update)
-        setTimeout(() => {
-          setLocation(`/track/${createdOrderId}`);
+      {/* Account Created Dialog - shown after new account is created during payment */}
+      <AccountCreatedDialog
+        isOpen={showAccountDialog}
+        onClose={() => {
+          setShowAccountDialog(false);
+        }}
+        phone={phone || ""}
+        password={createdAccountPassword || ""}
+        orderId={createdOrderId || ""}
+        customerName={customerName || ""}
+        onGoToTrack={() => {
+          setShowAccountDialog(false);
+          // ✅ IMPORTANT: Invalidate user profile query AND wait for refetch to complete
+          // This ensures useAuth fetches the user profile with the new token before we navigate
+          queryClient.invalidateQueries({ queryKey: ['/api/user/profile'] });
+          // Give the query refetch time to complete (50ms should be enough for network + state update)
           setTimeout(() => {
-            onClose();
-          }, 100);
-        }, 50);
-      }}
-    />
+            setLocation(`/track/${createdOrderId}`);
+            setTimeout(() => {
+              onClose();
+            }, 100);
+          }, 50);
+        }}
+      />
     </>
   );
 }
