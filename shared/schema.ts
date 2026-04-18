@@ -1078,3 +1078,31 @@ export const insertPendingCheckoutSchema = createInsertSchema(pendingCheckouts).
 
 export type InsertPendingCheckout = z.infer<typeof insertPendingCheckoutSchema>;
 export type PendingCheckout = typeof pendingCheckouts.$inferSelect;
+
+// ✅ ONPL (Order Now Pay Later) Transactions Table
+export const payLaterTransactions = pgTable("pay_later_transactions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  orderId: varchar("order_id").notNull(),
+  amount: integer("amount").notNull(),
+  status: varchar("status", { length: 20 }).notNull().default("PENDING"), // PENDING, PAID, OVERDUE
+  dueDate: timestamp("due_date").notNull(),
+  paidAt: timestamp("paid_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("IDX_onpl_user").on(table.userId),
+  index("IDX_onpl_status").on(table.status),
+  index("IDX_onpl_due_date").on(table.dueDate),
+]);
+
+export const insertPayLaterSchema = createInsertSchema(payLaterTransactions).extend({
+  dueDate: z.date(),
+}).omit({
+  id: true,
+  createdAt: true,
+  paidAt: true,
+  status: true,
+});
+
+export type PayLaterTransaction = typeof payLaterTransactions.$inferSelect;
+export type InsertPayLaterTransaction = z.infer<typeof insertPayLaterSchema>;

@@ -761,37 +761,19 @@ export default function PaymentQRDialog({
 
           <div className="space-y-2">
             {/* Payment Mode Selector */}
-            <div className="mb-4">
-              <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">
-                <button
-                  className={`flex-1 py-2 text-sm font-semibold rounded-md transition-all ${paymentMode === "online" ? "bg-white dark:bg-slate-700 shadow border border-slate-200 dark:border-slate-600 text-slate-900 dark:text-white" : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"}`}
-                  onClick={() => { setPaymentMode("online"); setHasPaid(false); }}
-                >
-                  💳 Pay Online
-                </button>
-                <button
-                  className={`flex-1 py-2 text-sm font-semibold rounded-md transition-all ${paymentMode === "cod" ? "bg-white dark:bg-slate-700 shadow border border-slate-200 dark:border-slate-600 text-slate-900 dark:text-white" : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"} ${!isAuthenticated ? "opacity-60 cursor-not-allowed" : ""}`}
-                  onClick={() => { 
-                    if (!isAuthenticated) {
-                      toast({
-                        title: "Login Required",
-                        description: "Cash on Delivery is strictly available for registered users only.",
-                        variant: "destructive"
-                      });
-                      return;
-                    }
-                    setPaymentMode("cod"); 
-                    setHasPaid(false); 
-                  }}
-                >
-                  💵 Cash on Delivery {!isAuthenticated && "🔒"}
-                </button>
-              </div>
-              {!isAuthenticated && (
-                <p className="text-[11px] text-center text-slate-500 dark:text-slate-400 mt-1.5 font-medium">
-                  🔒 COD is available for registered users only.
-                </p>
-              )}
+            <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg mb-4">
+              <button
+                className={`flex-1 py-2 text-sm font-semibold rounded-md transition-all ${paymentMode === "online" ? "bg-white dark:bg-slate-700 shadow border border-slate-200 dark:border-slate-600 text-slate-900 dark:text-white" : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"}`}
+                onClick={() => { setPaymentMode("online"); setHasPaid(false); }}
+              >
+                💳 Pay Online
+              </button>
+              <button
+                className={`flex-1 py-2 text-sm font-semibold rounded-md transition-all ${paymentMode === "cod" ? "bg-white dark:bg-slate-700 shadow border border-slate-200 dark:border-slate-600 text-slate-900 dark:text-white" : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"}`}
+                onClick={() => { setPaymentMode("cod"); setHasPaid(false); }}
+              >
+                💵 Cash on Delivery
+              </button>
             </div>
 
             {/* ✅ SECTION 1: UPI ID - COMPACT, TOP */}
@@ -1001,7 +983,7 @@ export default function PaymentQRDialog({
             {!hasPaid && !isConfirming && (
               <div className="fixed bottom-16 left-0 right-0 mx-auto max-w-md px-4 z-50">
                 <div className="bg-amber-100 border border-amber-400 text-amber-800 text-sm p-2 rounded shadow animate-bounce text-center">
-                  ⚠️ {paymentMode === "online" ? "After payment, please check the box and tap Confirm" : "Please check the box and tap Confirm to place your order"}
+                  ⚠️ {paymentMode === "online" ? "⚠️ Your order will only be placed after you check the box and tap Confirm." : "⚠️ Your order will only be placed after you check the box and tap Confirm."}
                 </div>
               </div>
             )}

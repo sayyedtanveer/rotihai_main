@@ -12,7 +12,7 @@ import { verifyToken as verifyUserToken } from "./userAuth";
 import { requireAdmin } from "./adminAuth";
 import { sendEmail, createWelcomeEmail, createPasswordResetEmail, createPasswordChangeConfirmationEmail, sendOrderConfirmationEmail } from "./emailService";
 import { sendOrderPlacedAdminNotification } from "./whatsappService";
-import { db, subscriptions, orders, walletSettings, referralRewards, newsletterSubscribers, users, deliveryPersonnel } from "@shared/db";
+import { db, subscriptions, orders, walletSettings, referralRewards, newsletterSubscribers, users, deliveryPersonnel, payLaterTransactions } from "@shared/db";
 import { eq } from "drizzle-orm";
 import { ZodError } from "zod";
 import axios from "axios";
@@ -1378,6 +1378,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get user's pending ONPL count
+  app.get("/api/user/onpl-pending-count", requireUser(), async (req: AuthenticatedUserRequest, res) => {
+    try {
+      const userId = req.authenticatedUser!.userId;
+      const pendingONPL = await db.query.payLaterTransactions.findMany({
+        where: (t, { eq, and, or }) => and(
+          eq(t.userId, userId),
+          or(eq(t.status, "PENDING"), eq(t.status, "OVERDUE"))
+        )
+      });
+      res.json({ count: pendingONPL.length, totalDue: pendingONPL.reduce((acc, t) => acc + t.amount, 0) });
+    } catch (error: any) {
+      res.status(500).json({ message: "Failed to fetch ONPL status" });
+    }
+  });
+
+
   // Claim referral bonus at checkout
   app.post("/api/user/claim-bonus-at-checkout", requireUser(), async (req: AuthenticatedUserRequest, res) => {
     try {
@@ -2082,6 +2099,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(`🎁 [DEBUG-REFERRAL] Referral Code: ${referralCodeInput}, UserId: ${userId}`);
       }
 
+      // Phase 4: Block Next Order if pending dues exist
+      if (userId) {
+        const pendingOnpl = await db.query.payLaterTransactions.findMany({
+           where: (t, { eq, and, or }) => and(
+             eq(t.userId, userId),
+             or(eq(t.status, "PENDING"), eq(t.status, "OVERDUE"))
+           )
+        });
+        if (pendingOnpl.length > 0) {
+           return res.status(403).json({ 
+             message: "⚠️ Please clear pending 'Pay Later' dues before placing a new order." 
+           });
+        }
+      }
+
       // ✅ FIX 2: PASS userId TO ORDER (guaranteed to exist for new users now)
       const orderPayload: any = {
         ...result.data,
@@ -2096,6 +2128,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // ✅ Set payment expiry (30 minutes from now) - CRITICAL for reliable expiry logic
         expiresAt: new Date(Date.now() + 30 * 60 * 1000),
       };
+
+      // Block Pay Later if amount exceeds ₹150 credit limit
+      if (body.paymentType === "PAY_LATER" && Number(orderPayload.total) > 150) {
+        return res.status(403).json({ message: "Pay Later is limited to orders up to ₹150 only." });
+      }
 
       console.log("📦 Creating order with userId:", userId, "accountCreated:", accountCreated);
 
@@ -2151,6 +2188,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const order = await storage.createOrder(orderPayload);
       console.log("✅ Order created successfully:", order.id);
       console.log(`📋 Order Details: userId=${userId}, walletAmountUsed=${order.walletAmountUsed}`);
+
+      // ONPL: Create pay_later_transactions if PAY_LATER is selected
+      if (body.paymentType === "PAY_LATER" && userId) {
+        const dueDate = new Date();
+        dueDate.setDate(dueDate.getDate() + 7);
+        await db.insert(payLaterTransactions).values({
+          userId: userId,
+          orderId: order.id,
+          amount: order.total,
+          dueDate: dueDate,
+        });
+        console.log(`💳 Pay Later Transaction created for order: ${order.id}`);
+      }
 
       // Generate access token for newly created users
       let accessToken: string | undefined;
@@ -6177,6 +6227,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ============================================
+  // ADMIN PAY LATER MANAGEMENT
+  // ============================================
+  app.get("/api/admin/pay-later", async (req, res) => {
+    try {
+      // Basic auth check inline just in case
+      if (req.isAuthenticated && !req.isAuthenticated()) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      
+      const transactions = await db.query.payLaterTransactions.findMany({
+        orderBy: (t, { desc }) => [desc(t.createdAt)],
+      });
+      // Enhance with user names
+      const enrichedTransactions = await Promise.all(transactions.map(async (t) => {
+         const user = await storage.getUser(t.userId);
+         return { ...t, customerName: user?.name, phone: user?.phone };
+      }));
+      res.json(enrichedTransactions);
+    } catch (error: any) {
+      res.status(500).json({ message: "Failed to fetch transactions" });
+    }
+  });
+
+  app.post("/api/admin/pay-later/:id/mark-paid", async (req, res) => {
+    try {
+      // Basic auth check inline
+      if (req.isAuthenticated && !req.isAuthenticated()) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      
+      const { id } = req.params;
+      const [updated] = await db.update(payLaterTransactions)
+        .set({ status: "PAID", paidAt: new Date() })
+        .where(eq(payLaterTransactions.id, id))
+        .returning();
+        
+      if (!updated) return res.status(404).json({ message: "Transaction not found" });
+      res.json({ success: true, transaction: updated });
+    } catch (error: any) {
+      res.status(500).json({ message: "Failed to mark as paid" });
+    }
+  });
+
   const httpServer = createServer(app);
   setupWebSocket(httpServer);
 
@@ -6195,6 +6289,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(`✅ [SCHEDULER] Referral cleanup complete: ${expiredCount} referrals expired`);
       } catch (error: any) {
         console.error(`❌ [SCHEDULER] Error in referral cleanup:`, error.message);
+      }
+    }
+  }, 60 * 1000); // Check every minute
+
+  // 🕐 ONPL: Mark PENDING transactions as OVERDUE daily at 2 AM when past due date
+  setInterval(async () => {
+    const now = new Date();
+    const hours = now.getHours();
+    const minutes = now.getMinutes();
+
+    // Run at 2:00 AM - 2:01 AM window (same window as referral cleanup)
+    if (hours === 2 && minutes === 0) {
+      console.log(`🕐 [ONPL-SCHEDULER] Running daily overdue check at ${now.toISOString()}`);
+      try {
+        const { lt, and } = await import("drizzle-orm");
+        const result = await db
+          .update(payLaterTransactions)
+          .set({ status: "OVERDUE" })
+          .where(
+            and(
+              eq(payLaterTransactions.status, "PENDING"),
+              lt(payLaterTransactions.dueDate, now)
+            )
+          )
+          .returning();
+        console.log(`✅ [ONPL-SCHEDULER] Marked ${result.length} transaction(s) as OVERDUE`);
+      } catch (error: any) {
+        console.error(`❌ [ONPL-SCHEDULER] Error in ONPL overdue check:`, error.message);
       }
     }
   }, 60 * 1000); // Check every minute

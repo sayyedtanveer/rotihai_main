@@ -17824,7 +17824,7 @@ var imageExists = (filename) => {
 };
 
 // server/index.ts
-var enableVite2 = process.env.ENABLE_VITE === "true";
+var enableVite2 = process.env.ENABLE_VITE === "false";
 if (enableVite2) {
   const dbUrl = process.env.DATABASE_URL || "";
   const allowProdDb = process.env.ALLOW_PROD_DB_IN_DEV === "true";

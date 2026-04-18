@@ -55,6 +55,9 @@ import AdminPaymentSettings from "@/pages/admin/AdminPaymentSettings";
 // Add AdminCartSettings import here
 const AdminCartSettings = lazy(() => import("@/pages/admin/AdminCartSettings"));
 
+// Add AdminPayLater import
+const AdminPayLater = lazy(() => import("@/pages/admin/AdminPayLater"));
+
 // Add AdminRotiSettings import
 const AdminRotiSettings = lazy(() => import("@/pages/admin/AdminRotiSettings"));
 
@@ -121,7 +124,8 @@ function Router() {
       <Route path="/admin/wallet-logs" component={AdminWalletLogs} />
       <Route path="/admin/visitor-analytics" component={AdminVisitorAnalytics} />
       <Route path="/admin/notification-settings" component={AdminNotificationSettings} />
-      {/* Add cart settings admin route */}
+      {/* Add new admin routes */}
+      <Route path="/admin/pay-later" component={AdminPayLater} />
       <Route path="/admin/cart-settings" component={AdminCartSettings} />
       <Route path="/admin/roti-settings" component={AdminRotiSettings} />
 
