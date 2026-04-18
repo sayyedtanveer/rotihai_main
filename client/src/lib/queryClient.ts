@@ -131,14 +131,20 @@ export const queryClient = new QueryClient({
       queryFn: getQueryFn({ on401: "throw" }),
       refetchInterval: false,
       refetchOnWindowFocus: false,
-      // Development: no cache (staleTime: 0) for fresh data
-      // Production: cache for 5 minutes for performance
-      staleTime: import.meta.env.DEV ? 0 : 1000 * 60 * 5,
-      gcTime: import.meta.env.DEV ? 0 : 1000 * 60 * 10, // Keep in memory 10 min in prod
-      retry: false,
+      // Dynamic staleTime resolution based on cache analysis limits
+      staleTime: import.meta.env.DEV ? 0 : 1000 * 60 * 5, // Fallback default 5 min
     },
     mutations: {
       retry: false,
     },
   },
 });
+
+// Polyfill function for advanced cache definitions in components
+export const getStaleTime = (queryKey: string) => {
+    if (queryKey === "/api/categories") return Number.POSITIVE_INFINITY;
+    if (queryKey === "/api/products") return 1000 * 60 * 5;
+    if (queryKey.startsWith("/api/validate-pincode") || queryKey.startsWith("/api/chefs/by-pincode")) return 1000 * 60 * 60; // 1 hr
+    if (queryKey === "/api/cart") return 1000 * 10; // 10s
+    return 1000 * 60 * 5;
+};

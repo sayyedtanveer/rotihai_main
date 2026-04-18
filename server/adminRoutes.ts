@@ -29,6 +29,8 @@ import { subscriptions } from "@shared/schema";
 import { sendEmail, createAdminPasswordResetEmail, sendMissedDeliveryEmail } from "./emailService";
 import { sendChefAssignmentNotification, sendDeliveryCompletedNotification, sendMissedDeliveryNotification } from "./whatsappService";
 
+import { invalidateCache, invalidateCachePrefix } from "./cache";
+
 export function registerAdminRoutes(app: Express) {
   // ✅ Helper function: Check if date is a scheduled delivery day based on plan frequency
   function isDeliveryDay(date: Date, frequency: string, deliveryDays: string[]): boolean {
@@ -905,6 +907,7 @@ export function registerAdminRoutes(app: Express) {
       }
 
       const category = await storage.createCategory(validation.data);
+      invalidateCache("categories");
       res.status(201).json(category);
     } catch (error) {
       console.error("Create category error:", error);
@@ -921,6 +924,7 @@ export function registerAdminRoutes(app: Express) {
         return;
       }
       await storage.reorderCategories(items);
+      invalidateCache("categories");
       res.json({ success: true });
     } catch (error) {
       console.error("Reorder categories error:", error);
@@ -938,6 +942,7 @@ export function registerAdminRoutes(app: Express) {
         return;
       }
 
+      invalidateCache("categories");
       res.json(category);
     } catch (error) {
       console.error("Update category error:", error);
@@ -955,6 +960,7 @@ export function registerAdminRoutes(app: Express) {
         return;
       }
 
+      invalidateCache("categories");
       res.json({ message: "Category deleted successfully" });
     } catch (error) {
       console.error("Delete category error:", error);
@@ -981,6 +987,7 @@ export function registerAdminRoutes(app: Express) {
       }
 
       const product = await storage.createProduct(validation.data);
+      invalidateCachePrefix("products");
       res.status(201).json(product);
     } catch (error) {
       console.error("Create product error:", error);
@@ -1003,6 +1010,7 @@ export function registerAdminRoutes(app: Express) {
         broadcastProductAvailabilityUpdate(product);
       }
 
+      invalidateCachePrefix("products");
       res.json(product);
     } catch (error) {
       console.error("Update product error:", error);
@@ -1020,6 +1028,7 @@ export function registerAdminRoutes(app: Express) {
         return;
       }
 
+      invalidateCachePrefix("products");
       res.json({ message: "Product deleted successfully" });
     } catch (error) {
       console.error("Delete product error:", error);
@@ -1163,6 +1172,8 @@ export function registerAdminRoutes(app: Express) {
       }
 
       const chef = await storage.createChef(req.body);
+      invalidateCache("chefs");
+      invalidateCachePrefix("pincode-");
       res.status(201).json(chef);
     } catch (error) {
       console.error("Create chef error:", error);
@@ -1201,6 +1212,8 @@ export function registerAdminRoutes(app: Express) {
         broadcastChefStatusUpdate(chef);
       }
 
+      invalidateCache("chefs");
+      invalidateCachePrefix("pincode-");
       res.json(chef);
     } catch (error) {
       console.error("Error updating chef:", error);
@@ -1218,6 +1231,8 @@ export function registerAdminRoutes(app: Express) {
         return;
       }
 
+      invalidateCache("chefs");
+      invalidateCachePrefix("pincode-");
       res.json({ message: "Chef deleted successfully" });
     } catch (error) {
       console.error("Delete chef error:", error);
