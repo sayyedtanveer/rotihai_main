@@ -2278,6 +2278,69 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
 
+  // ✅ Phase 2: Get ONLY the most recent active order for banner optimization
+  app.get("/api/orders/active", async (req: any, res) => {
+    try {
+      let userId: string | null = null;
+      
+      // Try to extract userId from JWT token
+      if (req.headers.authorization && req.headers.authorization.startsWith("Bearer ")) {
+        try {
+          const token = req.headers.authorization.substring(7);
+          const payload = verifyUserToken(token);
+          if (payload && payload.userId) {
+            userId = payload.userId;
+          }
+        } catch (tokenError) {
+          // Ignore invalid token
+        }
+      }
+
+      // Or try Replit auth
+      if (!userId && req.isAuthenticated && req.isAuthenticated() && req.user?.claims?.sub) {
+        userId = req.user.claims.sub;
+      }
+
+      if (!userId) {
+        res.status(401).json({ message: "Unauthorized" });
+        return;
+      }
+
+      const user = await storage.getUser(userId);
+      if (!user) {
+        res.status(404).json({ message: "User not found" });
+        return;
+      }
+
+      // Memory-based query for this template
+      const allOrders = await storage.getAllOrders();
+      const activeStatuses = ['pending', 'confirmed', 'accepted_by_chef', 'preparing', 'prepared', 'accepted_by_delivery', 'out_for_delivery'];
+      
+      const activeOrders = allOrders
+        .filter(order => order.userId === userId || order.phone === user.phone || order.email === user.email)
+        .filter(order => activeStatuses.includes(order.status))
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()); // DESC
+
+      if (activeOrders.length === 0) {
+        res.json(null);
+        return;
+      }
+
+      const activeOrder = activeOrders[0];
+      
+      // Return ONLY what's needed for the banner
+      res.json({
+        id: activeOrder.id,
+        status: activeOrder.status,
+        total_amount: activeOrder.total,
+        createdAt: activeOrder.createdAt
+      });
+    } catch (error: any) {
+      console.error("GET /api/orders/active error:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   // Get user's orders (supports both authenticated users and phone-based lookup)
   app.get("/api/orders", async (req: any, res) => {
     try {

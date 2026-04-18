@@ -90,24 +90,20 @@ export default function ActiveOrderBanner() {
   const [, navigate] = useLocation();
   const [dismissed, setDismissed] = useState(false);
 
-  const { data: orders = [] } = useQuery<any[]>({
-    queryKey: ["/api/orders", "active-banner"],
+  const { data: activeOrder = null } = useQuery<any>({
+    queryKey: ["active-order"],
     queryFn: async () => {
       const token = localStorage.getItem("userToken");
-      if (!token) return [];
-      const res = await fetch(getApiUrl("/api/orders"), {
+      if (!token) return null;
+      const res = await fetch(getApiUrl("/api/orders/active"), {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) return [];
+      if (!res.ok) return null;
       return res.json();
     },
     enabled: isAuthenticated,
-    refetchInterval: 15_000, // poll every 15 s
-    staleTime: 10_000,
+    refetchInterval: 30000,
   });
-
-  // Pick the most recent active order
-  const activeOrder = orders.find((o: any) => ACTIVE_STATUSES.has(o.status));
 
   // Nothing to show
   if (!activeOrder || dismissed) return null;
