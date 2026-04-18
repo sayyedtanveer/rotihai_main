@@ -751,7 +751,7 @@ export default function PaymentQRDialog({
         }}
       >
         <DialogContent
-          className="w-full max-w-md mx-auto max-h-[90vh] overflow-hidden"
+          className="w-full max-w-md mx-auto max-h-[90vh] overflow-hidden flex flex-col"
           {...handlePaymentQRDialogContentProps}
         >
           <DialogHeader>
@@ -759,7 +759,7 @@ export default function PaymentQRDialog({
             <DialogDescription>Choose your preferred payment method</DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-2">
+          <div className="space-y-2 flex-1 overflow-y-auto pr-1">
             {/* Payment Mode Selector */}
             <div className="mb-4">
               <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">
@@ -968,9 +968,10 @@ export default function PaymentQRDialog({
                 </div>
               </div>
             )}
+          </div>
 
-            {/* ✅ ACTION BUTTONS - COMPACT, ALWAYS VISIBLE */}
-            <div className="flex gap-2 pt-1">
+          {/* ✅ ACTION BUTTONS - FIXED AT BOTTOM, ALWAYS VISIBLE */}
+          <div className="flex gap-2 pt-2 border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950">
               <Button
                 variant="outline"
                 onClick={handleCancelPayment}
@@ -998,21 +999,21 @@ export default function PaymentQRDialog({
                 )}
               </Button>
             </div>
-            {!hasPaid && !isConfirming && (
-              <div className="fixed bottom-16 left-0 right-0 mx-auto max-w-md px-4 z-50">
-                <div className="bg-amber-100 border border-amber-400 text-amber-800 text-sm p-2 rounded shadow animate-bounce text-center">
-                  ⚠️ {paymentMode === "online" ? "After payment, please check the box and tap Confirm" : "Please check the box and tap Confirm to place your order"}
-                </div>
+
+          {!hasPaid && !isConfirming && (
+            <div className="fixed bottom-16 left-0 right-0 mx-auto max-w-md px-4 z-50">
+              <div className="bg-amber-100 border border-amber-400 text-amber-800 text-sm p-2 rounded shadow animate-bounce text-center">
+                ⚠️ {paymentMode === "online" ? "After payment, please check the box and tap Confirm" : "Please check the box and tap Confirm to place your order"}
               </div>
-            )}
-            {hasPaid && !isConfirming && (
-              <div className="fixed bottom-16 left-0 right-0 mx-auto max-w-md px-4 z-50">
-                <div className="bg-green-100 border border-green-400 text-green-800 text-sm p-2 rounded shadow animate-bounce text-center">
-                  ✅ Payment done? Tap "Confirm" to place your order
-                </div>
+            </div>
+          )}
+          {hasPaid && !isConfirming && (
+            <div className="fixed bottom-16 left-0 right-0 mx-auto max-w-md px-4 z-50">
+              <div className="bg-green-100 border border-green-400 text-green-800 text-sm p-2 rounded shadow animate-bounce text-center">
+                ✅ Payment done? Tap "Confirm" to place your order
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 
