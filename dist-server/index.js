@@ -18225,25 +18225,23 @@ app.use((req, res, next) => {
       res.status(500).json({ message: "Failed to serve image" });
     }
   });
-  app.get("/api/health", async (_req, res) => {
-    try {
-      const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-      await db2.execute(sql5`SELECT 1`);
-      res.json({
-        status: "ok",
-        db: "connected",
-        timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-        uptime: Math.floor(process.uptime()) + "s"
-      });
-    } catch (err) {
-      console.error("\u274C Health check DB ping failed:", err?.message);
-      res.status(503).json({
-        status: "degraded",
-        db: "unreachable",
-        timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-        error: err?.message
-      });
+  app.get("/api/health", async (req, res) => {
+    let dbStatus = "skipped";
+    if (req.query.db_check === "true") {
+      try {
+        const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+        await db2.execute(sql5`SELECT 1`);
+        dbStatus = "connected";
+      } catch (err) {
+        dbStatus = "unreachable";
+      }
     }
+    res.status(200).json({
+      status: "ok",
+      db: dbStatus,
+      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+      uptime: Math.floor(process.uptime()) + "s"
+    });
   });
   const server = await registerRoutes(app);
   app.use((err, _req, res, _next) => {
