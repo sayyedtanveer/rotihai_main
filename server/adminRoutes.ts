@@ -22,12 +22,12 @@ import {
 import { db, walletSettings, referralRewards, orders, paymentSettings } from "@shared/db";
 import { adminLoginSchema, insertAdminUserSchema, insertCategorySchema, insertProductSchema, insertDeliveryPersonnelSchema, insertDeliveryTimeSlotsSchema, insertReferralRewardSchema, insertCouponSchema } from "@shared/schema";
 import { fromZodError } from "zod-validation-error";
-import { broadcastOrderUpdate, broadcastNewOrder, notifyDeliveryAssignment, cancelPreparedOrderTimeout, broadcastProductAvailabilityUpdate, broadcastChefStatusUpdate, broadcastSubscriptionAssignmentToPartner, broadcastSubscriptionUpdate, broadcastWalletUpdate } from "./websocket";
+import { broadcastOrderUpdate, broadcastNewOrder, notifyDeliveryAssignment, cancelPreparedOrderTimeout, broadcastProductAvailabilityUpdate, broadcastChefStatusUpdate, broadcastSubscriptionAssignmentToPartner, broadcastSubscriptionUpdate, broadcastWalletUpdate, broadcastPreparedOrderToAvailableDelivery } from "./websocket";
 import { hashPassword as hashDeliveryPassword } from "./deliveryAuth";
 import { eq } from "drizzle-orm";
 import { subscriptions } from "@shared/schema";
 import { sendEmail, createAdminPasswordResetEmail, sendMissedDeliveryEmail } from "./emailService";
-import { sendChefAssignmentNotification, sendDeliveryCompletedNotification, sendMissedDeliveryNotification } from "./whatsappService";
+import { sendChefAssignmentNotification, sendDeliveryCompletedNotification, sendMissedDeliveryNotification, sendDeliveryAvailableNotification } from "./whatsappService";
 
 import { invalidateCache, invalidateCachePrefix } from "./cache";
 
@@ -409,25 +409,86 @@ export function registerAdminRoutes(app: Express) {
         status = "accepted_by_chef";
       }
 
-      const order = await storage.updateOrderStatus(id, status);
+      const order = await storage.getOrderById(id);
       if (!order) {
         res.status(404).json({ message: "Order not found" });
         return;
       }
 
-      broadcastOrderUpdate(order);
+      // --- Roti Category + Delivery Time Slot Flow (PARITY WITH CHEF) ---
+      if (status === "prepared") {
+        const items = order.items as any[];
+        if (items && items.length > 0) {
+          const firstProduct = await storage.getProductById(items[0].id);
+          if (firstProduct) {
+            const category = await storage.getCategoryById(firstProduct.categoryId);
+            const isRotiCategory = category?.name?.toLowerCase() === 'roti' ||
+              category?.name?.toLowerCase().includes('roti');
+
+            if (isRotiCategory && order.deliveryTime && !order.deliverySlotId) {
+              res.status(400).json({ message: "Delivery time slot is required for scheduled Roti orders" });
+              return;
+            }
+          }
+        }
+      }
+      // --- End Roti Category + Delivery Time Slot Flow ---
+
+      const updatedOrder = await storage.updateOrderStatus(id, status);
+      if (!updatedOrder) {
+        res.status(404).json({ message: "Order not found" });
+        return;
+      }
+
+      broadcastOrderUpdate(updatedOrder);
+
+      // PARITY WITH CHEF: Dual broadcast logic for "prepared" status
+      if (status === "prepared") {
+        console.log(`\n📢 STAGE 2: Order status changed to "prepared" - Checking delivery assignment...`);
+
+        if (updatedOrder.assignedTo) {
+          console.log(`  ✅ ORDER ALREADY ASSIGNED to ${updatedOrder.deliveryPersonName}`);
+        } else {
+          console.log(`  🔓 NO DELIVERY PERSON ASSIGNED YET`);
+          await broadcastPreparedOrderToAvailableDelivery(updatedOrder);
+        }
+
+        // 📱 Send WhatsApp notifications to available delivery personnel (PARITY WITH CHEF)
+        try {
+          const allDeliveryPersonnel = await storage.getAllDeliveryPersonnel();
+          const activeDeliveryPersonnel = allDeliveryPersonnel.filter(dp => dp.isActive && dp.phone);
+
+          if (activeDeliveryPersonnel.length > 0 && updatedOrder.address) {
+            const deliveryPersonIds = activeDeliveryPersonnel.map(dp => dp.id);
+            const deliveryPersonPhones = new Map(
+              activeDeliveryPersonnel.map(dp => [dp.id, dp.phone || ""])
+            );
+
+            await sendDeliveryAvailableNotification(
+              deliveryPersonIds,
+              updatedOrder.id,
+              updatedOrder.address,
+              deliveryPersonPhones
+            );
+
+            console.log(`✅ Sent WhatsApp notifications to ${activeDeliveryPersonnel.length} delivery personnel`);
+          }
+        } catch (notificationError) {
+          console.error("⚠️ Error sending delivery WhatsApp notifications (non-critical):", notificationError);
+        }
+      }
 
       // Notify assigned delivery person when order is confirmed
-      if (status === "confirmed" && order.assignedTo) {
-        notifyDeliveryAssignment(order, order.assignedTo);
+      if (status === "confirmed" && updatedOrder.assignedTo) {
+        notifyDeliveryAssignment(updatedOrder, updatedOrder.assignedTo);
       }
 
       // Send delivery completed notification to user
-      if (status === "delivered" && order.userId) {
+      if (status === "delivered" && updatedOrder.userId) {
         try {
-          const user = await storage.getUser(order.userId);
+          const user = await storage.getUser(updatedOrder.userId);
           if (user && user.phone) {
-            sendDeliveryCompletedNotification(order.userId, id, user.phone).catch(error => {
+            sendDeliveryCompletedNotification(updatedOrder.userId, id, user.phone).catch(error => {
               console.warn(`⚠️ Failed to send delivery notification for order ${id}:`, error);
             });
           }
@@ -437,9 +498,10 @@ export function registerAdminRoutes(app: Express) {
       }
 
       // Complete referral when order is delivered
-      if (status === "delivered" && order.userId) {
+      if (status === "delivered" && updatedOrder.userId) {
         try {
-          const creditedUsers = await storage.completeReferralOnFirstOrder(order.userId, id);
+          const userId = updatedOrder.userId as string; // Type guard: userId is guaranteed to exist here
+          const creditedUsers = await storage.completeReferralOnFirstOrder(userId, id);
           
           if (creditedUsers) {
             console.log(`✅ Referral completion triggered for order ${id}`, {
@@ -476,7 +538,7 @@ export function registerAdminRoutes(app: Express) {
         }
       }
 
-      res.json(order);
+      res.json(updatedOrder);
     } catch (error) {
       console.error("Update order status error:", error);
       res.status(500).json({ message: "Failed to update order status" });
