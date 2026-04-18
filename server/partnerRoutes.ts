@@ -270,10 +270,17 @@ export function registerPartnerRoutes(app: Express): void {
         return;
       }
 
-      console.log(`🔄 Chef updating order ${orderId} status from ${order.status} to ${status}`);
+      // FIX: When chef tries to set "preparing", change to "accepted_by_chef" so delivery partners can claim it
+      let finalStatus = status;
+      if (status === "preparing") {
+        console.log(`⚠️ Chef tried to set status to "preparing", converting to "accepted_by_chef" for delivery assignment`);
+        finalStatus = "accepted_by_chef";
+      }
+
+      console.log(`🔄 Chef updating order ${orderId} status from ${order.status} to ${finalStatus}`);
 
       // --- Roti Category + Delivery Time Slot Flow ---
-      if (status === "prepared") {
+      if (finalStatus === "prepared") {
         // Get the first product to determine category
         const items = order.items as any[];
         if (items && items.length > 0) {
@@ -298,7 +305,7 @@ export function registerPartnerRoutes(app: Express): void {
       // --- End Roti Category + Delivery Time Slot Flow ---
 
 
-      const updatedOrder = await storage.updateOrderStatus(orderId, status);
+      const updatedOrder = await storage.updateOrderStatus(orderId, finalStatus);
 
       if (updatedOrder) {
         console.log(`✅ Order ${orderId} status updated to ${status}`);
@@ -308,7 +315,7 @@ export function registerPartnerRoutes(app: Express): void {
         console.log(`📡 Broadcasted status update to customer and admin`);
 
         // STAGE 2: When order is marked as prepared, notify the assigned delivery person to pickup
-        if (status === "prepared") {
+        if (finalStatus === "prepared") {
           console.log(`\n📢 STAGE 2: Order status changed to \"prepared\" - Checking delivery assignment...`);
 
           // If delivery person is already assigned, just broadcast the update to them

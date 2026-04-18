@@ -396,11 +396,17 @@ export function registerAdminRoutes(app: Express) {
   app.patch("/api/admin/orders/:id/status", requireAdminOrManager(), async (req, res) => {
     try {
       const { id } = req.params;
-      const { status } = req.body;
+      let { status } = req.body;
 
       if (!status) {
         res.status(400).json({ message: "Status is required" });
         return;
+      }
+
+      // FIX: When admin tries to set "preparing", change to "accepted_by_chef" so delivery partners can claim it
+      if (status === "preparing") {
+        console.log(`⚠️ Admin tried to set status to "preparing", converting to "accepted_by_chef" for delivery assignment`);
+        status = "accepted_by_chef";
       }
 
       const order = await storage.updateOrderStatus(id, status);
