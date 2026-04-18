@@ -6753,7 +6753,7 @@ var init_vite_config = __esm({
         // Disable caching in dev mode - always fresh
         middlewareMode: false,
         hmr: {
-          host: "localhost",
+          host: process.env.VITE_HMR_HOST || "localhost",
           port: 5173
         }
       }
@@ -7407,8 +7407,48 @@ import multer from "multer";
 
 // server/routes.ts
 init_storage();
-init_schema();
 import { createServer } from "http";
+
+// server/cache.ts
+var MAX_CACHE_SIZE = 500;
+var cache = /* @__PURE__ */ new Map();
+function getCache(key) {
+  return cache.get(key)?.value;
+}
+function setCache(key, value, ttl) {
+  if (cache.has(key)) {
+    clearTimeout(cache.get(key).timeout);
+  }
+  if (cache.size >= MAX_CACHE_SIZE) {
+    const firstKey = cache.keys().next().value;
+    if (firstKey) {
+      invalidateCache(firstKey);
+    }
+  }
+  const timeout = setTimeout(() => {
+    cache.delete(key);
+  }, ttl);
+  cache.set(key, { value, timeout });
+}
+function invalidateCache(key) {
+  const entry = cache.get(key);
+  if (entry) {
+    clearTimeout(entry.timeout);
+    cache.delete(key);
+  }
+}
+function invalidateCachePrefix(prefix) {
+  const keysToDelete = [];
+  cache.forEach((_, key) => {
+    if (key.startsWith(prefix)) {
+      keysToDelete.push(key);
+    }
+  });
+  keysToDelete.forEach((key) => invalidateCache(key));
+}
+
+// server/routes.ts
+init_schema();
 
 // server/adminRoutes.ts
 init_storage();
@@ -7723,25 +7763,77 @@ function registerAdminRoutes(app2) {
   app2.patch("/api/admin/orders/:id/status", requireAdminOrManager(), async (req, res) => {
     try {
       const { id } = req.params;
-      const { status } = req.body;
+      let { status } = req.body;
       if (!status) {
         res.status(400).json({ message: "Status is required" });
         return;
       }
-      const order = await storage.updateOrderStatus(id, status);
+      if (status === "preparing") {
+        console.log(`\u26A0\uFE0F Admin tried to set status to "preparing", converting to "accepted_by_chef" for delivery assignment`);
+        status = "accepted_by_chef";
+      }
+      const order = await storage.getOrderById(id);
       if (!order) {
         res.status(404).json({ message: "Order not found" });
         return;
       }
-      broadcastOrderUpdate(order);
-      if (status === "confirmed" && order.assignedTo) {
-        notifyDeliveryAssignment(order, order.assignedTo);
+      if (status === "prepared") {
+        const items = order.items;
+        if (items && items.length > 0) {
+          const firstProduct = await storage.getProductById(items[0].id);
+          if (firstProduct) {
+            const category = await storage.getCategoryById(firstProduct.categoryId);
+            const isRotiCategory = category?.name?.toLowerCase() === "roti" || category?.name?.toLowerCase().includes("roti");
+            if (isRotiCategory && order.deliveryTime && !order.deliverySlotId) {
+              res.status(400).json({ message: "Delivery time slot is required for scheduled Roti orders" });
+              return;
+            }
+          }
+        }
       }
-      if (status === "delivered" && order.userId) {
+      const updatedOrder = await storage.updateOrderStatus(id, status);
+      if (!updatedOrder) {
+        res.status(404).json({ message: "Order not found" });
+        return;
+      }
+      broadcastOrderUpdate(updatedOrder);
+      if (status === "prepared") {
+        console.log(`
+\u{1F4E2} STAGE 2: Order status changed to "prepared" - Checking delivery assignment...`);
+        if (updatedOrder.assignedTo) {
+          console.log(`  \u2705 ORDER ALREADY ASSIGNED to ${updatedOrder.deliveryPersonName}`);
+        } else {
+          console.log(`  \u{1F513} NO DELIVERY PERSON ASSIGNED YET`);
+          await broadcastPreparedOrderToAvailableDelivery(updatedOrder);
+        }
         try {
-          const user = await storage.getUser(order.userId);
+          const allDeliveryPersonnel = await storage.getAllDeliveryPersonnel();
+          const activeDeliveryPersonnel = allDeliveryPersonnel.filter((dp) => dp.isActive && dp.phone);
+          if (activeDeliveryPersonnel.length > 0 && updatedOrder.address) {
+            const deliveryPersonIds = activeDeliveryPersonnel.map((dp) => dp.id);
+            const deliveryPersonPhones = new Map(
+              activeDeliveryPersonnel.map((dp) => [dp.id, dp.phone || ""])
+            );
+            await sendDeliveryAvailableNotification(
+              deliveryPersonIds,
+              updatedOrder.id,
+              updatedOrder.address,
+              deliveryPersonPhones
+            );
+            console.log(`\u2705 Sent WhatsApp notifications to ${activeDeliveryPersonnel.length} delivery personnel`);
+          }
+        } catch (notificationError) {
+          console.error("\u26A0\uFE0F Error sending delivery WhatsApp notifications (non-critical):", notificationError);
+        }
+      }
+      if (status === "confirmed" && updatedOrder.assignedTo) {
+        notifyDeliveryAssignment(updatedOrder, updatedOrder.assignedTo);
+      }
+      if (status === "delivered" && updatedOrder.userId) {
+        try {
+          const user = await storage.getUser(updatedOrder.userId);
           if (user && user.phone) {
-            sendDeliveryCompletedNotification(order.userId, id, user.phone).catch((error) => {
+            sendDeliveryCompletedNotification(updatedOrder.userId, id, user.phone).catch((error) => {
               console.warn(`\u26A0\uFE0F Failed to send delivery notification for order ${id}:`, error);
             });
           }
@@ -7749,9 +7841,10 @@ function registerAdminRoutes(app2) {
           console.warn(`\u26A0\uFE0F Error sending delivery notification: ${notificationError.message}`);
         }
       }
-      if (status === "delivered" && order.userId) {
+      if (status === "delivered" && updatedOrder.userId) {
         try {
-          const creditedUsers = await storage.completeReferralOnFirstOrder(order.userId, id);
+          const userId = updatedOrder.userId;
+          const creditedUsers = await storage.completeReferralOnFirstOrder(userId, id);
           if (creditedUsers) {
             console.log(`\u2705 Referral completion triggered for order ${id}`, {
               referredUser: {
@@ -7782,7 +7875,7 @@ function registerAdminRoutes(app2) {
           console.warn(`\u26A0\uFE0F Error completing referral: ${referralError.message}`);
         }
       }
-      res.json(order);
+      res.json(updatedOrder);
     } catch (error) {
       console.error("Update order status error:", error);
       res.status(500).json({ message: "Failed to update order status" });
@@ -8118,6 +8211,7 @@ function registerAdminRoutes(app2) {
         return;
       }
       const category = await storage.createCategory(validation.data);
+      invalidateCache("categories");
       res.status(201).json(category);
     } catch (error) {
       console.error("Create category error:", error);
@@ -8132,6 +8226,7 @@ function registerAdminRoutes(app2) {
         return;
       }
       await storage.reorderCategories(items);
+      invalidateCache("categories");
       res.json({ success: true });
     } catch (error) {
       console.error("Reorder categories error:", error);
@@ -8146,6 +8241,7 @@ function registerAdminRoutes(app2) {
         res.status(404).json({ message: "Category not found" });
         return;
       }
+      invalidateCache("categories");
       res.json(category);
     } catch (error) {
       console.error("Update category error:", error);
@@ -8160,6 +8256,7 @@ function registerAdminRoutes(app2) {
         res.status(404).json({ message: "Category not found" });
         return;
       }
+      invalidateCache("categories");
       res.json({ message: "Category deleted successfully" });
     } catch (error) {
       console.error("Delete category error:", error);
@@ -8183,6 +8280,7 @@ function registerAdminRoutes(app2) {
         return;
       }
       const product = await storage.createProduct(validation.data);
+      invalidateCachePrefix("products");
       res.status(201).json(product);
     } catch (error) {
       console.error("Create product error:", error);
@@ -8200,6 +8298,7 @@ function registerAdminRoutes(app2) {
       if (req.body.isAvailable !== void 0 || req.body.stockQuantity !== void 0) {
         broadcastProductAvailabilityUpdate(product);
       }
+      invalidateCachePrefix("products");
       res.json(product);
     } catch (error) {
       console.error("Update product error:", error);
@@ -8214,6 +8313,7 @@ function registerAdminRoutes(app2) {
         res.status(404).json({ message: "Product not found" });
         return;
       }
+      invalidateCachePrefix("products");
       res.json({ message: "Product deleted successfully" });
     } catch (error) {
       console.error("Delete product error:", error);
@@ -8335,6 +8435,8 @@ function registerAdminRoutes(app2) {
         }
       }
       const chef = await storage.createChef(req.body);
+      invalidateCache("chefs");
+      invalidateCachePrefix("pincode-");
       res.status(201).json(chef);
     } catch (error) {
       console.error("Create chef error:", error);
@@ -8364,6 +8466,8 @@ function registerAdminRoutes(app2) {
         const { broadcastChefStatusUpdate: broadcastChefStatusUpdate3 } = await Promise.resolve().then(() => (init_websocket(), websocket_exports));
         broadcastChefStatusUpdate3(chef);
       }
+      invalidateCache("chefs");
+      invalidateCachePrefix("pincode-");
       res.json(chef);
     } catch (error) {
       console.error("Error updating chef:", error);
@@ -8378,6 +8482,8 @@ function registerAdminRoutes(app2) {
         res.status(404).json({ message: "Chef not found" });
         return;
       }
+      invalidateCache("chefs");
+      invalidateCachePrefix("pincode-");
       res.json({ message: "Chef deleted successfully" });
     } catch (error) {
       console.error("Delete chef error:", error);
@@ -11625,8 +11731,13 @@ function registerPartnerRoutes(app2) {
         res.status(403).json({ message: "Not authorized to update this order" });
         return;
       }
-      console.log(`\u{1F504} Chef updating order ${orderId} status from ${order.status} to ${status}`);
-      if (status === "prepared") {
+      let finalStatus = status;
+      if (status === "preparing") {
+        console.log(`\u26A0\uFE0F Chef tried to set status to "preparing", converting to "accepted_by_chef" for delivery assignment`);
+        finalStatus = "accepted_by_chef";
+      }
+      console.log(`\u{1F504} Chef updating order ${orderId} status from ${order.status} to ${finalStatus}`);
+      if (finalStatus === "prepared") {
         const items = order.items;
         if (items && items.length > 0) {
           const firstProduct = await storage.getProductById(items[0].id);
@@ -11640,12 +11751,12 @@ function registerPartnerRoutes(app2) {
           }
         }
       }
-      const updatedOrder = await storage.updateOrderStatus(orderId, status);
+      const updatedOrder = await storage.updateOrderStatus(orderId, finalStatus);
       if (updatedOrder) {
         console.log(`\u2705 Order ${orderId} status updated to ${status}`);
         broadcastOrderUpdate(updatedOrder);
         console.log(`\u{1F4E1} Broadcasted status update to customer and admin`);
-        if (status === "prepared") {
+        if (finalStatus === "prepared") {
           console.log(`
 \u{1F4E2} STAGE 2: Order status changed to "prepared" - Checking delivery assignment...`);
           if (updatedOrder.assignedTo) {
@@ -14238,7 +14349,12 @@ async function registerRoutes(app2) {
   });
   app2.get("/api/categories", async (_req, res) => {
     try {
+      const cached = getCache("categories");
+      if (cached) {
+        return res.json(cached);
+      }
       const categories3 = await storage.getAllCategories();
+      setCache("categories", categories3, 5 * 60 * 1e3);
       res.json(categories3);
     } catch (error) {
       console.error("Error fetching categories:", error);
@@ -14248,11 +14364,18 @@ async function registerRoutes(app2) {
   app2.get("/api/products", async (req, res) => {
     try {
       const categoryId = req.query.categoryId;
+      const key = categoryId ? `products-cat-${categoryId}` : "products";
+      const cached = getCache(key);
+      if (cached) {
+        return res.json(cached);
+      }
       if (categoryId) {
         const products3 = await storage.getProductsByCategoryId(categoryId);
+        setCache(key, products3, 5 * 60 * 1e3);
         res.json(products3);
       } else {
         const products3 = await storage.getAllProducts();
+        setCache(key, products3, 5 * 60 * 1e3);
         res.json(products3);
       }
     } catch (error) {
@@ -14754,6 +14877,50 @@ async function registerRoutes(app2) {
       res.status(500).json({ message: error.message || "Failed to create order" });
     }
   });
+  app2.get("/api/orders/active", async (req, res) => {
+    try {
+      let userId = null;
+      if (req.headers.authorization && req.headers.authorization.startsWith("Bearer ")) {
+        try {
+          const token = req.headers.authorization.substring(7);
+          const payload = verifyToken2(token);
+          if (payload && payload.userId) {
+            userId = payload.userId;
+          }
+        } catch (tokenError) {
+        }
+      }
+      if (!userId && req.isAuthenticated && req.isAuthenticated() && req.user?.claims?.sub) {
+        userId = req.user.claims.sub;
+      }
+      if (!userId) {
+        res.status(401).json({ message: "Unauthorized" });
+        return;
+      }
+      const user = await storage.getUser(userId);
+      if (!user) {
+        res.status(404).json({ message: "User not found" });
+        return;
+      }
+      const allOrders = await storage.getAllOrders();
+      const activeStatuses = ["pending", "confirmed", "accepted_by_chef", "preparing", "prepared", "accepted_by_delivery", "out_for_delivery"];
+      const activeOrders = allOrders.filter((order) => order.userId === userId || order.phone === user.phone || order.email === user.email).filter((order) => activeStatuses.includes(order.status)).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      if (activeOrders.length === 0) {
+        res.json(null);
+        return;
+      }
+      const activeOrder = activeOrders[0];
+      res.json({
+        id: activeOrder.id,
+        status: activeOrder.status,
+        total_amount: activeOrder.total,
+        createdAt: activeOrder.createdAt
+      });
+    } catch (error) {
+      console.error("GET /api/orders/active error:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
   app2.get("/api/orders", async (req, res) => {
     try {
       console.log("GET /api/orders - Auth header:", req.headers.authorization ? "Present" : "Missing");
@@ -15182,7 +15349,12 @@ async function registerRoutes(app2) {
   });
   app2.get("/api/chefs", async (_req, res) => {
     try {
+      const cached = getCache("chefs");
+      if (cached) {
+        return res.json(cached);
+      }
       const chefs3 = await storage.getChefs();
+      setCache("chefs", chefs3, 5 * 60 * 1e3);
       res.json(chefs3);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch chefs" });
@@ -15272,6 +15444,13 @@ async function registerRoutes(app2) {
       if (!pincode || !/^\d{5,6}$/.test(pincode)) {
         return res.status(400).json({ error: "Invalid pincode format. Must be 5-6 digits." });
       }
+      const key = `pincode-${pincode}`;
+      const cached = getCache(key);
+      if (cached) {
+        console.log(`
+\u{1F4CD} [DEBUG] /api/chefs/by-pincode cache hit for pincode: ${pincode}`);
+        return res.json(cached);
+      }
       const allChefs = await storage.getChefs();
       console.log(`
 \u{1F4CD} [DEBUG] /api/chefs/by-pincode called with pincode: ${pincode}`);
@@ -15285,6 +15464,7 @@ async function registerRoutes(app2) {
       });
       console.log(`   Found ${chefsServingPincode.length} chef(s) serving pincode ${pincode}`);
       console.log("");
+      setCache(key, chefsServingPincode, 60 * 60 * 1e3);
       res.json(chefsServingPincode);
     } catch (error) {
       console.error("\u274C Error fetching chefs by pincode:", error);
