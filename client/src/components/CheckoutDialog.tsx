@@ -144,7 +144,10 @@ export default function CheckoutDialog({
   const [maxWalletUsagePerOrder, setMaxWalletUsagePerOrder] = useState<number>(10);
   const [minOrderAmountForWallet, setMinOrderAmountForWallet] = useState<number>(0);
 
+  const [isPayLater, setIsPayLater] = useState(false);
+
   // Delivery minimum order flexibility states
+
   const [deliveryMinOrderAmount, setDeliveryMinOrderAmount] = useState<number>(0);
   const [isBelowDeliveryMinimum, setIsBelowDeliveryMinimum] = useState<boolean>(false);
   const [amountNeededForFreeDelivery, setAmountNeededForFreeDelivery] = useState<number>(0);
@@ -366,6 +369,19 @@ export default function CheckoutDialog({
       // Note: we don't need a page reload, the state in useAuth already reflects !isAuthenticated
     }
   }, [isUserLoading, isAuthenticated, userToken]);
+
+  const { data: onplStatus, isLoading: isCheckingOnpl } = useQuery({
+    queryKey: ['/api/user/onpl-pending-count'],
+    queryFn: async () => {
+      const res = await api.get('/api/user/onpl-pending-count');
+      return res.data;
+    },
+    enabled: isAuthenticated,
+  });
+
+  const hasOnplDues = (onplStatus?.count ?? 0) > 0;
+  // Maximum allowed order limit for ONPL is 150
+  const isEligibleForOnpl = isAuthenticated && !hasOnplDues && total <= 150;
 
   // 🎁 MANUAL VERIFY REFERRAL CODE on button click
   const handleVerifyReferralCode = async () => {
@@ -2594,8 +2610,10 @@ export default function CheckoutDialog({
           requiresDeliverySlot && deliveryDateStr ? deliveryDateStr : undefined,
         status: "pending" as const,
         paymentStatus: "pending" as const,
+        paymentType: isPayLater ? "PAY_LATER" : undefined,
         bonusUsedAtCheckout: useBonusAtCheckout ? bonusAmountToUse : 0,
         walletAmountUsed: useWalletBalance ? walletAmountToUse : 0,
+
       };
 
       console.log("=== OPTION A FLOW: CREATE ORDER NOW ===");
@@ -2678,16 +2696,32 @@ export default function CheckoutDialog({
       setUseWalletBalance(false);
       setWalletAmountToUse(0);
 
-      // ✅ Now show payment QR with order created
-      onShowPaymentQR({
-        orderData: orderResponse.data, // Pass complete order object
-        amount: total,
-        customerName,
-        phone,
-        email,
-        address,
-        pendingCheckoutId: null, // No pending checkout needed, order already created
-      });
+      // ✅ If Pay Later is opted, the order acts as confirmed automatically without payment QR
+      if (isPayLater) {
+        try {
+          console.log("[CHECKOUT] Order is ONPL, auto-confirming payment status");
+          await api.post(`/api/orders/${orderId}/payment-confirmed`, {
+            paymentMethod: "PAY_LATER"
+          });
+          toast({
+            title: "✓ Order Placed",
+            description: "Your 'Pay Later' order was successfully placed.",
+          });
+        } catch (confirmError) {
+           console.error("[CHECKOUT] ONPL auto-confirm failed:", confirmError);
+        }
+      } else {
+        // ✅ Now show payment QR with order created if NOT Pay Later
+        onShowPaymentQR({
+          orderData: orderResponse.data, // Pass complete order object
+          amount: total,
+          customerName,
+          phone,
+          email,
+          address,
+          pendingCheckoutId: null, // No pending checkout needed, order already created
+        });
+      }
 
       // ✅ FIX 2: Invalidate user orders query so checkout dialog will hide referral input next time it opens
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
@@ -3804,6 +3838,65 @@ export default function CheckoutDialog({
                               {useWalletBalance && walletAmountToUse > 0 && !isWalletCheckboxDisabled && (
                                 <p className="text-xs text-green-600 dark:text-green-400">
                                   ✓ Will use ₹{walletAmountToUse} from wallet
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Order Now Pay Later Section */}
+                        {isAuthenticated && (
+                          <div className="border-t pt-2 mt-2">
+                            <div className="bg-purple-50 dark:bg-purple-950 border border-purple-200 dark:border-purple-800 rounded-md p-2 space-y-2">
+                              <div className="flex justify-between items-start">
+                                <div className="flex-1">
+                                  <p className="text-xs font-medium text-purple-900 dark:text-purple-100">
+                                    Order Now, Pay Later
+                                  </p>
+                                  <p className="text-xs text-purple-700 dark:text-purple-300 mt-0.5">
+                                    Eligible for orders up to ₹150.
+                                  </p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="checkbox"
+                                    id="usePayLaterCheckbox"
+                                    checked={isPayLater}
+                                    onChange={(e) => {
+                                      if (isEligibleForOnpl) {
+                                        setIsPayLater(e.target.checked);
+                                      } else {
+                                        e.preventDefault();
+                                      }
+                                    }}
+                                    disabled={!isEligibleForOnpl || isCheckingOnpl}
+                                    className="cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                                  />
+                                  <label
+                                    htmlFor="usePayLaterCheckbox"
+                                    className={`text-xs font-medium cursor-pointer ${
+                                      !isEligibleForOnpl
+                                        ? "text-gray-400 dark:text-gray-500 cursor-not-allowed"
+                                        : "text-purple-700 dark:text-purple-300"
+                                    }`}
+                                  >
+                                    Pay Later
+                                  </label>
+                                </div>
+                              </div>
+                              {hasOnplDues && (
+                                <p className="text-xs text-red-600 dark:text-red-400 font-medium">
+                                  ⚠️ You have pending dues (₹{onplStatus?.totalDue}). Please clear them to use this feature.
+                                </p>
+                              )}
+                              {!hasOnplDues && total > 150 && (
+                                <p className="text-xs text-amber-600 dark:text-amber-400">
+                                  ⚠️ Total exceeds ₹150 limit for Pay Later.
+                                </p>
+                              )}
+                              {isCheckingOnpl && (
+                                <p className="text-xs text-purple-600 dark:text-purple-400">
+                                  Checking eligibility...
                                 </p>
                               )}
                             </div>

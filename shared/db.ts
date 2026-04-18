@@ -60,5 +60,6 @@ export const {
   pendingCheckouts,
   payoutTransactions,
   paymentVerificationLog,
-  paymentSettings
+  paymentSettings,
+  payLaterTransactions
 } = schema;

@@ -81,6 +81,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     { name: "Dashboard", href: "/admin/dashboard", icon: LayoutDashboard },
     { name: "Orders", href: "/admin/orders", icon: ShoppingBag },
     { name: "Payments", href: "/admin/payments", icon: CreditCard },
+    { name: "Pay Later Dues", href: "/admin/pay-later", icon: CreditCard },
     { name: "Pending Checkouts", href: "/admin/pending-checkouts", icon: Clock },
     { name: "Payment Settings", href: "/admin/payment-settings", icon: CreditCard },
     { name: "Products", href: "/admin/products", icon: Package },
