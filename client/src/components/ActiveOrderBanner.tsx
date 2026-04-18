@@ -1,9 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { getApiUrl } from "@/lib/apiBase";
+import { getWebSocketURL } from "@/lib/fetchClient";
+import { queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
 import { useLocation } from "wouter";
 import { Truck, ChefHat, Clock, Package, ArrowRight, X } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 // Active statuses — delivered/cancelled/completed are excluded
 const ACTIVE_STATUSES = new Set([
@@ -89,25 +91,79 @@ export default function ActiveOrderBanner() {
   const { isAuthenticated } = useAuth();
   const [, navigate] = useLocation();
   const [dismissed, setDismissed] = useState(false);
+  const [socketConnected, setSocketConnected] = useState(false);
 
-  const { data: orders = [] } = useQuery<any[]>({
-    queryKey: ["/api/orders", "active-banner"],
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const userToken = localStorage.getItem("userToken");
+    const userData = localStorage.getItem("userData");
+    const userId = userData ? JSON.parse(userData)?.id : null;
+
+    if (!userToken || !userId) return;
+
+    const wsUrl = getWebSocketURL(`?token=${encodeURIComponent(userToken)}&type=customer&userId=${encodeURIComponent(userId)}`);
+    const ws = new WebSocket(wsUrl);
+
+    ws.onopen = () => {
+      console.log("Banner WebSocket connected");
+      setSocketConnected(true);
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === "order_update") {
+          const updatedOrder = data.data;
+          const currentData = queryClient.getQueryData<any>(["active-order"]);
+
+          if (ACTIVE_STATUSES.has(updatedOrder.status)) {
+            // Order is active, update the cache
+            queryClient.setQueryData(["active-order"], {
+              id: updatedOrder.id,
+              status: updatedOrder.status,
+              total_amount: updatedOrder.total,
+              createdAt: updatedOrder.createdAt
+            });
+          } else if (currentData && currentData.id === updatedOrder.id) {
+            // Order is no longer active, clear it from cache so banner hides
+             queryClient.setQueryData(["active-order"], null);
+          }
+        }
+      } catch (error) {
+        console.error("WebSocket message parse error:", error);
+      }
+    };
+
+    ws.onclose = () => {
+      setSocketConnected(false);
+    };
+
+    ws.onerror = (error) => {
+      setSocketConnected(false);
+    };
+
+    return () => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.close();
+      }
+    };
+  }, [isAuthenticated]);
+
+  const { data: activeOrder = null } = useQuery<any>({
+    queryKey: ["active-order"],
     queryFn: async () => {
       const token = localStorage.getItem("userToken");
-      if (!token) return [];
-      const res = await fetch(getApiUrl("/api/orders"), {
+      if (!token) return null;
+      const res = await fetch(getApiUrl("/api/orders/active"), {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) return [];
+      if (!res.ok) return null;
       return res.json();
     },
     enabled: isAuthenticated,
-    refetchInterval: 15_000, // poll every 15 s
-    staleTime: 10_000,
+    refetchInterval: socketConnected ? false : 30000,
   });
-
-  // Pick the most recent active order
-  const activeOrder = orders.find((o: any) => ACTIVE_STATUSES.has(o.status));
 
   // Nothing to show
   if (!activeOrder || dismissed) return null;

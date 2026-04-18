@@ -95,7 +95,7 @@ export default defineConfig({
     // Disable caching in dev mode - always fresh
     middlewareMode: false,
     hmr: {
-      host: 'localhost',
+      host: process.env.VITE_HMR_HOST || 'localhost',
       port: 5173,
     },
   },

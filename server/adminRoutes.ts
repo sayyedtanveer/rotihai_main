@@ -22,12 +22,14 @@ import {
 import { db, walletSettings, referralRewards, orders, paymentSettings } from "@shared/db";
 import { adminLoginSchema, insertAdminUserSchema, insertCategorySchema, insertProductSchema, insertDeliveryPersonnelSchema, insertDeliveryTimeSlotsSchema, insertReferralRewardSchema, insertCouponSchema } from "@shared/schema";
 import { fromZodError } from "zod-validation-error";
-import { broadcastOrderUpdate, broadcastNewOrder, notifyDeliveryAssignment, cancelPreparedOrderTimeout, broadcastProductAvailabilityUpdate, broadcastChefStatusUpdate, broadcastSubscriptionAssignmentToPartner, broadcastSubscriptionUpdate, broadcastWalletUpdate } from "./websocket";
+import { broadcastOrderUpdate, broadcastNewOrder, notifyDeliveryAssignment, cancelPreparedOrderTimeout, broadcastProductAvailabilityUpdate, broadcastChefStatusUpdate, broadcastSubscriptionAssignmentToPartner, broadcastSubscriptionUpdate, broadcastWalletUpdate, broadcastPreparedOrderToAvailableDelivery } from "./websocket";
 import { hashPassword as hashDeliveryPassword } from "./deliveryAuth";
 import { eq } from "drizzle-orm";
 import { subscriptions } from "@shared/schema";
 import { sendEmail, createAdminPasswordResetEmail, sendMissedDeliveryEmail } from "./emailService";
-import { sendChefAssignmentNotification, sendDeliveryCompletedNotification, sendMissedDeliveryNotification } from "./whatsappService";
+import { sendChefAssignmentNotification, sendDeliveryCompletedNotification, sendMissedDeliveryNotification, sendDeliveryAvailableNotification } from "./whatsappService";
+
+import { invalidateCache, invalidateCachePrefix } from "./cache";
 
 export function registerAdminRoutes(app: Express) {
   // ✅ Helper function: Check if date is a scheduled delivery day based on plan frequency
@@ -394,32 +396,99 @@ export function registerAdminRoutes(app: Express) {
   app.patch("/api/admin/orders/:id/status", requireAdminOrManager(), async (req, res) => {
     try {
       const { id } = req.params;
-      const { status } = req.body;
+      let { status } = req.body;
 
       if (!status) {
         res.status(400).json({ message: "Status is required" });
         return;
       }
 
-      const order = await storage.updateOrderStatus(id, status);
+      // FIX: When admin tries to set "preparing", change to "accepted_by_chef" so delivery partners can claim it
+      if (status === "preparing") {
+        console.log(`⚠️ Admin tried to set status to "preparing", converting to "accepted_by_chef" for delivery assignment`);
+        status = "accepted_by_chef";
+      }
+
+      const order = await storage.getOrderById(id);
       if (!order) {
         res.status(404).json({ message: "Order not found" });
         return;
       }
 
-      broadcastOrderUpdate(order);
+      // --- Roti Category + Delivery Time Slot Flow (PARITY WITH CHEF) ---
+      if (status === "prepared") {
+        const items = order.items as any[];
+        if (items && items.length > 0) {
+          const firstProduct = await storage.getProductById(items[0].id);
+          if (firstProduct) {
+            const category = await storage.getCategoryById(firstProduct.categoryId);
+            const isRotiCategory = category?.name?.toLowerCase() === 'roti' ||
+              category?.name?.toLowerCase().includes('roti');
+
+            if (isRotiCategory && order.deliveryTime && !order.deliverySlotId) {
+              res.status(400).json({ message: "Delivery time slot is required for scheduled Roti orders" });
+              return;
+            }
+          }
+        }
+      }
+      // --- End Roti Category + Delivery Time Slot Flow ---
+
+      const updatedOrder = await storage.updateOrderStatus(id, status);
+      if (!updatedOrder) {
+        res.status(404).json({ message: "Order not found" });
+        return;
+      }
+
+      broadcastOrderUpdate(updatedOrder);
+
+      // PARITY WITH CHEF: Dual broadcast logic for "prepared" status
+      if (status === "prepared") {
+        console.log(`\n📢 STAGE 2: Order status changed to "prepared" - Checking delivery assignment...`);
+
+        if (updatedOrder.assignedTo) {
+          console.log(`  ✅ ORDER ALREADY ASSIGNED to ${updatedOrder.deliveryPersonName}`);
+        } else {
+          console.log(`  🔓 NO DELIVERY PERSON ASSIGNED YET`);
+          await broadcastPreparedOrderToAvailableDelivery(updatedOrder);
+        }
+
+        // 📱 Send WhatsApp notifications to available delivery personnel (PARITY WITH CHEF)
+        try {
+          const allDeliveryPersonnel = await storage.getAllDeliveryPersonnel();
+          const activeDeliveryPersonnel = allDeliveryPersonnel.filter(dp => dp.isActive && dp.phone);
+
+          if (activeDeliveryPersonnel.length > 0 && updatedOrder.address) {
+            const deliveryPersonIds = activeDeliveryPersonnel.map(dp => dp.id);
+            const deliveryPersonPhones = new Map(
+              activeDeliveryPersonnel.map(dp => [dp.id, dp.phone || ""])
+            );
+
+            await sendDeliveryAvailableNotification(
+              deliveryPersonIds,
+              updatedOrder.id,
+              updatedOrder.address,
+              deliveryPersonPhones
+            );
+
+            console.log(`✅ Sent WhatsApp notifications to ${activeDeliveryPersonnel.length} delivery personnel`);
+          }
+        } catch (notificationError) {
+          console.error("⚠️ Error sending delivery WhatsApp notifications (non-critical):", notificationError);
+        }
+      }
 
       // Notify assigned delivery person when order is confirmed
-      if (status === "confirmed" && order.assignedTo) {
-        notifyDeliveryAssignment(order, order.assignedTo);
+      if (status === "confirmed" && updatedOrder.assignedTo) {
+        notifyDeliveryAssignment(updatedOrder, updatedOrder.assignedTo);
       }
 
       // Send delivery completed notification to user
-      if (status === "delivered" && order.userId) {
+      if (status === "delivered" && updatedOrder.userId) {
         try {
-          const user = await storage.getUser(order.userId);
+          const user = await storage.getUser(updatedOrder.userId);
           if (user && user.phone) {
-            sendDeliveryCompletedNotification(order.userId, id, user.phone).catch(error => {
+            sendDeliveryCompletedNotification(updatedOrder.userId, id, user.phone).catch(error => {
               console.warn(`⚠️ Failed to send delivery notification for order ${id}:`, error);
             });
           }
@@ -429,9 +498,10 @@ export function registerAdminRoutes(app: Express) {
       }
 
       // Complete referral when order is delivered
-      if (status === "delivered" && order.userId) {
+      if (status === "delivered" && updatedOrder.userId) {
         try {
-          const creditedUsers = await storage.completeReferralOnFirstOrder(order.userId, id);
+          const userId = updatedOrder.userId as string; // Type guard: userId is guaranteed to exist here
+          const creditedUsers = await storage.completeReferralOnFirstOrder(userId, id);
           
           if (creditedUsers) {
             console.log(`✅ Referral completion triggered for order ${id}`, {
@@ -468,7 +538,7 @@ export function registerAdminRoutes(app: Express) {
         }
       }
 
-      res.json(order);
+      res.json(updatedOrder);
     } catch (error) {
       console.error("Update order status error:", error);
       res.status(500).json({ message: "Failed to update order status" });
@@ -905,6 +975,7 @@ export function registerAdminRoutes(app: Express) {
       }
 
       const category = await storage.createCategory(validation.data);
+      invalidateCache("categories");
       res.status(201).json(category);
     } catch (error) {
       console.error("Create category error:", error);
@@ -921,6 +992,7 @@ export function registerAdminRoutes(app: Express) {
         return;
       }
       await storage.reorderCategories(items);
+      invalidateCache("categories");
       res.json({ success: true });
     } catch (error) {
       console.error("Reorder categories error:", error);
@@ -938,6 +1010,7 @@ export function registerAdminRoutes(app: Express) {
         return;
       }
 
+      invalidateCache("categories");
       res.json(category);
     } catch (error) {
       console.error("Update category error:", error);
@@ -955,6 +1028,7 @@ export function registerAdminRoutes(app: Express) {
         return;
       }
 
+      invalidateCache("categories");
       res.json({ message: "Category deleted successfully" });
     } catch (error) {
       console.error("Delete category error:", error);
@@ -981,6 +1055,7 @@ export function registerAdminRoutes(app: Express) {
       }
 
       const product = await storage.createProduct(validation.data);
+      invalidateCachePrefix("products");
       res.status(201).json(product);
     } catch (error) {
       console.error("Create product error:", error);
@@ -1003,6 +1078,7 @@ export function registerAdminRoutes(app: Express) {
         broadcastProductAvailabilityUpdate(product);
       }
 
+      invalidateCachePrefix("products");
       res.json(product);
     } catch (error) {
       console.error("Update product error:", error);
@@ -1020,6 +1096,7 @@ export function registerAdminRoutes(app: Express) {
         return;
       }
 
+      invalidateCachePrefix("products");
       res.json({ message: "Product deleted successfully" });
     } catch (error) {
       console.error("Delete product error:", error);
@@ -1163,6 +1240,8 @@ export function registerAdminRoutes(app: Express) {
       }
 
       const chef = await storage.createChef(req.body);
+      invalidateCache("chefs");
+      invalidateCachePrefix("pincode-");
       res.status(201).json(chef);
     } catch (error) {
       console.error("Create chef error:", error);
@@ -1201,6 +1280,8 @@ export function registerAdminRoutes(app: Express) {
         broadcastChefStatusUpdate(chef);
       }
 
+      invalidateCache("chefs");
+      invalidateCachePrefix("pincode-");
       res.json(chef);
     } catch (error) {
       console.error("Error updating chef:", error);
@@ -1218,6 +1299,8 @@ export function registerAdminRoutes(app: Express) {
         return;
       }
 
+      invalidateCache("chefs");
+      invalidateCachePrefix("pincode-");
       res.json({ message: "Chef deleted successfully" });
     } catch (error) {
       console.error("Delete chef error:", error);

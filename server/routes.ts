@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
+import { getCache, setCache, invalidateCache, invalidateCachePrefix } from "./cache";
 import { insertOrderSchema, userLoginSchema, insertUserSchema } from "@shared/schema";
 import { registerAdminRoutes } from "./adminRoutes";
 import { registerPartnerRoutes } from "./partnerRoutes";
@@ -1602,7 +1603,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get all categories
   app.get("/api/categories", async (_req, res) => {
     try {
+      const cached = getCache("categories");
+      if (cached) {
+        return res.json(cached);
+      }
+
       const categories = await storage.getAllCategories();
+      setCache("categories", categories, 5 * 60 * 1000); // 5 minutes TTL
       res.json(categories);
     } catch (error) {
       console.error("Error fetching categories:", error);
@@ -1614,12 +1621,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/products", async (req, res) => {
     try {
       const categoryId = req.query.categoryId as string | undefined;
+      const key = categoryId ? `products-cat-${categoryId}` : "products";
+
+      const cached = getCache(key);
+      if (cached) {
+        return res.json(cached);
+      }
 
       if (categoryId) {
         const products = await storage.getProductsByCategoryId(categoryId);
+        setCache(key, products, 5 * 60 * 1000); // 5 min TTL
         res.json(products);
       } else {
         const products = await storage.getAllProducts();
+        setCache(key, products, 5 * 60 * 1000); // 5 min TTL
         res.json(products);
       }
     } catch (error) {
@@ -2278,6 +2293,69 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
 
+  // ✅ Phase 2: Get ONLY the most recent active order for banner optimization
+  app.get("/api/orders/active", async (req: any, res) => {
+    try {
+      let userId: string | null = null;
+      
+      // Try to extract userId from JWT token
+      if (req.headers.authorization && req.headers.authorization.startsWith("Bearer ")) {
+        try {
+          const token = req.headers.authorization.substring(7);
+          const payload = verifyUserToken(token);
+          if (payload && payload.userId) {
+            userId = payload.userId;
+          }
+        } catch (tokenError) {
+          // Ignore invalid token
+        }
+      }
+
+      // Or try Replit auth
+      if (!userId && req.isAuthenticated && req.isAuthenticated() && req.user?.claims?.sub) {
+        userId = req.user.claims.sub;
+      }
+
+      if (!userId) {
+        res.status(401).json({ message: "Unauthorized" });
+        return;
+      }
+
+      const user = await storage.getUser(userId);
+      if (!user) {
+        res.status(404).json({ message: "User not found" });
+        return;
+      }
+
+      // Memory-based query for this template
+      const allOrders = await storage.getAllOrders();
+      const activeStatuses = ['pending', 'confirmed', 'accepted_by_chef', 'preparing', 'prepared', 'accepted_by_delivery', 'out_for_delivery'];
+      
+      const activeOrders = allOrders
+        .filter(order => order.userId === userId || order.phone === user.phone || order.email === user.email)
+        .filter(order => activeStatuses.includes(order.status))
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()); // DESC
+
+      if (activeOrders.length === 0) {
+        res.json(null);
+        return;
+      }
+
+      const activeOrder = activeOrders[0];
+      
+      // Return ONLY what's needed for the banner
+      res.json({
+        id: activeOrder.id,
+        status: activeOrder.status,
+        total_amount: activeOrder.total,
+        createdAt: activeOrder.createdAt
+      });
+    } catch (error: any) {
+      console.error("GET /api/orders/active error:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   // Get user's orders (supports both authenticated users and phone-based lookup)
   app.get("/api/orders", async (req: any, res) => {
     try {
@@ -2893,7 +2971,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get all chefs
   app.get("/api/chefs", async (_req, res) => {
     try {
+      const cached = getCache("chefs");
+      if (cached) {
+        return res.json(cached);
+      }
       const chefs = await storage.getChefs();
+      setCache("chefs", chefs, 5 * 60 * 1000); // 5 min TTL
       res.json(chefs);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch chefs" });
@@ -3030,6 +3113,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Invalid pincode format. Must be 5-6 digits." });
       }
 
+      const key = `pincode-${pincode}`;
+      const cached = getCache(key);
+      if (cached) {
+        console.log(`\n📍 [DEBUG] /api/chefs/by-pincode cache hit for pincode: ${pincode}`);
+        return res.json(cached);
+      }
+
       const allChefs = await storage.getChefs();
 
       console.log(`\n📍 [DEBUG] /api/chefs/by-pincode called with pincode: ${pincode}`);
@@ -3050,6 +3140,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`   Found ${chefsServingPincode.length} chef(s) serving pincode ${pincode}`);
       console.log('');
 
+      setCache(key, chefsServingPincode, 60 * 60 * 1000); // 1 hour TTL
       res.json(chefsServingPincode);
     } catch (error) {
       console.error("❌ Error fetching chefs by pincode:", error);
