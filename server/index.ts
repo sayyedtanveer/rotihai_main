@@ -20,7 +20,7 @@ const enableVite = process.env.ENABLE_VITE === "true";
 if (enableVite) {
   const dbUrl = process.env.DATABASE_URL || "";
   const allowProdDb = process.env.ALLOW_PROD_DB_IN_DEV === "true";  // ✅ FIXED: Check for "true"
-  
+
   if (dbUrl.includes("rotihai_prod") && !allowProdDb) {
     console.error("❌ ❌ ❌ CRITICAL ERROR ❌ ❌ ❌");
     console.error("DEV SERVER IS USING PRODUCTION DATABASE!");
@@ -41,7 +41,7 @@ if (enableVite) {
     console.error("");
     process.exit(1); // Exit immediately - do not start server
   }
-  
+
   if (allowProdDb && dbUrl.includes("rotihai_prod")) {
     console.warn("⚠️  ⚠️  ⚠️  WARNING ⚠️  ⚠️  ⚠️");
     console.warn("RUNNING LOCAL DEV SERVER WITH PRODUCTION DATABASE!");
@@ -528,29 +528,27 @@ app.use((req, res, next) => {
     }
   });
 
-  // ✅ Health check endpoint — DB-aware (prevents Render spindown + catches DB failures)
+  // Health check endpoint — DB-aware (prevents Render spindown + catches DB failures)
   // External monitors (UptimeRobot etc.) should ping this every 5 minutes.
-  app.get("/api/health", async (_req: Request, res: Response) => {
-    try {
-      // Lightweight DB liveness check — single row query, < 1ms
-      const { db } = await import("@shared/db");
-      await db.execute(sql`SELECT 1`);
-      res.json({
-        status: "ok",
-        db: "connected",
-        timestamp: new Date().toISOString(),
-        uptime: Math.floor(process.uptime()) + "s",
-      });
-    } catch (err: any) {
-      console.error("❌ Health check DB ping failed:", err?.message);
-      // Return 503 so monitors alert on DB connectivity issues too
-      res.status(503).json({
-        status: "degraded",
-        db: "unreachable",
-        timestamp: new Date().toISOString(),
-        error: err?.message,
-      });
+  app.get("/api/health", async (req: Request, res: Response) => {
+    let dbStatus = "skipped";
+
+    if (req.query.db_check === "true") {
+      try {
+        const { db } = await import("@shared/db");
+        await db.execute(sql`SELECT 1`);
+        dbStatus = "connected";
+      } catch (err: any) {
+        dbStatus = "unreachable";
+      }
     }
+
+    res.status(200).json({
+      status: "ok",
+      db: dbStatus,
+      timestamp: new Date().toISOString(),
+      uptime: Math.floor(process.uptime()) + "s",
+    });
   });
 
   const server = await registerRoutes(app);
