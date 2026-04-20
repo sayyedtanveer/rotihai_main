@@ -59,20 +59,22 @@ interface CartStore {
     chefLatitude?: number,
     chefLongitude?: number
   ) => boolean;
-  removeFromCart: (categoryId: string, itemId: string) => void;
-  updateQuantity: (categoryId: string, itemId: string, quantity: number) => void;
-  clearCart: (categoryId: string) => void;
+  removeFromCart: (categoryId: string, itemId: string, chefId?: string) => void;
+  updateQuantity: (categoryId: string, itemId: string, quantity: number, chefId?: string) => void;
+  clearCart: (categoryId: string, chefId?: string) => void;
   clearAllCarts: () => void;
-  getTotalItems: (categoryId?: string) => number;
-  getTotalPrice: (categoryId: string) => number;
-  getCart: (categoryId: string) => CategoryCart | undefined;
+  getTotalItems: (categoryId?: string, chefId?: string) => number;
+  getTotalPrice: (categoryId: string, chefId?: string) => number;
+  getCart: (categoryId: string, chefId?: string) => CategoryCart | undefined;
   getAllCarts: () => CategoryCart[];
   getAllCartsWithDelivery: () => CategoryCart[];
   canAddItem: (
     chefId?: string,
     categoryId?: string
   ) => { canAdd: boolean; conflictChef?: string };
-  updateSpecialInstructions: (categoryId: string, itemId: string, instructions: string) => void;
+  // New helper: return all carts for a given category
+  getCartsByCategory: (categoryId: string) => CategoryCart[];
+  updateSpecialInstructions: (categoryId: string, itemId: string, instructions: string, chefId?: string) => void;
 }
 
 export const useCart = create<CartStore>()(
@@ -134,23 +136,18 @@ export const useCart = create<CartStore>()(
         }
       },
 
-      // ✅ Check if item can be added (per category/chef rule)
+      // ✅ Check if item can be added. Previously this prevented creating multiple
+      // carts for the same category across different chefs. We now allow multi-chef
+      // carts (one per chef+category) so always permit adding — cart selection
+      // / separation is handled by indexing carts by chefId as well.
       canAddItem: (chefId?: string, categoryId?: string) => {
+        return { canAdd: true };
+      },
+
+      // Return all carts for a given category (useful for UI to show multiple carts)
+      getCartsByCategory: (categoryId: string) => {
         const { carts } = get();
-        if (!chefId || !categoryId) return { canAdd: true };
-
-        const categoryCart = carts.find(
-          (cart) => cart.categoryId === categoryId
-        );
-
-        if (!categoryCart) return { canAdd: true };
-
-        if (categoryCart.chefId === chefId) {
-          return { canAdd: true };
-        }
-
-        // ❌ Different chef for same category
-        return { canAdd: false, conflictChef: categoryCart.chefName };
+        return carts.filter((c) => c.categoryId === categoryId);
       },
 
       // ✅ Add item to specific category cart
@@ -171,8 +168,12 @@ export const useCart = create<CartStore>()(
           return false;
         }
 
+        // Find cart matching both categoryId and chefId. If not found create a new
+        // cart scoped to this (categoryId, chefId) pair so users can have multiple
+        // carts for the same category from different chefs.
+        const chefKey = item.chefId || "";
         const categoryCartIndex = carts.findIndex(
-          (cart) => cart.categoryId === item.categoryId
+          (cart) => cart.categoryId === item.categoryId && cart.chefId === chefKey
         );
 
         // ✅ No cart yet → create new category cart
@@ -220,12 +221,14 @@ export const useCart = create<CartStore>()(
         return true;
       },
 
-      // ✅ Remove item from cart
-      removeFromCart: (categoryId, itemId) => {
+      // ✅ Remove item from cart. If multiple carts exist for the same category,
+      // this will remove from the first matching cart unless `chefId` is provided
+      // (backwards-compatible).
+      removeFromCart: (categoryId, itemId, chefId?: string) => {
         const { carts } = get();
         const updatedCarts = carts
           .map((cart) => {
-            if (cart.categoryId === categoryId) {
+            if (cart.categoryId === categoryId && (chefId ? cart.chefId === chefId : true)) {
               const updatedItems = cart.items.filter(
                 (item) => item.id !== itemId
               );
@@ -239,15 +242,15 @@ export const useCart = create<CartStore>()(
       },
 
       // ✅ Update quantity (auto-removes if quantity <= 0)
-      updateQuantity: (categoryId, itemId, quantity) => {
+      updateQuantity: (categoryId, itemId, quantity, chefId?: string) => {
         if (quantity <= 0) {
-          get().removeFromCart(categoryId, itemId);
+          get().removeFromCart(categoryId, itemId, chefId);
           return;
         }
 
         const { carts } = get();
         const updatedCarts = carts.map((cart) => {
-          if (cart.categoryId === categoryId) {
+          if (cart.categoryId === categoryId && (chefId ? cart.chefId === chefId : true)) {
             const updatedItems = cart.items.map((item) =>
               item.id === itemId ? { ...item, quantity } : item
             );
@@ -259,11 +262,12 @@ export const useCart = create<CartStore>()(
         set({ carts: updatedCarts });
       },
 
-      // ✅ Clear specific category cart (used after order placement)
-      clearCart: (categoryId: string) => {
+      // ✅ Clear carts by category and optional chefId. If chefId omitted, clears
+      // all carts for the category (legacy behavior).
+      clearCart: (categoryId: string, chefId?: string) => {
         const { carts } = get();
         const updatedCarts = carts.filter(
-          (cart) => cart.categoryId !== categoryId
+          (cart) => !(cart.categoryId === categoryId && (chefId ? cart.chefId === chefId : true))
         );
         set({ carts: updatedCarts });
       },
@@ -274,10 +278,10 @@ export const useCart = create<CartStore>()(
       },
 
       // ✅ Update special cooking instructions for a specific cart item
-      updateSpecialInstructions: (categoryId: string, itemId: string, instructions: string) => {
+      updateSpecialInstructions: (categoryId: string, itemId: string, instructions: string, chefId?: string) => {
         const { carts } = get();
         const updatedCarts = carts.map((cart) => {
-          if (cart.categoryId === categoryId) {
+          if (cart.categoryId === categoryId && (chefId ? cart.chefId === chefId : true)) {
             const updatedItems = cart.items.map((item) =>
               item.id === itemId ? { ...item, specialInstructions: instructions || undefined } : item
             );
@@ -289,10 +293,10 @@ export const useCart = create<CartStore>()(
       },
 
       // ✅ Get total number of items
-      getTotalItems: (categoryId?: string) => {
+      getTotalItems: (categoryId?: string, chefId?: string) => {
         const { carts } = get();
         if (categoryId) {
-          const cart = carts.find((c) => c.categoryId === categoryId);
+          const cart = carts.find((c) => c.categoryId === categoryId && (chefId ? c.chefId === chefId : true));
           return cart
             ? cart.items.reduce((total, item) => total + item.quantity, 0)
             : 0;
@@ -306,18 +310,18 @@ export const useCart = create<CartStore>()(
         );
       },
 
-      // ✅ Get total price for one category
-      getTotalPrice: (categoryId: string) => {
+      // ✅ Get total price for one category (optionally scoped to a chef)
+      getTotalPrice: (categoryId: string, chefId?: string) => {
         const { carts } = get();
-        const cart = carts.find((c) => c.categoryId === categoryId);
+        const cart = carts.find((c) => c.categoryId === categoryId && (chefId ? c.chefId === chefId : true));
         return cart
           ? cart.items.reduce((total, item) => total + item.price * item.quantity, 0)
           : 0;
       },
 
-      // ✅ Get cart by categoryId
-      getCart: (categoryId: string) => {
-        return get().carts.find((cart) => cart.categoryId === categoryId);
+      // ✅ Get cart by categoryId and optional chefId (returns first match)
+      getCart: (categoryId: string, chefId?: string) => {
+        return get().carts.find((cart) => cart.categoryId === categoryId && (chefId ? cart.chefId === chefId : true));
       },
 
       // ✅ Helper to get all carts (useful for debugging or analytics)

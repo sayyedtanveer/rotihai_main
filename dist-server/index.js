@@ -14756,11 +14756,17 @@ async function registerRoutes(app2) {
           const product = await storage.getProductById(item.id);
           return {
             ...item,
-            hotelPrice: product?.hotelPrice || 0
+            hotelPrice: product?.hotelPrice || 0,
             // Add partner's cost price to order item
+            chefId: product?.chefId || item.chefId || void 0
           };
         })
       );
+      const itemChefIds = Array.from(new Set(orderPayload.items.map((it) => it.chefId || "").filter(Boolean)));
+      if (itemChefIds.length > 1) {
+        console.warn("\u{1F6AB} Attempt to create order with items from multiple chefs:", itemChefIds);
+        return res.status(400).json({ message: "Order contains items from multiple chefs. Please checkout each chef's cart separately." });
+      }
       if (orderPayload.deliverySlotId) {
         try {
           const slot = await storage.getDeliveryTimeSlot(orderPayload.deliverySlotId);

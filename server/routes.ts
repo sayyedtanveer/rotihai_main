@@ -2133,15 +2133,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Enrich items with hotelPrice (partner's cost price) from products table
+      // Also ensure all items belong to the same chef as determined for the order.
       orderPayload.items = await Promise.all(
         orderPayload.items.map(async (item: any) => {
           const product = await storage.getProductById(item.id);
           return {
             ...item,
             hotelPrice: product?.hotelPrice || 0, // Add partner's cost price to order item
+            chefId: product?.chefId || item.chefId || undefined,
           };
         })
       );
+
+      // Validate that all items are from the same chef (prevent multi-chef single order)
+      const itemChefIds = Array.from(new Set(orderPayload.items.map((it: any) => it.chefId || "").filter(Boolean)));
+      if (itemChefIds.length > 1) {
+        console.warn("🚫 Attempt to create order with items from multiple chefs:", itemChefIds);
+        return res.status(400).json({ message: "Order contains items from multiple chefs. Please checkout each chef's cart separately." });
+      }
 
       // Calculate and set deliveryDate if deliverySlotId is provided
       if (orderPayload.deliverySlotId) {

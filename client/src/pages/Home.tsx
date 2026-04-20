@@ -424,25 +424,16 @@ export default function Home() {
       specialInstructions,
     };
 
-    const checkResult = canAddItem(cartItem.chefId, cartItem.categoryId);
-    if (!checkResult.canAdd) {
-      const confirmed = window.confirm(
-        `Your ${categoryName} cart contains items from ${checkResult.conflictChef}. Do you want to replace them with items from ${cartItem.chefName || "this chef"}?`
-      );
-      if (confirmed) {
-        clearCart(cartItem.categoryId || "");
-        cartAddToCart(cartItem, categoryName, chef?.latitude, chef?.longitude);
-      }
-      return;
-    }
-
+    // Allow creating multiple carts per category scoped by chef. Previously we
+    // prompted to replace an existing cart — now we silently create a new
+    // cart for this (category, chef) pair so users can maintain multiple carts.
     cartAddToCart(cartItem, categoryName, chef?.latitude, chef?.longitude);
   };
 
   const totalItems = getTotalItems();
 
   // ✅ Called when checkout creates order successfully
-  const handleCheckout = (categoryId: string) => {
+  const handleCheckout = (categoryId: string, chefId?: string) => {
     // ZOMATO-STYLE: Check if user is in delivery zone before allowing checkout
     if (!userInDeliveryZone && !userLatitude && !userLongitude) {
       toast({
@@ -456,7 +447,7 @@ export default function Home() {
 
     // Get the cart with precomputed delivery values
     const cartsWithDelivery = getAllCartsWithDelivery();
-    const cart = cartsWithDelivery.find(c => c.categoryId === categoryId);
+    const cart = cartsWithDelivery.find(c => c.categoryId === categoryId && (chefId ? c.chefId === chefId : true));
 
     console.log("[CHECKOUT] Cart selected for checkout:", {
       categoryId,
@@ -499,13 +490,14 @@ export default function Home() {
   };
 
   // ✅ Called after QR payment flow completes
-  const handleOrderSuccess = (categoryId: string | null) => {
+  // Called when an order completes (from PaymentQRDialog). Use selectedCart
+  // to clear the exact chef+category cart that was just placed.
+  const handleOrderSuccess = () => {
     setIsPaymentQROpen(false);
     setPaymentOrderDetails(null);
 
-    // Clear the cart for the completed order
-    if (categoryId) {
-      clearCart(categoryId);
+    if (selectedCart) {
+      clearCart(selectedCart.categoryId, selectedCart.chefId);
       toast({
         title: "Cart cleared",
         description: "Your order has been placed successfully",
@@ -1521,8 +1513,8 @@ export default function Home() {
         onAddToCart={handleAddToCart}
         onUpdateQuantity={updateQuantity}
         cartItems={
-          selectedCategoryForMenu
-            ? carts.find(c => c.categoryId === selectedCategoryForMenu.id)?.items.map(item => ({
+          selectedCategoryForMenu && selectedChefForMenu
+            ? carts.find(c => c.categoryId === selectedCategoryForMenu.id && c.chefId === selectedChefForMenu.id)?.items.map(item => ({
               id: item.id,
               quantity: item.quantity,
               price: item.price,
@@ -1549,7 +1541,7 @@ export default function Home() {
         cart={selectedCart} // Use selectedCart for the checkout dialog
         onClearCart={() => {
           if (selectedCart) {
-            clearCart(selectedCart.categoryId);
+            clearCart(selectedCart.categoryId, selectedCart.chefId);
           }
         }}
         onShowPaymentQR={handleShowPaymentQR}
@@ -1562,26 +1554,23 @@ export default function Home() {
           paymentData={paymentOrderDetails}
           checkoutCategoryId={checkoutCategoryId}
           onOrderSuccess={() => {
-            // 🛡️ FIX BUG 2: Clear cart after order is confirmed
-            if (checkoutCategoryId) {
-              clearCart(checkoutCategoryId);
-              // Also clear from localStorage immediately to ensure persistence
-              try {
-                const state = localStorage.getItem("cart-storage");
-                if (state) {
-                  const parsed = JSON.parse(state);
-                  if (parsed.state?.carts) {
-                    parsed.state.carts = parsed.state.carts.filter(
-                      (c: any) => c.categoryId !== checkoutCategoryId
-                    );
-                    localStorage.setItem("cart-storage", JSON.stringify(parsed));
-                  }
+            // Clear the specific selected cart and its persisted entry
+            handleOrderSuccess();
+            try {
+              const state = localStorage.getItem("cart-storage");
+              if (state) {
+                const parsed = JSON.parse(state);
+                if (parsed.state?.carts && selectedCart) {
+                  parsed.state.carts = parsed.state.carts.filter(
+                    (c: any) => !(c.categoryId === selectedCart.categoryId && c.chefId === selectedCart.chefId)
+                  );
+                  localStorage.setItem("cart-storage", JSON.stringify(parsed));
                 }
-              } catch (e) {
-                console.warn("[HOME] Failed to clear cart from localStorage", e);
               }
-              console.log("[HOME] Cart cleared for category:", checkoutCategoryId);
+            } catch (e) {
+              console.warn("[HOME] Failed to clear cart from localStorage", e);
             }
+            if (selectedCart) console.log("[HOME] Cart cleared for:", selectedCart.categoryId, selectedCart.chefId);
           }}
         />
       )}

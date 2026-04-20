@@ -15,7 +15,7 @@ interface CategoryMenuDrawerProps {
   chef: { id: string; name: string; isActive?: boolean } | null; // Added isActive for chef status
   products: Product[];
   onAddToCart?: (product: Product) => void;
-  onUpdateQuantity?: (categoryId: string, itemId: string, quantity: number) => void;
+  onUpdateQuantity?: (categoryId: string, itemId: string, quantity: number, chefId?: string) => void;
   cartItems?: { id: string; quantity: number; price: number }[];
   autoCloseOnAdd?: boolean;
   onProceedToCart?: () => void;
@@ -333,7 +333,7 @@ export default function CategoryMenuDrawer({
                                             onClick={() => {
                                               const currentQuantity = cartItem?.quantity || 0;
                                               if (currentQuantity > 0 && category && onUpdateQuantity) {
-                                                onUpdateQuantity(category.id, product.id, currentQuantity - 1);
+                                                onUpdateQuantity(category.id, product.id, currentQuantity - 1, chef?.id);
                                               }
                                             }}
                                             disabled={isChefClosed}
