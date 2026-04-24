@@ -184,7 +184,7 @@ export function serveStatic(app: Express) {
     etag: true,
     lastModified: true,
     immutable: false,
-    setHeaders: (res, filePath) => {
+    setHeaders: (res: any, filePath: string) => {
       // Hashed assets can be cached long-term
       if (filePath.match(/\.[a-f0-9]{8}\./i)) {
         res.set('Cache-Control', 'public, max-age=31536000, immutable');

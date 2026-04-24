@@ -13559,6 +13559,85 @@ async function registerRoutes(app2) {
       res.status(500).json({ message: "Failed to check phone number" });
     }
   });
+  app2.post("/api/user/login-or-create", async (req, res) => {
+    try {
+      const { name, phone, email, address } = req.body;
+      if (!phone) {
+        res.status(400).json({ message: "Phone is required" });
+        return;
+      }
+      let user = await storage.getUserByPhone(phone);
+      if (user) {
+        await storage.updateUserLastLogin(user.id);
+        const accessToken2 = generateAccessToken2(user);
+        const refreshToken2 = generateRefreshToken2(user);
+        console.log(`[LOGIN-OR-CREATE] Existing user logged in: ${user.id}`);
+        res.json({
+          user: {
+            id: user.id,
+            name: user.name,
+            phone: user.phone,
+            email: user.email,
+            address: user.address,
+            referralCode: user.referralCode
+          },
+          accessToken: accessToken2,
+          refreshToken: refreshToken2
+        });
+        return;
+      }
+      const generatedPassword = phone.slice(-6);
+      const passwordHash = await hashPassword2(generatedPassword);
+      user = await storage.createUser({
+        name: name || "User",
+        phone,
+        email: email || null,
+        address: address || null,
+        passwordHash,
+        referralCode: null,
+        walletBalance: 0,
+        latitude: null,
+        longitude: null
+      });
+      try {
+        const referralCode = await storage.generateReferralCode(user.id);
+        user.referralCode = referralCode;
+        console.log(`[LOGIN-OR-CREATE] Referral code generated: ${referralCode}`);
+      } catch (error) {
+        console.warn(`[LOGIN-OR-CREATE] Referral code generation failed (non-blocking): ${error.message}`);
+      }
+      if (email) {
+        try {
+          const emailHtml = createWelcomeEmail(name || "User", phone, generatedPassword);
+          await sendEmail({
+            to: email,
+            subject: "\u{1F37D}\uFE0F Welcome to RotiHai - Your Account Details",
+            html: emailHtml
+          });
+        } catch (emailError) {
+          console.warn("[LOGIN-OR-CREATE] Welcome email failed (non-blocking):", emailError);
+        }
+      }
+      const accessToken = generateAccessToken2(user);
+      const refreshToken = generateRefreshToken2(user);
+      console.log(`[LOGIN-OR-CREATE] New user created: ${user.id}`);
+      res.json({
+        user: {
+          id: user.id,
+          name: user.name,
+          phone: user.phone,
+          email: user.email,
+          address: user.address,
+          referralCode: user.referralCode
+        },
+        accessToken,
+        refreshToken
+      });
+    } catch (error) {
+      console.error("[LOGIN-OR-CREATE ERROR]", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
   app2.post("/api/user/reset-password", async (req, res) => {
     try {
       const { phone } = req.body;
@@ -14916,12 +14995,21 @@ async function registerRoutes(app2) {
         return;
       }
       const activeOrder = activeOrders[0];
-      res.json({
+      let chefName = "Chef";
+      try {
+        const chef = await storage.getChefById(activeOrder.chefId);
+        if (chef) chefName = chef.name;
+      } catch (err) {
+        console.error("Failed to fetch chef name for active order", err);
+      }
+      res.json({ order: {
         id: activeOrder.id,
         status: activeOrder.status,
-        total_amount: activeOrder.total,
+        paymentStatus: activeOrder.paymentStatus || "pending",
+        total: activeOrder.total,
+        chefName,
         createdAt: activeOrder.createdAt
-      });
+      } });
     } catch (error) {
       console.error("GET /api/orders/active error:", error);
       res.status(500).json({ message: "Internal server error" });

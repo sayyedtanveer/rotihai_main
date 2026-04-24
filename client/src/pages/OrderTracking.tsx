@@ -7,6 +7,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import PaymentQRDialog from "@/components/PaymentQRDialog";
 import type { Order } from "@/types/order";
 import { format } from "date-fns";
 import {
@@ -32,7 +33,16 @@ export default function OrderTracking() {
   const orderId = params?.orderId;
   const [wsConnected, setWsConnected] = useState(false);
   const userToken = localStorage.getItem("userToken");
-  
+
+  // ── Payment modal state ─────────────────────────────────────────────────
+  const [isPaymentOpen, setIsPaymentOpen] = useState(false);
+  const [resumeOrderId, setResumeOrderId] = useState<string | null>(null);
+
+  const handleResumePayment = (oId: string) => {
+    setResumeOrderId(oId);
+    setIsPaymentOpen(true);
+  };
+
   // ✅ Fetch user profile if logged in (for dropdown user scenario)
   const { user, isAuthenticated } = useAuth();
 
@@ -319,20 +329,22 @@ export default function OrderTracking() {
         )}
 
         {order.paymentStatus === "pending" && (
-          <Card className="border-yellow-200 dark:border-yellow-800 bg-yellow-50 dark:bg-yellow-950">
+          <Card className="border-yellow-200 bg-yellow-50">
             <CardContent className="p-4">
-              <div className="flex items-start gap-3">
-                <Clock className="h-5 w-5 text-yellow-600 dark:text-yellow-400 mt-0.5" />
-                <div>
-                  <h3 className="font-semibold text-yellow-900 dark:text-yellow-100">
-                    Waiting for Payment Confirmation
-                  </h3>
-                  <p className="text-sm text-yellow-800 dark:text-yellow-200 mt-1">
-                    Our team is verifying your payment. This usually takes a few minutes. We'll start
-                    preparing your order once payment is confirmed.
-                  </p>
-                </div>
-              </div>
+              <h3 className="font-semibold text-yellow-900">
+                Payment Pending
+              </h3>
+
+              <p className="text-sm text-yellow-800 mt-1">
+                You have not completed payment for this order.
+              </p>
+
+              <Button
+                className="mt-3"
+                onClick={() => handleResumePayment(order.id)}
+              >
+                Complete Payment
+              </Button>
             </CardContent>
           </Card>
         )}
@@ -348,8 +360,8 @@ export default function OrderTracking() {
                   <div className="relative flex flex-col items-center">
                     <div
                       className={`w-10 h-10 rounded-full flex items-center justify-center z-10 ${step.completed
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-muted text-muted-foreground"
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-muted-foreground"
                         }`}
                     >
                       {step.icon}
@@ -507,6 +519,24 @@ export default function OrderTracking() {
           </Card>
         )}
       </main>
+
+      {/* ── Resume Payment Modal ─────────────────────────────────────────── */}
+      {resumeOrderId && (
+        <PaymentQRDialog
+          isOpen={isPaymentOpen}
+          onClose={() => {
+            setIsPaymentOpen(false);
+            setResumeOrderId(null);
+          }}
+          paymentData={{
+            orderId: resumeOrderId,
+            amount: order?.total ?? 0,
+            customerName: order?.customerName ?? "",
+            phone: order?.phone ?? "",
+            address: order?.address ?? "",
+          }}
+        />
+      )}
     </div>
   );
 }

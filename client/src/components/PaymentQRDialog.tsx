@@ -88,6 +88,7 @@ export default function PaymentQRDialog({
   const [, setLocation] = useLocation();
   const isMobile = isMobileDevice();
 
+
   useEffect(() => {
     if (!isOpen) return;
 
@@ -375,242 +376,117 @@ export default function PaymentQRDialog({
         return;
       }
 
-      // ✅ OPTION A (OLD): Create order + account on payment confirmation
-      if (isOptionA && paymentData) {
-        console.log("[PAYMENT QR] OPTION A: Creating order on payment confirmation...");
-
-        // Step 1: Create order
-        const orderResponse = await api.post("/api/orders", paymentData.orderData);
-        const orderResult = orderResponse.data;
-        console.log("[PAYMENT QR] Order created:", orderResult.id);
-
-        const newOrderId = orderResult.id;
-
-        // Step 2: Confirm payment for the newly created order
-        const paymentResponse = await fetch(getApiUrl(`/api/orders/${newOrderId}/payment-confirmed`), {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-        });
-
-        if (!paymentResponse.ok) {
-          let errorMessage = "Failed to confirm payment";
-          try {
-            const contentType = paymentResponse.headers.get("content-type");
-            if (contentType && contentType.includes("application/json")) {
-              const errorData = await paymentResponse.json();
-              errorMessage = errorData.message || errorMessage;
-            }
-          } catch (parseError) {
-            console.error("Error parsing error response:", parseError);
-          }
-          throw new Error(errorMessage);
-        }
-
-        const paymentData_res = await paymentResponse.json();
-
-        // ✅ EMAIL NOTIFICATION: Show email status
-        if (email) {
-          toast({
-            title: "📧 Sending Confirmation Email",
-            description: `Confirmation email being sent to ${email}`,
-          });
-        }
-
-        // Step 3: Mark pending checkout as confirmed and soft-deleted (non-blocking)
-        if (paymentData?.pendingCheckoutId) {
-          try {
-            console.log(`[PAYMENT QR] Marking pending checkout as confirmed - ID: ${paymentData.pendingCheckoutId}, Order: ${newOrderId}`);
-            const confirmResponse = await api.patch(`/api/pending-checkouts/${paymentData.pendingCheckoutId}/confirm`, {
-              orderId: newOrderId,
-            });
-            console.log(`[PAYMENT QR] ✅ Pending checkout confirmed response:`, confirmResponse.data);
-            console.log(`[PAYMENT QR] Pending checkout marked as confirmed: ${paymentData.pendingCheckoutId}`);
-          } catch (err) {
-            console.error(`[PAYMENT QR] Warning: Failed to mark pending checkout as confirmed (non-blocking):`, err);
-            // Non-blocking - don't interrupt user experience
-          }
-        } else {
-          console.warn(`[PAYMENT QR] ⚠️ No pendingCheckoutId found in paymentData`);
-        }
-
-        // Store tokens if new account was created
-        if (paymentData_res.userCreated && paymentData_res.accessToken) {
-          localStorage.setItem("userToken", paymentData_res.accessToken);
-          if (paymentData_res.refreshToken) {
-            localStorage.setItem("userRefreshToken", paymentData_res.refreshToken);
-          }
-          console.log(`✅ New user auto-logged in with tokens`);
-          setAccountCreatedAfterPayment(true);
-
-          // Capture the default password from API response
-          if (paymentData_res.defaultPassword) {
-            setCreatedAccountPassword(paymentData_res.defaultPassword);
-            console.log(`📝 [PAYMENT QR] Account created with phone: ${phone}, password: ${paymentData_res.defaultPassword}`);
-          }
-
-          // Refresh user profile
-          queryClient.invalidateQueries({ queryKey: ["/api/user"] });
-          queryClient.invalidateQueries({ queryKey: ["/api/user/profile"] });
-        }
-
-        // Show appropriate toast
-        if (paymentData_res.userCreated) {
-          let accountMessage = `Order #${newOrderId.slice(0, 8)} created. Your account has been created!`;
-          if (paymentData_res.appliedReferralBonus && paymentData_res.appliedReferralBonus > 0) {
-            accountMessage += ` You received ₹${paymentData_res.appliedReferralBonus} referral bonus!`;
-          }
-
-          toast({
-            title: "✓ Payment Confirmed!",
-            description: accountMessage,
-          });
-
-          // ✅ Clear cart and form data after order confirmation
-          if (onOrderSuccess) {
-            onOrderSuccess();
-          }
-          // Clear saved form data from localStorage
-          localStorage.removeItem("checkoutFormData");
-          console.log("[PAYMENT QR] Cleared checkout form data from localStorage");
-
-          // ✅ Show account created dialog instead of immediately navigating
-          setCreatedOrderId(newOrderId);
-          setShowAccountDialog(true);
-        } else {
-          toast({
-            title: "✓ Payment Confirmed!",
-            description: "Your order has been submitted. We'll verify the payment shortly.",
-          });
-
-          // ✅ CRITICAL: Clear cart BEFORE navigating away to prevent race conditions
-          if (onOrderSuccess) {
-            onOrderSuccess();
-          }
-          // Clear saved form data from localStorage
-          localStorage.removeItem("checkoutFormData");
-          console.log("[PAYMENT QR] Cleared checkout form data from localStorage");
-
-          // Navigate to tracking page for existing users
-          setLocation(`/track/${newOrderId}`);
-          setTimeout(() => {
-            onClose();
-          }, 100);
-        }
-      }
       // ✅ Legacy flow: Payment confirmation for pre-existing orders (subscriptions, etc.)
-      else {
-        console.log("[PAYMENT QR] Legacy flow: Confirming payment for order ID:", orderId);
+      console.log("[PAYMENT QR] Legacy flow: Confirming payment for order ID:", orderId);
 
-        const response = await fetch(getApiUrl(`/api/orders/${orderId}/payment-confirmed`), {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
+      const response = await fetch(getApiUrl(`/api/orders/${orderId}/payment-confirmed`), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        let errorMessage = "Failed to confirm payment";
+        try {
+          const contentType = response.headers.get("content-type");
+          if (contentType && contentType.includes("application/json")) {
+            const errorData = await response.json();
+            errorMessage = errorData.message || errorMessage;
+          } else {
+            const errorText = await response.text();
+            console.error("Non-JSON error response:", errorText);
+            errorMessage = "Server error occurred. Please try again.";
+          }
+        } catch (parseError) {
+          console.error("Error parsing error response:", parseError);
+        }
+        throw new Error(errorMessage);
+      }
+
+      const data = await response.json();
+
+      // ✅ EMAIL NOTIFICATION: Show email status (Legacy flow)
+      if (email) {
+        toast({
+          title: "📧 Sending Confirmation Email",
+          description: `Confirmation email being sent to ${email}`,
         });
+      }
 
-        if (!response.ok) {
-          let errorMessage = "Failed to confirm payment";
-          try {
-            const contentType = response.headers.get("content-type");
-            if (contentType && contentType.includes("application/json")) {
-              const errorData = await response.json();
-              errorMessage = errorData.message || errorMessage;
-            } else {
-              const errorText = await response.text();
-              console.error("Non-JSON error response:", errorText);
-              errorMessage = "Server error occurred. Please try again.";
-            }
-          } catch (parseError) {
-            console.error("Error parsing error response:", parseError);
-          }
-          throw new Error(errorMessage);
-        }
+      // ✅ SCENARIO HANDLING (same logic as OPTION NEW):
+      // 1. NEW user → Show account dialog with credentials
+      // 2. EXISTING user, not logged in → Auto-login, go to tracking  
+      // 3. Already logged in → Go directly to tracking
 
-        const data = await response.json();
+      const shouldShowAccountDialog = data.userCreated;
 
-        // ✅ EMAIL NOTIFICATION: Show email status (Legacy flow)
-        if (email) {
-          toast({
-            title: "📧 Sending Confirmation Email",
-            description: `Confirmation email being sent to ${email}`,
-          });
-        }
+      if (shouldShowAccountDialog) {
+        console.log("[PAYMENT QR] New account created - showing credentials dialog");
 
-        // ✅ SCENARIO HANDLING (same logic as OPTION NEW):
-        // 1. NEW user → Show account dialog with credentials
-        // 2. EXISTING user, not logged in → Auto-login, go to tracking  
-        // 3. Already logged in → Go directly to tracking
-
-        const shouldShowAccountDialog = data.userCreated;
-
-        if (shouldShowAccountDialog) {
-          console.log("[PAYMENT QR] New account created - showing credentials dialog");
-
-          // Store tokens for auto-login
-          if (data.accessToken) {
-            localStorage.setItem("userToken", data.accessToken);
-            if (data.refreshToken) {
-              localStorage.setItem("refreshToken", data.refreshToken);
-            }
-            console.log("[PAYMENT QR] Tokens stored for auto-login");
-          }
-
-          setCreatedAccountPassword(data.defaultPassword || "");
-          setCreatedOrderId(orderId || "");
-          setShowAccountDialog(true);
-
-          toast({
-            title: "✓ Payment Confirmed!",
-            description: "Your account has been created!",
-          });
-        } else if (!isAuthenticated && data.accessToken) {
-          // ✅ Existing user not logged in - auto-login and track
-          console.log("[PAYMENT QR] Existing user - auto-logging in and tracking");
-
-          // Store tokens for auto-login
+        // Store tokens for auto-login
+        if (data.accessToken) {
           localStorage.setItem("userToken", data.accessToken);
           if (data.refreshToken) {
             localStorage.setItem("refreshToken", data.refreshToken);
           }
+          console.log("[PAYMENT QR] Tokens stored for auto-login");
+        }
 
-          toast({
-            title: "✓ Payment Confirmed!",
-            description: "You're logged in. Go to track your order.",
-          });
+        setCreatedAccountPassword(data.defaultPassword || "");
+        setCreatedOrderId(orderId || "");
+        setShowAccountDialog(true);
 
-          // Invalidate query and wait for refetch before navigating
-          queryClient.invalidateQueries({ queryKey: ['/api/user/profile'] });
-          setTimeout(() => {
-            setLocation(`/track/${orderId}`);
-            setTimeout(() => {
-              onClose();
-            }, 100);
-          }, 100);
-        } else {
-          // User already logged in - go to tracking
-          console.log("[PAYMENT QR] User already logged in - going to tracking");
+        toast({
+          title: "✓ Payment Confirmed!",
+          description: "Your account has been created!",
+        });
+      } else if (!isAuthenticated && data.accessToken) {
+        // ✅ Existing user not logged in - auto-login and track
+        console.log("[PAYMENT QR] Existing user - auto-logging in and tracking");
 
-          toast({
-            title: "✓ Payment Confirmed!",
-            description: "Your order has been submitted.",
-          });
+        // Store tokens for auto-login
+        localStorage.setItem("userToken", data.accessToken);
+        if (data.refreshToken) {
+          localStorage.setItem("refreshToken", data.refreshToken);
+        }
 
+        toast({
+          title: "✓ Payment Confirmed!",
+          description: "You're logged in. Go to track your order.",
+        });
+
+        // Invalidate query and wait for refetch before navigating
+        queryClient.invalidateQueries({ queryKey: ['/api/user/profile'] });
+        setTimeout(() => {
           setLocation(`/track/${orderId}`);
           setTimeout(() => {
             onClose();
           }, 100);
-        }
+        }, 100);
+      } else {
+        // User already logged in - go to tracking
+        console.log("[PAYMENT QR] User already logged in - going to tracking");
 
-        // ✅ CRITICAL: Clear cart BEFORE dialog closes to prevent race conditions
-        if (onOrderSuccess) {
-          onOrderSuccess();
-        }
-        // Clear saved form data from localStorage
-        localStorage.removeItem("checkoutFormData");
-        console.log("[PAYMENT QR] Cleared checkout form data from localStorage");
+        toast({
+          title: "✓ Payment Confirmed!",
+          description: "Your order has been submitted.",
+        });
+
+        setLocation(`/track/${orderId}`);
+        setTimeout(() => {
+          onClose();
+        }, 100);
       }
+
+      // ✅ CRITICAL: Clear cart BEFORE dialog closes to prevent race conditions
+      if (onOrderSuccess) {
+        onOrderSuccess();
+      }
+      // Clear saved form data from localStorage
+      localStorage.removeItem("checkoutFormData");
+      console.log("[PAYMENT QR] Cleared checkout form data from localStorage");
+
     } catch (error) {
       console.error("Error confirming payment:", error);
       const errorMessage = error instanceof Error ? error.message : "Failed to confirm payment. Please contact support.";
@@ -735,17 +611,20 @@ export default function PaymentQRDialog({
     <>
       <Dialog
         open={isOpen}
-        onOpenChange={(open) => {
-          console.log("[PAYMENT QR] Dialog onOpenChange called with open:", open);
+        onOpenChange={async (open) => {
           if (!open) {
             if (!hasPaid) {
               const confirmLeave = window.confirm(
-                "You haven't confirmed payment. Your order will not be placed. Continue?"
+                "You haven't confirmed payment. Your order will be cancelled. Continue?"
               );
+
               if (!confirmLeave) return;
+
+              // 🔥 CRITICAL FIX
+              await handleCancelPayment();
+              return;
             }
-            // Close is being triggered - only allow it to proceed
-            // (outside clicks are already blocked by onPointerDownOutside and onEscapeKeyDown)
+
             onClose();
           }
         }}
@@ -771,7 +650,7 @@ export default function PaymentQRDialog({
                 </button>
                 <button
                   className={`flex-1 py-2 text-sm font-semibold rounded-md transition-all ${paymentMode === "cod" ? "bg-white dark:bg-slate-700 shadow border border-slate-200 dark:border-slate-600 text-slate-900 dark:text-white" : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"} ${!isAuthenticated ? "opacity-60 cursor-not-allowed" : ""}`}
-                  onClick={() => { 
+                  onClick={() => {
                     if (!isAuthenticated) {
                       toast({
                         title: "Login Required",
@@ -780,8 +659,8 @@ export default function PaymentQRDialog({
                       });
                       return;
                     }
-                    setPaymentMode("cod"); 
-                    setHasPaid(false); 
+                    setPaymentMode("cod");
+                    setHasPaid(false);
                   }}
                 >
                   💵 Cash on Delivery {!isAuthenticated && "🔒"}
@@ -972,33 +851,33 @@ export default function PaymentQRDialog({
 
           {/* ✅ ACTION BUTTONS - FIXED AT BOTTOM, ALWAYS VISIBLE */}
           <div className="flex gap-2 pt-2 border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950">
-              <Button
-                variant="outline"
-                onClick={handleCancelPayment}
-                className="flex-1 h-9 text-sm"
-                data-testid="button-cancel-payment"
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleConfirmPayment}
-                disabled={!hasPaid || isConfirming || isSubmitting}
-                className={`flex-1 h-9 text-sm bg-green-600 hover:bg-green-700 text-white ${hasPaid ? "animate-pulse" : ""}`}
-                data-testid="button-confirm-payment"
-              >
-                {isConfirming || isSubmitting ? (
-                  <>
-                    <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
-                    {isSubmitting ? "Processing..." : "Confirming..."}
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
-                    Confirm
-                  </>
-                )}
-              </Button>
-            </div>
+            <Button
+              variant="outline"
+              onClick={handleCancelPayment}
+              className="flex-1 h-9 text-sm"
+              data-testid="button-cancel-payment"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleConfirmPayment}
+              disabled={!hasPaid || isConfirming || isSubmitting}
+              className={`flex-1 h-9 text-sm bg-green-600 hover:bg-green-700 text-white ${hasPaid ? "animate-pulse" : ""}`}
+              data-testid="button-confirm-payment"
+            >
+              {isConfirming || isSubmitting ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                  {isSubmitting ? "Processing..." : "Confirming..."}
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                  Confirm
+                </>
+              )}
+            </Button>
+          </div>
 
           {!hasPaid && !isConfirming && (
             <div className="fixed bottom-16 left-0 right-0 mx-auto max-w-md px-4 z-50">

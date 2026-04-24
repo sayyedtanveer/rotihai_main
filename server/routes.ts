@@ -589,6 +589,103 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ✅ NEW: Silent login-or-create — used by checkout for seamless auth
+  // No password, no OTP. Just phone → find or create user → return token.
+  app.post("/api/user/login-or-create", async (req, res) => {
+    try {
+      const { name, phone, email, address } = req.body;
+
+      if (!phone) {
+        res.status(400).json({ message: "Phone is required" });
+        return;
+      }
+
+      // 🔍 Check if user exists
+      let user = await storage.getUserByPhone(phone);
+
+      if (user) {
+        // ✅ CASE 1: Existing user — log them in silently
+        await storage.updateUserLastLogin(user.id);
+        const accessToken = generateAccessToken(user);
+        const refreshToken = generateRefreshToken(user);
+
+        console.log(`[LOGIN-OR-CREATE] Existing user logged in: ${user.id}`);
+        res.json({
+          user: {
+            id: user.id,
+            name: user.name,
+            phone: user.phone,
+            email: user.email,
+            address: user.address,
+            referralCode: user.referralCode,
+          },
+          accessToken,
+          refreshToken,
+        });
+        return;
+      }
+
+      // 🆕 CASE 2: New user — create account silently
+      const generatedPassword = phone.slice(-6);
+      const passwordHash = await hashPassword(generatedPassword);
+
+      user = await storage.createUser({
+        name: name || "User",
+        phone,
+        email: email || null,
+        address: address || null,
+        passwordHash,
+        referralCode: null,
+        walletBalance: 0,
+        latitude: null,
+        longitude: null,
+      });
+
+      // Generate referral code for new user (non-blocking)
+      try {
+        const referralCode = await storage.generateReferralCode(user.id);
+        user.referralCode = referralCode;
+        console.log(`[LOGIN-OR-CREATE] Referral code generated: ${referralCode}`);
+      } catch (error: any) {
+        console.warn(`[LOGIN-OR-CREATE] Referral code generation failed (non-blocking): ${error.message}`);
+      }
+
+      // Send welcome email if email provided (non-blocking)
+      if (email) {
+        try {
+          const emailHtml = createWelcomeEmail(name || "User", phone, generatedPassword);
+          await sendEmail({
+            to: email,
+            subject: '🍽️ Welcome to RotiHai - Your Account Details',
+            html: emailHtml,
+          });
+        } catch (emailError) {
+          console.warn("[LOGIN-OR-CREATE] Welcome email failed (non-blocking):", emailError);
+        }
+      }
+
+      const accessToken = generateAccessToken(user);
+      const refreshToken = generateRefreshToken(user);
+
+      console.log(`[LOGIN-OR-CREATE] New user created: ${user.id}`);
+      res.json({
+        user: {
+          id: user.id,
+          name: user.name,
+          phone: user.phone,
+          email: user.email,
+          address: user.address,
+          referralCode: user.referralCode,
+        },
+        accessToken,
+        refreshToken,
+      });
+    } catch (error) {
+      console.error("[LOGIN-OR-CREATE ERROR]", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   // Reset password endpoint (Forgot Password)
   app.post("/api/user/reset-password", async (req, res) => {
     try {
@@ -2352,13 +2449,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const activeOrder = activeOrders[0];
       
-      // Return ONLY what's needed for the banner
-      res.json({
+      let chefName = "Chef";
+      try {
+        const chef = await storage.getChefById(activeOrder.chefId);
+        if (chef) chefName = chef.name;
+      } catch (err) {
+        console.error("Failed to fetch chef name for active order", err);
+      }
+      
+      // Return exact fields needed by frontend ActiveOrderBanner
+      res.json({ order: {
         id: activeOrder.id,
         status: activeOrder.status,
-        total_amount: activeOrder.total,
+        paymentStatus: activeOrder.paymentStatus || "pending",
+        total: activeOrder.total,
+        chefName: chefName,
         createdAt: activeOrder.createdAt
-      });
+      }});
     } catch (error: any) {
       console.error("GET /api/orders/active error:", error);
       res.status(500).json({ message: "Internal server error" });

@@ -170,7 +170,7 @@ export default function Home() {
 
   // 🎁 Extract pending referral bonus amount for display
   const pendingBonusAmount = user?.pendingBonus?.amount || 0;
-  
+
   // 🎁 Extract earned referral bonuses for display (referrer rewards)
   const earnedBonusAmount = (user as any)?.earnedReferralBonuses || 0;
 
@@ -661,7 +661,7 @@ export default function Home() {
     const categoryB = categories.find(c => c.id === b.categoryId);
     const orderA = categoryA?.displayOrder ?? 999;
     const orderB = categoryB?.displayOrder ?? 999;
-    
+
     if (orderA !== orderB) {
       return orderA - orderB; // Categories with lower displayOrder come first
     }
@@ -669,7 +669,7 @@ export default function Home() {
     // 2. Within same category, sort by availability (available chefs first)
     const isActiveA = chefStatuses[a.id] !== undefined ? chefStatuses[a.id] : (a.isActive !== false);
     const isActiveB = chefStatuses[b.id] !== undefined ? chefStatuses[b.id] : (b.isActive !== false);
-    
+
     if (isActiveA !== isActiveB) {
       return isActiveA ? -1 : 1; // Available chefs come first (true = -1, false = 1)
     }
@@ -830,6 +830,7 @@ export default function Home() {
 
 
       <main className="flex-1">
+        <ActiveOrderBanner isPaymentOpen={isPaymentQROpen} />
         <Hero />
 
         {/* 🎁 Referral Bonus Banner */}
@@ -1726,7 +1727,6 @@ export default function Home() {
           </div>
         </DialogContent>
       </Dialog>
-      <ActiveOrderBanner />
     </div>
   );
 }
@@ -1735,7 +1735,7 @@ export default function Home() {
 function ReferralBonusBanner() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
-  
+
   const { data: latestBonus } = useQuery<{
     amount: number;
     id: string;

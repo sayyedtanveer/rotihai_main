@@ -344,34 +344,43 @@ export default function PartnerDashboard() {
       return false;
     }
 
-    // Get the prepare window hours from admin settings (default to 2 if not available)
     const prepareWindowHours = rotiSettings?.prepareWindowHours ?? 2;
 
     try {
-      // Parse the delivery time (HH:mm format)
+      // Parse time (HH:mm)
       const [hours, minutes] = order.deliveryTime.split(":").map(Number);
 
-      // Use deliveryDate if available, otherwise use today
-      let deliveryDate: Date;
-      if (order.deliveryDate) {
-        const [year, month, day] = order.deliveryDate.split("-").map(Number);
-        deliveryDate = new Date(year, month - 1, day, 0, 0, 0);
-      } else {
-        deliveryDate = new Date(currentTime.getFullYear(), currentTime.getMonth(), currentTime.getDate(), 0, 0, 0);
+      // ✅ STEP 1: Ensure deliveryDate exists
+      if (!order.deliveryDate) {
+        console.warn("[PREPARE] Missing deliveryDate for order:", order.id);
+        return false;
       }
 
-      const deliveryDateTime = new Date(deliveryDate.getFullYear(), deliveryDate.getMonth(), deliveryDate.getDate(), hours, minutes, 0);
+      // ✅ STEP 2: Build FULL datetime (date + time)
+      const deliveryDateTime = new Date(order.deliveryDate);
+      deliveryDateTime.setHours(hours, minutes, 0, 0);
 
-      // Calculate prepare window before delivery time using admin-configured hours
-      const prepareWindowStart = subHours(deliveryDateTime, prepareWindowHours);
+      // ✅ STEP 3: Calculate prepare window start (X hours before delivery)
+      const prepareStartTime = subHours(deliveryDateTime, prepareWindowHours);
 
-      // Button is enabled once we reach the prepare window start time
-      // It stays enabled even if delivery time has passed (until order is accepted)
-      const canPrepare = isAfter(currentTime, prepareWindowStart) || currentTime.getTime() === prepareWindowStart.getTime();
+      // ✅ STEP 4: Compare with current time
+      const now = new Date();
 
-      return canPrepare;
+      const isWithinWindow = isAfter(now, prepareStartTime) || now.getTime() === prepareStartTime.getTime();
+
+      // Debug logs (safe)
+      console.log("[PREPARE DEBUG]", {
+        orderId: order.id,
+        now,
+        deliveryDateTime,
+        prepareStartTime,
+        isWithinWindow,
+      });
+
+      return isWithinWindow;
+
     } catch (error) {
-      console.error("Error parsing delivery time:", error);
+      console.error("[PREPARE ERROR]", error);
       return false;
     }
   };

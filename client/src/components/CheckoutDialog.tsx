@@ -17,7 +17,7 @@ import { useCheckoutAddress } from "@/hooks/useCheckoutAddress";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
 import {
   Select,
   SelectContent,
@@ -74,12 +74,18 @@ export default function CheckoutDialog({
   onClearCart,
   onShowPaymentQR,
 }: CheckoutDialogProps) {
-  const [activeTab, setActiveTab] = useState("checkout");
+  // Login tab removed — auth happens silently at checkout via login-or-create
   const [showAddressForm, setShowAddressForm] = useState(false); // 🆕 Show/hide address form
 
   const [customerName, setCustomerName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+
+  // 🛡️ Multi-click protection for checkout
+  const [isProcessingCheckout, setIsProcessingCheckout] = useState(false);
+
+  // 🔄 Retry order detection
+  const retryOrderId = new URLSearchParams(window.location.search).get("retryOrder");
 
   // Structured address fields
   const [addressBuilding, setAddressBuilding] = useState("");
@@ -120,16 +126,14 @@ export default function CheckoutDialog({
   const [itemDiscountSavings, setItemDiscountSavings] = useState(0); // Track savings from item offers
   const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
-  const [isCheckingPhone, setIsCheckingPhone] = useState(false);
-  const [phoneExists, setPhoneExists] = useState<boolean | null>(null);
+  // Phone check on typing removed — auth happens only at checkout submit via login-or-create
   const [isVerifyingCoupon, setIsVerifyingCoupon] = useState(false);
   const [appliedCoupon, setAppliedCoupon] = useState<{
     code: string;
     discountAmount: number;
   } | null>(null);
   const [couponError, setCouponError] = useState("");
-  const [showForgotPassword, setShowForgotPassword] = useState(false);
-  // ✅ FIX 2: Referral confirmation modal state
+  // showForgotPassword state removed — login tab removed
   const [showReferralConfirmModal, setShowReferralConfirmModal] = useState(false);
   const [confirmedProceedWithoutReferral, setConfirmedProceedWithoutReferral] = useState(false);
   const [selectedDeliveryTime, setSelectedDeliveryTime] = useState(""); // RAW time for API (HH:mm)
@@ -206,12 +210,7 @@ const handleClearDeliverySlot = () => {
     addressArea?.trim() &&
     addressPincode?.trim();
 
-    useEffect(() => {
-  if (isOpen) {
-    console.log("[CHECKOUT-FIX] Resetting phoneExists on dialog open");
-    setPhoneExists(null);
-  }
-}, [isOpen]);
+  // phoneExists reset removed — no longer tracking phone existence on typing
 
   // Log when cart changes
   useEffect(() => {
@@ -346,6 +345,7 @@ const handleClearDeliverySlot = () => {
     }
   }, [isOpen, addressZoneValidated, addressInDeliveryZone, isAddressComplete]);
 
+  
   // ============================================
   // FOCUS PAY BUTTON WHEN READY
   // When address is confirmed and Pay button becomes enabled,
@@ -378,6 +378,43 @@ const handleClearDeliverySlot = () => {
   const validateReferralMutation = useValidateReferralCode();
   const isMobile = useIsMobile();
 
+  useEffect(() => {
+  if (!isOpen) return;
+
+  if (isAuthenticated) {
+    const isComplete =
+      addressBuilding?.trim() &&
+      addressStreet?.trim() &&
+      addressArea?.trim() &&
+      addressPincode?.trim();
+
+    console.log("[ADDRESS-FIX]", {
+      isComplete,
+      isEditingAddress,
+      addressConfirmed,
+    });
+
+    if (!isComplete) {
+      setIsEditingAddress(true);
+      setAddressConfirmed(false);
+    } else {
+      // ✅ IMPORTANT: allow user to still edit if needed
+      setIsEditingAddress(false);
+
+      // OPTIONAL: auto-confirm if already valid
+      if (!addressConfirmed) {
+        setAddressConfirmed(true);
+      }
+    }
+  }
+}, [
+  isAuthenticated,
+  isOpen,
+  addressBuilding,
+  addressStreet,
+  addressArea,
+  addressPincode,
+]);
   // STALE TOKEN RECOVERY: If the browser has a userToken but useAuth says we are NOT authenticated
   // (meaning the token expired or was wiped on the server back-end), we must proactively clear 
   // localStorage here. Otherwise, the checkout form might try to use the string or accidentally 
@@ -390,6 +427,18 @@ const handleClearDeliverySlot = () => {
       // Note: we don't need a page reload, the state in useAuth already reflects !isAuthenticated
     }
   }, [isUserLoading, isAuthenticated, userToken]);
+
+  // 🔄 RETRY ORDER: Handle user returning from failed payment with retryOrder query param
+  useEffect(() => {
+    if (retryOrderId) {
+      console.log("[RETRY] Loading previous order:", retryOrderId);
+
+      toast({
+        title: "Retry Payment",
+        description: "Continuing your previous order",
+      });
+    }
+  }, [retryOrderId]);
 
     // 🎁 MANUAL VERIFY REFERRAL CODE on button click
   const handleVerifyReferralCode = async () => {
@@ -490,8 +539,7 @@ const handleClearDeliverySlot = () => {
   // Listen for wallet updates via WebSocket
   useWalletUpdates();
 
-  // Dummy password state for login form
-  const [password, setPassword] = useState("");
+  // Password/login state removed — auth happens silently via login-or-create
 
   // TWO-STEP CHECKOUT: Step 1 = Address Entry, Step 2 = Order Confirmation
   // This follows Zomato's approach: address first, then partners/fees
@@ -1091,7 +1139,7 @@ if (platformFeeConfig?.platformFeeEnabled) {
         }
       }
 
-      setActiveTab("checkout");
+      // activeTab removed — single checkout view only
     }
   }, [user, isAuthenticated, isOpen, customerLatitude]);
 
@@ -1152,19 +1200,7 @@ if (platformFeeConfig?.platformFeeEnabled) {
     }
   }, [isOpen, isAuthenticated, cart?.chefId]);
 
-  // ✅ FIX: Auto-check prefilled phone number for existing users (non-authenticated only)
-  // This ensures that when phone is restored from localStorage, we check if it exists
-  useEffect(() => {
-    if (isOpen && !isAuthenticated && phone && phone.length === 10 && phoneExists === null) {
-      console.log("[CHECKOUT] Auto-checking prefilled phone number:", phone);
-      handlePhoneChange(phone);
-    }
-  }, [isOpen, phone, phoneExists, isAuthenticated]);
-useEffect(() => {
-  if (phoneExists && !isAuthenticated) {
-    setActiveTab("login");
-  }
-}, [phoneExists, isAuthenticated]);
+  // Auto-check phone removed — frontend does NOT check if user exists on typing
   // 🛡️ FIX BUG 1: Save form data to localStorage whenever values change (for non-authenticated users)
   useEffect(() => {
     if (!isAuthenticated && (customerName || phone || email)) {
@@ -1603,46 +1639,9 @@ useEffect(() => {
   const handlePhoneChange = async (value: string) => {
     const cleanPhone = value.replace(/\D/g, "").slice(0, 10);
     setPhone(cleanPhone); // Allow only digits, max 10
-    if (cleanPhone.length === 10) {
-      setIsCheckingPhone(true);
-      setPhoneExists(null); // Reset previous state
-      try {
-        const response = await api.post("/api/user/check-phone", {
-          phone: cleanPhone,
-        });
-        const data = response.data;
-        setPhoneExists(data.exists);
-
-        if (data.exists && !userToken) {
-          
-
-        // ✅ STEP 2: SWITCH TAB
-        setActiveTab("login");
-
-          toast({
-            title: "Welcome back 👋 Your phone number already registered",
-            description: "Please login to continue.",
-            variant: "destructive",
-          });
-          return;
-        }
-        
-          
-      } catch (error) {
-        console.error("Error checking phone:", error);
-        toast({
-          title: "Error checking phone",
-          description: "Could not verify phone number. Please try again.",
-          variant: "destructive",
-        });
-        setPhoneExists(false); // Assume not exists on error
-      } finally {
-        setIsCheckingPhone(false);
-      }
-    } else {
-      setPhoneExists(null); // Reset if not 10 digits
-    }
   };
+  
+  // (old/duplicate ensureUserAuthenticated removed)
 
   const handleApplyCoupon = async () => {
     if (!couponCode.trim()) return;
@@ -2068,6 +2067,17 @@ useEffect(() => {
 
   // Manual validation function - called only when user clicks "Validate Address" button
   const handleValidateAddressClick = async () => {
+    // ✅ Enforce Name & Phone before address validation
+    if (!customerName?.trim() || !phone?.trim()) {
+      toast({
+        title: "Missing details",
+        description: "Please enter your name and phone number before validating address",
+        variant: "destructive",
+      });
+      setIsEditingAddress(true);
+      return;
+    }
+
     const fullAddress = [addressBuilding, addressStreet, addressArea, addressCity, addressPincode]
       .filter(Boolean)
       .join(", ");
@@ -2386,8 +2396,50 @@ useEffect(() => {
     return deliveryFee;
   };
 
+  const ensureUserAuthenticated = async () => {
+    if (isAuthenticated) return true;
+
+    if (!phone || phone.length !== 10) {
+      toast({
+        title: "Invalid phone",
+        description: "Please enter a valid 10-digit number",
+        variant: "destructive",
+      });
+      return false;
+    }
+
+    try {
+      const res = await api.post("/api/user/login-or-create", {
+        name: customerName,
+        phone,
+        email,
+        address: addressBuilding,
+      });
+
+      const data = res.data;
+
+      if (!data?.accessToken || !data?.user) {
+        throw new Error("Invalid auth response");
+      }
+
+      localStorage.setItem("userToken", data.accessToken);
+      localStorage.setItem("refreshToken", data.refreshToken || "");
+      localStorage.setItem("userData", JSON.stringify(data.user));
+
+      return true;
+    } catch (err) {
+      console.error("[AUTH] Failed", err);
+      return false;
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // 🛡️ MULTI-CLICK PROTECTION: Prevent double submission
+    if (isProcessingCheckout) return;
+    setIsProcessingCheckout(true);
+    try {
 
     // ✅ FIX 3: HARD REFETCH wallet before placing order to prevent double usage
     if (isAuthenticated) {
@@ -2546,19 +2598,23 @@ useEffect(() => {
       return;
     }
 
-    // Prevent checkout if phone exists but user is not logged in
-    // CRITICAL: We must check !isAuthenticated, NOT just !userToken. 
-    // A stale/expired token in localStorage would bypass this check but fail the order.
-    if (phoneExists && !isAuthenticated) {
-      toast({
-        title: "Login Required",
-        description:
-          "This phone number is already registered. Please switch to the Login tab to continue.",
-        variant: "destructive",
-      });
-      // Switch to login tab to make it easier for user
-      setActiveTab("login");
-      return;
+    // ✅ SILENT AUTO-AUTH: Try to auto-login/create user WITHOUT blocking checkout
+    if (!isAuthenticated) {
+      console.log("[CHECKOUT] User not authenticated - attempting silent auth...");
+      const authSuccess = await ensureUserAuthenticated();
+      
+      if (!authSuccess) {
+        // Silent auth failed, show error and block checkout
+        toast({
+          title: "Authentication Failed",
+          description: "Unable to login. Please try again.",
+          variant: "destructive",
+        });
+        setIsProcessingCheckout(false);
+        return;
+      }
+      
+      console.log("[CHECKOUT] ✅ Silent auth successful, continuing checkout...");
     }
 
     // Check morning restriction for Roti orders (8 AM - 11 AM)
@@ -2701,6 +2757,15 @@ useEffect(() => {
       // This ensures admin sees order in notifications even before payment
       let orderId: string | null = null;
       let orderResponse: any = null;
+
+      // 🔥 AUTH FIRST: Ensure user is authenticated before creating order
+      const isAuthReady = await ensureUserAuthenticated();
+
+      if (!isAuthReady) {
+        setIsProcessingCheckout(false);
+        return;
+      }
+
       try {
         orderResponse = await api.post("/api/orders", orderData);
         orderId = orderResponse.data.id;
@@ -2714,6 +2779,7 @@ useEffect(() => {
           variant: "destructive",
         });
         setIsLoading(false);
+        setIsProcessingCheckout(false);
         return;
       }
 
@@ -2737,6 +2803,9 @@ useEffect(() => {
         pendingCheckoutId: null, // No pending checkout needed, order already created
       });
 
+      // Unlock processing flag after initiating payment flow
+      setIsProcessingCheckout(false);
+
       // ✅ FIX 2: Invalidate user orders query so checkout dialog will hide referral input next time it opens
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
       queryClient.invalidateQueries({ queryKey: ["/api/user"] });
@@ -2754,7 +2823,7 @@ useEffect(() => {
       setReferralCode("");
       localStorage.removeItem("pendingReferralCode"); // ✅ Clean up localStorage after successful order
       setAppliedCoupon(null);
-      setPhoneExists(null);
+      // phoneExists reset removed — no longer used
       setSelectedDeliveryTime("");
       setDeliveryTimeLabel("");
       setSelectedDeliverySlotId("");
@@ -2799,97 +2868,18 @@ useEffect(() => {
       });
     } finally {
       setIsLoading(false); // Changed from setIsSubmitting to setIsLoading
+      // inner finally: keep, outer finally will also clear as safety
+      setIsProcessingCheckout(false); // ✅ Unlock multi-click protection
+    }
+    } finally {
+      // Ensure processing flag is cleared on any early returns before inner try
+      setIsProcessingCheckout(false);
     }
   };
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true); // Changed from setIsSubmitting to setIsLoading
+  // handleLogin removed — auth happens silently at checkout via login-or-create API
 
-    try {
-      const response = await api.post("/api/user/login", { phone, password });
-
-      const data = response.data;
-
-      // Store token and user data
-      localStorage.setItem("userToken", data.accessToken);
-      localStorage.setItem("refreshToken", data.refreshToken);
-      localStorage.setItem(
-        "userData",
-        JSON.stringify({
-          id: data.user.id,
-          name: data.user.name,
-          phone: data.user.phone,
-          email: data.user.email || "",
-          address: data.user.address || "",
-        }),
-      );
-
-      // Auto-fill user details
-      setCustomerName(data.user.name || "");
-      setPhone(data.user.phone || "");
-      setEmail(data.user.email || "");
-      // Parse structured address if available
-      if (data.user.address) {
-        setAddressBuilding(data.user.address);
-      }
-
-      toast({
-        title: "✓ Login successful",
-        description: "Your details have been filled automatically",
-      });
-
-      // Switch to checkout tab
-      setActiveTab("checkout");
-    } catch (error: any) {
-  console.error("Login error:", error);
-
-  const errorMessage =
-    error?.response?.data?.message ||
-    error?.response?.data?.error ||
-    error?.message ||
-    "Invalid phone or password";
-
-  toast({
-    title: "Invalid credentials",
-    description: errorMessage,
-    variant: "destructive",
-  });
-} finally {
-      setIsLoading(false); // Changed from setIsSubmitting to setIsLoading
-    }
-  };
-
-  const handleForgotPassword = async () => {
-    if (!phone || phone.length !== 10) {
-      toast({
-        title: "Invalid phone number",
-        description: "Please enter your registered phone number",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    try {
-      const response = await api.post("/api/user/reset-password", { phone });
-
-      const data = response.data;
-
-      toast({
-        title: "✓ Password Reset Successful",
-        description: `Your password is: ${data.newPassword} (last 6 digits of your phone)`,
-        duration: 10000, // Show for 10 seconds
-      });
-
-      setShowForgotPassword(false);
-    } catch (error) {
-      toast({
-        title: "Reset failed",
-        description: "Could not reset password. Please contact support.",
-        variant: "destructive",
-      });
-    }
-  };
+  // handleForgotPassword removed — login tab removed
 
   // ✅ Helper: Format 24-hour time to 12-hour format with AM/PM
   const formatTo12Hour = (time: string) => {
@@ -2914,7 +2904,16 @@ useEffect(() => {
     <>
       <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
         {/* Use a responsive dialog size with max height to avoid mobile distortion */}
-        <DialogContent className="w-full sm:w-[calc(100%-2rem)] max-w-[480px] max-h-[90vh] flex flex-col rounded-lg p-0 mx-auto">
+        <DialogContent
+          className="w-full sm:w-[calc(100%-2rem)] max-w-[480px] max-h-[90vh] flex flex-col rounded-lg p-0 mx-auto"
+          onInteractOutside={(e) => {
+            // Prevent dialog close when clicking inside a Select dropdown portal
+            const target = e.target as HTMLElement;
+            if (target?.closest?.("[data-radix-select-content]") || target?.closest?.("[data-radix-popper-content-wrapper]")) {
+              e.preventDefault();
+            }
+          }}
+        >
           <DialogHeader className="flex-shrink-0 px-4 sm:px-6 pt-4 sm:pt-6">
             <DialogTitle className="text-lg sm:text-xl">Checkout</DialogTitle>
             <DialogDescription className="text-sm">
@@ -2948,30 +2947,9 @@ useEffect(() => {
               </div>
             )}
 
-            <Tabs
-              value={activeTab}
-              onValueChange={setActiveTab}
-              className="w-full"
-            >
-              <TabsList className="grid w-full grid-cols-2 mb-4">
-                <TabsTrigger
-                  value="checkout"
-                  onClick={() => setActiveTab("checkout")}
-                >
-                  Checkout
-                </TabsTrigger>
-                <TabsTrigger
-                  value="login"
-                  onClick={() => setActiveTab("login")}
-                  disabled={isAuthenticated}
-                  className={isAuthenticated ? "cursor-not-allowed opacity-50" : ""}
-                >
-                  Login
-                </TabsTrigger>
-              </TabsList>
-
-              {/* Checkout Tab */}
-              <TabsContent value="checkout">
+            <div className="w-full">
+              {/* Checkout UI */}
+              <div>
                 <form
                   onSubmit={handleSubmit}
                   className="space-y-3 sm:space-y-4"
@@ -3017,37 +2995,17 @@ useEffect(() => {
                           <Label htmlFor="phone" className="text-sm">
                             Mobile Number *
                           </Label>
-                          <div className="relative">
-                            <Input
-                              id="phone"
-                              type="tel"
-                              value={phone}
-                              onChange={(e) => handlePhoneChange(e.target.value)}
-                              maxLength={10}
-                              className={`pr-10 ${phoneExists && !isAuthenticated ? "border-orange-500 ring-orange-500" : ""}`}
-                              required
-                              disabled={isAuthenticated}
-                              placeholder="Enter 10-digit mobile number"
-                              data-testid="input-phone"
-                            />
-                            {isCheckingPhone && (
-                              <div className="absolute right-3 top-3">
-                                <div className="h-4 w-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                              </div>
-                            )}
-                          </div>
-                          {phoneExists && !userToken && (
-                            <div className="bg-orange-50 dark:bg-orange-950 border border-orange-200 dark:border-orange-800 rounded-md p-2 mt-1">
-                              <p className="text-xs text-orange-800 dark:text-orange-200 font-medium">
-                                ⚠️ This phone number is already registered.
-                              </p>
-                              <p className="text-xs text-orange-700 dark:text-orange-300 mt-1">
-                                Please switch to the <strong>Login</strong> tab to
-                                continue with this number, or use a different phone
-                                number.
-                              </p>
-                            </div>
-                          )}
+                          <Input
+                            id="phone"
+                            type="tel"
+                            value={phone}
+                            onChange={(e) => handlePhoneChange(e.target.value)}
+                            maxLength={10}
+                            required
+                            disabled={isAuthenticated}
+                            placeholder="Enter 10-digit mobile number"
+                            data-testid="input-phone"
+                          />
                         </div>
 
                         <div>
@@ -3891,7 +3849,6 @@ useEffect(() => {
                     disabled={
                       isLoading ||
                       !isFormValid ||
-                      (phoneExists && !userToken) ||
                       cart?.chefIsActive === false ||
                       isRotiOrderBlocked ||
                       !addressZoneValidated ||
@@ -3928,88 +3885,8 @@ useEffect(() => {
                   />
                 </div>
                 )}
-              </TabsContent>
-
-              {/* Login Tab */}
-              <TabsContent
-                value="login"
-                className="space-y-3 sm:space-y-4 mt-4"
-              >
-                <form onSubmit={handleLogin} className="space-y-3 sm:space-y-4">
-                  <div className="space-y-2 sm:space-y-3">
-                    <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-md p-2 sm:p-3 text-xs sm:text-sm text-blue-800 dark:text-blue-200">
-                      Returning customer? Login to auto-fill your details
-                    </div>
-
-                    <div>
-                      <Label htmlFor="login-phone" className="text-sm">
-                        Phone Number *
-                      </Label>
-                      <Input
-                        id="login-phone"
-                        type="tel"
-                        value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        required
-                        placeholder="Enter your registered number"
-                      />
-                    </div>
-
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <Label htmlFor="login-password" className="text-sm">
-                          Password *
-                        </Label>
-                        <button
-                          type="button"
-                          onClick={() => setShowForgotPassword(true)}
-                          className="text-xs text-primary hover:underline"
-                        >
-                          Forgot Password?
-                        </button>
-                      </div>
-                      <Input
-                        id="login-password"
-                        type="password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        required
-                        placeholder="Last 6 digits of your phone"
-                      />
-                      <p className="text-xs text-muted-foreground mt-1">
-                        💡 Default password: last 6 digits of your phone number
-                      </p>
-                    </div>
-
-                    {showForgotPassword && (
-                      <div className="bg-yellow-50 dark:bg-yellow-950 border border-yellow-200 dark:border-yellow-800 rounded-md p-3 space-y-2">
-                        <p className="text-xs text-yellow-800 dark:text-yellow-200">
-                          Reset your password? A new password will be sent to
-                          you.
-                        </p>
-                        <div className="flex gap-2">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setShowForgotPassword(false)}
-                          >
-                            Cancel
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            onClick={handleForgotPassword}
-                          >
-                            Reset Password
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </form>
-              </TabsContent>
-            </Tabs>
+              </div>
+            </div>
           </div>
 
           {/* Footer - Always at bottom */}
@@ -4024,96 +3901,85 @@ useEffect(() => {
               >
                 Cancel
               </Button>
-              {activeTab === "checkout" ? (
-                <>
-                  {isEditingAddress && !addressZoneValidated ? (
-                    // While editing and not yet validated, show Validate button in footer
-                    <Button
-                      type="button"
-                      onClick={() => {
-                        if (addressPincode && addressArea && addressStreet) {
-                          handlePincodeChange(addressPincode);
-                        } else {
-                          toast({
-                            title: "Incomplete Address",
-                            description: "Please enter your street and area details before validating.",
-                            variant: "destructive"
-                          });
-                        }
-                      }}
-                      disabled={isLoading || isReValidatingPincode || !addressPincode || !addressArea || !addressStreet}
-                      className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700"
-                    >
-                      {isReValidatingPincode ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Validating...
-                        </>
-                      ) : (
-                        "✓ Validate Delivery Address"
-                      )}
-                    </Button>
-                  ) : (
-                    <Button
-                      ref={payButtonRef}
-                      type="button"
-                      onClick={handleSubmit}
-                      disabled={
-                        isLoading ||
-                        isValidatingReferral || // ✅ Disable while validating referral code (industry standard)
-                        !isFormValid ||
-                        (phoneExists && !userToken) ||
-                        cart?.chefIsActive === false ||
-                        isRotiOrderBlocked ||
-                        !addressZoneValidated ||
-                        (addressZoneValidated && !addressInDeliveryZone) ||
-                        !addressConfirmed
-                      }
-                      className="w-full sm:w-auto"
-                      data-testid="button-checkout-submit"
-                      title={addressZoneValidated && !addressInDeliveryZone ? `${address.split(",")[0].trim()} is outside our service area` : isValidatingReferral ? "Validating referral code..." : ""}
-                    >
-                      {isLoading ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Processing...
-                        </>
-                      ) : isValidatingReferral ? (
-                        // ✅ Show validation spinner during referral code check (Zomato/Swiggy standard)
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Validating Code...
-                        </>
-                      ) : isRotiOrderBlocked ? (
-                        "🚫 Roti Not Available Now"
-                      ) : !addressZoneValidated ? (
-                        "⚠️ Validate Delivery Address"
-                      ) : addressZoneValidated && !addressInDeliveryZone ? (
-                        `🚫 ${address.split(",")[0].trim()} - ${addressZoneDistance.toFixed(1)}km away`
-                      ) : (
-                        `Pay & Confirm ₹${total.toFixed(2)}`
-                      )}
-                    </Button>
-                  )}
-                </>
-              ) : (
+              {isEditingAddress && !addressZoneValidated ? (
+                // While editing and not yet validated, show Validate button in footer
                 <Button
                   type="button"
-                  onClick={handleLogin}
-                  disabled={isLoading || !phone || !password}
+                  onClick={() => {
+                    // ✅ Enforce Name & Phone first
+                    if (!customerName?.trim() || !phone?.trim()) {
+                      toast({
+                        title: "Missing details",
+                        description: "Please enter your name and phone number before validating address",
+                        variant: "destructive",
+                      });
+                      setIsEditingAddress(true);
+                      return;
+                    }
+                    if (addressPincode && addressArea && addressStreet) {
+                      handlePincodeChange(addressPincode);
+                    } else {
+                      toast({
+                        title: "Incomplete Address",
+                        description: "Please enter your street and area details before validating.",
+                        variant: "destructive"
+                      });
+                    }
+                  }}
+                  disabled={isLoading || isReValidatingPincode || !addressPincode || !addressArea || !addressStreet}
+                  className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700"
+                >
+                  {isReValidatingPincode ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Validating...
+                    </>
+                  ) : (
+                    "✓ Validate Delivery Address"
+                  )}
+                </Button>
+              ) : (
+                <Button
+                  ref={payButtonRef}
+                  type="button"
+                  onClick={handleSubmit}
+                  disabled={
+                    isLoading ||
+                    isValidatingReferral || // ✅ Disable while validating referral code (industry standard)
+                    !isFormValid ||
+                    cart?.chefIsActive === false ||
+                    isRotiOrderBlocked ||
+                    !addressZoneValidated ||
+                    (addressZoneValidated && !addressInDeliveryZone) ||
+                    !addressConfirmed
+                  }
                   className="w-full sm:w-auto"
+                  data-testid="button-checkout-submit"
+                  title={addressZoneValidated && !addressInDeliveryZone ? `${address.split(",")[0].trim()} is outside our service area` : isValidatingReferral ? "Validating referral code..." : ""}
                 >
                   {isLoading ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Logging in...
+                      Processing...
                     </>
+                  ) : isValidatingReferral ? (
+                    // ✅ Show validation spinner during referral code check (Zomato/Swiggy standard)
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Validating Code...
+                    </>
+                  ) : isRotiOrderBlocked ? (
+                    "🚫 Roti Not Available Now"
+                  ) : !addressZoneValidated ? (
+                    "⚠️ Validate Delivery Address"
+                  ) : addressZoneValidated && !addressInDeliveryZone ? (
+                    `🚫 ${address.split(",")[0].trim()} - ${addressZoneDistance.toFixed(1)}km away`
                   ) : (
-                    "Login"
+                    `Pay & Confirm ₹${total.toFixed(2)}`
                   )}
                 </Button>
               )}
-            </div>
+             </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
