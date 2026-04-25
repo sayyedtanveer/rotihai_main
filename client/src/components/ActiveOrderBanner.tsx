@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getApiUrl } from "@/lib/apiBase";
 import { useAuth } from "@/hooks/useAuth";
 import { useLocation } from "wouter";
-import { Truck, ChefHat, Clock, Package, ArrowRight, X } from "lucide-react";
+import { Truck, ChefHat, Clock, Package, ArrowRight, X, CreditCard } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 
 // Active statuses — delivered/cancelled/completed are excluded
@@ -87,8 +87,12 @@ function getStatusConfig(status: string): {
 
 export default function ActiveOrderBanner({
   isPaymentOpen,
+  isCheckoutOpen,
+  isReturningToCheckout,
 }: {
   isPaymentOpen?: boolean;
+  isCheckoutOpen?: boolean;
+  isReturningToCheckout?: boolean;
 }) {
   const { isAuthenticated } = useAuth();
   const [, navigate] = useLocation();
@@ -196,7 +200,8 @@ export default function ActiveOrderBanner({
     };
   }, [isAuthenticated, queryClient]);
 
-  if (isPaymentOpen) return null;
+  // ✅ IMPORTANT: Hide banner when Payment OR Checkout is open so it doesn't overlap
+  if (isPaymentOpen || isCheckoutOpen || isReturningToCheckout) return null;
   // ── STEP 6: Active status guard ──────────────────────────────────────────
   if (!activeOrder) return null;
   const isActiveOrder =
@@ -247,7 +252,7 @@ export default function ActiveOrderBanner({
   }
 
   if (isPaymentCompleted) {
-    displayLabel = "Payment received — awaiting confirmation";
+    displayLabel = "Your order has been received. Waiting for admin confirmation...";
   }
 
   const handleTrack = () => {
@@ -303,10 +308,14 @@ export default function ActiveOrderBanner({
             hover:bg-current/5 active:scale-95
             transition-all duration-150
           `}
-          aria-label="Track your active order"
+          aria-label={isPaymentPending ? "Complete payment for your order" : "Track your active order"}
         >
-          Track
-          <ArrowRight className="h-3.5 w-3.5" />
+          {isPaymentPending ? "Pay Now" : "Track"}
+          {isPaymentPending ? (
+            <CreditCard className="h-3.5 w-3.5" />
+          ) : (
+            <ArrowRight className="h-3.5 w-3.5" />
+          )}
         </button>
         {isPaymentPending && (
           <button

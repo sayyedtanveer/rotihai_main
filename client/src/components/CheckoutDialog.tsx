@@ -139,10 +139,10 @@ export default function CheckoutDialog({
   const [selectedDeliveryTime, setSelectedDeliveryTime] = useState(""); // RAW time for API (HH:mm)
   const [deliveryTimeLabel, setDeliveryTimeLabel] = useState(""); // Formatted label for UI display
   const [selectedDeliverySlotId, setSelectedDeliverySlotId] = useState("");
-// ✅ DELIVERY LABEL (ASAP vs selected slot)
-const deliveryLabel = deliveryTimeLabel
-  ? deliveryTimeLabel
-  : "As soon as possible";
+  // ✅ DELIVERY LABEL (ASAP vs selected slot)
+  const deliveryLabel = deliveryTimeLabel
+    ? deliveryTimeLabel
+    : "As soon as possible";
   // Referral bonus states
   const [pendingBonus, setPendingBonus] = useState<number>(0);
   const [minOrderAmount, setMinOrderAmount] = useState<number>(0);
@@ -151,11 +151,11 @@ const deliveryLabel = deliveryTimeLabel
   const [useBonusAtCheckout, setUseBonusAtCheckout] = useState<boolean>(false);
   const [isCheckingBonusEligibility, setIsCheckingBonusEligibility] = useState(false);
   const [bonusEligibilityMsg, setBonusEligibilityMsg] = useState<string>("");
-const handleClearDeliverySlot = () => {
-  setSelectedDeliveryTime("");
-  setDeliveryTimeLabel("");
-  setSelectedDeliverySlotId("");
-};
+  const handleClearDeliverySlot = () => {
+    setSelectedDeliveryTime("");
+    setDeliveryTimeLabel("");
+    setSelectedDeliverySlotId("");
+  };
   // Bonus amount to actually use (respecting limit)
   const [bonusAmountToUse, setBonusAmountToUse] = useState<number>(0);
 
@@ -201,7 +201,7 @@ const handleClearDeliverySlot = () => {
   const firstInputRef = useRef<HTMLInputElement>(null);
 
   // State for View/Edit mode
-  const [isEditingAddress, setIsEditingAddress] = useState(false);
+  const [isEditingAddress, setIsEditingAddress] = useState(true);
 
   // ✅ HELPER: Check if all 4 required address fields are complete
   const isAddressComplete =
@@ -225,16 +225,18 @@ const handleClearDeliverySlot = () => {
     });
   }, [cart, isOpen]);
 
-  // Listen to cart changes and clear validation when cart/chef changes
+  // Listen to cart changes and clear validation ONLY when chef actually changes
   // This forces user to re-validate address when selecting a different chef
+  const prevChefIdRef = useRef<string | undefined>(cart?.chefId);
   useEffect(() => {
-    if (cart?.chefId) {
+    if (cart?.chefId && cart.chefId !== prevChefIdRef.current) {
       // Chef changed - require address re-validation and re-confirmation
       setAddressZoneValidated(false);
       setAddressInDeliveryZone(false);
       setAddressConfirmed(false);
       setLocationError("");
       console.log("[CHECKOUT] Chef changed - cleared address validation. User must re-validate.");
+      prevChefIdRef.current = cart.chefId;
     }
   }, [cart?.chefId]);
 
@@ -310,7 +312,7 @@ const handleClearDeliverySlot = () => {
       setAddressArea(storedPincode.area);
       setCustomerLatitude(storedPincode.latitude);
       setCustomerLongitude(storedPincode.longitude);
-      
+
       // ✅ FIX: Only set validated if ALL required fields will be present
       // Note: This will be validated on next check when other fields are filled
       if (addressBuilding?.trim() && addressStreet?.trim()) {
@@ -339,13 +341,14 @@ const handleClearDeliverySlot = () => {
     if (addressZoneValidated && addressInDeliveryZone && isAddressComplete && !addressConfirmed) {
       console.log("[RESTORE-ADDRESS] Dialog reopened with fully validated address. Auto-confirming.");
       setAddressConfirmed(true);
-      
+      setIsEditingAddress(false); // ✅ Show the collapsed view (green badge) instead of hiding everything
+
       // Scroll down to order summary / Pay & Confirm so user sees totals immediately
       setShouldScrollToSlots(true);
     }
   }, [isOpen, addressZoneValidated, addressInDeliveryZone, isAddressComplete]);
 
-  
+
   // ============================================
   // FOCUS PAY BUTTON WHEN READY
   // When address is confirmed and Pay button becomes enabled,
@@ -379,42 +382,25 @@ const handleClearDeliverySlot = () => {
   const isMobile = useIsMobile();
 
   useEffect(() => {
-  if (!isOpen) return;
+    if (!isOpen) return;
 
-  if (isAuthenticated) {
+    // ✅ ONLY initialize once
     const isComplete =
       addressBuilding?.trim() &&
       addressStreet?.trim() &&
       addressArea?.trim() &&
       addressPincode?.trim();
 
-    console.log("[ADDRESS-FIX]", {
-      isComplete,
-      isEditingAddress,
-      addressConfirmed,
-    });
+    console.log("[ADDRESS INIT SAFE]", { isComplete });
 
+    // ✅ ONLY set default state (do not override user interaction later)
     if (!isComplete) {
       setIsEditingAddress(true);
-      setAddressConfirmed(false);
-    } else {
-      // ✅ IMPORTANT: allow user to still edit if needed
-      setIsEditingAddress(false);
-
-      // OPTIONAL: auto-confirm if already valid
-      if (!addressConfirmed) {
-        setAddressConfirmed(true);
-      }
     }
-  }
-}, [
-  isAuthenticated,
-  isOpen,
-  addressBuilding,
-  addressStreet,
-  addressArea,
-  addressPincode,
-]);
+
+    // ❌ DO NOT auto-confirm here
+    // ❌ DO NOT force view mode
+  }, [isOpen]);
   // STALE TOKEN RECOVERY: If the browser has a userToken but useAuth says we are NOT authenticated
   // (meaning the token expired or was wiped on the server back-end), we must proactively clear 
   // localStorage here. Otherwise, the checkout form might try to use the string or accidentally 
@@ -440,7 +426,7 @@ const handleClearDeliverySlot = () => {
     }
   }, [retryOrderId]);
 
-    // 🎁 MANUAL VERIFY REFERRAL CODE on button click
+  // 🎁 MANUAL VERIFY REFERRAL CODE on button click
   const handleVerifyReferralCode = async () => {
     if (!referralCode.trim()) {
       setReferralValidation({
@@ -470,7 +456,7 @@ const handleClearDeliverySlot = () => {
       }, 5000);
 
       const codeToValidate = referralCode.trim();
-      
+
       // Validate with food subtotal ONLY
       const result = await validateReferralMutation.mutateAsync({
         referralCode: codeToValidate,
@@ -510,7 +496,7 @@ const handleClearDeliverySlot = () => {
         error?.response?.data?.message ||
         error?.message ||
         "Invalid referral code";
-      
+
       // ✅ Extract minimum required amount from error message if present
       // Message format: "Minimum order check failed. Required: ₹130, Current: ₹15"
       let minRequired: number | undefined;
@@ -520,7 +506,7 @@ const handleClearDeliverySlot = () => {
       } else if (error.minOrderAmount) {
         minRequired = error.minOrderAmount;
       }
-      
+
       setReferralValidation({
         valid: false,
         message: errorMessage,
@@ -564,7 +550,7 @@ const handleClearDeliverySlot = () => {
   // Check if delivery slots should be shown:
   // 1. If category has requiresDeliverySlot flag set (admin configured), OR
   // 2. If category name contains "roti" (regular roti orders)
-  const requiresDeliverySlot = !!categoryData?.requiresDeliverySlot || 
+  const requiresDeliverySlot = !!categoryData?.requiresDeliverySlot ||
     (categoryData?.name?.toLowerCase().includes('roti') ?? false);
 
   useEffect(() => {
@@ -608,8 +594,11 @@ const handleClearDeliverySlot = () => {
   // ✅ FIX 1: Referral input visibility logic
   // Show ONLY for brand new users (no account yet or first order)
   // Hide if: user already has an active referral (pendingBonus) OR has placed orders before
+  // We explicitly ignore "pending" and "cancelled" orders so if a new user returns from 
+  // the payment QR dialog, they don't lose the referral panel just because a pending order was created.
   const hasUsedReferral = isAuthenticated && !!user?.pendingBonus;
-  const hasPlacedOrder = isAuthenticated && Array.isArray(userOrders) && userOrders.length > 0;
+  const hasPlacedOrder = isAuthenticated && Array.isArray(userOrders) && 
+    userOrders.filter(o => o.status !== "pending" && o.status !== "cancelled").length > 0;
   const showReferralInput = !hasUsedReferral && !hasPlacedOrder;
 
   // GPS Fallback: Get Current Location
@@ -974,31 +963,31 @@ const handleClearDeliverySlot = () => {
       // 🆕 Calculate platform fee based on subtotal and config
       let calculatedPlatformFee = 0;
 
-if (platformFeeConfig?.platformFeeEnabled) {
-  const threshold = platformFeeConfig.platformFeeWaiverThreshold || 200;
+      if (platformFeeConfig?.platformFeeEnabled) {
+        const threshold = platformFeeConfig.platformFeeWaiverThreshold || 200;
 
-  console.log("[CHECKOUT-CALC] Platform fee ENABLED, subtotal:", calculatedSubtotal);
+        console.log("[CHECKOUT-CALC] Platform fee ENABLED, subtotal:", calculatedSubtotal);
 
-  // ✅ FIX: FREE above threshold
-  if (calculatedSubtotal >= threshold) {
-    calculatedPlatformFee = 0;
-    console.log("[CHECKOUT-CALC] Subtotal >= threshold, platform fee waived");
-  } 
-  // Below threshold → apply slabs
-  else if (calculatedSubtotal < 100) {
-    calculatedPlatformFee = platformFeeConfig.platformFeeBelow100 || 0;
-    console.log("[CHECKOUT-CALC] Subtotal < 100, fee:", calculatedPlatformFee);
-  } 
-  else {
-    calculatedPlatformFee = platformFeeConfig.platformFeeBelow200 || 0;
-    console.log("[CHECKOUT-CALC] Subtotal < threshold, fee:", calculatedPlatformFee);
-  }
-} else {
-  console.log("[CHECKOUT-CALC] Platform fee DISABLED or config missing", {
-    platformFeeEnabled: platformFeeConfig?.platformFeeEnabled,
-    configExists: !!platformFeeConfig,
-  });
-}
+        // ✅ FIX: FREE above threshold
+        if (calculatedSubtotal >= threshold) {
+          calculatedPlatformFee = 0;
+          console.log("[CHECKOUT-CALC] Subtotal >= threshold, platform fee waived");
+        }
+        // Below threshold → apply slabs
+        else if (calculatedSubtotal < 100) {
+          calculatedPlatformFee = platformFeeConfig.platformFeeBelow100 || 0;
+          console.log("[CHECKOUT-CALC] Subtotal < 100, fee:", calculatedPlatformFee);
+        }
+        else {
+          calculatedPlatformFee = platformFeeConfig.platformFeeBelow200 || 0;
+          console.log("[CHECKOUT-CALC] Subtotal < threshold, fee:", calculatedPlatformFee);
+        }
+      } else {
+        console.log("[CHECKOUT-CALC] Platform fee DISABLED or config missing", {
+          platformFeeEnabled: platformFeeConfig?.platformFeeEnabled,
+          configExists: !!platformFeeConfig,
+        });
+      }
       setPlatformFee(calculatedPlatformFee);
 
       console.log("[CHECKOUT-CALC] Final platform fee set to:", calculatedPlatformFee);
@@ -1079,31 +1068,38 @@ if (platformFeeConfig?.platformFeeEnabled) {
       }
     }
   }, [cart, address, appliedCoupon, useBonusAtCheckout, bonusEligible, pendingBonus, maxBonusUsagePerOrder, bonusAmountToUse, useWalletBalance, user?.walletBalance, maxWalletUsagePerOrder, minOrderAmountForWallet, deliveryFee, customerLatitude, customerLongitude, platformFeeConfig]);
+  const profileInitializedRef = useRef(false);
+
   useEffect(() => {
-    if (isOpen && isAuthenticated && user) {
+    if (!isOpen) {
+      profileInitializedRef.current = false;
+      return;
+    }
+
+    if (isOpen && isAuthenticated && user && !profileInitializedRef.current) {
       // Use data from useAuth() hook which fetches from /api/user/profile
       // Always update name from latest profile
       setCustomerName(user.name || "");
       setPhone(user.phone || "");
       setEmail(user.email || "");
       setDeliveryInstructions(""); // ✅ Reset delivery instructions when loading from profile
-      
+
       // ✅ FIX: Parse structured address properly from user profile
       let parsedAddress = null;
       if (user.address) {
         try {
           // Try to parse address as JSON if it's stored as object
-          parsedAddress = typeof user.address === 'string' 
+          parsedAddress = typeof user.address === 'string'
             ? JSON.parse(user.address)
             : user.address;
-          
+
           // Extract structured fields from parsed address
           setAddressBuilding(parsedAddress.building || "");
           setAddressStreet(parsedAddress.street || "");
           setAddressArea(parsedAddress.area || "");
           setAddressCity(parsedAddress.city || "Mumbai");
           setAddressPincode(parsedAddress.pincode || "");
-          
+
           console.log("[CHECKOUT] ✅ Parsed and set address from user profile:", parsedAddress);
         } catch (error) {
           // If parsing fails or it's just a plain text address, set as building
@@ -1115,33 +1111,36 @@ if (platformFeeConfig?.platformFeeEnabled) {
       // ✅ Restore coordinates from DB if localStorage is empty and we don't have them yet
       const hasStoredCoords = !!localStorage.getItem("lastValidatedDeliveryAddress") || !!localStorage.getItem("lastValidatedAddressStructured");
       const userWithLocation = user as any; // Cast to bypass TS if User type is missing these fields
-      
+
       // ✅ ALL 4 FIELDS REQUIRED: Building, Street, Area, Pincode must all be present
-      const hasCompleteAddress = 
+      const hasCompleteAddress =
         parsedAddress?.building?.trim() &&
         parsedAddress?.street?.trim() &&
         parsedAddress?.area?.trim() &&
         parsedAddress?.pincode?.trim();
-      
+
       if (userWithLocation.latitude && userWithLocation.longitude && !hasStoredCoords && customerLatitude === null) {
         console.log("[CHECKOUT] Restoring coordinates from DB profile:", userWithLocation.latitude, userWithLocation.longitude);
         setCustomerLatitude(userWithLocation.latitude);
         setCustomerLongitude(userWithLocation.longitude);
-        
+
         // Only mark validated if ALL 4 address fields are complete
         if (hasCompleteAddress) {
           setAddressZoneValidated(true);
           setAddressInDeliveryZone(true);
-          console.log("[CHECKOUT] ✅ Complete address loaded - marked as validated");
+          setAddressConfirmed(true);
+          setIsEditingAddress(false);
+          console.log("[CHECKOUT] ✅ Complete address loaded - marked as validated and confirmed");
         } else {
           setAddressZoneValidated(false);
           console.log("[CHECKOUT] ⚠️ Incomplete address loaded - NOT marked as validated, requires re-validation");
         }
       }
 
+      profileInitializedRef.current = true;
       // activeTab removed — single checkout view only
     }
-  }, [user, isAuthenticated, isOpen, customerLatitude]);
+  }, [user, isAuthenticated, isOpen]);
 
   // ✅ NEW: Reset delivery instructions when dialog closes
   useEffect(() => {
@@ -1156,7 +1155,7 @@ if (platformFeeConfig?.platformFeeEnabled) {
     if (isOpen && (!cart || cart.items.length === 0)) {
       const { getAllCarts } = useCart.getState();
       const allCarts = getAllCarts();
-      
+
       if (allCarts.length > 0) {
         // If we have carts in store but cart prop is stale, log a warning
         // This helps debug the state sync issue
@@ -1170,10 +1169,10 @@ if (platformFeeConfig?.platformFeeEnabled) {
     }
   }, [isOpen, cart]);
 
-  // 🛡️ FIX BUG 1: Restore user form data when dialog reopens (for non-authenticated users)
-  // This ensures name, phone, email don't get cleared when user closes and reopens checkout
+  // 🛡️ FIX BUG 1: Restore user form data when dialog reopens (for ALL users)
+  // This ensures address and contact details don't get cleared when user closes and reopens checkout
   useEffect(() => {
-    if (isOpen && !isAuthenticated) {
+    if (isOpen) {
       // Try to restore previously entered form data from localStorage
       const savedFormData = localStorage.getItem("checkoutFormData");
       if (savedFormData) {
@@ -1182,6 +1181,13 @@ if (platformFeeConfig?.platformFeeEnabled) {
           if (formData.customerName) setCustomerName(formData.customerName);
           if (formData.phone) setPhone(formData.phone);
           if (formData.email) setEmail(formData.email);
+          if (formData.addressBuilding) setAddressBuilding(formData.addressBuilding);
+          if (formData.addressStreet) setAddressStreet(formData.addressStreet);
+          if (formData.addressArea) setAddressArea(formData.addressArea);
+          if (formData.addressCity) setAddressCity(formData.addressCity);
+          if (formData.addressPincode) setAddressPincode(formData.addressPincode);
+          if (formData.customerLatitude !== undefined) setCustomerLatitude(formData.customerLatitude);
+          if (formData.customerLongitude !== undefined) setCustomerLongitude(formData.customerLongitude);
           console.log("[CHECKOUT-FIX] Restored form data for non-authenticated user");
 
           // 🛡️ FIX: Also restore address validation states if same chef
@@ -1190,7 +1196,7 @@ if (platformFeeConfig?.platformFeeEnabled) {
             setAddressZoneValidated(validationStates.addressZoneValidated);
             setAddressInDeliveryZone(validationStates.addressInDeliveryZone);
             setAddressConfirmed(validationStates.addressConfirmed);
-            setIsEditingAddress(false); // Show view mode if already validated
+            setIsEditingAddress(!validationStates.addressConfirmed); // Show view mode if already confirmed
             console.log("[CHECKOUT-FIX] Restored address validation states for same chef");
           }
         } catch (e) {
@@ -1202,12 +1208,20 @@ if (platformFeeConfig?.platformFeeEnabled) {
 
   // Auto-check phone removed — frontend does NOT check if user exists on typing
   // 🛡️ FIX BUG 1: Save form data to localStorage whenever values change (for non-authenticated users)
+  // 🛡️ FIX BUG 1: Save form data to localStorage whenever values change (for ALL users)
   useEffect(() => {
-    if (!isAuthenticated && (customerName || phone || email)) {
-      const formData = { 
-        customerName, 
-        phone, 
+    if (customerName || phone || email || addressBuilding || addressStreet || addressArea || addressPincode) {
+      const formData = {
+        customerName,
+        phone,
         email,
+        addressBuilding,
+        addressStreet,
+        addressArea,
+        addressCity,
+        addressPincode,
+        customerLatitude,
+        customerLongitude,
         // 🛡️ FIX: Also save chef ID and address validation states
         chefId: cart?.chefId,
         addressValidationStates: {
@@ -1218,7 +1232,12 @@ if (platformFeeConfig?.platformFeeEnabled) {
       };
       localStorage.setItem("checkoutFormData", JSON.stringify(formData));
     }
-  }, [customerName, phone, email, isAuthenticated, addressZoneValidated, addressInDeliveryZone, addressConfirmed, cart?.chefId]);
+  }, [
+    customerName, phone, email, 
+    addressBuilding, addressStreet, addressArea, addressCity, addressPincode,
+    customerLatitude, customerLongitude,
+    isAuthenticated, addressZoneValidated, addressInDeliveryZone, addressConfirmed, cart?.chefId
+  ]);
 
   // Restore saved address fields from Context and localStorage when checkout opens
   useEffect(() => {
@@ -1257,11 +1276,16 @@ if (platformFeeConfig?.platformFeeEnabled) {
               // Also restore coordinates for delivery fee calculation
               setCustomerLatitude(parsed.latitude);
               setCustomerLongitude(parsed.longitude);
-              // ⚠️ DO NOT restore validation status - force re-validation with new chef!
-              // This ensures we validate against the CURRENT chef, not a previous one
-              console.log("[CHECKOUT] Address restored BUT validation cleared - user must re-validate with this chef");
-              setAddressZoneValidated(false);
-              setAddressInDeliveryZone(false);
+              
+              // ✅ FIX: Ensure panel collapses to edit state if address is fully loaded
+              if (structured.building && structured.street && structured.area && structured.pincode) {
+                setAddressZoneValidated(true);
+                setAddressInDeliveryZone(true);
+                setAddressConfirmed(true);
+                setIsEditingAddress(false);
+              }
+              
+              console.log("[CHECKOUT] Address structured fields restored.");
               return;
             } catch (e) {
               console.log("[CHECKOUT] Could not parse structured address, will use full address");
@@ -1640,7 +1664,7 @@ if (platformFeeConfig?.platformFeeEnabled) {
     const cleanPhone = value.replace(/\D/g, "").slice(0, 10);
     setPhone(cleanPhone); // Allow only digits, max 10
   };
-  
+
   // (old/duplicate ensureUserAuthenticated removed)
 
   const handleApplyCoupon = async () => {
@@ -1666,10 +1690,10 @@ if (platformFeeConfig?.platformFeeEnabled) {
         discountAmount: data.discountAmount,
       });
       console.log("[COUPON] Applied coupon state updated, awaiting useEffect to recalculate discount");
-    } catch (error) {
-      const errorData = error instanceof Error ? error.message : "Invalid coupon code";
-      console.log("[COUPON] Coupon verification failed:", errorData);
-      setCouponError(errorData || "Invalid coupon code");
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.message || "Invalid coupon code";
+      console.log("[COUPON] Coupon verification failed:", errorMessage);
+      setCouponError(errorMessage);
       setAppliedCoupon(null);
       console.error("Coupon application error:", error);
     } finally {
@@ -2004,7 +2028,7 @@ if (platformFeeConfig?.platformFeeEnabled) {
           setAddressInDeliveryZone(true);
           setAddressZoneValidated(true);
           setIsEditingAddress(false); // Collapsed View mode
-          
+
           // ✅ CRITICAL FIX: Only confirm address if ALL 4 fields are complete
           if (isAddressComplete) {
             setAddressConfirmed(true);  // Allow viewing payment immediately since they already pushed validate
@@ -2012,7 +2036,7 @@ if (platformFeeConfig?.platformFeeEnabled) {
           } else {
             setAddressConfirmed(false);  // Prevent premature confirmation
           }
-          
+
           setLocationError("");
 
           // Update Context
@@ -2441,436 +2465,449 @@ if (platformFeeConfig?.platformFeeEnabled) {
     setIsProcessingCheckout(true);
     try {
 
-    // ✅ FIX 3: HARD REFETCH wallet before placing order to prevent double usage
-    if (isAuthenticated) {
-      try {
-        console.log("[CHECKOUT] Refetching wallet balance before order...");
-        await queryClient.refetchQueries({ queryKey: ['/api/user/profile'] });
-        console.log("[CHECKOUT] ✅ Wallet refreshed");
-      } catch (err) {
-        console.warn('[CHECKOUT] Wallet refetch failed, continuing anyway:', err);
-        // Non-blocking - user can still place order
-      }
-    }
-
-    // 🛡️ FIX BUG 5: Check both cart prop AND live Zustand store for cart data
-    // This prevents stale prop issue after payment clearing
-    let validCart = cart;
-    
-    if (!validCart || validCart.items.length === 0) {
-      // Cart prop is empty, check if there's a fresh cart in Zustand store
-      const { getAllCarts } = useCart.getState();
-      const allCarts = getAllCarts();
-      
-      if (allCarts.length > 0) {
-        // Use the first available cart from store
-        validCart = allCarts[0];
-        console.log("[CHECKOUT] Using cart from Zustand store instead of stale prop:", validCart);
-      }
-    }
-    
-    if (!validCart || validCart.items.length === 0) {
-      toast({
-        title: "Error",
-        description: "Your cart is empty",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // Check if chef is accepting orders
-    if (validCart.chefIsActive === false) {
-      toast({
-        title: "Chef Currently Closed",
-        description: `${validCart.chefName} is not accepting orders right now. Please try again later.`,
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // ✅ RELAXED: If coordinates weren't captured (e.g., user refreshed page), 
-    // we'll use Kurla West defaults. Only enforce zone validation if user explicitly set coordinates.
-    // This allows users who refresh to still place orders with default coordinates.
-    if (customerLatitude !== null && customerLongitude !== null && (!addressZoneValidated || !addressInDeliveryZone)) {
-      toast({
-        title: "Address Out of Service Zone",
-        description: "This address is outside our delivery zone. Please adjust your address.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // Validate phone number
-    if (phone.length !== 10) {
-      toast({
-        title: "Invalid phone number",
-        description: "Please enter a valid 10-digit phone number",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // ✅ Validate email if provided (optional field but must be valid if entered)
-    if (email.trim()) {
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(email.trim())) {
-        toast({
-          title: "Invalid email",
-          description: "Please enter a valid email address",
-          variant: "destructive",
-        });
-        return;
-      }
-    }
-
-    // 🎁 Validate referral code if entered
-    // Initialize variable to track which code to use (null if invalid/cleared)
-    let referralCode_to_use = null;
-
-    if (referralCode.trim()) {
-      // Still validating - don't let them proceed yet
-      if (isValidatingReferral) {
-        toast({
-          title: "Please Wait",
-          description: "Referral code validation in progress...",
-          variant: "default",
-        });
-        return;
-      }
-
-      // ✅ FIX: Check if validation is OUTDATED (cart changed since verification)
-      const isValidationOutdated = 
-        referralValidation && 
-        referralValidation.validatedAmount !== subtotal;
-      
-      // ✅ Check if referral code is actually entered
-      const hasReferralInput = referralCode?.trim().length > 0;
-      
-      // ✅ Check if referral is INVALID (unverified, invalid, or outdated)
-      const isReferralInvalid =
-        hasReferralInput &&
-        (!referralValidation || !referralValidation.valid || isValidationOutdated);
-      
-      // ✅ Show confirmation modal if referral is invalid
-      if (isReferralInvalid && !confirmedProceedWithoutReferral) {
-        setShowReferralConfirmModal(true);
-        return;
-      } else if (referralValidation?.valid && !isValidationOutdated) {
-        // Code is valid AND amount hasn't changed - use it
-        referralCode_to_use = referralCode.trim();
-      }
-    }
-
-    // ✅ NEW: Validate all 4 address fields are mandatory
-    if (!addressBuilding.trim()) {
-      toast({
-        title: "Address Incomplete",
-        description: "Please enter building/house number",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (!addressStreet.trim()) {
-      toast({
-        title: "Address Incomplete",
-        description: "Please enter street/colony name",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (!addressArea.trim()) {
-      toast({
-        title: "Address Incomplete",
-        description: "Please enter area/locality name",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (!addressPincode.trim()) {
-      toast({
-        title: "Address Incomplete",
-        description: "Please enter pincode",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // ✅ SILENT AUTO-AUTH: Try to auto-login/create user WITHOUT blocking checkout
-    if (!isAuthenticated) {
-      console.log("[CHECKOUT] User not authenticated - attempting silent auth...");
-      const authSuccess = await ensureUserAuthenticated();
-      
-      if (!authSuccess) {
-        // Silent auth failed, show error and block checkout
-        toast({
-          title: "Authentication Failed",
-          description: "Unable to login. Please try again.",
-          variant: "destructive",
-        });
-        setIsProcessingCheckout(false);
-        return;
-      }
-      
-      console.log("[CHECKOUT] ✅ Silent auth successful, continuing checkout...");
-    }
-
-    // Check morning restriction for Roti orders (8 AM - 11 AM)
-    const now = new Date();
-    const currentHour = now.getHours();
-    const inMorningRestriction = currentHour >= 8 && currentHour < 11;
-
-    if (requiresDeliverySlot && inMorningRestriction && selectedDeliverySlotId) {
-      const selectedSlotInfo = slotCutoffMap[selectedDeliverySlotId];
-      if (selectedSlotInfo?.isMorningSlot) {
-        toast({
-          title: "Morning Slot Unavailable",
-          description:
-            "Morning delivery slots (8 AM - 11 AM) must be ordered by 11 PM the previous day. Please select a later time slot or order after 11 AM.",
-          variant: "destructive",
-        });
-        return;
-      }
-    }
-
-    // Delivery time is optional for delivery slot orders
-
-    setIsLoading(true);
-
-    try {
-      // Get delivery date info if slot selected
-      const slotInfo = selectedDeliverySlotId
-        ? slotCutoffMap[selectedDeliverySlotId]
-        : null;
-      const deliveryDateStr = slotInfo
-        ? slotInfo.nextAvailableDate.toISOString().split("T")[0]
-        : undefined;
-
-      // ✅ FALLBACK: Use Kurla West coordinates if address validation hasn't set them yet
-      // This handles the case where user refreshes page and coordinates get lost
-      // Default Kurla West: 19.0728, 72.8826 (same as server default)
-      const finalLatitude = customerLatitude ?? 19.0728;
-      const finalLongitude = customerLongitude ?? 72.8826;
-
-      const orderData = {
-        customerName,
-        phone,
-        email: email || "",
-        address,
-        // Structured address fields
-        addressBuilding,
-        addressStreet,
-        addressArea,
-        addressCity,
-        addressPincode,
-        deliveryInstructions: deliveryInstructions.trim() || undefined, // ✅ NEW: Add optional delivery instructions
-        items: validCart.items.map((item: CartItem) => ({
-          id: item.id,
-          name: item.name,
-          price: item.price,
-          quantity: item.quantity,
-          categoryId: item.categoryId,
-          chefId: item.chefId,
-          specialInstructions: item.specialInstructions || undefined,
-        })),
-        subtotal,
-        deliveryFee,
-        discount,
-        customerLatitude: finalLatitude,
-        customerLongitude: finalLongitude,
-        couponCode: appliedCoupon?.code,
-        referralCode: referralCode_to_use,
-        total,
-        chefId: validCart.chefId || validCart.items[0]?.chefId,
-        categoryId: validCart.categoryId,
-        categoryName: validCart.categoryName,
-        deliveryTime:
-          requiresDeliverySlot && selectedDeliveryTime
-            ? selectedDeliveryTime
-            : undefined,
-        deliverySlotId:
-          requiresDeliverySlot && selectedDeliverySlotId
-            ? selectedDeliverySlotId
-            : undefined,
-        deliveryDate:
-          requiresDeliverySlot && deliveryDateStr ? deliveryDateStr : undefined,
-        status: "pending" as const,
-        paymentStatus: "pending" as const,
-        bonusUsedAtCheckout: useBonusAtCheckout ? bonusAmountToUse : 0,
-        walletAmountUsed: useWalletBalance ? walletAmountToUse : 0,
-      };
-
-      console.log("=== OPTION A FLOW: CREATE ORDER NOW ===");
-      console.log("Creating order immediately at checkout");
-      console.log("orderData:", orderData);
-
-      // 🎁 ✅ CRITICAL FIX: Claim bonus BEFORE creating order (if user selected it)
-      // This ensures:
-      // 1. Deducts from user.pendingBonus
-      // 2. Marks referral as referredOrderCompleted=true
-      // 3. Prevents double-credit on delivery
-      if (useBonusAtCheckout && bonusAmountToUse > 0) {
+      // ✅ FIX 3: HARD REFETCH wallet before placing order to prevent double usage
+      if (isAuthenticated) {
         try {
-          console.log("[BONUS-CLAIM] Claiming bonus before order creation...", {
-            bonusAmountToUse,
-            pendingBonus,
-          });
-          
-          // Create a temporary order ID for tracking (will be replaced after order is created)
-          const tempOrderId = `temp_${Date.now()}`;
-          
-          const claimResponse = await api.post("/api/user/claim-bonus-at-checkout", {
-            orderTotal: subtotal,
-            orderId: tempOrderId,  // Temporary - will be updated after real order created
-          });
+          console.log("[CHECKOUT] Refetching wallet balance before order...");
+          await queryClient.refetchQueries({ queryKey: ['/api/user/profile'] });
+          console.log("[CHECKOUT] ✅ Wallet refreshed");
+        } catch (err) {
+          console.warn('[CHECKOUT] Wallet refetch failed, continuing anyway:', err);
+          // Non-blocking - user can still place order
+        }
+      }
 
-          if (!claimResponse.data.bonusClaimed) {
-            console.error("[BONUS-CLAIM] Failed to claim bonus:", claimResponse.data.message);
+      // 🛡️ FIX BUG 5: Check both cart prop AND live Zustand store for cart data
+      // This prevents stale prop issue after payment clearing
+      let validCart = cart;
+
+      if (!validCart || validCart.items.length === 0) {
+        // Cart prop is empty, check if there's a fresh cart in Zustand store
+        const { getAllCarts } = useCart.getState();
+        const allCarts = getAllCarts();
+
+        if (allCarts.length > 0) {
+          // Use the first available cart from store
+          validCart = allCarts[0];
+          console.log("[CHECKOUT] Using cart from Zustand store instead of stale prop:", validCart);
+        }
+      }
+
+      if (!validCart || validCart.items.length === 0) {
+        toast({
+          title: "Error",
+          description: "Your cart is empty",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Check if chef is accepting orders
+      if (validCart.chefIsActive === false) {
+        toast({
+          title: "Chef Currently Closed",
+          description: `${validCart.chefName} is not accepting orders right now. Please try again later.`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // ✅ RELAXED: If coordinates weren't captured (e.g., user refreshed page), 
+      // we'll use Kurla West defaults. Only enforce zone validation if user explicitly set coordinates.
+      // This allows users who refresh to still place orders with default coordinates.
+      if (customerLatitude !== null && customerLongitude !== null && (!addressZoneValidated || !addressInDeliveryZone)) {
+        toast({
+          title: "Address Out of Service Zone",
+          description: "This address is outside our delivery zone. Please adjust your address.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Validate phone number
+      if (phone.length !== 10) {
+        toast({
+          title: "Invalid phone number",
+          description: "Please enter a valid 10-digit phone number",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // ✅ Validate email if provided (optional field but must be valid if entered)
+      if (email.trim()) {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email.trim())) {
+          toast({
+            title: "Invalid email",
+            description: "Please enter a valid email address",
+            variant: "destructive",
+          });
+          return;
+        }
+      }
+
+      // 🎁 Validate referral code if entered
+      // Initialize variable to track which code to use (null if invalid/cleared)
+      let referralCode_to_use = null;
+
+      if (referralCode.trim()) {
+        // Still validating - don't let them proceed yet
+        if (isValidatingReferral) {
+          toast({
+            title: "Please Wait",
+            description: "Referral code validation in progress...",
+            variant: "default",
+          });
+          return;
+        }
+
+        // ✅ FIX: Check if validation is OUTDATED (cart changed since verification)
+        const isValidationOutdated =
+          referralValidation &&
+          referralValidation.validatedAmount !== subtotal;
+
+        // ✅ Check if referral code is actually entered
+        const hasReferralInput = referralCode?.trim().length > 0;
+
+        // ✅ Check if referral is INVALID (unverified, invalid, or outdated)
+        const isReferralInvalid =
+          hasReferralInput &&
+          (!referralValidation || !referralValidation.valid || isValidationOutdated);
+
+        // ✅ Show confirmation modal if referral is invalid
+        if (isReferralInvalid && !confirmedProceedWithoutReferral) {
+          setShowReferralConfirmModal(true);
+          return;
+        } else if (referralValidation?.valid && !isValidationOutdated) {
+          // Code is valid AND amount hasn't changed - use it
+          referralCode_to_use = referralCode.trim();
+        }
+      }
+
+      // ✅ NEW: Validate all 4 address fields are mandatory
+      if (!addressBuilding.trim()) {
+        toast({
+          title: "Address Incomplete",
+          description: "Please enter building/house number",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (!addressStreet.trim()) {
+        toast({
+          title: "Address Incomplete",
+          description: "Please enter street/colony name",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (!addressArea.trim()) {
+        toast({
+          title: "Address Incomplete",
+          description: "Please enter area/locality name",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (!addressPincode.trim()) {
+        toast({
+          title: "Address Incomplete",
+          description: "Please enter pincode",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // ✅ SILENT AUTO-AUTH: Try to auto-login/create user WITHOUT blocking checkout
+      if (!isAuthenticated) {
+        console.log("[CHECKOUT] User not authenticated - attempting silent auth...");
+        const authSuccess = await ensureUserAuthenticated();
+
+        if (!authSuccess) {
+          // Silent auth failed, show error and block checkout
+          toast({
+            title: "Authentication Failed",
+            description: "Unable to login. Please try again.",
+            variant: "destructive",
+          });
+          setIsProcessingCheckout(false);
+          return;
+        }
+
+        console.log("[CHECKOUT] ✅ Silent auth successful, continuing checkout...");
+      }
+
+      // Check morning restriction for Roti orders (8 AM - 11 AM)
+      const now = new Date();
+      const currentHour = now.getHours();
+      const inMorningRestriction = currentHour >= 8 && currentHour < 11;
+
+      if (requiresDeliverySlot && inMorningRestriction && selectedDeliverySlotId) {
+        const selectedSlotInfo = slotCutoffMap[selectedDeliverySlotId];
+        if (selectedSlotInfo?.isMorningSlot) {
+          toast({
+            title: "Morning Slot Unavailable",
+            description:
+              "Morning delivery slots (8 AM - 11 AM) must be ordered by 11 PM the previous day. Please select a later time slot or order after 11 AM.",
+            variant: "destructive",
+          });
+          return;
+        }
+      }
+
+      // Delivery time is optional for delivery slot orders
+
+      setIsLoading(true);
+
+      try {
+        // Get delivery date info if slot selected
+        const slotInfo = selectedDeliverySlotId
+          ? slotCutoffMap[selectedDeliverySlotId]
+          : null;
+        const deliveryDateStr = slotInfo
+          ? slotInfo.nextAvailableDate.toISOString().split("T")[0]
+          : undefined;
+
+        // ✅ FALLBACK: Use Kurla West coordinates if address validation hasn't set them yet
+        // This handles the case where user refreshes page and coordinates get lost
+        // Default Kurla West: 19.0728, 72.8826 (same as server default)
+        const finalLatitude = customerLatitude ?? 19.0728;
+        const finalLongitude = customerLongitude ?? 72.8826;
+
+        const orderData = {
+          customerName,
+          phone,
+          email: email || "",
+          address,
+          // Structured address fields
+          addressBuilding,
+          addressStreet,
+          addressArea,
+          addressCity,
+          addressPincode,
+          deliveryInstructions: deliveryInstructions.trim() || undefined, // ✅ NEW: Add optional delivery instructions
+          items: validCart.items.map((item: CartItem) => ({
+            id: item.id,
+            name: item.name,
+            price: item.price,
+            quantity: item.quantity,
+            categoryId: item.categoryId,
+            chefId: item.chefId,
+            specialInstructions: item.specialInstructions || undefined,
+          })),
+          subtotal,
+          deliveryFee,
+          discount,
+          customerLatitude: finalLatitude,
+          customerLongitude: finalLongitude,
+          couponCode: appliedCoupon?.code,
+          referralCode: referralCode_to_use,
+          total,
+          chefId: validCart.chefId || validCart.items[0]?.chefId,
+          categoryId: validCart.categoryId,
+          categoryName: validCart.categoryName,
+          deliveryTime:
+            requiresDeliverySlot && selectedDeliveryTime
+              ? selectedDeliveryTime
+              : undefined,
+          deliverySlotId:
+            requiresDeliverySlot && selectedDeliverySlotId
+              ? selectedDeliverySlotId
+              : undefined,
+          deliveryDate:
+            requiresDeliverySlot && deliveryDateStr ? deliveryDateStr : undefined,
+          status: "pending" as const,
+          paymentStatus: "pending" as const,
+          bonusUsedAtCheckout: useBonusAtCheckout ? bonusAmountToUse : 0,
+          walletAmountUsed: useWalletBalance ? walletAmountToUse : 0,
+        };
+
+        console.log("=== OPTION A FLOW: CREATE ORDER NOW ===");
+        console.log("Creating order immediately at checkout");
+        console.log("orderData:", orderData);
+
+        // 🎁 ✅ CRITICAL FIX: Claim bonus BEFORE creating order (if user selected it)
+        // This ensures:
+        // 1. Deducts from user.pendingBonus
+        // 2. Marks referral as referredOrderCompleted=true
+        // 3. Prevents double-credit on delivery
+        if (useBonusAtCheckout && bonusAmountToUse > 0) {
+          try {
+            console.log("[BONUS-CLAIM] Claiming bonus before order creation...", {
+              bonusAmountToUse,
+              pendingBonus,
+            });
+
+            // Create a temporary order ID for tracking (will be replaced after order is created)
+            const tempOrderId = `temp_${Date.now()}`;
+
+            const claimResponse = await api.post("/api/user/claim-bonus-at-checkout", {
+              orderTotal: subtotal,
+              orderId: tempOrderId,  // Temporary - will be updated after real order created
+            });
+
+            if (!claimResponse.data.bonusClaimed) {
+              console.error("[BONUS-CLAIM] Failed to claim bonus:", claimResponse.data.message);
+              toast({
+                title: "Bonus Claim Failed",
+                description: claimResponse.data.message || "Failed to claim bonus",
+                variant: "destructive",
+              });
+              setIsLoading(false);
+              return;
+            }
+
+            console.log("[BONUS-CLAIM] ✅ Bonus claimed successfully:", {
+              amount: claimResponse.data.amount,
+              message: claimResponse.data.message,
+            });
+          } catch (bonusError: any) {
+            console.error("[BONUS-CLAIM] Error claiming bonus:", bonusError);
             toast({
-              title: "Bonus Claim Failed",
-              description: claimResponse.data.message || "Failed to claim bonus",
+              title: "Bonus Error",
+              description: bonusError?.response?.data?.message || "Failed to claim bonus",
               variant: "destructive",
             });
             setIsLoading(false);
             return;
           }
+        }
 
-          console.log("[BONUS-CLAIM] ✅ Bonus claimed successfully:", {
-            amount: claimResponse.data.amount,
-            message: claimResponse.data.message,
-          });
-        } catch (bonusError: any) {
-          console.error("[BONUS-CLAIM] Error claiming bonus:", bonusError);
+        // ✅ CREATE ORDER IMMEDIATELY (with paymentStatus: pending)
+        // This ensures admin sees order in notifications even before payment
+        let orderId: string | null = null;
+        let orderResponse: any = null;
+
+        // 🔥 AUTH FIRST: Ensure user is authenticated before creating order
+        const isAuthReady = await ensureUserAuthenticated();
+
+        if (!isAuthReady) {
+          setIsProcessingCheckout(false);
+          return;
+        }
+
+        try {
+          // 🛡️ SMART FIX: Prevent duplicate pending orders!
+          // If the user backed out of payment and clicked checkout again, cancel the old pending order.
+          try {
+            if (isAuthenticated && userOrders) {
+              const duplicateOrders = userOrders.filter(
+                (o) => o.status === "pending" && o.paymentStatus === "pending" && o.chefId === cart?.chefId
+              );
+              for (const oldOrder of duplicateOrders) {
+                console.log("[CHECKOUT] Cancelling abandoned duplicate order:", oldOrder.id);
+                await api.post(`/api/orders/${oldOrder.id}/cancel`);
+              }
+            } else {
+              const oldGuestOrderId = localStorage.getItem("guestPendingOrderId");
+              if (oldGuestOrderId) {
+                console.log("[CHECKOUT] Cancelling abandoned guest order:", oldGuestOrderId);
+                await api.post(`/api/orders/${oldGuestOrderId}/cancel`).catch(() => {});
+              }
+            }
+          } catch (cleanupError) {
+            console.error("[CHECKOUT] Failed to cleanup old pending orders:", cleanupError);
+          }
+
+          orderResponse = await api.post("/api/orders", orderData);
+          orderId = orderResponse.data.id;
+          
+          if (!isAuthenticated && orderId) {
+            localStorage.setItem("guestPendingOrderId", orderId);
+          }
+
+          console.log("[CHECKOUT] Order created successfully:", orderId);
+          console.log("[CHECKOUT] Order waiting for payment confirmation...");
+        } catch (err: any) {
+          console.error("[CHECKOUT] Failed to create order:", err);
           toast({
-            title: "Bonus Error",
-            description: bonusError?.response?.data?.message || "Failed to claim bonus",
+            title: "Error",
+            description: err?.response?.data?.message || "Failed to create order",
             variant: "destructive",
           });
           setIsLoading(false);
+          setIsProcessingCheckout(false);
           return;
         }
-      }
 
-      // ✅ CREATE ORDER IMMEDIATELY (with paymentStatus: pending)
-      // This ensures admin sees order in notifications even before payment
-      let orderId: string | null = null;
-      let orderResponse: any = null;
+        // ✅ DO NOT clear the cart immediately here. We wait for payment confirmation.
+        // Wait for Home.tsx's handleOrderSuccess to clear the cart and checkoutFormData.
 
-      // 🔥 AUTH FIRST: Ensure user is authenticated before creating order
-      const isAuthReady = await ensureUserAuthenticated();
+        // ✅ FIX 4: Reset wallet state to prevent reusing same balance in next order
+        setUseWalletBalance(false);
+        setWalletAmountToUse(0);
 
-      if (!isAuthReady) {
+        // ✅ Now show payment QR with order created
+        onShowPaymentQR({
+          orderData: orderResponse.data, // Pass complete order object
+          amount: total,
+          customerName,
+          phone,
+          email,
+          address,
+          pendingCheckoutId: null, // No pending checkout needed, order already created
+        });
+
+        // Unlock processing flag after initiating payment flow
         setIsProcessingCheckout(false);
-        return;
-      }
 
-      try {
-        orderResponse = await api.post("/api/orders", orderData);
-        orderId = orderResponse.data.id;
-        console.log("[CHECKOUT] Order created successfully:", orderId);
-        console.log("[CHECKOUT] Order waiting for payment confirmation...");
-      } catch (err: any) {
-        console.error("[CHECKOUT] Failed to create order:", err);
+        // ✅ FIX 2: Invalidate user orders query so checkout dialog will hide referral input next time it opens
+        queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/user"] });
+        // ✅ Restoring a 4-5 second delay to the active banner per request
+        setTimeout(() => {
+          queryClient.invalidateQueries({ queryKey: ["active-order"] });
+        }, 4500);
+
+        // ✅ IMPORTANT: DO NOT reset form fields or clear checkoutFormData here.
+        // If the user cancels the payment QR, they should return to the checkout with their state intact.
+        // Form cleanup and cart clearing now happens strictly upon successful payment in Home.tsx.
+
+        // We also DO NOT call onClose() here because that triggers handleCheckoutClose in Home.tsx,
+        // which clears the selectedCart and breaks the delivery slot logic.
+        // onShowPaymentQR already unmounts this dialog by setting isCheckoutOpen to false.
+      } catch (error: any) {
+        console.error("Order validation error:", error);
+
+        const errorData = error.response?.data || {};
+
+        if (errorData.requiresLogin) {
+          toast({
+            title: "Login Required",
+            description: errorData.message || "This phone number is already registered. Please login.",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        // Handle server telling client to reschedule due to cutoff
+        if (errorData.requiresReschedule) {
+          setSuggestedReschedule({
+            slotId: selectedDeliverySlotId as string,
+            nextAvailableDate: errorData.nextAvailableDate,
+          });
+          toast({
+            title: "Selected slot passed cutoff",
+            description: errorData.message || "Selected delivery slot missed the ordering cutoff. Please schedule for the next available date.",
+            variant: "destructive",
+          });
+          return;
+        }
+
         toast({
-          title: "Error",
-          description: err?.response?.data?.message || "Failed to create order",
+          title: "Order failed",
+          description: errorData.message || (error instanceof Error ? error.message : "Failed to create order. Please try again."),
           variant: "destructive",
         });
-        setIsLoading(false);
-        setIsProcessingCheckout(false);
-        return;
+      } finally {
+        setIsLoading(false); // Changed from setIsSubmitting to setIsLoading
+        // inner finally: keep, outer finally will also clear as safety
+        setIsProcessingCheckout(false); // ✅ Unlock multi-click protection
       }
-
-      // ✅ CLEAR THE CART IMMEDIATELY after order is created
-      if (onClearCart) {
-        onClearCart();
-      }
-
-      // ✅ FIX 4: Reset wallet state to prevent reusing same balance in next order
-      setUseWalletBalance(false);
-      setWalletAmountToUse(0);
-
-      // ✅ Now show payment QR with order created
-      onShowPaymentQR({
-        orderData: orderResponse.data, // Pass complete order object
-        amount: total,
-        customerName,
-        phone,
-        email,
-        address,
-        pendingCheckoutId: null, // No pending checkout needed, order already created
-      });
-
-      // Unlock processing flag after initiating payment flow
-      setIsProcessingCheckout(false);
-
-      // ✅ FIX 2: Invalidate user orders query so checkout dialog will hide referral input next time it opens
-      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/user"] });
-
-      // Reset form for next order
-      setCustomerName("");
-      setPhone("");
-      setEmail("");
-      setAddressBuilding("");
-      setAddressStreet("");
-      setAddressArea("");
-      setAddressCity("Mumbai");
-      setAddressPincode("");
-      setCouponCode("");
-      setReferralCode("");
-      localStorage.removeItem("pendingReferralCode"); // ✅ Clean up localStorage after successful order
-      setAppliedCoupon(null);
-      // phoneExists reset removed — no longer used
-      setSelectedDeliveryTime("");
-      setDeliveryTimeLabel("");
-      setSelectedDeliverySlotId("");
-      // ✅ FIX 1: Reset referral modal confirmation flag after successful order
-      setConfirmedProceedWithoutReferral(false);
-      setReferralValidation(null);
-
-      // Close the checkout dialog
-      onClose();
-    } catch (error: any) {
-      console.error("Order validation error:", error);
-
-      const errorData = error.response?.data || {};
-
-      if (errorData.requiresLogin) {
-        toast({
-          title: "Login Required",
-          description: errorData.message || "This phone number is already registered. Please login.",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      // Handle server telling client to reschedule due to cutoff
-      if (errorData.requiresReschedule) {
-        setSuggestedReschedule({
-          slotId: selectedDeliverySlotId as string,
-          nextAvailableDate: errorData.nextAvailableDate,
-        });
-        toast({
-          title: "Selected slot passed cutoff",
-          description: errorData.message || "Selected delivery slot missed the ordering cutoff. Please schedule for the next available date.",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      toast({
-        title: "Order failed",
-        description: errorData.message || (error instanceof Error ? error.message : "Failed to create order. Please try again."),
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoading(false); // Changed from setIsSubmitting to setIsLoading
-      // inner finally: keep, outer finally will also clear as safety
-      setIsProcessingCheckout(false); // ✅ Unlock multi-click protection
-    }
     } finally {
       // Ensure processing flag is cleared on any early returns before inner try
       setIsProcessingCheckout(false);
@@ -3026,170 +3063,170 @@ if (platformFeeConfig?.platformFeeEnabled) {
                           <div className="space-y-3">
                             <Label className="text-sm font-semibold">Delivery Address *</Label>
 
-                        {/* Row 1: Building/House Number and Street */}
-                        <div className="grid grid-cols-2 gap-2">
-                          <div>
-                            <Label htmlFor="building" className="text-xs text-gray-600">
-                              Building/House No <span className="text-red-500">*</span>
-                            </Label>
-                            <Input
-                              id="building"
-                              value={addressBuilding}
-                              onChange={(e) => handleAddressChange('building', e.target.value)}
-                              placeholder="e.g., 18/20"
-                              className="text-sm"
-                              required
-                            />
-                          </div>
-                          <div>
-                            <Label htmlFor="street" className="text-xs text-gray-600">
-                              Street/Colony <span className="text-red-500">*</span>
-                            </Label>
-                            <Input
-                              id="street"
-                              value={addressStreet}
-                              onChange={(e) => handleAddressChange('street', e.target.value)}
-                              placeholder="e.g., LJG Colony"
-                              className="text-sm"
-                              required
-                            />
-                          </div>
-                        </div>
-
-                        {/* Row 2: GPS and Area */}
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <Label htmlFor="area" className="text-xs text-gray-600 font-semibold">
-                              Area/Locality *
-                            </Label>
-                            {!deliveryLocation.pincode && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 text-xs text-blue-600 px-2"
-                                onClick={handleUseCurrentLocation}
-                                disabled={isGettingLocation}
-                              >
-                                {isGettingLocation ? (
-                                  <>
-                                    <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                                    Locating...
-                                  </>
-                                ) : (
-                                  <>
-                                    <MapPin className="mr-1 h-3 w-3" />
-                                    Use My Location
-                                  </>
-                                )}
-                              </Button>
-                            )}
-                          </div>
-                          <div className="relative">
-                            <Input
-                              id="area"
-                              value={addressArea}
-                              onChange={(e) => handleAddressChange('area', e.target.value)}
-                              onFocus={() => {
-                                if (addressArea.trim().length > 0) {
-                                  const suggestions = getAreaSuggestions(addressArea);
-                                  setAreaSuggestions(suggestions);
-                                  setShowAreaSuggestions(suggestions.length > 0);
-                                }
-                              }}
-                              placeholder="e.g., Kurla West"
-                              className="text-sm"
-                              required
-                            />
-                            {isGeocodingAddress && (
-                              <div className="absolute right-3 top-2.5">
-                                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                            {/* Row 1: Building/House Number and Street */}
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <Label htmlFor="building" className="text-xs text-gray-600">
+                                  Building/House No <span className="text-red-500">*</span>
+                                </Label>
+                                <Input
+                                  id="building"
+                                  value={addressBuilding}
+                                  onChange={(e) => handleAddressChange('building', e.target.value)}
+                                  placeholder="e.g., 18/20"
+                                  className="text-sm"
+                                  required
+                                />
                               </div>
-                            )}
+                              <div>
+                                <Label htmlFor="street" className="text-xs text-gray-600">
+                                  Street/Colony <span className="text-red-500">*</span>
+                                </Label>
+                                <Input
+                                  id="street"
+                                  value={addressStreet}
+                                  onChange={(e) => handleAddressChange('street', e.target.value)}
+                                  placeholder="e.g., LJG Colony"
+                                  className="text-sm"
+                                  required
+                                />
+                              </div>
+                            </div>
 
-                            {/* Area Suggestions Dropdown */}
-                            {showAreaSuggestions && areaSuggestions.length > 0 && (
-                              <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg z-50">
-                                {areaSuggestions.map((suggestion, idx) => (
-                                  <div
-                                    key={idx}
-                                    onClick={() => {
-                                      setAddressArea(suggestion);
-                                      setShowAreaSuggestions(false);
-                                      setAreaSuggestions([]);
-                                      // NO Auto-validation! User must click Validate Address
-                                      console.log("[LOCATION] Selected suggestion:", suggestion, "waiting for manual validation");
-                                      // Just update the field state (which is already done via setAddressArea but let's be safe if needed)
-                                      // handleAddressChange('area', suggestion); // Already called by setAddressArea effectively
-                                    }}
-                                    className="w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm border-b border-gray-200 dark:border-gray-700 last:border-0 cursor-pointer"
+                            {/* Row 2: GPS and Area */}
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <Label htmlFor="area" className="text-xs text-gray-600 font-semibold">
+                                  Area/Locality *
+                                </Label>
+                                {!deliveryLocation.pincode && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 text-xs text-blue-600 px-2"
+                                    onClick={handleUseCurrentLocation}
+                                    disabled={isGettingLocation}
                                   >
-                                    {suggestion}
-                                  </div>
-                                ))}
+                                    {isGettingLocation ? (
+                                      <>
+                                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                        Locating...
+                                      </>
+                                    ) : (
+                                      <>
+                                        <MapPin className="mr-1 h-3 w-3" />
+                                        Use My Location
+                                      </>
+                                    )}
+                                  </Button>
+                                )}
                               </div>
-                            )}
-                          </div>
-                        </div>
+                              <div className="relative">
+                                <Input
+                                  id="area"
+                                  value={addressArea}
+                                  onChange={(e) => handleAddressChange('area', e.target.value)}
+                                  onFocus={() => {
+                                    if (addressArea.trim().length > 0) {
+                                      const suggestions = getAreaSuggestions(addressArea);
+                                      setAreaSuggestions(suggestions);
+                                      setShowAreaSuggestions(suggestions.length > 0);
+                                    }
+                                  }}
+                                  placeholder="e.g., Kurla West"
+                                  className="text-sm"
+                                  required
+                                />
+                                {isGeocodingAddress && (
+                                  <div className="absolute right-3 top-2.5">
+                                    <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                                  </div>
+                                )}
 
-                        {/* Row 3: City and Pincode */}
-                        <div className="grid grid-cols-2 gap-2">
-                          <div>
-                            <Label htmlFor="city" className="text-xs text-gray-600">
-                              City
-                            </Label>
-                            <Input
-                              id="city"
-                              value={addressCity}
-                              onChange={(e) => handleAddressChange('city', e.target.value)}
-                              placeholder="Mumbai"
-                              className="text-sm"
-                            />
-                          </div>
-                          <div>
-                            <Label htmlFor="pincode" className="text-xs text-gray-600 flex items-center justify-between">
-                              <span>Pincode <span className="text-red-500">*</span></span>
-                              {isReValidatingPincode && (
-                                <span className="text-xs text-blue-600 dark:text-blue-400 flex items-center gap-1">
-                                  <Loader2 className="h-3 w-3 animate-spin" />
-                                  Checking...
-                                </span>
-                              )}
-                            </Label>
-                            <div className="relative">
-                              <Input
-                                id="pincode"
-                                value={addressPincode}
-                                onChange={(e) => handleAddressChange('pincode', e.target.value)}
-                                placeholder="e.g., 400070"
-                                className={`text-sm ${isReValidatingPincode ? 'border-blue-500 border-2' : ''} bg-gray-100 text-gray-500 cursor-not-allowed`}
-                                readOnly={true}
-                                required
+                                {/* Area Suggestions Dropdown */}
+                                {showAreaSuggestions && areaSuggestions.length > 0 && (
+                                  <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg z-50">
+                                    {areaSuggestions.map((suggestion, idx) => (
+                                      <div
+                                        key={idx}
+                                        onClick={() => {
+                                          setAddressArea(suggestion);
+                                          setShowAreaSuggestions(false);
+                                          setAreaSuggestions([]);
+                                          // NO Auto-validation! User must click Validate Address
+                                          console.log("[LOCATION] Selected suggestion:", suggestion, "waiting for manual validation");
+                                          // Just update the field state (which is already done via setAddressArea but let's be safe if needed)
+                                          // handleAddressChange('area', suggestion); // Already called by setAddressArea effectively
+                                        }}
+                                        className="w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm border-b border-gray-200 dark:border-gray-700 last:border-0 cursor-pointer"
+                                      >
+                                        {suggestion}
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Row 3: City and Pincode */}
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <Label htmlFor="city" className="text-xs text-gray-600">
+                                  City
+                                </Label>
+                                <Input
+                                  id="city"
+                                  value={addressCity}
+                                  onChange={(e) => handleAddressChange('city', e.target.value)}
+                                  placeholder="Mumbai"
+                                  className="text-sm"
+                                />
+                              </div>
+                              <div>
+                                <Label htmlFor="pincode" className="text-xs text-gray-600 flex items-center justify-between">
+                                  <span>Pincode <span className="text-red-500">*</span></span>
+                                  {isReValidatingPincode && (
+                                    <span className="text-xs text-blue-600 dark:text-blue-400 flex items-center gap-1">
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                      Checking...
+                                    </span>
+                                  )}
+                                </Label>
+                                <div className="relative">
+                                  <Input
+                                    id="pincode"
+                                    value={addressPincode}
+                                    onChange={(e) => handleAddressChange('pincode', e.target.value)}
+                                    placeholder="e.g., 400070"
+                                    className={`text-sm ${isReValidatingPincode ? 'border-blue-500 border-2' : ''} ${deliveryLocation.pincode ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`}
+                                    readOnly={!!deliveryLocation.pincode}
+                                    required
+                                  />
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* ✅ NEW: Delivery Instructions (Optional) */}
+                            <div className="space-y-2">
+                              <Label htmlFor="deliveryInstructions" className="text-xs text-gray-600">
+                                Delivery Instructions (Optional)
+                              </Label>
+                              <textarea
+                                id="deliveryInstructions"
+                                value={deliveryInstructions}
+                                onChange={(e) => setDeliveryInstructions(e.target.value.slice(0, 200))}
+                                placeholder="e.g., 'Red gate building', 'Near the temple', 'Watch dog present'"
+                                maxLength={200}
+                                rows={2}
+                                className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent resize-none"
                               />
+                              <p className="text-xs text-gray-500">{deliveryInstructions.length}/200</p>
                             </div>
                           </div>
-                        </div>
+                        )}
 
-                        {/* ✅ NEW: Delivery Instructions (Optional) */}
-                        <div className="space-y-2">
-                          <Label htmlFor="deliveryInstructions" className="text-xs text-gray-600">
-                            Delivery Instructions (Optional)
-                          </Label>
-                          <textarea
-                            id="deliveryInstructions"
-                            value={deliveryInstructions}
-                            onChange={(e) => setDeliveryInstructions(e.target.value.slice(0, 200))}
-                            placeholder="e.g., 'Red gate building', 'Near the temple', 'Watch dog present'"
-                            maxLength={200}
-                            rows={2}
-                            className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent resize-none"
-                          />
-                          <p className="text-xs text-gray-500">{deliveryInstructions.length}/200</p>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Other form content here if needed */}
-                    </>
+                        {/* Other form content here if needed */}
+                      </>
                     )}
 
                     {/* STEP 3: Show address confirmed badge ALWAYS when addressConfirmed=true (in view mode) */}
@@ -3246,10 +3283,10 @@ if (platformFeeConfig?.platformFeeEnabled) {
 
                     {/* Full Address Display */}
                     {!addressConfirmed && (
-                    <div className="bg-gray-50 dark:bg-gray-900 p-2 rounded text-xs text-gray-700 dark:text-gray-300">
-                      <p className="font-semibold">Full Address:</p>
-                      <p>{address || "(Enter details above)"}</p>
-                    </div>
+                      <div className="bg-gray-50 dark:bg-gray-900 p-2 rounded text-xs text-gray-700 dark:text-gray-300">
+                        <p className="font-semibold">Full Address:</p>
+                        <p>{address || "(Enter details above)"}</p>
+                      </div>
                     )}
 
                     {/* Validation hint - button is in footer */}
@@ -3260,7 +3297,7 @@ if (platformFeeConfig?.platformFeeEnabled) {
                     )}
 
                     {/* Smart Location Validation Feedback - Zomato Style */}
-                    
+
 
                     {locationError && (
                       <div className="bg-orange-50 dark:bg-orange-950/20 border border-orange-300 dark:border-orange-700 rounded-md p-3">
@@ -3310,7 +3347,7 @@ if (platformFeeConfig?.platformFeeEnabled) {
                                 if (slot) {
                                   // ✅ Set RAW time for API (HH:mm format)
                                   setSelectedDeliveryTime(slot.startTime);
-                                  
+
                                   // ✅ Format the delivery time with date label for UI
                                   const cutoffInfo = slotCutoffMap[slot.id];
                                   const formattedStart = formatTo12Hour(slot.startTime);
@@ -3398,21 +3435,21 @@ if (platformFeeConfig?.platformFeeEnabled) {
                               </SelectContent>
                             </Select>
 
-{/* ✅ ADD THIS HERE (clear selection option) */}
-{selectedDeliverySlotId && (
-  <button
-    type="button"
-    onClick={() => {
-      setSelectedDeliverySlotId("");
-      setSelectedDeliveryTime("");
-      setDeliveryTimeLabel("");
-    }}
-    className="text-xs text-blue-600 mt-1 underline"
-  >
-    Deliver Now Click Here to Clear Selection
-  </button>
-)}
-                            
+                            {/* ✅ ADD THIS HERE (clear selection option) */}
+                            {selectedDeliverySlotId && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedDeliverySlotId("");
+                                  setSelectedDeliveryTime("");
+                                  setDeliveryTimeLabel("");
+                                }}
+                                className="text-xs text-blue-600 mt-1 underline"
+                              >
+                                Deliver Now Click Here to Clear Selection
+                              </button>
+                            )}
+
                             {/* Validation message for missing slot */}
                             {requiresDeliverySlot && !selectedDeliverySlotId && !isRotiOrderBlocked && (
                               <p className="text-[11px] text-red-500 font-medium px-4 pb-2 -mt-1 text-center bg-white dark:bg-slate-900">
@@ -3440,12 +3477,12 @@ if (platformFeeConfig?.platformFeeEnabled) {
                                 </div>
                               )}
                             {!selectedDeliveryTime && (
-                             <p className="text-xs text-slate-500 mt-2 text-center leading-relaxed">
-  <span className="inline-block text-[10px] font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full mr-1">
-    Optional
-  </span>
-  If not selected, we’ll deliver at the earliest available time
-</p>
+                              <p className="text-xs text-slate-500 mt-2 text-center leading-relaxed">
+                                <span className="inline-block text-[10px] font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full mr-1">
+                                  Optional
+                                </span>
+                                If not selected, we’ll deliver at the earliest available time
+                              </p>
                             )}
                           </div>
                         </div>
@@ -3453,160 +3490,159 @@ if (platformFeeConfig?.platformFeeEnabled) {
 
                       {/* Referral Code Input - Manual verification with button */}
                       {/* ✅ FIX 1: Show only if user hasn't used a referral AND hasn't placed an order yet */}
-                     {showReferralInput && (
-  <div className="mt-4 mb-4">
-    <Accordion
-      type="single"
-      collapsible
-      value={referralOpen}
-      onValueChange={(val) => setReferralOpen(val)}
-      className="w-full border border-blue-100 rounded-xl px-3 py-2 bg-blue-50/40 shadow-sm"
-    >
-      <AccordionItem value="referral" className="border-none">
+                      {showReferralInput && (
+                        <div className="mt-4 mb-4">
+                          <Accordion
+                            type="single"
+                            collapsible
+                            value={referralOpen}
+                            onValueChange={(val) => setReferralOpen(val)}
+                            className="w-full border border-blue-100 rounded-xl px-3 py-2 bg-blue-50/40 shadow-sm"
+                          >
+                            <AccordionItem value="referral" className="border-none">
 
-        {/* HEADER */}
-        <AccordionTrigger className="text-sm font-semibold text-blue-700 py-2">
-          Referral Code (Optional)
-        </AccordionTrigger>
+                              {/* HEADER */}
+                              <AccordionTrigger className="text-sm font-semibold text-blue-700 py-2">
+                                Referral Code (Optional)
+                              </AccordionTrigger>
 
-        {/* CONTENT */}
-        <AccordionContent className="pt-3 space-y-3">
+                              {/* CONTENT */}
+                              <AccordionContent className="pt-3 space-y-3">
 
-          {/* INPUT */}
-          <div className="flex gap-2">
-            <Input
-              id="referralCode"
-              type="text"
-              placeholder="Enter friend's referral code"
-              value={referralCode}
-              onChange={(e) => {
-                const newCode = e.target.value.toUpperCase();
-                setReferralCode(newCode);
+                                {/* INPUT */}
+                                <div className="flex gap-2">
+                                  <Input
+                                    id="referralCode"
+                                    type="text"
+                                    placeholder="Enter friend's referral code"
+                                    value={referralCode}
+                                    onChange={(e) => {
+                                      const newCode = e.target.value.toUpperCase();
+                                      setReferralCode(newCode);
 
-                if (!referralOpen) {
-                  setReferralOpen("referral");
-                }
+                                      if (!referralOpen) {
+                                        setReferralOpen("referral");
+                                      }
 
-                if (!newCode.trim()) {
-                  setReferralValidation(null);
-                }
-              }}
-              className="font-mono uppercase"
-              maxLength={20}
-              data-testid="input-checkout-referral-code"
-            />
+                                      if (!newCode.trim()) {
+                                        setReferralValidation(null);
+                                      }
+                                    }}
+                                    className="font-mono uppercase"
+                                    maxLength={20}
+                                    data-testid="input-checkout-referral-code"
+                                  />
 
-            <Button
-              onClick={handleVerifyReferralCode}
-              disabled={!referralCode.trim() || isValidatingReferral}
-              variant="outline"
-              size="sm"
-            >
-              {isValidatingReferral ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                  Verifying...
-                </>
-              ) : (
-                "Verify"
-              )}
-            </Button>
-          </div>
+                                  <Button
+                                    onClick={handleVerifyReferralCode}
+                                    disabled={!referralCode.trim() || isValidatingReferral}
+                                    variant="outline"
+                                    size="sm"
+                                  >
+                                    {isValidatingReferral ? (
+                                      <>
+                                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                                        Verifying...
+                                      </>
+                                    ) : (
+                                      "Verify"
+                                    )}
+                                  </Button>
+                                </div>
 
-          {/* INFO BOX */}
-          <div className="bg-blue-100/60 border border-blue-200 rounded-md p-2.5 text-xs text-blue-800">
-            <p className="font-medium mb-1.5">
-              ℹ️ Referral Info
-            </p>
-            <p className="leading-relaxed">
-              Referral rewards are meant to be shared with friends. To keep things fair, benefits may be adjusted if multiple accounts are used from the same address, location, or device, or if activity doesn’t meet our program guidelines.
-            </p>
-          </div>
+                                {/* INFO BOX */}
+                                <div className="bg-blue-100/60 border border-blue-200 rounded-md p-2.5 text-xs text-blue-800">
+                                  <p className="font-medium mb-1.5">
+                                    ℹ️ Referral Info
+                                  </p>
+                                  <p className="leading-relaxed">
+                                    Referral rewards are meant to be shared with friends. To keep things fair, benefits may be adjusted if multiple accounts are used from the same address, location, or device, or if activity doesn’t meet our program guidelines.
+                                  </p>
+                                </div>
 
-          {/* VALIDATION */}
-          {referralCode.trim() && (
-            <div
-              className={`text-xs p-2.5 rounded-md border ${
-                referralValidation?.valid
-                  ? "bg-green-50 text-green-700 border-green-200"
-                  : referralValidation?.valid === false
-                  ? "bg-red-50 text-red-700 border-red-200"
-                  : "bg-blue-50 text-blue-700 border-blue-200"
-              }`}
-            >
-              {isValidatingReferral && (
-                <div className="flex items-center gap-2">
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Validating code...
-                </div>
-              )}
+                                {/* VALIDATION */}
+                                {referralCode.trim() && (
+                                  <div
+                                    className={`text-xs p-2.5 rounded-md border ${referralValidation?.valid
+                                      ? "bg-green-50 text-green-700 border-green-200"
+                                      : referralValidation?.valid === false
+                                        ? "bg-red-50 text-red-700 border-red-200"
+                                        : "bg-blue-50 text-blue-700 border-blue-200"
+                                      }`}
+                                  >
+                                    {isValidatingReferral && (
+                                      <div className="flex items-center gap-2">
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                        Validating code...
+                                      </div>
+                                    )}
 
-              {!isValidatingReferral && referralValidation && (
-                <>
-                  {referralValidation.valid ? (
-                    <>
-                      <div className="flex items-center gap-1 mb-1">
-                        <CheckCircle2 className="w-4 h-4" />
-                        <span className="font-medium">
-                          ✅ Code Valid{" "}
-                          {referralValidation.bonus &&
-                            `₹${referralValidation.bonus} bonus`}
-                        </span>
-                      </div>
+                                    {!isValidatingReferral && referralValidation && (
+                                      <>
+                                        {referralValidation.valid ? (
+                                          <>
+                                            <div className="flex items-center gap-1 mb-1">
+                                              <CheckCircle2 className="w-4 h-4" />
+                                              <span className="font-medium">
+                                                ✅ Code Valid{" "}
+                                                {referralValidation.bonus &&
+                                                  `₹${referralValidation.bonus} bonus`}
+                                              </span>
+                                            </div>
 
-                      {referralValidation.referrerName && (
-                        <p>
-                          From:{" "}
-                          <strong>{referralValidation.referrerName}</strong>
-                        </p>
+                                            {referralValidation.referrerName && (
+                                              <p>
+                                                From:{" "}
+                                                <strong>{referralValidation.referrerName}</strong>
+                                              </p>
+                                            )}
+
+                                            <p className="mt-1">
+                                              💰 Bonus will be credited after your first order is delivered
+                                            </p>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <div className="font-medium mb-1">
+                                              ⚠️ {referralValidation.message}
+                                            </div>
+
+                                            {referralValidation.minRequired &&
+                                              referralValidation.currentAmount && (
+                                                <div className="mt-1 space-y-1">
+                                                  <p>
+                                                    Required:{" "}
+                                                    <strong>₹{referralValidation.minRequired}</strong> |
+                                                    Your order:{" "}
+                                                    <strong>₹{referralValidation.currentAmount}</strong>
+                                                  </p>
+                                                  <p>
+                                                    Add ₹
+                                                    {referralValidation.minRequired -
+                                                      referralValidation.currentAmount}{" "}
+                                                    more to use this code
+                                                  </p>
+                                                </div>
+                                              )}
+                                          </>
+                                        )}
+                                      </>
+                                    )}
+                                  </div>
+                                )}
+
+                                {/* EMPTY STATE */}
+                                {!referralCode.trim() && !referralValidation && (
+                                  <p className="text-xs text-blue-700">
+                                    💝 Have a referral code? Enter it to unlock bonus rewards!
+                                  </p>
+                                )}
+
+                              </AccordionContent>
+                            </AccordionItem>
+                          </Accordion>
+                        </div>
                       )}
-
-                      <p className="mt-1">
-                        💰 Bonus will be credited after your first order is delivered
-                      </p>
-                    </>
-                  ) : (
-                    <>
-                      <div className="font-medium mb-1">
-                        ⚠️ {referralValidation.message}
-                      </div>
-
-                      {referralValidation.minRequired &&
-                        referralValidation.currentAmount && (
-                          <div className="mt-1 space-y-1">
-                            <p>
-                              Required:{" "}
-                              <strong>₹{referralValidation.minRequired}</strong> |
-                              Your order:{" "}
-                              <strong>₹{referralValidation.currentAmount}</strong>
-                            </p>
-                            <p>
-                              Add ₹
-                              {referralValidation.minRequired -
-                                referralValidation.currentAmount}{" "}
-                              more to use this code
-                            </p>
-                          </div>
-                        )}
-                    </>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-
-          {/* EMPTY STATE */}
-          {!referralCode.trim() && !referralValidation && (
-            <p className="text-xs text-blue-700">
-              💝 Have a referral code? Enter it to unlock bonus rewards!
-            </p>
-          )}
-
-        </AccordionContent>
-      </AccordionItem>
-    </Accordion>
-  </div>
-)}
                       {/* Coupon Code */}
                       <div className="mt-4">
                         <Label htmlFor="couponCode" className="text-sm">
@@ -3658,20 +3694,20 @@ if (platformFeeConfig?.platformFeeEnabled) {
 
                       {/* Totals - Inside form - ONLY SHOW AFTER ADDRESS CONFIRMED */}
                       {addressConfirmed && (
-                      <div className="border-t pt-3 space-y-2 mt-4">
-                        {/* 💬 COMMENTED OUT: Subtotal display - already shows in OrderSummaryCard */}
-                        {/* <div className="flex justify-between text-sm">
+                        <div className="border-t pt-3 space-y-2 mt-4">
+                          {/* 💬 COMMENTED OUT: Subtotal display - already shows in OrderSummaryCard */}
+                          {/* <div className="flex justify-between text-sm">
                           <span>Subtotal:</span>
                           <span>₹{subtotal.toFixed(2)}</span>
                         </div> */}
-                        
-                        {/* COMMENTED OUT: Delivery Fee display in inline checkout form.
+
+                          {/* COMMENTED OUT: Delivery Fee display in inline checkout form.
                             Delivery fee is now shown ONLY in OrderSummaryCard after address validation.
                             This prevents duplicate/confusing fee information during checkout form editing.
                             Original code removed - can be restored from git history if needed.
                         */}
 
-                        {/* COMMENTED OUT: Platform Fee display in inline checkout form.
+                          {/* COMMENTED OUT: Platform Fee display in inline checkout form.
                             Platform fee and "add more to waive" hints are now shown ONLY in 
                             OrderSummaryCard after address validation. This prevents duplicate
                             fee information and keeps the checkout form clean during data entry.
@@ -3679,10 +3715,10 @@ if (platformFeeConfig?.platformFeeEnabled) {
                             Original code removed - can be restored from git history if needed.
                         */}
 
-                        {/* Summary section continues below */}
+                          {/* Summary section continues below */}
 
-                        {/* Item Discount Savings from offer percentages */}
-                        {/* {typeof itemDiscountSavings === 'number' && itemDiscountSavings > 0 && (
+                          {/* Item Discount Savings from offer percentages */}
+                          {/* {typeof itemDiscountSavings === 'number' && itemDiscountSavings > 0 && (
                           <div className="space-y-1">
                             <div className="flex justify-between text-sm text-gray-500 dark:text-gray-400">
                               <span>Original Price:</span>
@@ -3695,149 +3731,149 @@ if (platformFeeConfig?.platformFeeEnabled) {
                           </div>
                         )} */}
 
-                        {/* Coupon Discount */}
-                        {typeof discount === 'number' && discount > 0 && (
-                          <div className="space-y-1">
-                            <div className="flex justify-between text-sm text-green-600 dark:text-green-400 font-medium">
-                              <span>Coupon Discount:</span>
-                              <span>-₹{discount.toFixed(2)}</span>
+                          {/* Coupon Discount */}
+                          {typeof discount === 'number' && discount > 0 && (
+                            <div className="space-y-1">
+                              <div className="flex justify-between text-sm text-green-600 dark:text-green-400 font-medium">
+                                <span>Coupon Discount:</span>
+                                <span>-₹{discount.toFixed(2)}</span>
+                              </div>
                             </div>
-                          </div>
-                        )}
+                          )}
 
 
 
-                        {/* Referral Bonus Section - ONLY show when user has delivered orders (bonusEligible) AND referral system is active */}
-                        {isAuthenticated &&
-                          typeof pendingBonus === 'number' && pendingBonus > 0 &&
-                          bonusEligible && 
-                          walletSettings?.isActive && (
-                            <div className="border-t pt-2 mt-2 space-y-2">
-                              <div className="bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-md p-2 space-y-2">
+                          {/* Referral Bonus Section - ONLY show when user has delivered orders (bonusEligible) AND referral system is active */}
+                          {isAuthenticated &&
+                            typeof pendingBonus === 'number' && pendingBonus > 0 &&
+                            bonusEligible &&
+                            walletSettings?.isActive && (
+                              <div className="border-t pt-2 mt-2 space-y-2">
+                                <div className="bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-md p-2 space-y-2">
+                                  <div className="flex justify-between items-start">
+                                    <div className="flex-1">
+                                      <p className="text-xs font-medium text-green-900 dark:text-green-100">
+                                        Available Referral Bonus (Per Order)
+                                      </p>
+                                      <p className="text-sm font-bold text-green-700 dark:text-green-300">
+                                        ₹{Math.min(maxBonusUsagePerOrder, pendingBonus)}
+                                      </p>
+                                      {pendingBonus > maxBonusUsagePerOrder && (
+                                        <p className="text-xs text-green-600 dark:text-green-400 mt-1">
+                                          Total bonus: ₹{pendingBonus} (₹{maxBonusUsagePerOrder} per order)
+                                        </p>
+                                      )}
+                                      {minOrderAmount > 0 && (
+                                        <p className="text-xs text-green-600 dark:text-green-400 mt-1">
+                                          Minimum order: ₹{minOrderAmount}
+                                        </p>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <input
+                                        type="checkbox"
+                                        id="useBonusCheckbox"
+                                        checked={useBonusAtCheckout}
+                                        onChange={(e) =>
+                                          setUseBonusAtCheckout(e.target.checked)
+                                        }
+                                        className="cursor-pointer"
+                                      />
+                                      <label
+                                        htmlFor="useBonusCheckbox"
+                                        className="text-xs cursor-pointer font-medium text-green-700 dark:text-green-300"
+                                      >
+                                        Use Bonus
+                                      </label>
+                                    </div>
+                                  </div>
+
+                                  {bonusEligibilityMsg && (
+                                    <p className="text-xs text-green-600 dark:text-green-400">
+                                      {bonusEligibilityMsg}
+                                    </p>
+                                  )}
+
+                                  {useBonusAtCheckout && bonusAmountToUse > 0 && (
+                                    <p className="text-xs text-green-600 dark:text-green-400">
+                                      ✓ Using ₹{bonusAmountToUse.toFixed(2)} from bonus
+                                    </p>
+                                  )}
+
+                                  {isCheckingBonusEligibility && (
+                                    <p className="text-xs text-green-600 dark:text-green-400">
+                                      Checking eligibility...
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
+                          {/* ✅ REMOVED: Ineligibility message panel - Don't confuse user with error messages */}
+
+                          {/* Wallet Balance - ONLY show when referral system is active */}
+                          {isAuthenticated && (user?.walletBalance || 0) > 0 && walletSettings?.isActive && (
+                            <div className="border-t pt-2 mt-2">
+                              <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-md p-2 space-y-2">
                                 <div className="flex justify-between items-start">
                                   <div className="flex-1">
-                                    <p className="text-xs font-medium text-green-900 dark:text-green-100">
-                                      Available Referral Bonus (Per Order)
+                                    <p className="text-xs font-medium text-blue-900 dark:text-blue-100">
+                                      Available Wallet Balance
                                     </p>
-                                    <p className="text-sm font-bold text-green-700 dark:text-green-300">
-                                      ₹{Math.min(maxBonusUsagePerOrder, pendingBonus)}
+                                    <p className="text-sm font-bold text-blue-700 dark:text-blue-300">
+                                      ₹{user?.walletBalance ?? 0}
                                     </p>
-                                    {pendingBonus > maxBonusUsagePerOrder && (
-                                      <p className="text-xs text-green-600 dark:text-green-400 mt-1">
-                                        Total bonus: ₹{pendingBonus} (₹{maxBonusUsagePerOrder} per order)
-                                      </p>
-                                    )}
-                                    {minOrderAmount > 0 && (
-                                      <p className="text-xs text-green-600 dark:text-green-400 mt-1">
-                                        Minimum order: ₹{minOrderAmount}
-                                      </p>
-                                    )}
+                                    {/* Platform fee hint removed from inline checkout UI.
+                                    Platform fee is shown in OrderSummaryCard after validation. */}
                                   </div>
-                                  <div className="flex items-center gap-2">
-                                    <input
-                                      type="checkbox"
-                                      id="useBonusCheckbox"
-                                      checked={useBonusAtCheckout}
-                                      onChange={(e) =>
-                                        setUseBonusAtCheckout(e.target.checked)
-                                      }
-                                      className="cursor-pointer"
-                                    />
-                                    <label
-                                      htmlFor="useBonusCheckbox"
-                                      className="text-xs cursor-pointer font-medium text-green-700 dark:text-green-300"
-                                    >
-                                      Use Bonus
-                                    </label>
-                                  </div>
+                                  {(user?.walletBalance ?? 0) > 0 && (
+                                    <div className="flex items-center gap-2">
+                                      <input
+                                        type="checkbox"
+                                        id="useWalletCheckbox"
+                                        checked={useWalletBalance}
+                                        onChange={(e) => {
+                                          console.log("[WALLET] Checkbox changed to:", e.target.checked);
+                                          setUseWalletBalance(e.target.checked);
+                                        }}
+                                        disabled={isWalletCheckboxDisabled}
+                                        className="cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                                      />
+                                      <label
+                                        htmlFor="useWalletCheckbox"
+                                        className={`text-xs font-medium cursor-pointer ${isWalletCheckboxDisabled
+                                          ? "text-gray-400 dark:text-gray-500 cursor-not-allowed"
+                                          : "text-blue-700 dark:text-blue-300"
+                                          }`}
+                                      >
+                                        Use Balance
+                                      </label>
+                                    </div>
+                                  )}
                                 </div>
 
-                                {bonusEligibilityMsg && (
-                                  <p className="text-xs text-green-600 dark:text-green-400">
-                                    {bonusEligibilityMsg}
+                                {isWalletCheckboxDisabled && (
+                                  <p className="text-xs text-amber-600 dark:text-amber-400">
+                                    ⚠️ Minimum order ₹{minOrderAmountForWallet} required to use wallet (Current: ₹{(total).toFixed(2)})
                                   </p>
                                 )}
 
-                                {useBonusAtCheckout && bonusAmountToUse > 0 && (
+                                {useWalletBalance && walletAmountToUse > 0 && !isWalletCheckboxDisabled && (
                                   <p className="text-xs text-green-600 dark:text-green-400">
-                                    ✓ Using ₹{bonusAmountToUse.toFixed(2)} from bonus
-                                  </p>
-                                )}
-
-                                {isCheckingBonusEligibility && (
-                                  <p className="text-xs text-green-600 dark:text-green-400">
-                                    Checking eligibility...
+                                    ✓ Will use ₹{walletAmountToUse} from wallet
                                   </p>
                                 )}
                               </div>
                             </div>
                           )}
 
-                        {/* ✅ REMOVED: Ineligibility message panel - Don't confuse user with error messages */}
+                          {/* COMMENTED OUT: Delivery Minimum Order Message */}
 
-                        {/* Wallet Balance - ONLY show when referral system is active */}
-                        {isAuthenticated && (user?.walletBalance || 0) > 0 && walletSettings?.isActive && (
-                          <div className="border-t pt-2 mt-2">
-                            <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-md p-2 space-y-2">
-                              <div className="flex justify-between items-start">
-                                <div className="flex-1">
-                                  <p className="text-xs font-medium text-blue-900 dark:text-blue-100">
-                                    Available Wallet Balance
-                                  </p>
-                                  <p className="text-sm font-bold text-blue-700 dark:text-blue-300">
-                                    ₹{user?.walletBalance ?? 0}
-                                  </p>
-                                  {/* Platform fee hint removed from inline checkout UI.
-                                    Platform fee is shown in OrderSummaryCard after validation. */}
-                                </div>
-                                {(user?.walletBalance ?? 0) > 0 && (
-                                  <div className="flex items-center gap-2">
-                                    <input
-                                      type="checkbox"
-                                      id="useWalletCheckbox"
-                                      checked={useWalletBalance}
-                                      onChange={(e) => {
-                                        console.log("[WALLET] Checkbox changed to:", e.target.checked);
-                                        setUseWalletBalance(e.target.checked);
-                                      }}
-                                      disabled={isWalletCheckboxDisabled}
-                                      className="cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                                    />
-                                    <label
-                                      htmlFor="useWalletCheckbox"
-                                      className={`text-xs font-medium cursor-pointer ${isWalletCheckboxDisabled
-                                        ? "text-gray-400 dark:text-gray-500 cursor-not-allowed"
-                                        : "text-blue-700 dark:text-blue-300"
-                                        }`}
-                                    >
-                                      Use Balance
-                                    </label>
-                                  </div>
-                                )}
-                              </div>
-
-                              {isWalletCheckboxDisabled && (
-                                <p className="text-xs text-amber-600 dark:text-amber-400">
-                                  ⚠️ Minimum order ₹{minOrderAmountForWallet} required to use wallet (Current: ₹{(total).toFixed(2)})
-                                </p>
-                              )}
-
-                              {useWalletBalance && walletAmountToUse > 0 && !isWalletCheckboxDisabled && (
-                                <p className="text-xs text-green-600 dark:text-green-400">
-                                  ✓ Will use ₹{walletAmountToUse} from wallet
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* COMMENTED OUT: Delivery Minimum Order Message */}
-
-                        {/* <div className="flex justify-between font-bold text-base border-t pt-2">
+                          {/* <div className="flex justify-between font-bold text-base border-t pt-2">
                           <span>Total:</span>
                           <span>₹{total.toFixed(2)}</span>
                         </div> */}
-                      </div>
+                        </div>
                       )}
                     </div>
                   )}
@@ -3862,28 +3898,28 @@ if (platformFeeConfig?.platformFeeEnabled) {
 
                 {/* Order Summary Card - ONLY SHOW AFTER ADDRESS CONFIRMED */}
                 {addressConfirmed && (
-                <div className="mt-4 pt-4 border-t">
-                  <OrderSummaryCard
-                    cart={cart}
-                    deliveryTimeLabel={deliveryTimeLabel}
-                    subtotal={subtotal}
-                    originalItemsTotal={originalSubtotal}
-                    deliveryFee={deliveryFee}
-                    deliveryDistance={deliveryDistance}
-                    isBelowDeliveryMinimum={isBelowDeliveryMinimum}
-                    deliveryMinOrderAmount={deliveryMinOrderAmount}
-                    itemDiscountSavings={itemDiscountSavings}
-                    discount={discount}
-                    platformFee={platformFee}
-                    platformFeeConfig={platformFeeConfig}
-                    platformFeeThreshold={platformFeeConfig?.platformFeeWaiverThreshold || 200}
-                    walletUsed={walletAmountToUse}
-                    
-                    total={total}
-            
-                    defaultExpanded={addressConfirmed}
-                  />
-                </div>
+                  <div className="mt-4 pt-4 border-t">
+                    <OrderSummaryCard
+                      cart={cart}
+                      deliveryTimeLabel={deliveryTimeLabel}
+                      subtotal={subtotal}
+                      originalItemsTotal={originalSubtotal}
+                      deliveryFee={deliveryFee}
+                      deliveryDistance={deliveryDistance}
+                      isBelowDeliveryMinimum={isBelowDeliveryMinimum}
+                      deliveryMinOrderAmount={deliveryMinOrderAmount}
+                      itemDiscountSavings={itemDiscountSavings}
+                      discount={discount}
+                      platformFee={platformFee}
+                      platformFeeConfig={platformFeeConfig}
+                      platformFeeThreshold={platformFeeConfig?.platformFeeWaiverThreshold || 200}
+                      walletUsed={walletAmountToUse}
+
+                      total={total}
+
+                      defaultExpanded={addressConfirmed}
+                    />
+                  </div>
                 )}
               </div>
             </div>
@@ -3979,7 +4015,7 @@ if (platformFeeConfig?.platformFeeEnabled) {
                   )}
                 </Button>
               )}
-             </div>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
