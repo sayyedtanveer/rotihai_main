@@ -2027,13 +2027,15 @@ export default function CheckoutDialog({
 
           setAddressInDeliveryZone(true);
           setAddressZoneValidated(true);
-          setIsEditingAddress(false); // Collapsed View mode
 
-          // ✅ CRITICAL FIX: Only confirm address if ALL 4 fields are complete
+          // ✅ GUARD: Only switch to view mode AND confirm if ALL 4 fields are complete
           if (isAddressComplete) {
+            setIsEditingAddress(false); // Collapsed View mode
             setAddressConfirmed(true);  // Allow viewing payment immediately since they already pushed validate
             setShouldScrollToSlots(true); // ✅ Trigger auto-scroll
           } else {
+            // Keep in edit mode so user sees what's missing
+            setIsEditingAddress(true);
             setAddressConfirmed(false);  // Prevent premature confirmation
           }
 

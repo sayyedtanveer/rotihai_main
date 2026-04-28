@@ -83,6 +83,7 @@ export default function PaymentQRDialog({
   const [createdAccountPassword, setCreatedAccountPassword] = useState<string | null>(null);
   const [showAccountDialog, setShowAccountDialog] = useState(false);
   const [createdOrderId, setCreatedOrderId] = useState<string | null>(null);
+  const [isCancelling, setIsCancelling] = useState(false); // ✅ NEW: Prevent double cancellation calls
   const { toast } = useToast();
   const { isAuthenticated } = useAuth();  // ✅ NEW: Check if user is logged in
   const [, setLocation] = useLocation();
@@ -140,6 +141,7 @@ export default function PaymentQRDialog({
       setIsConfirming(false);
       setHasPaid(false);
       setShowQRCode(false); // Reset QR visibility
+      setIsCancelling(false); // ✅ Reset cancellation state
     }
   }, [isOpen]);
 
@@ -294,6 +296,9 @@ export default function PaymentQRDialog({
   };
 
   const handleCancelPayment = async () => {
+    if (isCancelling) return; // ✅ Prevent double execution
+    setIsCancelling(true);
+
     console.log("[PAYMENT QR] Cancel clicked - cancelling order and saving pending checkout");
 
     try {
@@ -376,6 +381,8 @@ export default function PaymentQRDialog({
         variant: "default",
       });
     } finally {
+      // 🚀 Force UI refresh so the active order banner disappears immediately
+      queryClient.invalidateQueries({ queryKey: ["active-order"] });
       // Always close dialog regardless of what happened
       onClose();
     }
@@ -400,7 +407,8 @@ export default function PaymentQRDialog({
         open={isOpen}
         onOpenChange={async (open) => {
           if (!open) {
-            if (!hasPaid) {
+            // ✅ Skip confirmation if we are already in the middle of handleCancelPayment
+            if (!hasPaid && !isCancelling) {
               const confirmLeave = window.confirm(
                 "You haven't confirmed payment. Your order will be cancelled. Continue?"
               );

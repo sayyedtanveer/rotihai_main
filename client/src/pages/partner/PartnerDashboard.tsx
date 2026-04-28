@@ -347,38 +347,38 @@ export default function PartnerDashboard() {
     const prepareWindowHours = rotiSettings?.prepareWindowHours ?? 2;
 
     try {
-      // Parse time (HH:mm)
+      // 1. Parse delivery time (HH:mm)
       const [hours, minutes] = order.deliveryTime.split(":").map(Number);
+      if (isNaN(hours) || isNaN(minutes)) return false;
 
-      // ✅ STEP 1: Ensure deliveryDate exists
-      if (!order.deliveryDate) {
-        console.warn("[PREPARE] Missing deliveryDate for order:", order.id);
-        return false;
-      }
+      // 2. Build the target delivery date object
+      // If deliveryDate is missing, we can't safely calculate the window
+      if (!order.deliveryDate) return false;
 
-      // ✅ STEP 2: Build FULL datetime (date + time)
-      const deliveryDateTime = new Date(order.deliveryDate);
-      deliveryDateTime.setHours(hours, minutes, 0, 0);
+      // Parse YYYY-MM-DD into a local date object at the specific delivery time
+      const [year, month, day] = order.deliveryDate.split("-").map(Number);
+      const deliveryDateTime = new Date(year, month - 1, day, hours, minutes, 0, 0);
 
-      // ✅ STEP 3: Calculate prepare window start (X hours before delivery)
-      const prepareStartTime = subHours(deliveryDateTime, prepareWindowHours);
-
-      // ✅ STEP 4: Compare with current time
+      // 3. Calculate when the "Accept" button should unlock
+      const windowStartTime = subHours(deliveryDateTime, prepareWindowHours);
+      
+      // 4. Current time for comparison
       const now = new Date();
 
-      const isWithinWindow = isAfter(now, prepareStartTime) || now.getTime() === prepareStartTime.getTime();
-
-      // Debug logs (safe)
-      console.log("[PREPARE DEBUG]", {
-        orderId: order.id,
-        now,
-        deliveryDateTime,
-        prepareStartTime,
-        isWithinWindow,
+      // 5. Logic:
+      // - Unlock if 'now' is after 'windowStartTime'
+      // - ALSO unlock if the order is for TODAY and we are already past the delivery time (fallback)
+      const isWithinWindow = isAfter(now, windowStartTime) || now.getTime() === windowStartTime.getTime();
+      
+      // 6. Detailed Logging for debugging
+      console.log(`[PREPARE CHECK] Order ${order.id.slice(0, 8)}:`, {
+        delivery: format(deliveryDateTime, "yyyy-MM-dd HH:mm"),
+        unlocksAt: format(windowStartTime, "yyyy-MM-dd HH:mm"),
+        current: format(now, "yyyy-MM-dd HH:mm"),
+        isWithinWindow
       });
 
       return isWithinWindow;
-
     } catch (error) {
       console.error("[PREPARE ERROR]", error);
       return false;

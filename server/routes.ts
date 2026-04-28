@@ -366,7 +366,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   };
 
-  const computeSlotCutoffInfo = (slot: any, forceNextDay: boolean = true) => {
+  const computeSlotCutoffInfo = (slot: any, forceNextDay: boolean = false) => {
     const now = new Date();
     console.log(`[CUTOFF] Starting computation - now: ${now.toISOString()}, slot.startTime: ${slot?.startTime}, forceNextDay: ${forceNextDay}`);
 
@@ -406,7 +406,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     // ✅ FIX: For new subscriptions (forceNextDay=true), ALWAYS schedule from tomorrow onwards
     // For existing order updates, can allow today if before cutoff
-    if (forceNextDay || slotHasPassed || now > todayCutoffTime) {
+    if ((forceNextDay === true) || slotHasPassed || now > todayCutoffTime) {
       console.log(`[CUTOFF] ${forceNextDay ? 'New subscription - forcing next day' : 'Past cutoff'} - scheduling for tomorrow`);
       // Schedule for tomorrow
       deliveryDate = new Date(todaySlot);
@@ -2269,6 +2269,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       console.log("📝 Order payload before DB insert:", JSON.stringify(orderPayload, null, 2));
+      console.log("[ORDER DEBUG BEFORE SAVE]", {
+        slotId: orderPayload.deliverySlotId,
+        deliveryTime: orderPayload.deliveryTime,
+        deliveryDate: orderPayload.deliveryDate,
+        now: new Date(),
+      });
       const order = await storage.createOrder(orderPayload);
       console.log("✅ Order created successfully:", order.id);
       console.log(`📋 Order Details: userId=${userId}, walletAmountUsed=${order.walletAmountUsed}`);
@@ -3106,6 +3112,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { id } = req.params;
       console.log(`[PENDING-CHECKOUT] Cancelling checkout: ${id}`);
+      // ✅ Minimal fix: Also cancel the associated order in the database if it exists
+      const updatedOrders = await db.update(orders)
+        .set({ status: "cancelled" })
+        .where(eq(orders.pendingCheckoutId, id))
+        .returning();
+
+      if (updatedOrders.length > 0) {
+        console.log(`[PENDING-CHECKOUT] ✅ Associated order ${updatedOrders[0].id} also cancelled.`);
+      }
 
       const deleted = await storage.deletePendingCheckout(id);
 
