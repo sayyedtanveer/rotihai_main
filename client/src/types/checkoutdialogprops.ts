@@ -4,17 +4,11 @@ export interface CheckoutDialogProps {
   isOpen: boolean;
   onClose: () => void;
   cart: CategoryCart | null;
+  initialData?: any;
   onClearCart?: () => void;
-  onShowPaymentQR: ({
-    orderData,
-    amount,
-    customerName,
-    phone,
-    email,
-    address,
-    pendingCheckoutId,
-  }: {
-    orderData: any;
+  onShowPaymentQR: (data: {
+    orderData?: any;
+    orderId?: string;
     amount: number;
     customerName: string;
     phone: string;

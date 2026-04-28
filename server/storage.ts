@@ -1559,7 +1559,7 @@ export class MemStorage implements IStorage {
     try {
       // Get all chefs
       const allChefs = await db.query.chefs.findMany();
-      
+
       // Get all orders in date range
       const allOrders = await db.query.orders.findMany();
       const filteredOrders = allOrders.filter(o => {
@@ -1570,7 +1570,7 @@ export class MemStorage implements IStorage {
       // If specific chef requested, filter orders
       let chefOrders = filteredOrders;
       let targetChefs = allChefs;
-      
+
       if (chefId) {
         chefOrders = filteredOrders.filter(o => o.chefId === chefId);
         targetChefs = allChefs.filter(c => c.id === chefId);
@@ -1579,17 +1579,17 @@ export class MemStorage implements IStorage {
       // Calculate stats per chef
       const chefStats = targetChefs.map(chef => {
         const orders = chefOrders.filter(o => o.chefId === chef.id);
-        
+
         // Calculate chef earnings: sum of hotelPrice for each item (what chef gets)
         let chefEarnings = 0;
         const productSales = new Map<string, { name: string; quantity: number; revenue: number }>();
-        
+
         for (const order of orders) {
           // Chef earnings = hotelPrice * quantity for each item
           for (const item of order.items as any[]) {
             const itemChefEarning = item.hotelPrice ? Math.round(item.hotelPrice * item.quantity) : 0;
             chefEarnings += itemChefEarning;
-            
+
             // Track top products by selling price
             const existing = productSales.get(item.id) || { name: item.name, quantity: 0, revenue: 0 };
             productSales.set(item.id, {
@@ -1695,7 +1695,7 @@ export class MemStorage implements IStorage {
         const catId = order.categoryId || 'unknown';
         const catName = order.categoryName || 'Other';
         const existing = categoryEarnings.get(catId) || { name: catName, orders: 0, earnings: 0 };
-        
+
         // Calculate commission per item for this order
         let orderCommission = 0;
         for (const item of order.items as any[]) {
@@ -1750,11 +1750,11 @@ export class MemStorage implements IStorage {
       // Build detailed order list with item-wise calculations
       const detailedOrders = await Promise.all(chefOrders.map(async order => {
         let totalChefEarning = 0;
-        
+
         const items = (order.items as any[]).map(item => {
           const itemChefEarning = item.hotelPrice ? Math.round(item.hotelPrice * item.quantity) : 0;
           totalChefEarning += itemChefEarning;
-          
+
           return {
             id: item.id,
             name: item.name,
@@ -2021,7 +2021,7 @@ export class MemStorage implements IStorage {
         createdAt: now,
         updatedAt: now,
       };
-      
+
       // Insert into database
       await db.insert(deliveryPartnerPayouts).values(payout);
     } catch (dbError: any) {
@@ -2231,7 +2231,7 @@ export class MemStorage implements IStorage {
         const userId = updatedOrder.userId;
         const refCode = updatedOrder.referralCode;
         console.log(`🎁 [REFERRAL CLAWBACK] Order rejected - checking for referral to reverse for user: ${userId}`);
-        
+
         // Find pending referral for this user (using the referral code from order)
         const referral = await db.query.referrals.findFirst({
           where: (r, { eq, and }) => and(
@@ -2243,11 +2243,11 @@ export class MemStorage implements IStorage {
 
         if (referral) {
           console.log(`🎁 [REFERRAL CLAWBACK] Found pending referral: ${referral.id} - Status: ${referral.status}`);
-          
+
           // Only clawback if referral is still pending (not yet completed)
           if (referral.referredBonus > 0) {
             const clawbackAmount = referral.referredBonus;
-            
+
             // Create wallet transaction to reverse the bonus  
             await this.createWalletTransaction({
               userId: updatedOrder.userId,
@@ -2468,7 +2468,7 @@ export class MemStorage implements IStorage {
       const referrerOrders = await tx.query.orders.findMany({
         where: (o, { eq }) => eq(o.userId, referrer.id),
       });
-      
+
       if (referrerOrders.length === 0) {
         throw new Error("Referrer must have placed at least one order before sharing referrals");
       }
@@ -2717,10 +2717,10 @@ export class MemStorage implements IStorage {
     try {
       const settings = await this.getActiveReferralReward();
       const expiryDays = settings?.expiryDays || 30;
-      
+
       // Calculate cutoff date (30 days ago by default)
       const expiryDate = new Date(Date.now() - expiryDays * 24 * 60 * 60 * 1000);
-      
+
       console.log(`🕐 [REFERRAL EXPIRY] Expiring referrals older than ${expiryDays} days (before ${expiryDate.toISOString()})`);
 
       // Update all pending referrals created before the cutoff date to expired status
@@ -2759,17 +2759,17 @@ export class MemStorage implements IStorage {
       where: (o, { eq }) => eq(o.userId, userId),
     });
     const deliveredOrders = userOrders.filter(order => order.status === "delivered");
-    
+
     console.log(`[BONUS-ELIGIBILITY] User ${userId} - Total orders: ${userOrders.length}, Delivered: ${deliveredOrders.length}`);
     console.log(`[BONUS-ELIGIBILITY] Order statuses:`, userOrders.map(o => ({ id: o.id, status: o.status })));
-    
+
     if (deliveredOrders.length === 0) {
       console.log(`⚠️ [BONUS-ELIGIBILITY] User ${userId} NOT eligible - no delivered orders yet`);
-      return { 
-        eligible: false, 
-        bonus: 0, 
-        minOrderAmount: 0, 
-        reason: "You must complete and receive your first order before claiming the referral bonus" 
+      return {
+        eligible: false,
+        bonus: 0,
+        minOrderAmount: 0,
+        reason: "You must complete and receive your first order before claiming the referral bonus"
       };
     }
 
@@ -3037,7 +3037,7 @@ export class MemStorage implements IStorage {
         await db.update(adminSettings)
           .set({
             value: JSON.stringify(config),
-            updatedAt: new Date(), 
+            updatedAt: new Date(),
           })
           .where(eq(adminSettings.key, "platformFeeConfig"));
         console.log("[PLATFORM-FEE] Config updated:", config);
@@ -3154,7 +3154,7 @@ export class MemStorage implements IStorage {
   }> {
     return db.transaction(async (tx) => {
       console.log(`\n🔒 [ATOMIC-PHASE2] Starting atomic payment + wallet transaction for order ${orderId}...`);
-      
+
       // ============================================================================
       // STEP 0: IDEMPOTENCY CHECK (EARLY RETURN IF ALREADY PAID)
       // ============================================================================
@@ -3164,7 +3164,7 @@ export class MemStorage implements IStorage {
         WHERE id = ${orderId}
         FOR UPDATE
       `);
-      
+
       const existingOrder = (existingOrderResult as any).rows?.[0] as Order | undefined;
 
       if (!existingOrder) {
@@ -3215,7 +3215,7 @@ export class MemStorage implements IStorage {
       // ============================================================================
       if (actualWalletAmount > 0) {
         console.log(`🔒 [ATOMIC] Step 1: Checking wallet balance for user ${actualUserId}...`);
-        
+
         const user = await tx.query.users.findFirst({
           where: eq(users.id, actualUserId),
         });
@@ -3236,10 +3236,10 @@ export class MemStorage implements IStorage {
         }
 
         console.log(`🔒 [ATOMIC] Step 2: Attempting wallet transaction insert with unique constraint check...`);
-        
+
         // Step 2: Try to insert wallet transaction (unique constraint will prevent duplicates)
         const balanceAfter = currentBalance - actualWalletAmount;
-        
+
         try {
           await tx.insert(walletTransactions).values({
             userId: actualUserId,
@@ -3668,7 +3668,7 @@ export class MemStorage implements IStorage {
   // Get coupon statistics
   async getCouponStats(): Promise<any[]> {
     const allCoupons = await db.query.coupons.findMany();
-    
+
     const stats = [];
     for (const coupon of allCoupons) {
       // Get all usages for this coupon
@@ -3678,11 +3678,11 @@ export class MemStorage implements IStorage {
 
       // Count unique users
       const uniqueUsers = new Set(usages.map((u: any) => u.userId)).size;
-      
+
       // Get last used date
       let lastUsed = null;
       if (usages.length > 0) {
-        const sorted = [...usages].sort((a: any, b: any) => 
+        const sorted = [...usages].sort((a: any, b: any) =>
           new Date(b.usedAt).getTime() - new Date(a.usedAt).getTime()
         );
         lastUsed = sorted[0].usedAt;
@@ -3868,7 +3868,7 @@ export class MemStorage implements IStorage {
    */
   async reverseReferralBonus(referralId: string, reason?: string): Promise<void> {
     const referral = await this.getReferralById(referralId);
-    
+
     // Safety check 1: Referral must exist
     if (!referral) {
       console.error(`[REVERSAL] ❌ Referral ${referralId} not found. Skipping reversal.`);
@@ -3897,7 +3897,7 @@ export class MemStorage implements IStorage {
           const referrerUser = await tx.query.users.findFirst({
             where: eq(users.id, referral.referrerId),
           });
-          
+
           if (!referrerUser) {
             console.error(`[REVERSAL] ❌ Referrer user ${referral.referrerId} not found`);
             throw new Error(`Referrer user not found: ${referral.referrerId}`);
@@ -3905,7 +3905,7 @@ export class MemStorage implements IStorage {
 
           // Only reverse what the user actually has available
           const reversalAmount = Math.min(referral.referrerBonus, referrerUser.walletBalance);
-          
+
           if (reversalAmount > 0) {
             const reasonText = reason ? ` - Reason: ${reason}` : '';
             const partialText = reversalAmount < referral.referrerBonus ? ' [Partial: User spent part of bonus]' : '';
@@ -3933,7 +3933,7 @@ export class MemStorage implements IStorage {
           const referredUser = await tx.query.users.findFirst({
             where: eq(users.id, referral.referredId),
           });
-          
+
           if (!referredUser) {
             console.error(`[REVERSAL] ❌ Referred user ${referral.referredId} not found`);
             throw new Error(`Referred user not found: ${referral.referredId}`);
@@ -3941,7 +3941,7 @@ export class MemStorage implements IStorage {
 
           // Only reverse what the user actually has available
           const reversalAmount = Math.min(referral.referredBonus, referredUser.walletBalance);
-          
+
           if (reversalAmount > 0) {
             const reasonText = reason ? ` - Reason: ${reason}` : '';
             const partialText = reversalAmount < referral.referredBonus ? ' [Partial: User spent part of bonus]' : '';
@@ -4004,10 +4004,10 @@ export class MemStorage implements IStorage {
       }
 
       // Use atomic reversal helper with fraud reason (reverses BOTH users)
-    await this.reverseReferralBonus(
-  id,
-  "Referral benefits adjusted due to activity not meeting program guidelines (e.g., same address or usage pattern)."
-);
+      await this.reverseReferralBonus(
+        id,
+        "Referral benefits adjusted due to activity not meeting program guidelines (e.g., same address or usage pattern)."
+      );
       // Mark as fraud
       await db.update(referrals)
         .set({
@@ -4385,7 +4385,7 @@ export class MemStorage implements IStorage {
 
   async markPendingCheckoutAsConfirmedAndDeleted(id: string, orderId: string): Promise<PendingCheckout | undefined> {
     console.log(`[DEBUG] Updating pending checkout: id=${id}, orderId=${orderId}`);
-    
+
     // Get the current checkout to find the phone number
     const currentCheckout = await this.getPendingCheckout(id);
     if (!currentCheckout) {
@@ -4411,7 +4411,7 @@ export class MemStorage implements IStorage {
 
       if (otherIds.length > 0) {
         console.log(`[PENDING-CHECKOUT-CLEANUP] Marking ${otherIds.length} old pending checkouts as abandoned for ${currentCheckout.phone}`);
-        
+
         await db.update(pendingCheckouts)
           .set({
             status: "abandoned",
@@ -4432,7 +4432,7 @@ export class MemStorage implements IStorage {
         updatedAt: new Date(),
       })
       .where(eq(pendingCheckouts.id, id));
-    
+
     const updated = await this.getPendingCheckout(id);
     console.log(`[DEBUG] Pending checkout updated:`, {
       id,
@@ -4441,7 +4441,7 @@ export class MemStorage implements IStorage {
       orderId: updated?.orderId,
       updatedAt: updated?.updatedAt,
     });
-    
+
     return updated;
   }
 

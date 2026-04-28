@@ -344,34 +344,43 @@ export default function PartnerDashboard() {
       return false;
     }
 
-    // Get the prepare window hours from admin settings (default to 2 if not available)
     const prepareWindowHours = rotiSettings?.prepareWindowHours ?? 2;
 
     try {
-      // Parse the delivery time (HH:mm format)
+      // 1. Parse delivery time (HH:mm)
       const [hours, minutes] = order.deliveryTime.split(":").map(Number);
+      if (isNaN(hours) || isNaN(minutes)) return false;
 
-      // Use deliveryDate if available, otherwise use today
-      let deliveryDate: Date;
-      if (order.deliveryDate) {
-        const [year, month, day] = order.deliveryDate.split("-").map(Number);
-        deliveryDate = new Date(year, month - 1, day, 0, 0, 0);
-      } else {
-        deliveryDate = new Date(currentTime.getFullYear(), currentTime.getMonth(), currentTime.getDate(), 0, 0, 0);
-      }
+      // 2. Build the target delivery date object
+      // If deliveryDate is missing, we can't safely calculate the window
+      if (!order.deliveryDate) return false;
 
-      const deliveryDateTime = new Date(deliveryDate.getFullYear(), deliveryDate.getMonth(), deliveryDate.getDate(), hours, minutes, 0);
+      // Parse YYYY-MM-DD into a local date object at the specific delivery time
+      const [year, month, day] = order.deliveryDate.split("-").map(Number);
+      const deliveryDateTime = new Date(year, month - 1, day, hours, minutes, 0, 0);
 
-      // Calculate prepare window before delivery time using admin-configured hours
-      const prepareWindowStart = subHours(deliveryDateTime, prepareWindowHours);
+      // 3. Calculate when the "Accept" button should unlock
+      const windowStartTime = subHours(deliveryDateTime, prepareWindowHours);
+      
+      // 4. Current time for comparison
+      const now = new Date();
 
-      // Button is enabled once we reach the prepare window start time
-      // It stays enabled even if delivery time has passed (until order is accepted)
-      const canPrepare = isAfter(currentTime, prepareWindowStart) || currentTime.getTime() === prepareWindowStart.getTime();
+      // 5. Logic:
+      // - Unlock if 'now' is after 'windowStartTime'
+      // - ALSO unlock if the order is for TODAY and we are already past the delivery time (fallback)
+      const isWithinWindow = isAfter(now, windowStartTime) || now.getTime() === windowStartTime.getTime();
+      
+      // 6. Detailed Logging for debugging
+      console.log(`[PREPARE CHECK] Order ${order.id.slice(0, 8)}:`, {
+        delivery: format(deliveryDateTime, "yyyy-MM-dd HH:mm"),
+        unlocksAt: format(windowStartTime, "yyyy-MM-dd HH:mm"),
+        current: format(now, "yyyy-MM-dd HH:mm"),
+        isWithinWindow
+      });
 
-      return canPrepare;
+      return isWithinWindow;
     } catch (error) {
-      console.error("Error parsing delivery time:", error);
+      console.error("[PREPARE ERROR]", error);
       return false;
     }
   };

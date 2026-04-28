@@ -161,11 +161,11 @@ function calculateTotalDeliveries(frequency: string, deliveryDays: string[], dur
     let count = 0;
     const currentDate = new Date(startDate);
     currentDate.setHours(0, 0, 0, 0);
-    
+
     const endDate = new Date(startDate);
     endDate.setDate(endDate.getDate() + durationDays - 1);  // -1 to get exact duration
     endDate.setHours(23, 59, 59, 999);
-    
+
     const hasWeekdayNames = isWeekdayNameFormat(deliveryDays);
     while (currentDate <= endDate) {
       let shouldCount = false;
@@ -179,8 +179,8 @@ function calculateTotalDeliveries(frequency: string, deliveryDays: string[], dur
       currentDate.setDate(currentDate.getDate() + 1);
     }
     return count;
-  } 
-  
+  }
+
   if (frequency === "weekly") {
     // For weekly plans, count actual occurrences within the duration
     if (!startDate) {
@@ -190,11 +190,11 @@ function calculateTotalDeliveries(frequency: string, deliveryDays: string[], dur
     let count = 0;
     const currentDate = new Date(startDate);
     currentDate.setHours(0, 0, 0, 0);
-    
+
     const endDate = new Date(startDate);
     endDate.setDate(endDate.getDate() + durationDays - 1);  // -1 to get exact duration
     endDate.setHours(23, 59, 59, 999);
-    
+
     const hasWeekdayNames = isWeekdayNameFormat(deliveryDays);
     while (currentDate <= endDate) {
       let shouldCount = false;
@@ -208,22 +208,22 @@ function calculateTotalDeliveries(frequency: string, deliveryDays: string[], dur
       currentDate.setDate(currentDate.getDate() + 1);
     }
     return count;
-  } 
-  
+  }
+
   if (frequency === "monthly") {
     // Check if deliveryDays contains weekday names (misconfigured monthly plan)
     const hasWeekdayNames = isWeekdayNameFormat(deliveryDays);
-    
+
     if (hasWeekdayNames && startDate) {
       // Count actual weekday occurrences within the duration
       let count = 0;
       const currentDate = new Date(startDate);
       currentDate.setHours(0, 0, 0, 0);
-      
+
       const endDate = new Date(startDate);
       endDate.setDate(endDate.getDate() + durationDays - 1);  // -1 to get exact duration
       endDate.setHours(23, 59, 59, 999);
-      
+
       while (currentDate <= endDate) {
         const dayName = currentDate.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
         if (deliveryDays.some(d => d.toLowerCase() === dayName)) {
@@ -238,7 +238,7 @@ function calculateTotalDeliveries(frequency: string, deliveryDays: string[], dur
       return deliveryDays.length * monthsInDuration;
     }
   }
-  
+
   return Math.ceil(durationDays / 30);
 }
 
@@ -286,7 +286,7 @@ async function generateSubscriptionDeliveryLogs(
       if (shouldCreateLog) {
         // Check if log already exists for this date
         const existingLog = await storage.getDeliveryLogBySubscriptionAndDate(subscription.id, currentDate);
-        
+
         if (!existingLog) {
           await storage.createSubscriptionDeliveryLog({
             subscriptionId: subscription.id,
@@ -316,7 +316,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerAdminRoutes(app);
   registerPartnerRoutes(app);
   registerDeliveryRoutes(app);
-  
+
   // ✅ Register Google Pay verification routes
   app.use("/api/payments", gpayVerificationRoutes);
 
@@ -366,7 +366,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   };
 
-  const computeSlotCutoffInfo = (slot: any, forceNextDay: boolean = true) => {
+  const computeSlotCutoffInfo = (slot: any, forceNextDay: boolean = false) => {
     const now = new Date();
     console.log(`[CUTOFF] Starting computation - now: ${now.toISOString()}, slot.startTime: ${slot?.startTime}, forceNextDay: ${forceNextDay}`);
 
@@ -406,7 +406,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     // ✅ FIX: For new subscriptions (forceNextDay=true), ALWAYS schedule from tomorrow onwards
     // For existing order updates, can allow today if before cutoff
-    if (forceNextDay || slotHasPassed || now > todayCutoffTime) {
+    if ((forceNextDay === true) || slotHasPassed || now > todayCutoffTime) {
       console.log(`[CUTOFF] ${forceNextDay ? 'New subscription - forcing next day' : 'Past cutoff'} - scheduling for tomorrow`);
       // Schedule for tomorrow
       deliveryDate = new Date(todaySlot);
@@ -586,6 +586,103 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Phone check error:", error);
       res.status(500).json({ message: "Failed to check phone number" });
+    }
+  });
+
+  // ✅ NEW: Silent login-or-create — used by checkout for seamless auth
+  // No password, no OTP. Just phone → find or create user → return token.
+  app.post("/api/user/login-or-create", async (req, res) => {
+    try {
+      const { name, phone, email, address } = req.body;
+
+      if (!phone) {
+        res.status(400).json({ message: "Phone is required" });
+        return;
+      }
+
+      // 🔍 Check if user exists
+      let user = await storage.getUserByPhone(phone);
+
+      if (user) {
+        // ✅ CASE 1: Existing user — log them in silently
+        await storage.updateUserLastLogin(user.id);
+        const accessToken = generateAccessToken(user);
+        const refreshToken = generateRefreshToken(user);
+
+        console.log(`[LOGIN-OR-CREATE] Existing user logged in: ${user.id}`);
+        res.json({
+          user: {
+            id: user.id,
+            name: user.name,
+            phone: user.phone,
+            email: user.email,
+            address: user.address,
+            referralCode: user.referralCode,
+          },
+          accessToken,
+          refreshToken,
+        });
+        return;
+      }
+
+      // 🆕 CASE 2: New user — create account silently
+      const generatedPassword = phone.slice(-6);
+      const passwordHash = await hashPassword(generatedPassword);
+
+      user = await storage.createUser({
+        name: name || "User",
+        phone,
+        email: email || null,
+        address: address || null,
+        passwordHash,
+        referralCode: null,
+        walletBalance: 0,
+        latitude: null,
+        longitude: null,
+      });
+
+      // Generate referral code for new user (non-blocking)
+      try {
+        const referralCode = await storage.generateReferralCode(user.id);
+        user.referralCode = referralCode;
+        console.log(`[LOGIN-OR-CREATE] Referral code generated: ${referralCode}`);
+      } catch (error: any) {
+        console.warn(`[LOGIN-OR-CREATE] Referral code generation failed (non-blocking): ${error.message}`);
+      }
+
+      // Send welcome email if email provided (non-blocking)
+      if (email) {
+        try {
+          const emailHtml = createWelcomeEmail(name || "User", phone, generatedPassword);
+          await sendEmail({
+            to: email,
+            subject: '🍽️ Welcome to RotiHai - Your Account Details',
+            html: emailHtml,
+          });
+        } catch (emailError) {
+          console.warn("[LOGIN-OR-CREATE] Welcome email failed (non-blocking):", emailError);
+        }
+      }
+
+      const accessToken = generateAccessToken(user);
+      const refreshToken = generateRefreshToken(user);
+
+      console.log(`[LOGIN-OR-CREATE] New user created: ${user.id}`);
+      res.json({
+        user: {
+          id: user.id,
+          name: user.name,
+          phone: user.phone,
+          email: user.email,
+          address: user.address,
+          referralCode: user.referralCode,
+        },
+        accessToken,
+        refreshToken,
+      });
+    } catch (error) {
+      console.error("[LOGIN-OR-CREATE ERROR]", error);
+      res.status(500).json({ message: "Internal server error" });
     }
   });
 
@@ -971,7 +1068,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userOrders = await db.query.orders.findMany({
         where: (o, { eq }) => eq(o.userId, user.id),
       });
-      
+
       // ✅ CRITICAL: Filter for delivered orders only (status must be "delivered")
       const deliveredOrders = userOrders.filter(order => order.status === "delivered");
       const hasCompletedFirstOrder = deliveredOrders.length > 0;
@@ -1188,9 +1285,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (!firstReferrerOrder) {
         console.log(`⚠️ [REFERRAL-VALIDATE] Referrer has 0 delivered orders. Blocking usage of code: ${referralCode}`);
-        return res.status(400).json({ 
-          valid: false, 
-          message: "Referrer must have completed at least one delivered order before sharing referrals." 
+        return res.status(400).json({
+          valid: false,
+          message: "Referrer must have completed at least one delivered order before sharing referrals."
         });
       }
 
@@ -1226,7 +1323,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         minOrderAmount,
         orderAmount
       });
-      
+
       return res.json({
         valid: true,
         message: `Valid referral code! You'll get ₹${bonus} bonus after your first order is delivered`,
@@ -1466,7 +1563,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // 7. Get and return updated subscription
       const updatedSubscription = await storage.getSubscription(subscriptionId);
-      
+
       console.log(`[SKIP] Success: ${subscriptionId} next delivery now ${nextDate.toDateString()}`);
 
       res.json({
@@ -1477,7 +1574,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     } catch (error: any) {
       console.error("[SKIP] Error:", error.message);
-      res.status(500).json({ 
+      res.status(500).json({
         message: `Failed to skip delivery: ${error.message}`
       });
     }
@@ -1889,14 +1986,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         // Recompute total to reflect server-side fee and discount
         // We MUST also subtract walletAmountUsed and bonusUsedAtCheckout just like the frontend
-        
+
         // 🆕 Calculate platform fee (convenience fee) from payment settings
         let platformFee = 0;
         try {
           // Fetch platform fee settings from admin payment settings
           const paymentSettingsResponse = await fetch(`http://localhost:${process.env.PORT || 5000}/api/payment-settings`);
           const paymentSettings = paymentSettingsResponse.ok ? await paymentSettingsResponse.json() : {};
-          
+
           if (paymentSettings?.platformFeeEnabled) {
             const subtotalAmount = sanitized.subtotal || 0;
             if (subtotalAmount < 100) {
@@ -2028,7 +2125,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let appliedReferralBonus = 0;
 
       const referralCodeInput = (req.body as any).referralCode;
-      
+
       // Log referral code receipt for debugging
       if (referralCodeInput) {
         console.log(`📱 Received referral code in order request: ${referralCodeInput}`);
@@ -2051,7 +2148,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.log(`📝 New phone ${sanitized.phone} detected. Creating account before order...`);
           const generatedPwd = sanitized.phone.slice(-6);
           const passwordHash = await hashPassword(generatedPwd);
-          
+
           user = await storage.createUser({
             name: sanitized.customerName,
             phone: sanitized.phone,
@@ -2063,7 +2160,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             latitude: customerLatitude,
             longitude: customerLongitude,
           });
-          
+
           accountCreated = true;
           generatedPassword = generatedPwd;
           console.log(`✅ New user created before order: ${user.id} - Phone: ${sanitized.phone}`);
@@ -2088,7 +2185,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           accountCreated = false;
         }
-        
+
         userId = user.id;
       }
 
@@ -2133,15 +2230,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Enrich items with hotelPrice (partner's cost price) from products table
+      // Also ensure all items belong to the same chef as determined for the order.
       orderPayload.items = await Promise.all(
         orderPayload.items.map(async (item: any) => {
           const product = await storage.getProductById(item.id);
           return {
             ...item,
             hotelPrice: product?.hotelPrice || 0, // Add partner's cost price to order item
+            chefId: product?.chefId || item.chefId || undefined,
           };
         })
       );
+
+      // Validate that all items are from the same chef (prevent multi-chef single order)
+      const itemChefIds = Array.from(new Set(orderPayload.items.map((it: any) => it.chefId || "").filter(Boolean)));
+      if (itemChefIds.length > 1) {
+        console.warn("🚫 Attempt to create order with items from multiple chefs:", itemChefIds);
+        return res.status(400).json({ message: "Order contains items from multiple chefs. Please checkout each chef's cart separately." });
+      }
 
       // Calculate and set deliveryDate if deliverySlotId is provided
       if (orderPayload.deliverySlotId) {
@@ -2163,6 +2269,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       console.log("📝 Order payload before DB insert:", JSON.stringify(orderPayload, null, 2));
+      console.log("[ORDER DEBUG BEFORE SAVE]", {
+        slotId: orderPayload.deliverySlotId,
+        deliveryTime: orderPayload.deliveryTime,
+        deliveryDate: orderPayload.deliveryDate,
+        now: new Date(),
+      });
       const order = await storage.createOrder(orderPayload);
       console.log("✅ Order created successfully:", order.id);
       console.log(`📋 Order Details: userId=${userId}, walletAmountUsed=${order.walletAmountUsed}`);
@@ -2252,7 +2364,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   referenceId: pendingReferral.id,
                   referenceType: "referral",
                 }, tx);
-                
+
                 console.log(`✅ [REFERRAL-COMPLETION] Bonus credited to referrer:`, {
                   referrerId: pendingReferral.referrerId,
                   amount: pendingReferral.referrerBonus,
@@ -2297,7 +2409,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/orders/active", async (req: any, res) => {
     try {
       let userId: string | null = null;
-      
+
       // Try to extract userId from JWT token
       if (req.headers.authorization && req.headers.authorization.startsWith("Bearer ")) {
         try {
@@ -2330,7 +2442,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Memory-based query for this template
       const allOrders = await storage.getAllOrders();
       const activeStatuses = ['pending', 'confirmed', 'accepted_by_chef', 'preparing', 'prepared', 'accepted_by_delivery', 'out_for_delivery'];
-      
+
       const activeOrders = allOrders
         .filter(order => order.userId === userId || order.phone === user.phone || order.email === user.email)
         .filter(order => activeStatuses.includes(order.status))
@@ -2342,13 +2454,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const activeOrder = activeOrders[0];
-      
-      // Return ONLY what's needed for the banner
+
+      let chefName = "Chef";
+      try {
+        if (activeOrder.chefId) {
+          const chef = await storage.getChefById(activeOrder.chefId);
+          if (chef) chefName = chef.name;
+        }
+      } catch (err) {
+        console.error("Failed to fetch chef name for active order", err);
+      }
+
+      // Return exact fields needed by frontend ActiveOrderBanner
       res.json({
-        id: activeOrder.id,
-        status: activeOrder.status,
-        total_amount: activeOrder.total,
-        createdAt: activeOrder.createdAt
+        order: {
+          id: activeOrder.id,
+          status: activeOrder.status,
+          paymentStatus: activeOrder.paymentStatus || "pending",
+          total: activeOrder.total,
+          chefName: chefName,
+          createdAt: activeOrder.createdAt
+        }
       });
     } catch (error: any) {
       console.error("GET /api/orders/active error:", error);
@@ -2524,32 +2650,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Generate tokens for immediate login
           accessToken = generateAccessToken(user);
           refreshToken = generateRefreshToken(user);
-          
+
           // ✅ FIX 1: Referral creation now happens once after payment confirmed (see line ~2620)
           // Skip creation here - prevent duplicate attempts
         } else {
           console.log(`👤 User already exists with phone ${order.phone}, linking to order`);
-          
+
           // 🔍 DIAGNOSTICS: Log existing user state
           console.log(`📊 [EXISTING-USER-DIAGNOSTICS]:`, {
             userId: user.id,
             hasReferralCode: !!order.referralCode,
             referralCode: order.referralCode || 'NULL',
           });
-          
+
           // 🔍 CHECK: Is this user's first use after account was auto-created by admin?
           // Get user's order count BEFORE this payment to detect if this is first login
           const userOrderCount = await db.select()
             .from(orders)
             .where(eq(orders.userId, user.id))
             .then((rows: any) => rows.length);
-          
-          const isFirstLoginAfterAdminCreation = userOrderCount === 0 && 
-            user.createdAt && 
+
+          const isFirstLoginAfterAdminCreation = userOrderCount === 0 &&
+            user.createdAt &&
             (Date.now() - new Date(user.createdAt).getTime()) < 3600000; // Within 1 hour of creation
-          
+
           console.log(`[DROPDOWN USER] User order count: ${userOrderCount}, isFirstLogin: ${isFirstLoginAfterAdminCreation}`);
-          
+
           // Link existing user to order
           await db.update(orders).set({ userId: user.id }).where(eq(orders.id, id));
           order.userId = user.id;
@@ -2557,7 +2683,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Generate tokens for login
           accessToken = generateAccessToken(user);
           refreshToken = generateRefreshToken(user);
-          
+
           // ✅ If this is first login after admin created account, treat as "account just activated"
           // Frontend will show account dialog with welcome message + track order
           if (isFirstLoginAfterAdminCreation) {
@@ -2570,7 +2696,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       } else {
         console.log(`👤 User already linked to order ${id} (userId: ${order.userId}). Generating tokens for potential auto-login.`);
-        
+
         // 🔍 DIAGNOSTICS: Log pre-linked user state
         console.log(`📊 [PRE-LINKED-USER-DIAGNOSTICS]:`, {
           userId: order.userId,
@@ -2578,17 +2704,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
           referralCode: order.referralCode || 'NULL',
           phone: order.phone,
         });
-        
-          const existingUser = await storage.getUser(order.userId);
-          if (existingUser) {
-            accessToken = generateAccessToken(existingUser);
-            refreshToken = generateRefreshToken(existingUser);
-            console.log(`✅ Tokens generated for existing user: ${existingUser.id}`);
-          }
 
-          // ✅ FIX 3: Referral creation now happens once after payment confirmed (see line ~2620)
-          // Skip creation here - prevent duplicate attempts
+        const existingUser = await storage.getUser(order.userId);
+        if (existingUser) {
+          accessToken = generateAccessToken(existingUser);
+          refreshToken = generateRefreshToken(existingUser);
+          console.log(`✅ Tokens generated for existing user: ${existingUser.id}`);
         }
+
+        // ✅ FIX 3: Referral creation now happens once after payment confirmed (see line ~2620)
+        // Skip creation here - prevent duplicate attempts
+      }
 
       // Check if order was already paid (for idempotency)
       // Note: We already fetched this at the start as 'order', but get a fresh read for paranoia
@@ -2612,14 +2738,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // This prevents financial leaks (order paid but wallet not deducted)
       // Now handles errors properly - if wallet fails, payment fails
       // ============================================================================
-      
+
       let walletUpdateResult = null;
       let updatedOrder = null;
 
       try {
         console.log(`\n💳 ⚠️ [ATOMIC-PHASE2] Starting atomic payment confirmation + wallet deduction`);
         console.log(`💳 [ATOMIC] Order: ${id}, Wallet Amount: ₹${order?.walletAmountUsed || 0}, User: ${order?.userId}`);
-        
+
         // ✅ Call atomic function - this is now the ONLY place order gets marked "paid"
         // If wallet fails, entire transaction rolls back (order stays unpaid)
         // Order.userId is guaranteed to exist (created before order creation now)
@@ -2646,11 +2772,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (updatedOrder?.referralCode && updatedOrder?.userId) {
           try {
             const referrer = await storage.getUserByReferralCode(updatedOrder.referralCode);
-            
+
             if (referrer && referrer.id !== updatedOrder.userId) {
               // ✅ FIX 1: PREVENT DUPLICATE REFERRALS - check if already exists
               const existingReferral = await storage.getReferralByReferredId(updatedOrder.userId);
-              
+
               if (!existingReferral) {
                 console.log(`[REFERRAL] Creating referral after payment confirm - Referrer: ${referrer.id}, Referred: ${updatedOrder.userId}`);
                 await storage.createReferral(referrer.id, updatedOrder.userId);
@@ -2670,15 +2796,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // 📢 BROADCAST ON PAYMENT CONFIRMATION
         if (updatedOrder) {
           console.log(`\n📣 PAYMENT CONFIRMED - BROADCASTING TO CHEF & ALL AVAILABLE DELIVERY PERSONNEL`);
-          
+
           // Broadcast to Chef/Partner
           console.log(`\n  1️⃣ Broadcasting to Chef (chefId: ${updatedOrder.chefId})...`);
           broadcastNewOrder(updatedOrder);
-          
+
           // Broadcast to ALL available delivery personnel (regardless of assignment)
           console.log(`  2️⃣ Broadcasting to ALL available delivery personnel...`);
           await broadcastPreparedOrderToAvailableDelivery(updatedOrder);
-          
+
           console.log(`✅ BROADCAST COMPLETE - Chef and delivery personnel notified on payment confirmation\n`);
         }
 
@@ -2689,8 +2815,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.status(400).json({
           message: "Payment confirmation failed",
           error: paymentError.message || "Wallet deduction error",
-          details: paymentError.message.includes("Insufficient wallet balance") 
-            ? "Not enough wallet balance for this order" 
+          details: paymentError.message.includes("Insufficient wallet balance")
+            ? "Not enough wallet balance for this order"
             : "Payment processing error",
         });
         return;
@@ -2708,14 +2834,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           if (pendingIds.length > 0) {
             console.log(`[PENDING-CHECKOUT-CLEANUP] Marking ${pendingIds.length} pending checkouts as abandoned for phone ${updatedOrder.phone}`);
-            
+
             // Mark all old pending checkouts as abandoned
             for (const pendingId of pendingIds) {
               await storage.updatePendingCheckout(pendingId, {
                 status: "abandoned",
               } as any);
             }
-            
+
             console.log(`✅ [PENDING-CHECKOUT-CLEANUP] Marked as abandoned:`, pendingIds);
           }
         } catch (cleanupError: any) {
@@ -2737,12 +2863,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         response.userCreated = true;  // Frontend will show account dialog
         response.accessToken = accessToken;
         response.refreshToken = refreshToken;
-        
+
         // Include the default password for display in account dialog
         // For new users: generated just now (last 6 digits of phone)  
         // For first login: also last 6 digits of phone (what admin would have given them)
         response.defaultPassword = order.phone.slice(-6);
-        
+
         // Include applied referral bonus if any  
         if (appliedReferralBonus > 0) {
           response.appliedReferralBonus = appliedReferralBonus;
@@ -2774,7 +2900,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { id } = req.params;
 
       if (!id) {
-        return res.status(400).json({ 
+        return res.status(400).json({
           message: "Order ID is required",
           errorCode: "MISSING_ORDER_ID"
         });
@@ -2785,7 +2911,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const order = await storage.getOrderById(id);
       if (!order) {
         console.log(`❌ CANCEL FAILED: Order ${id} not found`);
-        return res.status(404).json({ 
+        return res.status(404).json({
           message: "Order not found",
           errorCode: "ORDER_NOT_FOUND"
         });
@@ -2796,7 +2922,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Only allow cancelling orders that are still pending (not yet paid/completed)
       if (order.paymentStatus === "paid" || order.paymentStatus === "confirmed") {
         console.log(`❌ CANCEL FAILED: Order ${id} already paid/confirmed - Cannot cancel`);
-        return res.status(400).json({ 
+        return res.status(400).json({
           message: "Cannot cancel order - payment already confirmed",
           errorCode: "PAYMENT_ALREADY_CONFIRMED",
           currentPaymentStatus: order.paymentStatus
@@ -2862,7 +2988,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         stack: error.stack,
         code: error.code
       });
-      res.status(500).json({ 
+      res.status(500).json({
         message: error.message || "Failed to cancel order",
         errorCode: "CANCEL_ERROR",
         details: process.env.NODE_ENV === "development" ? error.message : undefined
@@ -2871,7 +2997,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============ PENDING CHECKOUTS ENDPOINTS ============
-  
+
   // Save pending checkout details (when user clicks "Pay & Confirm")
   app.post("/api/pending-checkouts", async (req: any, res) => {
     try {
@@ -2909,6 +3035,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get the latest pending checkout for the logged in user
+  app.get("/api/pending-checkouts/latest", async (req: any, res) => {
+    try {
+      let userId: string | null = null;
+
+      // Try to extract userId from JWT token
+      if (req.headers.authorization && req.headers.authorization.startsWith("Bearer ")) {
+        try {
+          const token = req.headers.authorization.substring(7);
+          const { verifyToken } = await import("./userAuth");
+          const payload = verifyToken(token);
+          if (payload && payload.userId) {
+            userId = payload.userId;
+          }
+        } catch (tokenError) {
+          // Ignore invalid token
+        }
+      }
+
+      if (!userId) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      const user = await storage.getUser(userId);
+      if (!user || !user.phone) {
+        return res.status(404).json({ message: "User not found or no phone number" });
+      }
+
+      const pending = await storage.getPendingCheckoutsByPhone(user.phone);
+      const activePending = pending.filter(p => p.status === "pending").sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+      if (activePending.length > 0) {
+        res.json(activePending[0]);
+      } else {
+        res.json(null);
+      }
+    } catch (error: any) {
+      console.error("Error fetching latest pending checkout:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch latest pending checkout" });
+    }
+  });
+
   // Admin: Get all pending checkouts
   app.get("/api/admin/pending-checkouts", async (req: any, res) => {
     try {
@@ -2939,6 +3107,96 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Cancel pending checkout (same as delete but with explicit cancel intent)
+  app.post("/api/pending-checkouts/:id/cancel", async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      console.log(`[PENDING-CHECKOUT] Cancelling checkout: ${id}`);
+      // ✅ Minimal fix: Also cancel the associated order in the database if it exists
+      const updatedOrders = await db.update(orders)
+        .set({ status: "cancelled" })
+        .where(eq(orders.pendingCheckoutId, id))
+        .returning();
+
+      if (updatedOrders.length > 0) {
+        console.log(`[PENDING-CHECKOUT] ✅ Associated order ${updatedOrders[0].id} also cancelled.`);
+      }
+
+      const deleted = await storage.deletePendingCheckout(id);
+
+      if (!deleted) {
+        return res.status(404).json({ message: "Pending checkout not found" });
+      }
+
+      console.log(`✅ Pending checkout cancelled/deleted: ${id}`);
+      res.json({ message: "Pending checkout cancelled" });
+    } catch (error: any) {
+      console.error("[PENDING-CHECKOUT] Error cancelling checkout:", error);
+      res.status(500).json({ message: error.message || "Failed to cancel checkout" });
+    }
+  });
+
+  // Convert pending checkout to actual order and confirm it
+  app.post("/api/pending-checkouts/:id/confirm", async (req: any, res) => {
+    try {
+      const { id } = req.params;
+
+      console.log(`[PENDING-CHECKOUT] POST confirm checkout - ID: ${id}`);
+
+      const pendingCheckout = await storage.getPendingCheckout(id);
+      if (!pendingCheckout) {
+        return res.status(404).json({ message: "Pending checkout not found" });
+      }
+
+      // Convert pending checkout data to order data
+      const orderData = {
+        chefId: pendingCheckout.chefId || undefined,
+        categoryId: pendingCheckout.categoryId || undefined,
+        categoryName: pendingCheckout.categoryName || undefined,
+        customerName: pendingCheckout.customerName,
+        phone: pendingCheckout.phone,
+        email: pendingCheckout.email || undefined,
+        address: pendingCheckout.address || "",
+        addressBuilding: pendingCheckout.addressBuilding || undefined,
+        addressStreet: pendingCheckout.addressStreet || undefined,
+        addressArea: pendingCheckout.addressArea || undefined,
+        addressCity: pendingCheckout.addressCity || undefined,
+        addressPincode: pendingCheckout.addressPincode || undefined,
+        customerLatitude: pendingCheckout.customerLatitude,
+        customerLongitude: pendingCheckout.customerLongitude,
+        subtotal: Number(pendingCheckout.subtotal) || 0,
+        deliveryFee: Number(pendingCheckout.deliveryFee) || 0,
+        discount: Number(pendingCheckout.discount) || 0,
+        total: Number(pendingCheckout.total) || 0,
+        couponCode: pendingCheckout.couponCode || undefined,
+        referralCode: pendingCheckout.referralCode || undefined,
+        walletAmountUsed: Number(pendingCheckout.walletAmountUsed) || 0,
+        bonusUsedAtCheckout: Number(pendingCheckout.bonusUsedAtCheckout) || 0,
+        deliverySlotId: pendingCheckout.deliverySlotId || undefined,
+        deliveryTime: pendingCheckout.deliveryTime || undefined,
+        deliveryDate: pendingCheckout.deliveryDate || undefined,
+        paymentStatus: "paid" as const, // Automatically mark as paid since they clicked "I Paid"
+        paymentMethod: "qr" as const,
+        status: "pending" as const, // Waiting for chef to accept
+        items: pendingCheckout.items as any,
+      };
+
+      const order = await storage.createOrder(orderData);
+
+      // Send WebSocket notification
+      const { broadcastNewOrder } = await import("./websocket");
+      broadcastNewOrder(order);
+
+      // Mark pending checkout as confirmed
+      await storage.markPendingCheckoutAsConfirmedAndDeleted(id, order.id);
+
+      res.json({ message: "Order created successfully", order });
+    } catch (error: any) {
+      console.error("[PENDING-CHECKOUT] Error creating order from checkout:", error);
+      res.status(500).json({ message: error.message || "Failed to create order" });
+    }
+  });
+
   // Mark pending checkout as confirmed and soft deleted (after successful payment)
   app.patch("/api/pending-checkouts/:id/confirm", async (req: any, res) => {
     try {
@@ -2960,7 +3218,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         isDeleted: updated.isDeleted,
         orderId: updated.orderId,
       });
-      
+
       res.json({ message: "Pending checkout confirmed", data: updated });
     } catch (error: any) {
       console.error("[PENDING-CHECKOUT] Error confirming pending checkout:", error);
@@ -3616,7 +3874,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // ✅ FIX: Verify nextDeliveryDate matches the first generated log for public subscriptions
       const publicSubLogs = await storage.getSubscriptionDeliveryLogs(subscription.id);
       if (publicSubLogs && publicSubLogs.length > 0) {
-        const firstLog = publicSubLogs.sort((a, b) => 
+        const firstLog = publicSubLogs.sort((a, b) =>
           new Date(a.date).getTime() - new Date(b.date).getTime()
         )[0];
         const firstLogDate = new Date(firstLog.date);
@@ -3828,10 +4086,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/subscriptions", requireUser(), async (req: AuthenticatedUserRequest, res) => {
     try {
       const userId = req.authenticatedUser!.userId;
-      const { 
-        planId, 
-        deliveryTime = DEFAULT_DELIVERY_TIME, 
-        deliverySlotId, 
+      const {
+        planId,
+        deliveryTime = DEFAULT_DELIVERY_TIME,
+        deliverySlotId,
         durationDays = 30,
         address,
         latitude,
@@ -4046,7 +4304,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // This ensures consistency between subscription.nextDeliveryDate and actual scheduled deliveries
       const allLogs = await storage.getSubscriptionDeliveryLogs(subscription.id);
       if (allLogs && allLogs.length > 0) {
-        const firstLog = allLogs.sort((a, b) => 
+        const firstLog = allLogs.sort((a, b) =>
           new Date(a.date).getTime() - new Date(b.date).getTime()
         )[0];
         const firstLogDate = new Date(firstLog.date);
@@ -4121,7 +4379,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Calculate pause duration in days
-      const pauseDurationDays = pauseResumeDate 
+      const pauseDurationDays = pauseResumeDate
         ? Math.floor((pauseResumeDate.getTime() - pauseStartDate.getTime()) / (1000 * 60 * 60 * 24))
         : 0;
 
@@ -4131,7 +4389,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         for (const log of allLogs) {
           const logDate = new Date(log.date);
           logDate.setHours(0, 0, 0, 0);
-          
+
           // If this log falls between pause dates, mark it as skipped (paused delivery)
           if (logDate >= pauseStartDate && logDate < pauseResumeDate) {
             await storage.updateSubscriptionDeliveryLog(log.id, {
@@ -4165,14 +4423,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const deliveryDaysArray = plan.deliveryDays as string[];
           let logDate = new Date(currentEndDate);
           logDate.setDate(logDate.getDate() + 1);
-          
+
           // Generate logs for each extended day that matches the plan's delivery days
           while (logDate <= newEndDate) {
             const dayName = logDate.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
             const isValidDeliveryDay = plan.frequency === "monthly"
               ? deliveryDaysArray.includes(logDate.getDate().toString())
               : deliveryDaysArray.includes(dayName);
-            
+
             if (isValidDeliveryDay) {
               // Check if log already exists for this date
               const existingLog = await storage.getDeliveryLogBySubscriptionAndDate(subscription.id, logDate);
@@ -4187,17 +4445,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 });
               }
             }
-            
+
             logDate.setDate(logDate.getDate() + 1);
           }
         }
       }
 
       // ✅ FIX: Convert endDate to Date before calling toDateString()
-      const originalEndDateStr = subscription.endDate instanceof Date 
-        ? subscription.endDate.toDateString() 
+      const originalEndDateStr = subscription.endDate instanceof Date
+        ? subscription.endDate.toDateString()
         : subscription.endDate ? new Date(subscription.endDate).toDateString() : 'N/A';
-      
+
       console.log(`⏸️ Subscription ${req.params.id} paused`);
       console.log(`   Pause period: ${pauseStartDate.toDateString()} to ${pauseResumeDate?.toDateString() || 'indefinite'}`);
       console.log(`   Pause duration: ${pauseDurationDays} days`);
@@ -4525,7 +4783,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // ✅ FIX: Verify nextDeliveryDate matches the first generated log for renewals
       const renewalLogs = await storage.getSubscriptionDeliveryLogs(newSubscription.id);
       if (renewalLogs && renewalLogs.length > 0) {
-        const firstLog = renewalLogs.sort((a, b) => 
+        const firstLog = renewalLogs.sort((a, b) =>
           new Date(a.date).getTime() - new Date(b.date).getTime()
         )[0];
         const firstLogDate = new Date(firstLog.date);
@@ -6277,7 +6535,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const now = new Date();
     const hours = now.getHours();
     const minutes = now.getMinutes();
-    
+
     // Run at 2:00 AM - 2:01 AM window
     if (hours === 2 && minutes === 0) {
       console.log(`🕐 [SCHEDULER] Running daily referral expiration cleanup at ${now.toISOString()}`);

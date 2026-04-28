@@ -1,12 +1,15 @@
 import { useEffect, useState } from "react";
 import { getApiUrl } from "@/lib/apiBase";
 import { getWebSocketURL } from "@/lib/fetchClient";
-import { useRoute } from "wouter";
+import { useRoute, useLocation, Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
+import { useCart } from "@/hooks/use-cart";
+import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import PaymentQRDialog from "@/components/PaymentQRDialog";
 import type { Order } from "@/types/order";
 import { format } from "date-fns";
 import {
@@ -23,16 +26,28 @@ import {
   ArrowLeft,
   User,
   MessageCircle,
+  ArrowDown,
 } from "lucide-react";
 import { queryClient } from "@/lib/queryClient";
-import { Link } from "wouter";
 
 export default function OrderTracking() {
   const [, params] = useRoute("/track/:orderId");
   const orderId = params?.orderId;
+  const [, setLocation] = useLocation();
   const [wsConnected, setWsConnected] = useState(false);
   const userToken = localStorage.getItem("userToken");
-  
+  const { toast } = useToast();
+  const { clearCart } = useCart();
+
+  // ── Payment modal state ─────────────────────────────────────────────────
+  const [isPaymentOpen, setIsPaymentOpen] = useState(false);
+  const [resumeOrderId, setResumeOrderId] = useState<string | null>(null);
+
+  const handleResumePayment = (oId: string) => {
+    setResumeOrderId(oId);
+    setIsPaymentOpen(true);
+  };
+
   // ✅ Fetch user profile if logged in (for dropdown user scenario)
   const { user, isAuthenticated } = useAuth();
 
@@ -319,19 +334,40 @@ export default function OrderTracking() {
         )}
 
         {order.paymentStatus === "pending" && (
-          <Card className="border-yellow-200 dark:border-yellow-800 bg-yellow-50 dark:bg-yellow-950">
-            <CardContent className="p-4">
-              <div className="flex items-start gap-3">
-                <Clock className="h-5 w-5 text-yellow-600 dark:text-yellow-400 mt-0.5" />
-                <div>
-                  <h3 className="font-semibold text-yellow-900 dark:text-yellow-100">
-                    Waiting for Payment Confirmation
+          <Card className="border-orange-200 bg-gradient-to-r from-orange-50 to-amber-50 shadow-sm relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-4 opacity-10 pointer-events-none">
+              <CreditCard className="w-24 h-24 text-orange-900" />
+            </div>
+            <CardContent className="p-5 md:p-6 relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-5">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="bg-orange-100 text-orange-800 border-orange-300">Action Required</Badge>
+                  <h3 className="text-lg font-bold text-orange-950">
+                    Payment Pending
                   </h3>
-                  <p className="text-sm text-yellow-800 dark:text-yellow-200 mt-1">
-                    Our team is verifying your payment. This usually takes a few minutes. We'll start
-                    preparing your order once payment is confirmed.
-                  </p>
                 </div>
+                <p className="text-sm text-orange-800 mt-2 max-w-md">
+                  Your order is reserved, but we are waiting for your payment to confirm it.
+                </p>
+                <button 
+                  onClick={() => {
+                    document.getElementById('order-summary-section')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  }}
+                  className="text-xs font-bold text-orange-700 mt-3 flex items-center gap-1 hover:text-orange-900 transition-colors"
+                >
+                  View order summary below <ArrowDown className="w-3 h-3" />
+                </button>
+              </div>
+
+              <div className="flex flex-col gap-2 md:min-w-[200px] w-full md:w-auto">
+                <Button
+                  size="lg"
+                  className="w-full bg-orange-600 hover:bg-orange-700 text-white shadow-md font-bold text-base"
+                  onClick={() => handleResumePayment(order.id)}
+                >
+                  <CreditCard className="w-5 h-5 mr-2" />
+                  Pay ₹{order.total} Now
+                </Button>
               </div>
             </CardContent>
           </Card>
@@ -348,8 +384,8 @@ export default function OrderTracking() {
                   <div className="relative flex flex-col items-center">
                     <div
                       className={`w-10 h-10 rounded-full flex items-center justify-center z-10 ${step.completed
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-muted text-muted-foreground"
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-muted-foreground"
                         }`}
                     >
                       {step.icon}
@@ -395,7 +431,7 @@ export default function OrderTracking() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card id="order-summary-section" className="scroll-mt-24">
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
                 <Package className="h-5 w-5" />
@@ -507,6 +543,43 @@ export default function OrderTracking() {
           </Card>
         )}
       </main>
+
+      {/* ── Resume Payment Modal ─────────────────────────────────────────── */}
+      {resumeOrderId && (
+        <PaymentQRDialog
+          isOpen={isPaymentOpen}
+          onClose={() => {
+            setIsPaymentOpen(false);
+            setResumeOrderId(null);
+            setLocation("/");
+          }}
+          paymentData={{
+            orderId: resumeOrderId,
+            amount: order?.total ?? 0,
+            customerName: order?.customerName ?? "",
+            phone: order?.phone ?? "",
+            address: order?.address ?? "",
+          }}
+          onOrderSuccess={() => {
+            setIsPaymentOpen(false);
+            setResumeOrderId(null);
+            
+            // ✅ FIX: Clear the specific cart for this order so it doesn't linger
+            if (order?.categoryId && order?.chefId) {
+              clearCart(order.categoryId, order.chefId);
+            }
+
+            toast({
+              title: "📋 Order Received",
+              description: "Your order has been received. Waiting for admin confirmation...",
+              className: "bg-green-600 text-white border-none shadow-xl",
+            });
+            queryClient.invalidateQueries({ queryKey: ["/api/orders", resumeOrderId] });
+            queryClient.invalidateQueries({ queryKey: ["active-order"] });
+            setLocation("/");
+          }}
+        />
+      )}
     </div>
   );
 }

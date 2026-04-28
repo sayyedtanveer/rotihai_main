@@ -42,6 +42,7 @@ import { useCustomerNotifications } from "@/hooks/useCustomerNotifications";
 import { useAuth } from "@/hooks/useAuth";
 import { calculateDistance } from "@/lib/locationUtils";
 import { useDeliveryLocation } from "@/contexts/DeliveryLocationContext";
+import api from "@/lib/apiClient";
 
 
 const iconMap: Record<string, React.ReactNode> = {
@@ -135,12 +136,14 @@ export default function Home() {
   const [checkoutCategoryId, setCheckoutCategoryId] = useState<string>("");
   const [isPaymentQROpen, setIsPaymentQROpen] = useState(false);
   const [paymentOrderDetails, setPaymentOrderDetails] = useState<{
-    orderData: any;
+    orderData?: any;
+    orderId?: string;
     amount: number;
     customerName: string;
     phone: string;
     email?: string;
     address: string;
+    pendingCheckoutId?: string | null;
   } | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isCategoryMenuOpen, setIsCategoryMenuOpen] = useState(false);
@@ -157,6 +160,11 @@ export default function Home() {
   const [mobileNavTab, setMobileNavTab] = useState<string>("delivery");
   const [vegOnly, setVegOnly] = useState(false);
 
+  // ── Resume pending checkout ────────────────────────────────────────────────
+  const [pendingCheckout, setPendingCheckout] = useState<any>(null);
+  const [resumePaymentData, setResumePaymentData] = useState<any>(null);
+  const [isReturningToCheckout, setIsReturningToCheckout] = useState(false);
+
   const [isPincodeModalOpen, setIsPincodeModalOpen] = useState(false);
   const [isAddressVerificationOpen, setIsAddressVerificationOpen] = useState(false);
   const [verifiedAddressData, setVerifiedAddressData] = useState<{
@@ -170,7 +178,7 @@ export default function Home() {
 
   // 🎁 Extract pending referral bonus amount for display
   const pendingBonusAmount = user?.pendingBonus?.amount || 0;
-  
+
   // 🎁 Extract earned referral bonuses for display (referrer rewards)
   const earnedBonusAmount = (user as any)?.earnedReferralBonuses || 0;
 
@@ -203,6 +211,27 @@ export default function Home() {
   useEffect(() => {
     fetchChefStatuses();
   }, [fetchChefStatuses]);
+
+  // ── STEP 2: Fetch pending checkout on mount (for resume after QR cancel) ─────
+  useEffect(() => {
+    const token = localStorage.getItem("userToken");
+    if (!token) return; // Only attempt for users with a token
+
+    const fetchPendingCheckout = async () => {
+      try {
+        const res = await api.get("/api/pending-checkouts/latest");
+        if (res.data) {
+          console.log("[RESUME] Found pending checkout:", res.data.id);
+          setPendingCheckout(res.data);
+        }
+      } catch {
+        // 404 = no pending checkout, any error = silently ignore
+        console.log("[RESUME] No pending checkout found");
+      }
+    };
+
+    fetchPendingCheckout();
+  }, []); // Run once on mount
 
   // ============================================
   // FIXED LOCATION DETECTION PRIORITY (CRITICAL FIX)
@@ -424,25 +453,16 @@ export default function Home() {
       specialInstructions,
     };
 
-    const checkResult = canAddItem(cartItem.chefId, cartItem.categoryId);
-    if (!checkResult.canAdd) {
-      const confirmed = window.confirm(
-        `Your ${categoryName} cart contains items from ${checkResult.conflictChef}. Do you want to replace them with items from ${cartItem.chefName || "this chef"}?`
-      );
-      if (confirmed) {
-        clearCart(cartItem.categoryId || "");
-        cartAddToCart(cartItem, categoryName, chef?.latitude, chef?.longitude);
-      }
-      return;
-    }
-
+    // Allow creating multiple carts per category scoped by chef. Previously we
+    // prompted to replace an existing cart — now we silently create a new
+    // cart for this (category, chef) pair so users can maintain multiple carts.
     cartAddToCart(cartItem, categoryName, chef?.latitude, chef?.longitude);
   };
 
   const totalItems = getTotalItems();
 
   // ✅ Called when checkout creates order successfully
-  const handleCheckout = (categoryId: string) => {
+  const handleCheckout = (categoryId: string, chefId?: string) => {
     // ZOMATO-STYLE: Check if user is in delivery zone before allowing checkout
     if (!userInDeliveryZone && !userLatitude && !userLongitude) {
       toast({
@@ -456,7 +476,7 @@ export default function Home() {
 
     // Get the cart with precomputed delivery values
     const cartsWithDelivery = getAllCartsWithDelivery();
-    const cart = cartsWithDelivery.find(c => c.categoryId === categoryId);
+    const cart = cartsWithDelivery.find(c => c.categoryId === categoryId && (chefId ? c.chefId === chefId : true));
 
     console.log("[CHECKOUT] Cart selected for checkout:", {
       categoryId,
@@ -484,46 +504,119 @@ export default function Home() {
 
   // ✅ Called when checkout creates order successfully
   const handleShowPaymentQR = (paymentData: {
-    orderData: any;
+    orderData?: any;
+    orderId?: string;
     amount: number;
     customerName: string;
     phone: string;
     email?: string;
     address: string;
+    pendingCheckoutId?: string | null;
   }) => {
     setPaymentOrderDetails(paymentData);
     setIsCheckoutOpen(false);
+    setIsReturningToCheckout(false); // ✅ Unhide banner logic if they returned to checkout and then paid
     setTimeout(() => {
       setIsPaymentQROpen(true);
     }, 100);
   };
 
   // ✅ Called after QR payment flow completes
-  const handleOrderSuccess = (categoryId: string | null) => {
+  // Called when an order completes (from PaymentQRDialog). Use selectedCart
+  // to clear the exact chef+category cart that was just placed.
+  const handleOrderSuccess = () => {
     setIsPaymentQROpen(false);
     setPaymentOrderDetails(null);
+    setIsReturningToCheckout(false); // ✅ Ensure banner can show up after successful payment
+    
+    // Clean up checkout storage so next order starts fresh
+    // 🛡️ FIX: Intentionally NOT clearing checkoutFormData so that 
+    // the user's name, phone number, and address are pre-filled next time!
+    localStorage.removeItem("pendingReferralCode");
 
-    // Clear the cart for the completed order
-    if (categoryId) {
-      clearCart(categoryId);
+    if (selectedCart) {
+      clearCart(selectedCart.categoryId, selectedCart.chefId);
       toast({
-        title: "Cart cleared",
-        description: "Your order has been placed successfully",
+        title: "📋 Order Received",
+        description: "Your order has been received. Waiting for admin confirmation...",
+        className: "bg-green-600 text-white border-none shadow-xl",
       });
+      // 🚀 Force the active order banner to fetch and show up instantly
+      queryClient.invalidateQueries({ queryKey: ["active-order"] });
     }
   };
 
-  // ✅ Called when QR dialog is closed/canceled - redirect to home completely
-  const handlePaymentQRClose = () => {
-    console.log("[PAYMENT] User canceled QR payment - closing and returning to home");
+  // ── STEP 3: Resume cart + QR from saved pending checkout ─────────────────
+  const handleResumeCart = async () => {
+    if (!pendingCheckout) return;
+
+    // Snapshot before clearing so the dialog still has data
+    const snapshot = { ...pendingCheckout };
+
+    // Restore cart using Zustand state directly (CategoryCart shape)
+    if (snapshot.items?.length) {
+      const restoredCart = {
+        categoryId: snapshot.categoryId || "",
+        categoryName: snapshot.categoryName || "",
+        chefId: snapshot.chefId || "",
+        chefName: snapshot.chefName || "",
+        items: snapshot.items,
+      };
+      const existingCarts = useCart.getState().carts.filter(
+        (c) => !(c.categoryId === restoredCart.categoryId && c.chefId === restoredCart.chefId)
+      );
+      useCart.setState({ carts: [...existingCarts, restoredCart] });
+      setSelectedCart(restoredCart as any);
+    }
+
+    // Store snapshot so CheckoutDialog can auto-fill address and phone
+    setResumePaymentData(snapshot);
+    setIsCheckoutOpen(true);
+    setPendingCheckout(null);
+
+    // Delete from backend
+    try {
+      await api.delete(`/api/pending-checkouts/${snapshot.id}`);
+    } catch (err) {
+      console.error("[RESUME] Failed to delete pending checkout:", err);
+    }
+  };
+
+  // ✅ Called when QR dialog is closed/canceled
+  const handlePaymentQRClose = async (options?: { returnToCheckout?: boolean }) => {
+    console.log("[PAYMENT] User closed QR payment", options);
     setIsPaymentQROpen(false);
-    setPaymentOrderDetails(null);
-    // Don't reopen checkout - user goes back to home page
+
+    if (options?.returnToCheckout) {
+      console.log("[PAYMENT] Returning to checkout");
+      setIsReturningToCheckout(true);
+      try {
+        const res = await api.get("/api/pending-checkouts/latest");
+        setResumePaymentData(res.data || null);
+        setIsCheckoutOpen(true);
+      } catch (err) {
+        setIsCheckoutOpen(true); // Fallback
+      }
+    } else {
+      setPaymentOrderDetails(null);
+      // Don't reopen checkout - user goes back to home page
+      // Re-check for pending checkout (PaymentQRDialog saves one on cancel)
+      const token = localStorage.getItem("userToken");
+      if (token) {
+        setTimeout(() => {
+          api.get("/api/pending-checkouts/latest")
+            .then((res) => { if (res.data) setPendingCheckout(res.data); })
+            .catch(() => { });
+        }, 500);
+      }
+    }
   };
 
   // ✅ Called when checkout dialog closes
   const handleCheckoutClose = () => {
     setIsCheckoutOpen(false);
+    setIsReturningToCheckout(false);
+    setResumePaymentData(null); // Clear pending checkout data so next checkout is clean
     setCheckoutCategoryId("");
     setSelectedCart(null); // Reset selected cart
   };
@@ -669,7 +762,7 @@ export default function Home() {
     const categoryB = categories.find(c => c.id === b.categoryId);
     const orderA = categoryA?.displayOrder ?? 999;
     const orderB = categoryB?.displayOrder ?? 999;
-    
+
     if (orderA !== orderB) {
       return orderA - orderB; // Categories with lower displayOrder come first
     }
@@ -677,7 +770,7 @@ export default function Home() {
     // 2. Within same category, sort by availability (available chefs first)
     const isActiveA = chefStatuses[a.id] !== undefined ? chefStatuses[a.id] : (a.isActive !== false);
     const isActiveB = chefStatuses[b.id] !== undefined ? chefStatuses[b.id] : (b.isActive !== false);
-    
+
     if (isActiveA !== isActiveB) {
       return isActiveA ? -1 : 1; // Available chefs come first (true = -1, false = 1)
     }
@@ -838,6 +931,47 @@ export default function Home() {
 
 
       <main className="flex-1">
+        <ActiveOrderBanner
+          isPaymentOpen={isPaymentQROpen}
+          isCheckoutOpen={isCheckoutOpen}
+          isReturningToCheckout={isReturningToCheckout}
+        />
+
+        {/* ── STEP 4: Resume pending order banner ────────────────────────── */}
+        {pendingCheckout && !isPaymentQROpen && !isCheckoutOpen && (
+          <div className="fixed bottom-16 left-0 right-0 z-[55] px-4 pointer-events-none">
+            <div className="max-w-2xl mx-auto pointer-events-auto">
+              <div className="bg-amber-50 border border-amber-400 rounded-xl shadow-lg p-3 flex justify-between items-center gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-amber-900 truncate">
+                    🛒 Resume your last order
+                  </p>
+                  <p className="text-xs text-amber-700 mt-0.5">
+                    ₹{Number(pendingCheckout.total || 0).toLocaleString("en-IN")} &bull;{" "}
+                    {pendingCheckout.items?.length ?? 0} item{pendingCheckout.items?.length !== 1 ? "s" : ""}
+                  </p>
+                </div>
+                <div className="flex gap-2 flex-shrink-0">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 text-xs border-amber-400 text-amber-800 hover:bg-amber-100"
+                    onClick={() => setPendingCheckout(null)}
+                  >
+                    Dismiss
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="h-8 text-xs bg-amber-500 hover:bg-amber-600 text-white"
+                    onClick={handleResumeCart}
+                  >
+                    Resume
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
         <Hero />
 
         {/* 🎁 Referral Bonus Banner */}
@@ -1521,8 +1655,8 @@ export default function Home() {
         onAddToCart={handleAddToCart}
         onUpdateQuantity={updateQuantity}
         cartItems={
-          selectedCategoryForMenu
-            ? carts.find(c => c.categoryId === selectedCategoryForMenu.id)?.items.map(item => ({
+          selectedCategoryForMenu && selectedChefForMenu
+            ? carts.find(c => c.categoryId === selectedCategoryForMenu.id && c.chefId === selectedChefForMenu.id)?.items.map(item => ({
               id: item.id,
               quantity: item.quantity,
               price: item.price,
@@ -1547,9 +1681,10 @@ export default function Home() {
         isOpen={isCheckoutOpen}
         onClose={handleCheckoutClose}
         cart={selectedCart} // Use selectedCart for the checkout dialog
+        initialData={resumePaymentData} // 🆕 Auto-fill from pending checkout
         onClearCart={() => {
           if (selectedCart) {
-            clearCart(selectedCart.categoryId);
+            clearCart(selectedCart.categoryId, selectedCart.chefId);
           }
         }}
         onShowPaymentQR={handleShowPaymentQR}
@@ -1562,29 +1697,28 @@ export default function Home() {
           paymentData={paymentOrderDetails}
           checkoutCategoryId={checkoutCategoryId}
           onOrderSuccess={() => {
-            // 🛡️ FIX BUG 2: Clear cart after order is confirmed
-            if (checkoutCategoryId) {
-              clearCart(checkoutCategoryId);
-              // Also clear from localStorage immediately to ensure persistence
-              try {
-                const state = localStorage.getItem("cart-storage");
-                if (state) {
-                  const parsed = JSON.parse(state);
-                  if (parsed.state?.carts) {
-                    parsed.state.carts = parsed.state.carts.filter(
-                      (c: any) => c.categoryId !== checkoutCategoryId
-                    );
-                    localStorage.setItem("cart-storage", JSON.stringify(parsed));
-                  }
+            // Clear the specific selected cart and its persisted entry
+            handleOrderSuccess();
+            try {
+              const state = localStorage.getItem("cart-storage");
+              if (state) {
+                const parsed = JSON.parse(state);
+                if (parsed.state?.carts && selectedCart) {
+                  parsed.state.carts = parsed.state.carts.filter(
+                    (c: any) => !(c.categoryId === selectedCart.categoryId && c.chefId === selectedCart.chefId)
+                  );
+                  localStorage.setItem("cart-storage", JSON.stringify(parsed));
                 }
-              } catch (e) {
-                console.warn("[HOME] Failed to clear cart from localStorage", e);
               }
-              console.log("[HOME] Cart cleared for category:", checkoutCategoryId);
+            } catch (e) {
+              console.warn("[HOME] Failed to clear cart from localStorage", e);
             }
+            if (selectedCart) console.log("[HOME] Cart cleared for:", selectedCart.categoryId, selectedCart.chefId);
           }}
         />
       )}
+
+
 
       <SubscriptionDrawer isOpen={isSubscriptionOpen} onClose={() => setIsSubscriptionOpen(false)} />
 
@@ -1737,7 +1871,6 @@ export default function Home() {
           </div>
         </DialogContent>
       </Dialog>
-      <ActiveOrderBanner />
     </div>
   );
 }
@@ -1746,7 +1879,7 @@ export default function Home() {
 function ReferralBonusBanner() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
-  
+
   const { data: latestBonus } = useQuery<{
     amount: number;
     id: string;

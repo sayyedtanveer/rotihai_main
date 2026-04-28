@@ -229,7 +229,7 @@ var init_schema = __esm({
       sortOrder: integer("sort_order").notNull().default(0)
       // NEW: Controls product order within section (lower = first)
     });
-    paymentStatusEnum = pgEnum("payment_status", ["pending", "paid", "confirmed"]);
+    paymentStatusEnum = pgEnum("payment_status", ["pending", "pending_verification", "paid", "confirmed"]);
     deliveryPersonnelStatusEnum = pgEnum("delivery_personnel_status", ["available", "busy", "offline"]);
     deliveryPersonnel = pgTable("delivery_personnel", {
       id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -297,6 +297,9 @@ var init_schema = __esm({
       createdAt: timestamp("created_at").notNull().default(sql`now()`),
       expiresAt: timestamp("expires_at").notNull().default(sql`now() + interval '30 minutes'`),
       // Payment deadline for pending orders
+      // PendingCheckout link — set when order is created from a PendingCheckout (prevents duplicates)
+      pendingCheckoutId: varchar("pending_checkout_id").unique(),
+      // UNIQUE: one order per pending checkout
       // Google Pay verification fields
       paymentVerificationKey: varchar("payment_verification_key", { length: 100 }),
       expectedPayerPhone: varchar("expected_payer_phone", { length: 20 }),
@@ -1052,6 +1055,8 @@ var init_schema = __esm({
     });
     pendingCheckouts = pgTable("pending_checkouts", {
       id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+      userId: varchar("user_id"),
+      // FK to users — set after silent login, used for fast lookup
       phone: varchar("phone", { length: 20 }).notNull(),
       customerName: varchar("customer_name", { length: 255 }).notNull(),
       email: varchar("email", { length: 255 }),
@@ -1079,8 +1084,10 @@ var init_schema = __esm({
       deliverySlotId: varchar("delivery_slot_id"),
       deliveryTime: varchar("delivery_time", { length: 100 }),
       deliveryDate: varchar("delivery_date", { length: 10 }),
+      expiresAt: timestamp("expires_at").notNull().default(sql`now() + interval '15 minutes'`),
+      // Auto-expires after 15 min
       status: varchar("status", { length: 20 }).notNull().default("pending"),
-      // "pending", "confirmed" (order created), "abandoned"
+      // "pending", "confirmed", "cancelled", "abandoned"
       isDeleted: boolean("is_deleted").notNull().default(false),
       // Soft delete: true when payment completed
       createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -1089,23 +1096,28 @@ var init_schema = __esm({
       // Links to actual order once created
     }, (table) => [
       index("IDX_pending_checkouts_phone").on(table.phone),
+      index("IDX_pending_checkouts_user").on(table.userId),
       index("IDX_pending_checkouts_status").on(table.status),
       index("IDX_pending_checkouts_created").on(table.createdAt),
       index("IDX_pending_checkouts_order").on(table.orderId),
-      index("IDX_pending_checkouts_deleted").on(table.isDeleted)
+      index("IDX_pending_checkouts_deleted").on(table.isDeleted),
+      index("IDX_pending_checkouts_expires").on(table.expiresAt)
     ]);
     insertPendingCheckoutSchema = createInsertSchema(pendingCheckouts).extend({
       id: z.string().optional(),
+      userId: z.string().nullable().optional(),
       createdAt: z.date().optional(),
       updatedAt: z.date().optional(),
       orderId: z.string().nullable().optional(),
-      status: z.string().optional()
+      status: z.string().optional(),
+      expiresAt: z.date().optional()
     }).omit({
       id: true,
       createdAt: true,
       updatedAt: true,
       orderId: true,
-      status: true
+      status: true,
+      expiresAt: true
     });
   }
 });
@@ -13559,6 +13571,85 @@ async function registerRoutes(app2) {
       res.status(500).json({ message: "Failed to check phone number" });
     }
   });
+  app2.post("/api/user/login-or-create", async (req, res) => {
+    try {
+      const { name, phone, email, address } = req.body;
+      if (!phone) {
+        res.status(400).json({ message: "Phone is required" });
+        return;
+      }
+      let user = await storage.getUserByPhone(phone);
+      if (user) {
+        await storage.updateUserLastLogin(user.id);
+        const accessToken2 = generateAccessToken2(user);
+        const refreshToken2 = generateRefreshToken2(user);
+        console.log(`[LOGIN-OR-CREATE] Existing user logged in: ${user.id}`);
+        res.json({
+          user: {
+            id: user.id,
+            name: user.name,
+            phone: user.phone,
+            email: user.email,
+            address: user.address,
+            referralCode: user.referralCode
+          },
+          accessToken: accessToken2,
+          refreshToken: refreshToken2
+        });
+        return;
+      }
+      const generatedPassword = phone.slice(-6);
+      const passwordHash = await hashPassword2(generatedPassword);
+      user = await storage.createUser({
+        name: name || "User",
+        phone,
+        email: email || null,
+        address: address || null,
+        passwordHash,
+        referralCode: null,
+        walletBalance: 0,
+        latitude: null,
+        longitude: null
+      });
+      try {
+        const referralCode = await storage.generateReferralCode(user.id);
+        user.referralCode = referralCode;
+        console.log(`[LOGIN-OR-CREATE] Referral code generated: ${referralCode}`);
+      } catch (error) {
+        console.warn(`[LOGIN-OR-CREATE] Referral code generation failed (non-blocking): ${error.message}`);
+      }
+      if (email) {
+        try {
+          const emailHtml = createWelcomeEmail(name || "User", phone, generatedPassword);
+          await sendEmail({
+            to: email,
+            subject: "\u{1F37D}\uFE0F Welcome to RotiHai - Your Account Details",
+            html: emailHtml
+          });
+        } catch (emailError) {
+          console.warn("[LOGIN-OR-CREATE] Welcome email failed (non-blocking):", emailError);
+        }
+      }
+      const accessToken = generateAccessToken2(user);
+      const refreshToken = generateRefreshToken2(user);
+      console.log(`[LOGIN-OR-CREATE] New user created: ${user.id}`);
+      res.json({
+        user: {
+          id: user.id,
+          name: user.name,
+          phone: user.phone,
+          email: user.email,
+          address: user.address,
+          referralCode: user.referralCode
+        },
+        accessToken,
+        refreshToken
+      });
+    } catch (error) {
+      console.error("[LOGIN-OR-CREATE ERROR]", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
   app2.post("/api/user/reset-password", async (req, res) => {
     try {
       const { phone } = req.body;
@@ -14756,11 +14847,17 @@ async function registerRoutes(app2) {
           const product = await storage.getProductById(item.id);
           return {
             ...item,
-            hotelPrice: product?.hotelPrice || 0
+            hotelPrice: product?.hotelPrice || 0,
             // Add partner's cost price to order item
+            chefId: product?.chefId || item.chefId || void 0
           };
         })
       );
+      const itemChefIds = Array.from(new Set(orderPayload.items.map((it) => it.chefId || "").filter(Boolean)));
+      if (itemChefIds.length > 1) {
+        console.warn("\u{1F6AB} Attempt to create order with items from multiple chefs:", itemChefIds);
+        return res.status(400).json({ message: "Order contains items from multiple chefs. Please checkout each chef's cart separately." });
+      }
       if (orderPayload.deliverySlotId) {
         try {
           const slot = await storage.getDeliveryTimeSlot(orderPayload.deliverySlotId);
@@ -14910,11 +15007,24 @@ async function registerRoutes(app2) {
         return;
       }
       const activeOrder = activeOrders[0];
+      let chefName = "Chef";
+      try {
+        if (activeOrder.chefId) {
+          const chef = await storage.getChefById(activeOrder.chefId);
+          if (chef) chefName = chef.name;
+        }
+      } catch (err) {
+        console.error("Failed to fetch chef name for active order", err);
+      }
       res.json({
-        id: activeOrder.id,
-        status: activeOrder.status,
-        total_amount: activeOrder.total,
-        createdAt: activeOrder.createdAt
+        order: {
+          id: activeOrder.id,
+          status: activeOrder.status,
+          paymentStatus: activeOrder.paymentStatus || "pending",
+          total: activeOrder.total,
+          chefName,
+          createdAt: activeOrder.createdAt
+        }
       });
     } catch (error) {
       console.error("GET /api/orders/active error:", error);
@@ -15302,6 +15412,39 @@ async function registerRoutes(app2) {
       res.status(500).json({ message: error.message || "Failed to fetch pending checkouts" });
     }
   });
+  app2.get("/api/pending-checkouts/latest", async (req, res) => {
+    try {
+      let userId = null;
+      if (req.headers.authorization && req.headers.authorization.startsWith("Bearer ")) {
+        try {
+          const token = req.headers.authorization.substring(7);
+          const { verifyToken: verifyToken6 } = await Promise.resolve().then(() => (init_userAuth(), userAuth_exports));
+          const payload = verifyToken6(token);
+          if (payload && payload.userId) {
+            userId = payload.userId;
+          }
+        } catch (tokenError) {
+        }
+      }
+      if (!userId) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      const user = await storage.getUser(userId);
+      if (!user || !user.phone) {
+        return res.status(404).json({ message: "User not found or no phone number" });
+      }
+      const pending = await storage.getPendingCheckoutsByPhone(user.phone);
+      const activePending = pending.filter((p) => p.status === "pending").sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      if (activePending.length > 0) {
+        res.json(activePending[0]);
+      } else {
+        res.json(null);
+      }
+    } catch (error) {
+      console.error("Error fetching latest pending checkout:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch latest pending checkout" });
+    }
+  });
   app2.get("/api/admin/pending-checkouts", async (req, res) => {
     try {
       const pending = await storage.getAllPendingCheckouts();
@@ -15323,6 +15466,72 @@ async function registerRoutes(app2) {
     } catch (error) {
       console.error("Error deleting pending checkout:", error);
       res.status(500).json({ message: error.message || "Failed to delete pending checkout" });
+    }
+  });
+  app2.post("/api/pending-checkouts/:id/cancel", async (req, res) => {
+    try {
+      const { id } = req.params;
+      console.log(`[PENDING-CHECKOUT] Cancelling checkout: ${id}`);
+      const deleted = await storage.deletePendingCheckout(id);
+      if (!deleted) {
+        return res.status(404).json({ message: "Pending checkout not found" });
+      }
+      console.log(`\u2705 Pending checkout cancelled/deleted: ${id}`);
+      res.json({ message: "Pending checkout cancelled" });
+    } catch (error) {
+      console.error("[PENDING-CHECKOUT] Error cancelling checkout:", error);
+      res.status(500).json({ message: error.message || "Failed to cancel checkout" });
+    }
+  });
+  app2.post("/api/pending-checkouts/:id/confirm", async (req, res) => {
+    try {
+      const { id } = req.params;
+      console.log(`[PENDING-CHECKOUT] POST confirm checkout - ID: ${id}`);
+      const pendingCheckout = await storage.getPendingCheckout(id);
+      if (!pendingCheckout) {
+        return res.status(404).json({ message: "Pending checkout not found" });
+      }
+      const orderData = {
+        chefId: pendingCheckout.chefId || void 0,
+        categoryId: pendingCheckout.categoryId || void 0,
+        categoryName: pendingCheckout.categoryName || void 0,
+        customerName: pendingCheckout.customerName,
+        phone: pendingCheckout.phone,
+        email: pendingCheckout.email || void 0,
+        address: pendingCheckout.address || "",
+        addressBuilding: pendingCheckout.addressBuilding || void 0,
+        addressStreet: pendingCheckout.addressStreet || void 0,
+        addressArea: pendingCheckout.addressArea || void 0,
+        addressCity: pendingCheckout.addressCity || void 0,
+        addressPincode: pendingCheckout.addressPincode || void 0,
+        customerLatitude: pendingCheckout.customerLatitude,
+        customerLongitude: pendingCheckout.customerLongitude,
+        subtotal: Number(pendingCheckout.subtotal) || 0,
+        deliveryFee: Number(pendingCheckout.deliveryFee) || 0,
+        discount: Number(pendingCheckout.discount) || 0,
+        total: Number(pendingCheckout.total) || 0,
+        couponCode: pendingCheckout.couponCode || void 0,
+        referralCode: pendingCheckout.referralCode || void 0,
+        walletAmountUsed: Number(pendingCheckout.walletAmountUsed) || 0,
+        bonusUsedAtCheckout: Number(pendingCheckout.bonusUsedAtCheckout) || 0,
+        deliverySlotId: pendingCheckout.deliverySlotId || void 0,
+        deliveryTime: pendingCheckout.deliveryTime || void 0,
+        deliveryDate: pendingCheckout.deliveryDate || void 0,
+        paymentStatus: "paid",
+        // Automatically mark as paid since they clicked "I Paid"
+        paymentMethod: "qr",
+        status: "pending",
+        // Waiting for chef to accept
+        items: pendingCheckout.items
+      };
+      const order = await storage.createOrder(orderData);
+      const { broadcastNewOrder: broadcastNewOrder3 } = await Promise.resolve().then(() => (init_websocket(), websocket_exports));
+      broadcastNewOrder3(order);
+      await storage.markPendingCheckoutAsConfirmedAndDeleted(id, order.id);
+      res.json({ message: "Order created successfully", order });
+    } catch (error) {
+      console.error("[PENDING-CHECKOUT] Error creating order from checkout:", error);
+      res.status(500).json({ message: error.message || "Failed to create order" });
     }
   });
   app2.patch("/api/pending-checkouts/:id/confirm", async (req, res) => {

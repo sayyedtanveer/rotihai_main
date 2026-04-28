@@ -41,7 +41,8 @@ interface CategoryCart {
 interface CartSidebarProps {
   isOpen: boolean;
   onClose: () => void;
-  onCheckout?: (categoryId: string) => void;
+  // Now returns both categoryId and chefId so the parent can select exact cart
+  onCheckout?: (categoryId: string, chefId?: string) => void;
 }
 
 export default function CartSidebar({
@@ -97,13 +98,13 @@ export default function CartSidebar({
     0
   );
 
-  const handleUpdateQuantity = (categoryId: string, itemId: string, quantity: number) => {
-    updateQuantity(categoryId, itemId, quantity);
+  const handleUpdateQuantity = (categoryId: string, itemId: string, quantity: number, chefId?: string) => {
+    updateQuantity(categoryId, itemId, quantity, chefId);
   };
 
-  const handleCheckout = (categoryId: string) => {
+  const handleCheckout = (categoryId: string, chefId?: string) => {
     if (onCheckout) {
-      onCheckout(categoryId);
+      onCheckout(categoryId, chefId);
     }
   };
 
@@ -169,7 +170,7 @@ export default function CartSidebar({
                 const isChefClosed = getChefIsClosed(cart);
                 return (
                   <CartCard
-                    key={cart.categoryId}
+                    key={`${cart.categoryId}_${cart.chefId}`}
                     categoryName={cart.categoryName}
                     chefName={cart.chefName}
                     items={cart.items}
@@ -181,12 +182,12 @@ export default function CartSidebar({
                     minOrderAmount={cart.minOrderAmount}
                     subtotal={cart.total || 0}
                     onUpdateQuantity={(itemId, quantity) =>
-                      handleUpdateQuantity(cart.categoryId, itemId, quantity)
+                      handleUpdateQuantity(cart.categoryId, itemId, quantity, cart.chefId)
                     }
                     onUpdateInstructions={(itemId, instructions) =>
-                      updateSpecialInstructions(cart.categoryId, itemId, instructions)
+                      updateSpecialInstructions(cart.categoryId, itemId, instructions, cart.chefId)
                     }
-                    onCheckout={() => handleCheckout(cart.categoryId)}
+                    onCheckout={() => handleCheckout(cart.categoryId, cart.chefId)}
                     chefClosed={isChefClosed}
                     productAvailability={productAvailability}
                   />

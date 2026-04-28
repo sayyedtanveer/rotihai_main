@@ -141,6 +141,9 @@ export function useOrderNotifications() {
                   title: notification.title,
                   description: notification.description,
                   duration: 5000,
+                  className: (updatedOrder.status === "pending" || updatedOrder.status === "confirmed") 
+                    ? "bg-green-600 text-white border-none shadow-xl" 
+                    : undefined,
                 });
 
                 // Add to notification store (for bell icon)

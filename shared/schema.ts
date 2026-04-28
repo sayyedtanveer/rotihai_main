@@ -125,7 +125,7 @@ export const products = pgTable("products", {
   sortOrder: integer("sort_order").notNull().default(0), // NEW: Controls product order within section (lower = first)
 });
 
-export const paymentStatusEnum = pgEnum("payment_status", ["pending", "paid", "confirmed"]);
+export const paymentStatusEnum = pgEnum("payment_status", ["pending", "pending_verification", "paid", "confirmed"]);
 export const deliveryPersonnelStatusEnum = pgEnum("delivery_personnel_status", ["available", "busy", "offline"]);
 
 export const deliveryPersonnel = pgTable("delivery_personnel", {
@@ -188,6 +188,8 @@ export const orders = pgTable("orders", {
   deliveredAt: timestamp("delivered_at"),
   createdAt: timestamp("created_at").notNull().default(sql`now()`),
   expiresAt: timestamp("expires_at").notNull().default(sql`now() + interval '30 minutes'`), // Payment deadline for pending orders
+  // PendingCheckout link — set when order is created from a PendingCheckout (prevents duplicates)
+  pendingCheckoutId: varchar("pending_checkout_id").unique(), // UNIQUE: one order per pending checkout
   // Google Pay verification fields
   paymentVerificationKey: varchar("payment_verification_key", { length: 100 }),
   expectedPayerPhone: varchar("expected_payer_phone", { length: 20 }),
@@ -1023,6 +1025,7 @@ export type PendingBroadcast = typeof pendingBroadcasts.$inferSelect;
 // Pending Checkouts - Save user info when they click "Pay & Confirm" (before payment confirmation)
 export const pendingCheckouts = pgTable("pending_checkouts", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id"), // FK to users — set after silent login, used for fast lookup
   phone: varchar("phone", { length: 20 }).notNull(),
   customerName: varchar("customer_name", { length: 255 }).notNull(),
   email: varchar("email", { length: 255 }),
@@ -1049,31 +1052,37 @@ export const pendingCheckouts = pgTable("pending_checkouts", {
   deliverySlotId: varchar("delivery_slot_id"),
   deliveryTime: varchar("delivery_time", { length: 100 }),
   deliveryDate: varchar("delivery_date", { length: 10 }),
-  status: varchar("status", { length: 20 }).notNull().default("pending"), // "pending", "confirmed" (order created), "abandoned"
+  expiresAt: timestamp("expires_at").notNull().default(sql`now() + interval '15 minutes'`), // Auto-expires after 15 min
+  status: varchar("status", { length: 20 }).notNull().default("pending"), // "pending", "confirmed", "cancelled", "abandoned"
   isDeleted: boolean("is_deleted").notNull().default(false), // Soft delete: true when payment completed
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
   orderId: varchar("order_id"), // Links to actual order once created
 }, (table) => [
   index("IDX_pending_checkouts_phone").on(table.phone),
+  index("IDX_pending_checkouts_user").on(table.userId),
   index("IDX_pending_checkouts_status").on(table.status),
   index("IDX_pending_checkouts_created").on(table.createdAt),
   index("IDX_pending_checkouts_order").on(table.orderId),
   index("IDX_pending_checkouts_deleted").on(table.isDeleted),
+  index("IDX_pending_checkouts_expires").on(table.expiresAt),
 ]);
 
 export const insertPendingCheckoutSchema = createInsertSchema(pendingCheckouts).extend({
   id: z.string().optional(),
+  userId: z.string().nullable().optional(),
   createdAt: z.date().optional(),
   updatedAt: z.date().optional(),
   orderId: z.string().nullable().optional(),
   status: z.string().optional(),
+  expiresAt: z.date().optional(),
 }).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
   orderId: true,
   status: true,
+  expiresAt: true,
 });
 
 export type InsertPendingCheckout = z.infer<typeof insertPendingCheckoutSchema>;
