@@ -27,7 +27,8 @@ export interface DeliveryLocation {
   // "pincode" = coordinates from pincode (most reliable)
   // "gps" = coordinates from device GPS (fallback)
   // "manual" = address geocoded in checkout
-  source: "gps" | "manual" | "pincode" | null;
+  // "user_profile" = coordinates restored from saved user profile (persistent)
+  source: "gps" | "manual" | "pincode" | "user_profile" | null;
 }
 
 // ============================================

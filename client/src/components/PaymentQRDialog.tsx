@@ -247,6 +247,15 @@ export default function PaymentQRDialog({
     setIsConfirming(true);
 
     try {
+      const initId = paymentData?.pendingCheckoutId || orderIdFromCheckout;
+      if (initId) {
+        try {
+          await api.post(`/api/orders/${initId}/payment-initiated`);
+        } catch (err) {
+          console.warn("Payment initiated notify failed", err);
+        }
+      }
+
       // ✅ PRIORITY 1: Pending checkout (PRIMARY FLOW)
       if (paymentData?.pendingCheckoutId) {
         console.log("[PAYMENT] Using pendingCheckoutId:", paymentData.pendingCheckoutId);
@@ -257,6 +266,14 @@ export default function PaymentQRDialog({
 
         if (!res.data?.order) {
           throw new Error("Order not created from pending checkout");
+        }
+
+        // If backend provided a WhatsApp URL, open it in a new tab so user can notify the chef
+        try {
+          const wa = res.data.whatsappUrl || res.data?.order?.whatsappUrl;
+          if (wa) window.open(wa, "_blank");
+        } catch (openErr) {
+          console.warn("Failed to open WhatsApp link:", openErr);
         }
 
         onOrderSuccess?.();
@@ -273,6 +290,13 @@ export default function PaymentQRDialog({
 
         if (!res.data) {
           throw new Error("Payment confirmation failed");
+        }
+
+        try {
+          const wa = res.data.whatsappUrl;
+          if (wa) window.open(wa, "_blank");
+        } catch (openErr) {
+          console.warn("Failed to open WhatsApp link:", openErr);
         }
 
         onOrderSuccess?.();

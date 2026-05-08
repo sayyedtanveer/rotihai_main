@@ -234,6 +234,22 @@ export function broadcastNewOrder(order: Order) {
   }
 }
 
+export function broadcastPaymentInitiated(chefId: string, orderId: string) {
+  const message = JSON.stringify({
+    type: "PAYMENT_INITIATED",
+    orderId,
+    message: "Customer has completed payment. Verify soon."
+  });
+
+  clients.forEach((client, clientId) => {
+    if (client.type === "chef" && String(client.chefId) === String(chefId) && client.ws.readyState === WebSocket.OPEN) {
+      client.ws.send(message);
+      console.log(`  ✅ Sent PAYMENT_INITIATED to chef ${clientId}`);
+    }
+  });
+}
+
+
 // Broadcast subscription delivery to admins and assigned chef
 export function broadcastSubscriptionDelivery(subscription: any) {
   const message = JSON.stringify({

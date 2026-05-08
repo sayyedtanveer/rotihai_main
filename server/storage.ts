@@ -785,7 +785,7 @@ export class MemStorage implements IStorage {
       id,
       username: adminData.username,
       email: adminData.email,
-      phone: null,
+      phone: adminData.phone || null,
       passwordHash: adminData.passwordHash,
       role: adminData.role || "viewer",
       lastLoginAt: null,
@@ -814,7 +814,24 @@ export class MemStorage implements IStorage {
   }
 
   async getAllAdmins(): Promise<AdminUser[]> {
-    return db.query.adminUsers.findMany();
+    // ✅ Explicitly select all fields including phone
+    const result = await db
+      .select()
+      .from(adminUsers)
+      .execute();
+    
+    console.log("[STORAGE-DEBUG] getAllAdmins() result:", {
+      count: result.length,
+      fields: result.length > 0 ? Object.keys(result[0]) : [],
+      firstAdmin: result.length > 0 ? {
+        id: result[0].id,
+        username: result[0].username,
+        phone: result[0].phone,
+        role: result[0].role
+      } : null
+    });
+    
+    return result;
   }
 
   async getAllUsers(): Promise<User[]> {

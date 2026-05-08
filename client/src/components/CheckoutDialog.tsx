@@ -188,12 +188,37 @@ export default function CheckoutDialog({
   // Address confirmation state - controls visibility of below content
   const [addressConfirmed, setAddressConfirmed] = useState(false);
 
+  const prepareRestoredAddressForRevalidation = (hasCompleteAddress: boolean) => {
+    setAddressZoneValidated(false);
+    setAddressInDeliveryZone(false);
+    setAddressConfirmed(false);
+    setLocationError("");
+    setDeliveryDistance(null);
+    setIsEditingAddress(!hasCompleteAddress);
+  };
+
+  const hasUsableCoordinates = (latitude: unknown, longitude: unknown) => {
+    const lat = typeof latitude === "number" ? latitude : Number(latitude);
+    const lon = typeof longitude === "number" ? longitude : Number(longitude);
+
+    return (
+      Number.isFinite(lat) &&
+      Number.isFinite(lon) &&
+      lat >= -90 &&
+      lat <= 90 &&
+      lon >= -180 &&
+      lon <= 180 &&
+      !(lat === 0 && lon === 0)
+    );
+  };
+
   // Auto-scroll state for UX improvement
   const deliverySlotRef = useRef<HTMLDivElement>(null);
   const [shouldScrollToSlots, setShouldScrollToSlots] = useState(false);
 
   // ✅ NEW: Ref for Pay button focus management
   const payButtonRef = useRef<HTMLButtonElement>(null);
+  const geocodingAddressInFlightRef = useRef<string | null>(null);
 
   // ✅ Validation run id to cancel stale validations when referral code changes
   const validationRunRef = useRef(0);
@@ -315,13 +340,13 @@ export default function CheckoutDialog({
 
       // ✅ FIX: Only set validated if ALL required fields will be present
       // Note: This will be validated on next check when other fields are filled
-      if (addressBuilding?.trim() && addressStreet?.trim()) {
-        setAddressZoneValidated(true);
-        setAddressInDeliveryZone(true);
-      } else {
-        // Still auto-fill but don't validate until user fills remaining fields
-        setAddressZoneValidated(false);
-      }
+      const hasCompleteAddress =
+        !!addressBuilding?.trim() &&
+        !!addressStreet?.trim() &&
+        !!storedPincode.area?.trim() &&
+        !!storedPincode.pincode?.trim();
+
+      prepareRestoredAddressForRevalidation(hasCompleteAddress);
 
       console.log("[AUTO-SYNC-PINCODE] ✅ Pre-filled checkout form with stored pincode");
     }
@@ -1119,21 +1144,19 @@ export default function CheckoutDialog({
         parsedAddress?.area?.trim() &&
         parsedAddress?.pincode?.trim();
 
-      if (userWithLocation.latitude && userWithLocation.longitude && !hasStoredCoords && customerLatitude === null) {
+      if (hasUsableCoordinates(userWithLocation.latitude, userWithLocation.longitude) && !hasStoredCoords && customerLatitude === null) {
         console.log("[CHECKOUT] Restoring coordinates from DB profile:", userWithLocation.latitude, userWithLocation.longitude);
         setCustomerLatitude(userWithLocation.latitude);
         setCustomerLongitude(userWithLocation.longitude);
 
         // Only mark validated if ALL 4 address fields are complete
         if (hasCompleteAddress) {
-          setAddressZoneValidated(true);
-          setAddressInDeliveryZone(true);
-          setAddressConfirmed(true);
-          setIsEditingAddress(false);
-          console.log("[CHECKOUT] ✅ Complete address loaded - marked as validated and confirmed");
+          setShowAddressForm(true); // ✅ Show address panel immediately when complete address loaded
+          prepareRestoredAddressForRevalidation(true);
+          console.log("[CHECKOUT] Complete address loaded from profile and queued for re-validation");
         } else {
-          setAddressZoneValidated(false);
-          console.log("[CHECKOUT] ⚠️ Incomplete address loaded - NOT marked as validated, requires re-validation");
+          prepareRestoredAddressForRevalidation(false);
+          console.log("[CHECKOUT] Incomplete address loaded from profile and left in edit mode");
         }
       }
 
@@ -1191,13 +1214,18 @@ export default function CheckoutDialog({
           console.log("[CHECKOUT-FIX] Restored form data for non-authenticated user");
 
           // 🛡️ FIX: Also restore address validation states if same chef
+          const hasCompleteRestoredAddress =
+            !!formData.addressBuilding?.trim() &&
+            !!formData.addressStreet?.trim() &&
+            !!formData.addressArea?.trim() &&
+            !!formData.addressPincode?.trim();
+
           if (formData.chefId === cart?.chefId && formData.addressValidationStates) {
-            const validationStates = formData.addressValidationStates;
-            setAddressZoneValidated(validationStates.addressZoneValidated);
-            setAddressInDeliveryZone(validationStates.addressInDeliveryZone);
-            setAddressConfirmed(validationStates.addressConfirmed);
-            setIsEditingAddress(!validationStates.addressConfirmed); // Show view mode if already confirmed
-            console.log("[CHECKOUT-FIX] Restored address validation states for same chef");
+            if (hasCompleteRestoredAddress) {
+              setShowAddressForm(true); // ✅ Show address panel immediately when complete address restored
+            }
+            prepareRestoredAddressForRevalidation(hasCompleteRestoredAddress);
+            console.log("[CHECKOUT-FIX] Restored address fields for same chef and queued re-validation");
           }
         } catch (e) {
           console.error("[CHECKOUT] Failed to restore form data:", e);
@@ -1242,12 +1270,18 @@ export default function CheckoutDialog({
   // Restore saved address fields from Context and localStorage when checkout opens
   useEffect(() => {
     // Check if pincode is available in delivery context
-    if (isOpen && deliveryLocation.pincode) {
+    if (isOpen && deliveryLocation.pincode && !addressPincode) {
       console.log("[CHECKOUT] Prepopulating pincode from Context:", deliveryLocation.pincode);
       setAddressPincode(deliveryLocation.pincode);
     }
 
-    if (isOpen && deliveryLocation.address) {
+    const hasCheckoutAddressFields =
+      !!addressBuilding.trim() ||
+      !!addressStreet.trim() ||
+      !!addressArea.trim() ||
+      !!addressPincode.trim();
+
+    if (isOpen && deliveryLocation.address && !hasCheckoutAddressFields) {
       console.log("[CHECKOUT] Restoring address from Context:", deliveryLocation.address);
 
       // Try to restore from localStorage - it has the structured fields
@@ -1277,15 +1311,16 @@ export default function CheckoutDialog({
               setCustomerLatitude(parsed.latitude);
               setCustomerLongitude(parsed.longitude);
               
-              // ✅ FIX: Ensure panel collapses to edit state if address is fully loaded
-              if (structured.building && structured.street && structured.area && structured.pincode) {
-                setAddressZoneValidated(true);
-                setAddressInDeliveryZone(true);
-                setAddressConfirmed(true);
-                setIsEditingAddress(false);
+              // ✅ FIX: Show address form immediately when full address loaded
+              const hasCompleteAddress = structured.building && structured.street && structured.area && structured.pincode;
+              if (hasCompleteAddress) {
+                setShowAddressForm(true); // ✅ Show address panel immediately
+                prepareRestoredAddressForRevalidation(true);
+              } else {
+                prepareRestoredAddressForRevalidation(false);
               }
               
-              console.log("[CHECKOUT] Address structured fields restored.");
+              console.log("[CHECKOUT] Address structured fields restored.", { hasCompleteAddress });
               return;
             } catch (e) {
               console.log("[CHECKOUT] Could not parse structured address, will use full address");
@@ -1296,7 +1331,68 @@ export default function CheckoutDialog({
         }
       }
     }
-  }, [isOpen, deliveryLocation.address, deliveryLocation.pincode]);
+  }, [isOpen, deliveryLocation.address, deliveryLocation.pincode, addressPincode, addressBuilding, addressStreet, addressArea]);
+
+  // ============================================
+  // RESTORE COORDINATES FROM USER PROFILE
+  // IF address matches user's saved address
+  // ============================================
+  useEffect(() => {
+    if (!isOpen || !isAuthenticated || !user) {
+      return;
+    }
+
+    // Check if user has saved coordinates
+    if (!user.latitude || !user.longitude) {
+      console.log("[PROFILE-COORDS] User has no saved coordinates");
+      return;
+    }
+
+    // Build current checkout address from form fields
+    const currentCheckoutAddress = [addressBuilding, addressStreet, addressArea, addressCity, addressPincode]
+      .filter(Boolean)
+      .join(", ");
+
+    console.log("[PROFILE-COORDS] Comparing addresses:", {
+      userSavedAddress: user.address,
+      currentCheckoutAddress,
+      match: user.address === currentCheckoutAddress,
+      userHasCoordinates: !!user.latitude && !!user.longitude,
+    });
+
+    // Only restore if address EXACTLY matches AND user is not already editing
+    if (user.address && user.address === currentCheckoutAddress && !addressConfirmed) {
+      console.log("[PROFILE-COORDS] ✅ Address match found! Restoring coordinates from user profile");
+      console.log("[PROFILE-COORDS] Coordinates source: user_profile (persistent)");
+
+      // Restore coordinates
+      setCustomerLatitude(user.latitude);
+      setCustomerLongitude(user.longitude);
+
+      // Mark as validated (since we're using saved coordinates)
+      setAddressZoneValidated(true);
+      setAddressInDeliveryZone(true);
+      setLocationError("");
+
+      // Update delivery location context
+      setDeliveryLocation({
+        latitude: user.latitude,
+        longitude: user.longitude,
+        address: currentCheckoutAddress,
+        isInZone: true,
+        validatedAt: new Date().toISOString(),
+        source: "user_profile", // ← Track that coords came from saved profile
+      });
+
+      console.log("[PROFILE-COORDS] ✅ Coordinates restored successfully");
+      console.log(`[PROFILE-COORDS] Using saved coordinates: ${user.latitude}, ${user.longitude}`);
+    } else if (user.address && user.address !== currentCheckoutAddress && addressConfirmed) {
+      // Address changed since last order - require re-validation
+      console.log("[PROFILE-COORDS] ⚠️  Address changed since last order. Re-validation required.");
+      setAddressZoneValidated(false);
+      setAddressConfirmed(false);
+    }
+  }, [isOpen, isAuthenticated, user?.latitude, user?.longitude, user?.address, addressBuilding, addressStreet, addressArea, addressPincode, addressCity, addressConfirmed]);
 
   // Auto-request geolocation when checkout opens for DELIVERY FEE CALCULATION ONLY
   // GPS is NOT used for zone validation - only for accurate delivery fee
@@ -1365,6 +1461,7 @@ export default function CheckoutDialog({
         chefLat,
         chefLon,
         subtotal,
+        coordinateSource: deliveryLocation.source || "geocoded",
       });
 
       // Calculate fee using chef coordinates from cart (chef fee data comes from API when needed)
@@ -1375,7 +1472,12 @@ export default function CheckoutDialog({
         chefLon
       );
 
-      console.log("[DELIVERY-FEE-CALC] Fee calculated:", newDeliveryFee);
+      console.log("[DELIVERY-FEE-CALC] Fee calculated:", {
+        newDeliveryFee,
+        coordinateSource: deliveryLocation.source || "geocoded",
+        savedAddress: user?.address,
+        currentAddress: [addressBuilding, addressStreet, addressArea, addressPincode].filter(Boolean).join(", "),
+      });
       setDeliveryFee(newDeliveryFee);
 
       // Also recalculate total with new delivery fee
@@ -1409,41 +1511,39 @@ export default function CheckoutDialog({
       customerLongitude,
     });
 
-    if (isOpen && cart && !addressZoneValidated && !isEditingAddress) {
-      // If area is empty, use chef's coordinates for validation
-      if (!addressArea.trim() && cart.chefLatitude && cart.chefLongitude) {
-        console.log("[DELIVERY-ZONE] Area empty - using chef's coordinates for validation");
-        setCustomerLatitude(cart.chefLatitude);
-        setCustomerLongitude(cart.chefLongitude);
-        setAddressZoneValidated(true);
-        setAddressInDeliveryZone(true);
-        setLocationError("");
-
-        // Calculate delivery fee immediately with chef's coordinates
-        const newDeliveryFee = calculateDynamicDeliveryFee(
-          cart.chefLatitude,
-          cart.chefLongitude,
-          cart.chefLatitude,
-          cart.chefLongitude
-        );
-        setDeliveryFee(newDeliveryFee);
-        setDeliveryDistance(0); // Distance is 0 when using chef's location
-      } else if (addressArea.trim()) {
+    if (isOpen && cart && !addressZoneValidated && !isEditingAddress && !isGeocodingAddress) {
+      if (!addressArea.trim()) {
+        console.log("[DELIVERY-ZONE] Skipping auto-validation because address area is empty");
+        return;
+      } else {
         // If area has value AND we already have coordinates, skip geocoding and validate directly
-        if (customerLatitude !== null && customerLongitude !== null) {
+        const canReuseRestoredCoordinates =
+          customerLatitude !== null &&
+          customerLongitude !== null &&
+          deliveryLocation.source !== "pincode";
+
+        if (canReuseRestoredCoordinates) {
           console.log("[DELIVERY-ZONE] Using restored coordinates instead of re-geocoding");
           // Validate distance directly with restored coordinates
-          if (cart?.chefLatitude && cart?.chefLongitude) {
+          if (cart.chefLatitude !== undefined && cart.chefLatitude !== null && cart.chefLongitude !== undefined && cart.chefLongitude !== null) {
             const distance = calculateDistance(
               cart.chefLatitude,
               cart.chefLongitude,
               customerLatitude,
               customerLongitude
             );
-            const maxDeliveryDistance = cart?.maxDeliveryDistanceKm || 10;
+            const maxDeliveryDistance = cart.maxDeliveryDistanceKm || 10;
             const isInZone = distance <= maxDeliveryDistance;
+            const restoredDeliveryFee = calculateDynamicDeliveryFee(
+              customerLatitude,
+              customerLongitude,
+              cart.chefLatitude,
+              cart.chefLongitude
+            );
 
             setAddressZoneDistance(distance);
+            setDeliveryDistance(distance);
+            setDeliveryFee(restoredDeliveryFee);
             setAddressInDeliveryZone(isInZone);
             setAddressZoneValidated(true);
 
@@ -1452,8 +1552,14 @@ export default function CheckoutDialog({
             } else {
               setLocationError("");
             }
-            console.log("[DELIVERY-ZONE] Direct validation completed:", { distance, isInZone, maxDeliveryDistance });
+            console.log("[DELIVERY-ZONE] Direct validation completed:", {
+              distance,
+              isInZone,
+              maxDeliveryDistance,
+              coordinateSource: deliveryLocation.source || "restored",
+            });
           }
+          return;
         } else {
           // No coordinates, need to geocode
           const fullAddress = [addressBuilding, addressStreet, addressArea, addressCity, addressPincode]
@@ -1461,16 +1567,28 @@ export default function CheckoutDialog({
             .join(", ");
           console.log("[DELIVERY-ZONE] Auto-geocoding on dialog open:", fullAddress);
           autoGeocodeAddress(fullAddress);
+          return;
         }
-      } else if (customerLatitude !== null && customerLongitude !== null && !addressArea.trim()) {
-        // If we have coordinates but no area, this is invalid state - force area entry
-        console.log("[DELIVERY-ZONE] ⚠️ Coordinates exist but no area - forcing user to enter area");
-        setLocationError("Please enter your delivery area to proceed");
-        setAddressZoneValidated(false);
-        setAddressInDeliveryZone(false);
       }
     }
-  }, [isOpen, cart?.chefId, addressArea, addressBuilding, addressStreet, addressCity, addressPincode, customerLatitude, customerLongitude]);
+  }, [
+    isOpen,
+    cart?.chefId,
+    cart?.chefLatitude,
+    cart?.chefLongitude,
+    cart?.maxDeliveryDistanceKm,
+    addressArea,
+    addressBuilding,
+    addressStreet,
+    addressCity,
+    addressPincode,
+    customerLatitude,
+    customerLongitude,
+    addressZoneValidated,
+    isEditingAddress,
+    isGeocodingAddress,
+    deliveryLocation.source,
+  ]);
 
   // Fetch pending bonus and referral info from user profile
   useEffect(() => {
@@ -2051,7 +2169,7 @@ export default function CheckoutDialog({
             pincode: newPincode,
             areaName: pincodeData.area,
             validatedAt: new Date().toISOString(),
-            source: 'pincode',
+            source: geocodingAccuracy === 'pincode' ? 'pincode' : 'manual',
           });
 
           // Also save structured address fields
@@ -2149,6 +2267,14 @@ export default function CheckoutDialog({
   };
 
   const autoGeocodeAddress = async (addressToGeocode: string) => {
+    const normalizedGeocodeKey = addressToGeocode.trim().toLowerCase();
+
+    if (geocodingAddressInFlightRef.current === normalizedGeocodeKey) {
+      console.log("[LOCATION] Skipping duplicate geocode request already in progress:", addressToGeocode);
+      return;
+    }
+
+    geocodingAddressInFlightRef.current = normalizedGeocodeKey;
     setIsGeocodingAddress(true);
     setLocationError("");
 
@@ -2191,12 +2317,9 @@ export default function CheckoutDialog({
       });
 
       if (data.accuracy === 'pincode') {
-        console.warn("⚠️ [LOCATION] Using Pincode Fallback (Low Accuracy)");
-        toast({
-          title: "Low Accuracy Warning",
-          description: "Could not find exact address. Using Pincode area center.",
-          variant: "destructive",
-        });
+        console.warn("⚠️ [LOCATION] Using Pincode Fallback (Low Accuracy) - This is normal if precise geocoding unavailable");
+        // Silent fallback - system continues normally with pincode coordinates
+        // No toast warning shown because coordinates are valid and delivery will work correctly
       }
 
       // Get chef coordinates for automatic zone validation from API
@@ -2292,7 +2415,7 @@ export default function CheckoutDialog({
           longitude: data.longitude,
           distance: distanceFromChef,
           validatedAt: new Date().toISOString(),
-          source: 'manual',
+          source: data.accuracy === 'pincode' ? 'pincode' : 'manual',
         });
         // Also save structured address fields for rebinding
         localStorage.setItem("lastValidatedAddressStructured", JSON.stringify({
@@ -2316,7 +2439,7 @@ export default function CheckoutDialog({
           longitude: data.longitude,
           distance: distanceFromChef,
           validatedAt: new Date().toISOString(),
-          source: 'manual',
+          source: data.accuracy === 'pincode' ? 'pincode' : 'manual',
         });
         // Also save structured address fields for rebinding
         localStorage.setItem("lastValidatedAddressStructured", JSON.stringify({
@@ -2371,6 +2494,9 @@ export default function CheckoutDialog({
 
       setAddressZoneValidated(false);
     } finally {
+      if (geocodingAddressInFlightRef.current === normalizedGeocodeKey) {
+        geocodingAddressInFlightRef.current = null;
+      }
       setIsGeocodingAddress(false);
     }
   };
@@ -2674,11 +2800,19 @@ export default function CheckoutDialog({
           ? slotInfo.nextAvailableDate.toISOString().split("T")[0]
           : undefined;
 
-        // ✅ FALLBACK: Use Kurla West coordinates if address validation hasn't set them yet
-        // This handles the case where user refreshes page and coordinates get lost
-        // Default Kurla West: 19.0728, 72.8826 (same as server default)
-        const finalLatitude = customerLatitude ?? 19.0728;
-        const finalLongitude = customerLongitude ?? 72.8826;
+        // Require validated customer coordinates so checkout and server use the same distance basis.
+        if (!hasUsableCoordinates(customerLatitude, customerLongitude)) {
+          toast({
+            title: "Address Validation Required",
+            description: "Please validate your delivery address so we can calculate the correct delivery distance and fee.",
+            variant: "destructive",
+          });
+          setIsLoading(false);
+          return;
+        }
+
+        const finalLatitude = customerLatitude;
+        const finalLongitude = customerLongitude;
 
         const orderData = {
           customerName,
@@ -3246,9 +3380,9 @@ export default function CheckoutDialog({
                             <p className="text-sm text-gray-600 dark:text-gray-400">
                               {addressArea}, {addressCity} - {addressPincode}
                             </p>
-                            <p className="text-xs text-green-600 dark:text-green-400 mt-2 font-medium">
-                              Distance: {deliveryDistance !== null && deliveryDistance > 0 ? deliveryDistance.toFixed(2) : '0.00'} km
-                            </p>
+                            {/* <p className="text-xs text-green-600 dark:text-green-400 mt-2 font-medium">
+                              Distance: {deliveryDistance !== null ? `${deliveryDistance.toFixed(2)} km` : 'Awaiting validation'}
+                            </p> */}
                           </div>
                           <Button
                             variant="outline"
