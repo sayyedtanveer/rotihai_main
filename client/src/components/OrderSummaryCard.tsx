@@ -81,10 +81,10 @@ export default function OrderSummaryCard({
           {isExpanded ? <ChevronUp /> : <ChevronDown />}
         </div>
 
-        <div className="flex gap-3 mt-2 text-xs text-slate-600">
+        {/* <div className="flex gap-3 mt-2 text-xs text-slate-600">
           <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5" /> {distance}</span>
           <span className="flex items-center gap-1"><Star className="w-3.5 h-3.5 text-yellow-400" /> 4.8</span>
-        </div>
+        </div> */}
       </div>
 
       {/* ITEMS */}
