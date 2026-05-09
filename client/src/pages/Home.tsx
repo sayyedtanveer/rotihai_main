@@ -43,6 +43,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { calculateDistance } from "@/lib/locationUtils";
 import { useDeliveryLocation } from "@/contexts/DeliveryLocationContext";
 import api from "@/lib/apiClient";
+import { getRoadAdjustedDistance } from "@shared/deliveryUtils";
 
 
 const iconMap: Record<string, React.ReactNode> = {
@@ -1441,9 +1442,12 @@ export default function Home() {
                           const c = 2 * Math.asin(Math.sqrt(a));
                           const calculatedDistance = R * c;
                           if (calculatedDistance < 100) {
-                            distance = parseFloat(calculatedDistance.toFixed(1));
+                            // 🛣️ Apply road distance adjustment for display consistency with checkout
+                            // This uses the same multiplier (1.5x) as delivery fee calculation
+                            const adjustedDistance = getRoadAdjustedDistance(calculatedDistance);
+                            distance = parseFloat(adjustedDistance.toFixed(1));
 
-                            // Calculate delivery fee: distance × ₹5/km
+                            // Calculate delivery fee: using adjusted distance for consistency
                             const feePerKm = 5;
                             deliveryFee = Math.ceil(distance * feePerKm);
                           }
@@ -1502,7 +1506,7 @@ export default function Home() {
 
                             {distance !== null && isChefActive && (
                               <div className="absolute top-3 right-3 bg-white/95 backdrop-blur-sm px-2 py-1 rounded-full text-xs font-medium">
-                                {distance.toFixed(1)} km
+                                ~{distance.toFixed(1)} km
                               </div>
                             )}
                           </div>

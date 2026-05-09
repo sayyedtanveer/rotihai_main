@@ -6,20 +6,6 @@ const WHATSAPP_API_URL = process.env.WHATSAPP_API_URL || "";
 const WHATSAPP_API_TOKEN = process.env.WHATSAPP_API_TOKEN || "";
 const WHATSAPP_PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID || "";
 
-// 🔍 Log environment variables at module load time
-console.log("\n================================================================================");
-console.log("📱 [WHATSAPP-CONFIG] Environment Variables Loaded at Module Init:");
-console.log("================================================================================");
-console.log(`✅ WHATSAPP_API_URL: ${WHATSAPP_API_URL ? "SET" : "❌ MISSING"}`);
-console.log(`   Value: ${WHATSAPP_API_URL}`);
-console.log(`✅ WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID ? "SET" : "❌ MISSING"}`);
-console.log(`   Value: ${WHATSAPP_PHONE_NUMBER_ID}`);
-console.log(`✅ WHATSAPP_API_TOKEN: ${WHATSAPP_API_TOKEN ? "SET" : "❌ MISSING"}`);
-console.log(`   Length: ${WHATSAPP_API_TOKEN.length} chars`);
-console.log(`   First 20 chars: ${WHATSAPP_API_TOKEN.substring(0, 20)}...`);
-console.log(`   Last 20 chars: ...${WHATSAPP_API_TOKEN.substring(WHATSAPP_API_TOKEN.length - 20)}`);
-console.log("================================================================================\n");
-
 function getWhatsAppMessagesEndpoint(): string {
   const baseUrl = WHATSAPP_API_URL.replace(/\/$/, "");
 
@@ -45,39 +31,17 @@ interface WhatsAppMessage {
 }
 
 export async function sendWhatsAppMessage(phoneNumber: string, message: string): Promise<boolean> {
-  // If WhatsApp credentials are not configured, log a warning but don't fail
   if (!WHATSAPP_API_URL || !WHATSAPP_API_TOKEN || !WHATSAPP_PHONE_NUMBER_ID) {
-    console.warn(`\n⚠️ [WHATSAPP] Service NOT configured - skipping message to ${phoneNumber}`);
-    console.warn(`   WHATSAPP_API_URL: ${WHATSAPP_API_URL ? "✅ Set" : "❌ Missing"}`);
-    console.warn(`   WHATSAPP_API_TOKEN: ${WHATSAPP_API_TOKEN ? "✅ Set" : "❌ Missing"}`);
-    console.warn(`   WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID ? "✅ Set" : "❌ Missing"}`);
-    console.warn(`   To enable: Configure these in .env file\n`);
+    console.warn("[WHATSAPP] Service not configured. Skipping message.");
     return false;
   }
 
-  try {
-    const cleanPhone = phoneNumber.replace(/[^0-9]/g, "");
-    
-    console.log("\n================================================================================");
-    console.log(`📱 [WHATSAPP-REQUEST] Sending message to: ${phoneNumber}`);
-    console.log("================================================================================");
-    console.log(`📞 Cleaned phone: ${cleanPhone}`);
-    console.log(`📝 Message length: ${message.length} chars`);
-    console.log(`📍 API Base URL: ${WHATSAPP_API_URL}`);
-    
-    // 🔐 Log token info
-    console.log(`\n🔐 [TOKEN-DEBUG]`);
-    console.log(`   Token exists: ${WHATSAPP_API_TOKEN ? "✅ YES" : "❌ NO"}`);
-    console.log(`   Token length: ${WHATSAPP_API_TOKEN.length} chars`);
-    console.log(`   Token first 30: ${WHATSAPP_API_TOKEN.substring(0, 30)}...`);
-    console.log(`   Token last 30: ...${WHATSAPP_API_TOKEN.substring(Math.max(0, WHATSAPP_API_TOKEN.length - 30))}`);
-    
-    // 🆔 Log phone ID info
-    console.log(`\n🆔 [PHONE-ID-DEBUG]`);
-    console.log(`   Phone ID exists: ${WHATSAPP_PHONE_NUMBER_ID ? "✅ YES" : "❌ NO"}`);
-    console.log(`   Phone ID value: ${WHATSAPP_PHONE_NUMBER_ID}`);
-    console.log(`   Phone ID length: ${WHATSAPP_PHONE_NUMBER_ID.length} chars`);
+  const cleanPhone = phoneNumber.replace(/[^0-9]/g, "");
+  const maskedPhone = cleanPhone.length > 4
+    ? `${"*".repeat(cleanPhone.length - 4)}${cleanPhone.slice(-4)}`
+    : "****";
 
+  try {
     const payload: WhatsAppMessage = {
       messaging_product: "whatsapp",
       to: cleanPhone,
@@ -88,28 +52,8 @@ export async function sendWhatsAppMessage(phoneNumber: string, message: string):
       },
     };
 
-    console.log(`\n📤 [PAYLOAD-DEBUG]`);
-    console.log(`   Payload:`, JSON.stringify(payload, null, 2));
-
-    const endpoint = getWhatsAppMessagesEndpoint();
-    console.log(`\n🔗 [ENDPOINT-DEBUG]`);
-    console.log(`   Full endpoint: ${endpoint}`);
-    console.log(`   Method: POST`);
-
-    // 📋 Log request headers
-    const requestHeaders = {
-      Authorization: `Bearer ${WHATSAPP_API_TOKEN.substring(0, 20)}...${WHATSAPP_API_TOKEN.substring(WHATSAPP_API_TOKEN.length - 20)}`,
-      "Content-Type": "application/json",
-    };
-    console.log(`\n📋 [HEADERS-DEBUG]`);
-    console.log(`   Authorization (masked): Bearer ${WHATSAPP_API_TOKEN.substring(0, 20)}...`);
-    console.log(`   Content-Type: application/json`);
-    console.log(`   Full Authorization length: ${WHATSAPP_API_TOKEN.length} chars`);
-
-    console.log(`\n⏳ [REQUEST-STATUS] Making HTTP POST request...`);
-    
     const response = await axios.post(
-      endpoint,
+      getWhatsAppMessagesEndpoint(),
       payload,
       {
         headers: {
@@ -119,59 +63,21 @@ export async function sendWhatsAppMessage(phoneNumber: string, message: string):
       }
     );
 
-    const msgId = response.data?.messages?.[0]?.id;
-    console.log(`\n✅ [WHATSAPP-SUCCESS]`);
-    console.log(`   Message sent successfully!`);
-    console.log(`   Response status: ${response.status} ${response.statusText}`);
-    console.log(`   Message ID: ${msgId}`);
-    console.log(`   To: ${phoneNumber}`);
-    console.log(`   Response data:`, JSON.stringify(response.data, null, 2));
-    console.log("================================================================================\n");
+    const messageId = response.data?.messages?.[0]?.id;
+    console.log(`[WHATSAPP] Message sent to ${maskedPhone}: ${messageId || "unknown message id"}`);
     return true;
   } catch (error) {
-    console.error(`\n================================================================================`);
-    console.error(`❌ [WHATSAPP-ERROR] Failed to send message to ${phoneNumber}`);
-    console.error(`================================================================================`);
-    
     if (axios.isAxiosError(error)) {
-      console.error(`📊 [ERROR-DETAILS]`);
-      console.error(`   Status Code: ${error.response?.status}`);
-      console.error(`   Status Text: ${error.response?.statusText}`);
-      console.error(`   Error Message: ${error.message}`);
-      console.error(`   URL: ${error.config?.url}`);
-      console.error(`   Method: ${error.config?.method}`);
-      
-      // Log request headers (masked)
-      if (error.config?.headers) {
-        console.error(`   Request Headers:`, JSON.stringify({
-          Authorization: `Bearer ${WHATSAPP_API_TOKEN.substring(0, 20)}...`,
-          "Content-Type": error.config.headers["Content-Type"],
-        }, null, 2));
-      }
-      
-      // Log response data
+      console.error(`[WHATSAPP] Send failed for ${maskedPhone}: ${error.response?.status || ""} ${error.message}`);
       if (error.response?.data) {
-        console.error(`   Response Body:`, JSON.stringify(error.response.data, null, 2));
+        console.error("[WHATSAPP] Error response:", JSON.stringify(error.response.data));
       }
-      
-      // Log error codes
-      console.error(`   Error Code: ${error.code}`);
-      
     } else if (error instanceof Error) {
-      console.error(`   Type: ${error.name}`);
-      console.error(`   Message: ${error.message}`);
-      console.error(`   Stack: ${error.stack}`);
+      console.error(`[WHATSAPP] Send failed for ${maskedPhone}: ${error.message}`);
     } else {
-      console.error(`   Error (unknown type): ${JSON.stringify(error)}`);
+      console.error(`[WHATSAPP] Send failed for ${maskedPhone}: ${JSON.stringify(error)}`);
     }
-    
-    console.error(`\n⚠️ [POSSIBLE-CAUSES]`);
-    console.error(`   • Token has expired or been revoked`);
-    console.error(`   • Phone number ID is incorrect`);
-    console.error(`   • Invalid recipient phone number`);
-    console.error(`   • WhatsApp API endpoint changed`);
-    console.error(`   • Network connectivity issue`);
-    console.error("================================================================================\n");
+
     return false;
   }
 }

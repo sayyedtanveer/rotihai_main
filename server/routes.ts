@@ -17,6 +17,7 @@ import { db, subscriptions, orders, walletSettings, referralRewards, newsletterS
 import { eq } from "drizzle-orm";
 import { ZodError } from "zod";
 import axios from "axios";
+import { getRoadAdjustedDistance } from "@shared/deliveryUtils";
 
 // ✅ Constants - Avoid hardcoding enum values
 const DEFAULT_DELIVERY_TIME = "09:00";
@@ -2025,12 +2026,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Overwrite any client-supplied deliveryFee with server-calculated value
         (sanitized as any).deliveryFee = expectedDeliveryFee;
 
-        // Store distance for delivery partner payout calculation (as string for DECIMAL type)
-        (sanitized as any).distance = addressDistance.toFixed(2);
+        // 🛣️ Apply road distance multiplier for accurate display and payout
+        // This matches the adjusted distance used in fee calculation
+        const adjustedDistance = getRoadAdjustedDistance(addressDistance);
+        
+        // Store ADJUSTED distance for delivery partner payout calculation (as string for DECIMAL type)
+        (sanitized as any).distance = adjustedDistance.toFixed(2);
+
+        console.log(`[DISTANCE-ADJUSTED] Raw: ${addressDistance.toFixed(2)}km → Adjusted: ${adjustedDistance.toFixed(2)}km`);
 
         // Calculate distance-based delivery partner payout (fetches from database)
+        // Use ADJUSTED distance for payout consistency with fee calculation
         const deliveryPartnerPayout = await storage.calculateDeliveryPartnerPayout(
-          addressDistance,
+          adjustedDistance,
           sanitized.addressPincode  // Pass pincode for regional rate matching
         );
         (sanitized as any).deliveryPartnerPayout = deliveryPartnerPayout;

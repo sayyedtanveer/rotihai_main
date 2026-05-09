@@ -6,6 +6,7 @@ import {
   db, users, categories, products, orders, chefs, adminUsers, partnerUsers, subscriptions,
   subscriptionPlans, subscriptionDeliveryLogs, deliverySettings, deliveryPartnerPayouts, cartSettings, deliveryPersonnel, coupons, couponUsages, referrals, walletTransactions, referralRewards, promotionalBanners, deliveryTimeSlots, rotiSettings, visitors, deliveryAreas, adminSettings, payoutTransactions, pendingCheckouts
 } from "@shared/db";
+import { getRoadAdjustedDistance } from "@shared/deliveryUtils";
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
@@ -2992,11 +2993,15 @@ export class MemStorage implements IStorage {
     }
 
     try {
+      const adjustedDistance = getRoadAdjustedDistance(distance);
+
       // Fetch slab from database
       const matchingSlab = await this.getDeliveryPartnerPayoutByPincodeAndDistance(
         pincode || null,
-        distance
+        adjustedDistance
       );
+
+      console.log(`[PARTNER-PAYOUT] Adjusted road distance for slabs: ${adjustedDistance}km`);
 
       if (matchingSlab) {
         console.log(`[PARTNER-PAYOUT] Distance: ${distance}km, Pincode: ${pincode || 'N/A'}, Payout: ₹${matchingSlab.payoutAmount}`);

@@ -13,6 +13,12 @@ export interface DeliverySetting {
   isActive: boolean;
 }
 
+export const ROAD_DISTANCE_MULTIPLIER = 1.5;
+
+export function getRoadAdjustedDistance(rawDistance: number): number {
+  return Number((rawDistance * ROAD_DISTANCE_MULTIPLIER).toFixed(2));
+}
+
 // Haversine formula to calculate distance between two coordinates in kilometers
 export function calculateDistance(
   lat1: number,
@@ -86,7 +92,10 @@ export function calculateDelivery(
     };
   }
 
-  // Find matching delivery range based on distance
+  const adjustedDistance = getRoadAdjustedDistance(distance);
+
+  // Find matching delivery range based on adjusted road distance
+  console.log(`[Delivery Calc] Adjusted road distance for slabs: ${adjustedDistance}km`);
   console.log(`[Delivery Calc] Distance: ${distance}km, Subtotal: ₹${subtotal}`);
   console.log(`[Delivery Calc] Active settings:`, activeSettings.map(s =>
     `${s.name}: ${s.minDistance}-${s.maxDistance}km = ₹${s.price}`
@@ -95,7 +104,7 @@ export function calculateDelivery(
   const matchingSetting = activeSettings.find(setting => {
     const minDist = parseFloat(setting.minDistance);
     const maxDist = parseFloat(setting.maxDistance);
-    const matches = distance >= minDist && distance <= maxDist;
+    const matches = adjustedDistance >= minDist && adjustedDistance <= maxDist;
     console.log(`[Delivery Calc] Checking ${setting.name} (${minDist}-${maxDist}km): ${matches ? 'MATCH' : 'no match'}`);
     return matches;
   });
