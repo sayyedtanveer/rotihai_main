@@ -6,6 +6,20 @@ const WHATSAPP_API_URL = process.env.WHATSAPP_API_URL || "";
 const WHATSAPP_API_TOKEN = process.env.WHATSAPP_API_TOKEN || "";
 const WHATSAPP_PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID || "";
 
+function getWhatsAppMessagesEndpoint(): string {
+  const baseUrl = WHATSAPP_API_URL.replace(/\/$/, "");
+
+  if (baseUrl.endsWith("/messages")) {
+    return baseUrl;
+  }
+
+  if (WHATSAPP_PHONE_NUMBER_ID && !baseUrl.endsWith(`/${WHATSAPP_PHONE_NUMBER_ID}`)) {
+    return `${baseUrl}/${WHATSAPP_PHONE_NUMBER_ID}/messages`;
+  }
+
+  return `${baseUrl}/messages`;
+}
+
 interface WhatsAppMessage {
   messaging_product: string;
   to: string;
@@ -17,16 +31,20 @@ interface WhatsAppMessage {
 }
 
 export async function sendWhatsAppMessage(phoneNumber: string, message: string): Promise<boolean> {
-  // If WhatsApp credentials are not configured, log a warning but don't fail
   if (!WHATSAPP_API_URL || !WHATSAPP_API_TOKEN || !WHATSAPP_PHONE_NUMBER_ID) {
-    console.warn("⚠️ WhatsApp service not configured. Skipping WhatsApp message to:", phoneNumber);
+    console.warn("[WHATSAPP] Service not configured. Skipping message.");
     return false;
   }
+
+  const cleanPhone = phoneNumber.replace(/[^0-9]/g, "");
+  const maskedPhone = cleanPhone.length > 4
+    ? `${"*".repeat(cleanPhone.length - 4)}${cleanPhone.slice(-4)}`
+    : "****";
 
   try {
     const payload: WhatsAppMessage = {
       messaging_product: "whatsapp",
-      to: phoneNumber.replace(/[^0-9]/g, ""), // Remove non-numeric characters
+      to: cleanPhone,
       type: "text",
       text: {
         preview_url: false,
@@ -35,7 +53,7 @@ export async function sendWhatsAppMessage(phoneNumber: string, message: string):
     };
 
     const response = await axios.post(
-      `${WHATSAPP_API_URL}/messages`,
+      getWhatsAppMessagesEndpoint(),
       payload,
       {
         headers: {
@@ -45,10 +63,21 @@ export async function sendWhatsAppMessage(phoneNumber: string, message: string):
       }
     );
 
-    console.log(`✅ WhatsApp message sent to ${phoneNumber}:`, response.data?.messages?.[0]?.id);
+    const messageId = response.data?.messages?.[0]?.id;
+    console.log(`[WHATSAPP] Message sent to ${maskedPhone}: ${messageId || "unknown message id"}`);
     return true;
   } catch (error) {
-    console.error(`❌ WhatsApp send failed for ${phoneNumber}:`, error instanceof Error ? error.message : error);
+    if (axios.isAxiosError(error)) {
+      console.error(`[WHATSAPP] Send failed for ${maskedPhone}: ${error.response?.status || ""} ${error.message}`);
+      if (error.response?.data) {
+        console.error("[WHATSAPP] Error response:", JSON.stringify(error.response.data));
+      }
+    } else if (error instanceof Error) {
+      console.error(`[WHATSAPP] Send failed for ${maskedPhone}: ${error.message}`);
+    } else {
+      console.error(`[WHATSAPP] Send failed for ${maskedPhone}: ${JSON.stringify(error)}`);
+    }
+
     return false;
   }
 }
@@ -131,14 +160,40 @@ export async function sendOrderPlacedAdminNotification(
   orderId: string,
   userName: string,
   amount: number,
-  adminPhone?: string | null
+  adminPhone?: string | null,
+  items?: Array<{ name: string; quantity: number; price: number }>,
+  address?: string
 ): Promise<boolean> {
+  console.log(`\n📱 [WHATSAPP-ADMIN-ORDER] Starting order notification for ${orderId}`);
+  
   // Gracefully handle missing phone number
   if (!adminPhone || typeof adminPhone !== "string" || adminPhone.trim().length === 0) {
-    console.warn(`⚠️ Admin phone not configured. Skipping order notification for order ${orderId}`);
+    console.warn(`❌ [WHATSAPP-ADMIN-ORDER] Admin phone not configured!`);
+    console.warn(`   Phone value: ${adminPhone}`);
+    console.warn(`   Type: ${typeof adminPhone}`);
+    console.warn(`   Length: ${adminPhone?.length || 0}`);
+    console.warn(`   Order ${orderId} notification SKIPPED - no admin phone to send to`);
     return false;
   }
 
+  console.log(`✅ [WHATSAPP-ADMIN-ORDER] Admin phone found: ${adminPhone}`);
+  console.log(`   Order: ${orderId}`);
+  console.log(`   Customer: ${userName}`);
+  console.log(`   Amount: ₹${amount}`);
+  console.log(`   Items: ${items?.length || 0} item(s)`);
+  console.log(`   Address: ${address ? "✅ Provided" : "❌ Missing"}`);
+
+  // Format items list
+  let itemsList = "";
+  if (items && items.length > 0) {
+    itemsList = items
+      .map((item) => `• ${item.name} x${item.quantity} = ₹${item.price * item.quantity}`)
+      .join("\n");
+  } else {
+    itemsList = "• No items provided";
+  }
+
+  // Build message with items and address
   const message = `
 📦 *NEW ORDER RECEIVED* 📦
 
@@ -146,14 +201,60 @@ Order #: ${orderId}
 Customer: ${userName}
 Amount: ₹${amount}
 
+📋 *Items:*
+${itemsList}
+
+📍 *Delivery Address:*
+${address || "Address not provided"}
+
 🔗 View in dashboard to approve payment
 
 -RotiHai Admin System
   `.trim();
 
+  console.log(`📝 [WHATSAPP-ADMIN-ORDER] Message prepared: ${message.length} chars`);
+
   // Non-blocking - fire and forget
   sendWhatsAppMessage(adminPhone, message).catch(error => {
-    console.error(`⚠️ Failed to send admin notification for order ${orderId}:`, error);
+    console.error(`❌ [WHATSAPP-ADMIN-ORDER] Failed to send admin notification for order ${orderId}:`, error);
+  });
+
+  console.log(`📤 [WHATSAPP-ADMIN-ORDER] WhatsApp message queued for sending (non-blocking)\n`);
+  return true;
+}
+
+/**
+ * Send WhatsApp notification to admin when a customer clicks "I Paid"
+ * Non-blocking, fire-and-forget with graceful error handling
+ */
+export async function sendPaymentInitiatedAdminNotification(
+  checkoutOrOrderId: string,
+  userName: string,
+  userPhone: string,
+  amount: number,
+  adminPhone?: string | null
+): Promise<boolean> {
+  if (!adminPhone || typeof adminPhone !== "string" || adminPhone.trim().length === 0) {
+    console.warn(`Admin phone not configured. Skipping payment initiated notification for ${checkoutOrOrderId}`);
+    return false;
+  }
+
+  const safeAmount = Number.isFinite(amount) ? amount.toFixed(2) : "0.00";
+  const message = `
+*PAYMENT MARKED BY USER*
+
+Order/Checkout ID: ${checkoutOrOrderId}
+Customer: ${userName || "Unknown"}
+Phone: ${userPhone || "Not provided"}
+Amount: Rs.${safeAmount}
+
+User clicked "I Paid". Please verify payment in Admin > Payments.
+
+-RotiHai Admin System
+  `.trim();
+
+  sendWhatsAppMessage(adminPhone, message).catch(error => {
+    console.error(`Failed to send payment initiated admin notification for ${checkoutOrOrderId}:`, error);
   });
 
   return true;
@@ -223,8 +324,6 @@ Delivery Address: ${address}
 -RotiHai Team
   `.trim();
 
-  let successCount = 0;
-
   // Send to each delivery person (non-blocking, fire and forget)
   for (const deliveryPersonId of deliveryPersonIds) {
     const phone = deliveryPersonPhones.get(deliveryPersonId);
@@ -235,15 +334,13 @@ Delivery Address: ${address}
     }
 
     sendWhatsAppMessage(phone, message)
-      .then(success => {
-        if (success) successCount++;
-      })
       .catch(error => {
         console.error(`⚠️ Failed to send delivery notification to ${deliveryPersonId}:`, error);
       });
   }
 
-  return successCount;
+  // Return number of delivery persons notified (fire-and-forget doesn't wait for completion)
+  return deliveryPersonIds.length;
 }
 
 /**

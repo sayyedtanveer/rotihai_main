@@ -7,20 +7,78 @@ import { registerAdminRoutes } from "./adminRoutes";
 import { registerPartnerRoutes } from "./partnerRoutes";
 import { registerDeliveryRoutes } from "./deliveryRoutes";
 import gpayVerificationRoutes from "./routes/gpay-verification";
-import { setupWebSocket, broadcastNewOrder, broadcastOrderUpdate, broadcastSubscriptionDelivery, broadcastNewSubscriptionToAdmin, broadcastSubscriptionAssignmentToPartner, broadcastWalletUpdate, broadcastOrderCancelledToDelivery, broadcastPreparedOrderToAvailableDelivery } from "./websocket";
+import { setupWebSocket, broadcastNewOrder, broadcastOrderUpdate, broadcastSubscriptionDelivery, broadcastNewSubscriptionToAdmin, broadcastSubscriptionAssignmentToPartner, broadcastWalletUpdate, broadcastOrderCancelledToDelivery, broadcastPreparedOrderToAvailableDelivery, broadcastPaymentInitiated } from "./websocket";
 import { hashPassword, verifyPassword, generateAccessToken, generateRefreshToken, requireUser, type AuthenticatedUserRequest } from "./userAuth";
 import { verifyToken as verifyUserToken } from "./userAuth";
 import { requireAdmin } from "./adminAuth";
 import { sendEmail, createWelcomeEmail, createPasswordResetEmail, createPasswordChangeConfirmationEmail, sendOrderConfirmationEmail } from "./emailService";
-import { sendOrderPlacedAdminNotification } from "./whatsappService";
+import { sendOrderPlacedAdminNotification, sendPaymentInitiatedAdminNotification } from "./whatsappService";
 import { db, subscriptions, orders, walletSettings, referralRewards, newsletterSubscribers, users, deliveryPersonnel } from "@shared/db";
 import { eq } from "drizzle-orm";
 import { ZodError } from "zod";
 import axios from "axios";
+import { getRoadAdjustedDistance } from "@shared/deliveryUtils";
 
 // ✅ Constants - Avoid hardcoding enum values
 const DEFAULT_DELIVERY_TIME = "09:00";
 const WEEKDAY_NAMES = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+const PAYMENT_INITIATED_ADMIN_NOTIFY_TTL_MS = 5 * 60 * 1000;
+const paymentInitiatedAdminNotifications = new Map<string, number>();
+
+function shouldSendPaymentInitiatedAdminNotification(id: string): boolean {
+  const now = Date.now();
+  const previousSentAt = paymentInitiatedAdminNotifications.get(id);
+
+  if (previousSentAt && now - previousSentAt < PAYMENT_INITIATED_ADMIN_NOTIFY_TTL_MS) {
+    return false;
+  }
+
+  paymentInitiatedAdminNotifications.set(id, now);
+
+  for (const [key, sentAt] of paymentInitiatedAdminNotifications) {
+    if (now - sentAt > PAYMENT_INITIATED_ADMIN_NOTIFY_TTL_MS) {
+      paymentInitiatedAdminNotifications.delete(key);
+    }
+  }
+
+  return true;
+}
+
+async function getPrimaryAdminPhoneNumber(): Promise<string | null> {
+  try {
+    console.log("🔍 [ADMIN-PHONE] Fetching admin phone number from database...");
+    const admins = await storage.getAllAdmins();
+    console.log(`📊 [ADMIN-PHONE] Found ${admins.length} admin(s) in database`);
+    
+    // Log all admins for debugging
+    admins.forEach((admin, idx) => {
+      const hasPhone = admin.phone && admin.phone.trim().length > 0;
+      console.log(`   [${idx + 1}] ${admin.username} (${admin.role}): phone=${hasPhone ? "✅ " + admin.phone : "❌ MISSING"}`);
+    });
+
+    const hasPhone = (admin: { phone?: string | null }) =>
+      typeof admin.phone === "string" && admin.phone.trim().length > 0;
+    
+    const superAdminWithPhone = admins.find((admin) => admin.role === "super_admin" && hasPhone(admin));
+    const anyAdminWithPhone = admins.find(hasPhone);
+    const primaryAdmin = superAdminWithPhone || anyAdminWithPhone;
+
+    if (primaryAdmin) {
+      const phone = primaryAdmin.phone?.trim() || null;
+      console.log(`✅ [ADMIN-PHONE] Selected admin: ${primaryAdmin.username} (${primaryAdmin.role})`);
+      console.log(`📞 [ADMIN-PHONE] Admin phone: ${phone}`);
+      return phone;
+    } else {
+      console.warn(`⚠️ [ADMIN-PHONE] NO ADMIN WITH PHONE FOUND!`);
+      console.warn(`   Required: At least one admin must have a phone number`);
+      console.warn(`   To fix: UPDATE admin_users SET phone = '91XXXXXXXXXX' WHERE role = 'super_admin'`);
+      return null;
+    }
+  } catch (error) {
+    console.error("❌ [ADMIN-PHONE] Failed to load admin phone from admin_users table:", error);
+    return null;
+  }
+}
 
 // 🛡️ RATE LIMITING: Simple in-memory rate limiter for referral code validation
 interface RateLimitEntry {
@@ -1968,12 +2026,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Overwrite any client-supplied deliveryFee with server-calculated value
         (sanitized as any).deliveryFee = expectedDeliveryFee;
 
-        // Store distance for delivery partner payout calculation (as string for DECIMAL type)
-        (sanitized as any).distance = addressDistance.toFixed(2);
+        // 🛣️ Apply road distance multiplier for accurate display and payout
+        // This matches the adjusted distance used in fee calculation
+        const adjustedDistance = getRoadAdjustedDistance(addressDistance);
+        
+        // Store ADJUSTED distance for delivery partner payout calculation (as string for DECIMAL type)
+        (sanitized as any).distance = adjustedDistance.toFixed(2);
+
+        console.log(`[DISTANCE-ADJUSTED] Raw: ${addressDistance.toFixed(2)}km → Adjusted: ${adjustedDistance.toFixed(2)}km`);
 
         // Calculate distance-based delivery partner payout (fetches from database)
+        // Use ADJUSTED distance for payout consistency with fee calculation
         const deliveryPartnerPayout = await storage.calculateDeliveryPartnerPayout(
-          addressDistance,
+          adjustedDistance,
           sanitized.addressPincode  // Pass pincode for regional rate matching
         );
         (sanitized as any).deliveryPartnerPayout = deliveryPartnerPayout;
@@ -2383,19 +2448,73 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Send WhatsApp notification to admin and broadcast (background)
       (async () => {
         try {
+          console.log(`\n${'='.repeat(80)}`);
+          console.log(`📡 BACKGROUND TASKS FOR ORDER ${order.id}`);
+          console.log(`${'='.repeat(80)}`);
+          
           // Broadcast to WebSocket clients
+          console.log(`\n1️⃣ Broadcasting to WebSocket clients...`);
           broadcastNewOrder(order);
+          console.log(`   ✅ Broadcast sent`);
 
           // Send admin notification
-          const adminPhone = process.env.ADMIN_PHONE_NUMBER;
-          await sendOrderPlacedAdminNotification(
+          console.log(`\n2️⃣ Fetching admin phone number...`);
+          const adminPhone = await getPrimaryAdminPhoneNumber();
+          
+          if (!adminPhone) {
+            console.warn(`   ❌ No admin phone found - will skip WhatsApp`);
+          } else {
+            console.log(`   ✅ Admin phone retrieved: ${adminPhone}`);
+          }
+
+          console.log(`\n3️⃣ Sending WhatsApp notification to admin...`);
+          
+          // 🔍 Debug: Log the order object structure
+          console.log(`[WHATSAPP-DEBUG] Order object keys:`, Object.keys(order));
+          console.log(`[WHATSAPP-DEBUG] order.items:`, order.items);
+          console.log(`[WHATSAPP-DEBUG] order.items type:`, typeof order.items);
+          console.log(`[WHATSAPP-DEBUG] order.address:`, order.address);
+          console.log(`[WHATSAPP-DEBUG] order.addressBuilding:`, order.addressBuilding);
+          console.log(`[WHATSAPP-DEBUG] order.addressStreet:`, order.addressStreet);
+          console.log(`[WHATSAPP-DEBUG] order.addressArea:`, order.addressArea);
+          console.log(`[WHATSAPP-DEBUG] order.addressCity:`, order.addressCity);
+          console.log(`[WHATSAPP-DEBUG] order.addressPincode:`, order.addressPincode);
+          
+          // 📦 Build complete address
+          const completeAddress = [
+            order.addressBuilding,
+            order.addressStreet,
+            order.addressArea,
+            order.addressCity,
+            order.addressPincode
+          ].filter(Boolean).join(", ");
+          
+          // 📝 Ensure items is an array and not a JSON string
+          let itemsArray: Array<{ name: string; quantity: number; price: number }> | undefined;
+          if (typeof order.items === 'string') {
+            try {
+              itemsArray = JSON.parse(order.items);
+            } catch (e) {
+              itemsArray = [];
+            }
+          } else if (Array.isArray(order.items)) {
+            itemsArray = order.items;
+          } else {
+            itemsArray = undefined;
+          }
+          
+          const whatsappResult = await sendOrderPlacedAdminNotification(
             order.id,
             order.customerName,
             order.total,
-            adminPhone
+            adminPhone,
+            itemsArray,
+            completeAddress
           );
+          console.log(`   Result: ${whatsappResult ? "✅ Sent" : "⚠️ Skipped/Failed"}`);
+          console.log(`${'='.repeat(80)}\n`);
         } catch (err) {
-          console.error("⚠️ Error in background notification tasks:", err);
+          console.error("❌ Error in background notification tasks:", err);
         }
       })();
     } catch (error: any) {
@@ -2550,6 +2669,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(order);
     } catch (error: any) {
       console.error("Error fetching order:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // User initiated payment (notify chef immediately and alert admin for verification)
+  app.post("/api/orders/:id/payment-initiated", async (req, res) => {
+    try {
+      const { id } = req.params;
+      let chefId: string | null = null;
+      let targetId = id;
+      let paymentNotificationDetails: {
+        userName: string;
+        userPhone: string;
+        amount: number;
+      } | null = null;
+
+      const order = await storage.getOrderById(id);
+      if (order) {
+        chefId = order.chefId || null;
+        paymentNotificationDetails = {
+          userName: order.customerName || "",
+          userPhone: order.phone || "",
+          amount: Number(order.total) || 0,
+        };
+      } else {
+        const pendingCheckout = await storage.getPendingCheckout(id);
+        if (pendingCheckout) {
+          chefId = pendingCheckout.chefId || null;
+          paymentNotificationDetails = {
+            userName: pendingCheckout.customerName || "",
+            userPhone: pendingCheckout.phone || "",
+            amount: Number(pendingCheckout.total) || 0,
+          };
+        }
+      }
+
+      if (chefId) {
+        broadcastPaymentInitiated(chefId, targetId);
+      }
+
+      const adminPhone = await getPrimaryAdminPhoneNumber();
+      if (paymentNotificationDetails && shouldSendPaymentInitiatedAdminNotification(targetId)) {
+        sendPaymentInitiatedAdminNotification(
+          targetId,
+          paymentNotificationDetails.userName,
+          paymentNotificationDetails.userPhone,
+          paymentNotificationDetails.amount,
+          adminPhone
+        ).catch(error => {
+          console.error("Error sending payment initiated admin WhatsApp:", error);
+        });
+      }
+
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error in payment-initiated:", error);
       res.status(500).json({ message: error.message });
     }
   });
@@ -2881,10 +3056,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(`✅ [RESPONSE] Returning tokens for existing user auto-login`);
       }
 
-      // 📡 BROADCAST to admin, partner/chef, and delivery boy in real-time
+      // 📣 BROADCAST to admin, partner/chef, and delivery boy in real-time
       if (updatedOrder) {
         console.log(`\n📣 Broadcasting payment confirmation for order ${updatedOrder.id}`);
         broadcastOrderUpdate(updatedOrder);
+      }
+
+      // Prepare a WhatsApp link for the frontend to open (user-triggered, avoids paid API)
+      try {
+        if (updatedOrder?.chefId) {
+          const chef = await storage.getChefById(updatedOrder.chefId);
+          if (chef?.phone) {
+            const itemsSummary = ((updatedOrder.items as any[]) || [])
+              .map((i: any) => `${i.name} x${i.quantity}`)
+              .join(", ");
+            const message = `🍽️ New Order Received!\n\nOrder ID: ${updatedOrder.id}\nItems: ${itemsSummary}\nDelivery Time: ${updatedOrder.deliveryTime || "ASAP"}\nAddress: ${updatedOrder.address}\n\nPlease accept and start preparation.`;
+            const whatsappUrl = `https://wa.me/${chef.phone}?text=${encodeURIComponent(message)}`;
+            // Attach WhatsApp URL to the API response so the frontend can open it when user clicks "I Paid"
+            (response as any).whatsappUrl = whatsappUrl;
+            console.log(`[WHATSAPP READY] Chef ${chef.name} (masked): ${String(chef.phone).slice(-4).padStart(String(chef.phone).length, '*')}`);
+          } else {
+            console.warn("[WHATSAPP READY] Missing chef phone for chefId:", updatedOrder.chefId);
+          }
+        }
+      } catch (waErr: any) {
+        console.error("[WHATSAPP ERROR]", waErr?.message || waErr);
       }
 
       res.json(response);

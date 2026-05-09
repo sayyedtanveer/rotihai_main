@@ -8,6 +8,7 @@ import {
   Package,
   Users,
   ChefHat,
+  KeyRound,
   LogOut,
   Menu,
   X,
@@ -35,6 +36,7 @@ import { useAdminNotifications } from "@/hooks/useAdminNotifications";
 
 import SubscriptionDrawer from "@/components/SubscriptionDrawer";
 import PromotionalBannersDrawer from "@/components/admin/PromotionalBannersDrawer";
+import { AdminChangePasswordDialog } from "@/components/admin/AdminChangePasswordDialog";
 
 interface AdminLayoutProps {
   children: React.ReactNode;
@@ -45,6 +47,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   const { toast } = useToast();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isPromoBannersOpen, setIsPromoBannersOpen] = useState(false);
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const { unreadCount, wsConnected, requestNotificationPermission, clearUnreadCount, lastNotificationType } = useAdminNotifications();
 
   const adminUser = JSON.parse(localStorage.getItem("adminUser") || "{}");
@@ -242,7 +245,16 @@ export function AdminLayout({ children }: AdminLayoutProps) {
             </Link>
           </nav>
 
-          <div className="p-4 border-t border-slate-200 dark:border-slate-700 shrink-0 mt-auto">
+          <div className="p-4 border-t border-slate-200 dark:border-slate-700 shrink-0 mt-auto space-y-2">
+            <Button
+              onClick={() => setIsChangePasswordOpen(true)}
+              variant="ghost"
+              className="w-full justify-start gap-3"
+              data-testid="button-admin-change-password"
+            >
+              <KeyRound className="w-5 h-5" />
+              <span>Change Password</span>
+            </Button>
             <Button
               onClick={handleLogout}
               variant="outline"
@@ -302,6 +314,10 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       <PromotionalBannersDrawer
         isOpen={isPromoBannersOpen}
         onOpenChange={setIsPromoBannersOpen}
+      />
+      <AdminChangePasswordDialog
+        open={isChangePasswordOpen}
+        onOpenChange={setIsChangePasswordOpen}
       />
     </div>
   );

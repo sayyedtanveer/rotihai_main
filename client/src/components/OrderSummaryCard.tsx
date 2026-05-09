@@ -55,7 +55,13 @@ export default function OrderSummaryCard({
   if (!cart || !cart.items || cart.items.length === 0) return null;
 
   const itemCount = cart.items.reduce((sum, item) => sum + item.quantity, 0);
-  const distance = cart.distance ? `${(cart.distance / 1000).toFixed(1)} km` : "Distance unavailable";
+  const resolvedDistance =
+    typeof deliveryDistance === "number"
+      ? deliveryDistance
+      : typeof cart.distance === "number"
+        ? cart.distance
+        : null;
+  const distance = resolvedDistance !== null ? `${resolvedDistance.toFixed(2)} km` : "Distance unavailable";
 
   return (
     <Card className="w-full bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">

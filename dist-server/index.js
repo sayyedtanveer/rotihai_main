@@ -1613,7 +1613,7 @@ var init_storage = __esm({
           id,
           username: adminData.username,
           email: adminData.email,
-          phone: null,
+          phone: adminData.phone || null,
           passwordHash: adminData.passwordHash,
           role: adminData.role || "viewer",
           lastLoginAt: null,
@@ -1637,7 +1637,18 @@ var init_storage = __esm({
         return true;
       }
       async getAllAdmins() {
-        return db.query.adminUsers.findMany();
+        const result = await db.select().from(adminUsers2).execute();
+        console.log("[STORAGE-DEBUG] getAllAdmins() result:", {
+          count: result.length,
+          fields: result.length > 0 ? Object.keys(result[0]) : [],
+          firstAdmin: result.length > 0 ? {
+            id: result[0].id,
+            username: result[0].username,
+            phone: result[0].phone,
+            role: result[0].role
+          } : null
+        });
+        return result;
       }
       async getAllUsers() {
         return db.query.users.findMany();
@@ -4673,6 +4684,7 @@ __export(websocket_exports, {
   broadcastOrderClaimed: () => broadcastOrderClaimed,
   broadcastOrderUpdate: () => broadcastOrderUpdate,
   broadcastOverdueChefNotification: () => broadcastOverdueChefNotification,
+  broadcastPaymentInitiated: () => broadcastPaymentInitiated,
   broadcastPreparedOrderToAvailableDelivery: () => broadcastPreparedOrderToAvailableDelivery,
   broadcastProductAvailabilityUpdate: () => broadcastProductAvailabilityUpdate,
   broadcastSubscriptionAssignmentToPartner: () => broadcastSubscriptionAssignmentToPartner,
@@ -4848,6 +4860,19 @@ function broadcastNewOrder(order) {
   if (order.chefId) {
     savePendingBroadcast(order.chefId, "chef", "new_order", { data: order });
   }
+}
+function broadcastPaymentInitiated(chefId, orderId) {
+  const message = JSON.stringify({
+    type: "PAYMENT_INITIATED",
+    orderId,
+    message: "Customer has completed payment. Verify soon."
+  });
+  clients.forEach((client, clientId) => {
+    if (client.type === "chef" && String(client.chefId) === String(chefId) && client.ws.readyState === WebSocket.OPEN) {
+      client.ws.send(message);
+      console.log(`  \u2705 Sent PAYMENT_INITIATED to chef ${clientId}`);
+    }
+  });
 }
 function broadcastSubscriptionDelivery(subscription) {
   const message = JSON.stringify({
@@ -5961,24 +5986,76 @@ var init_timeFormatter = __esm({
 
 // server/whatsappService.ts
 import axios from "axios";
+function getWhatsAppMessagesEndpoint() {
+  const baseUrl = WHATSAPP_API_URL.replace(/\/$/, "");
+  if (baseUrl.endsWith("/messages")) {
+    return baseUrl;
+  }
+  if (WHATSAPP_PHONE_NUMBER_ID && !baseUrl.endsWith(`/${WHATSAPP_PHONE_NUMBER_ID}`)) {
+    return `${baseUrl}/${WHATSAPP_PHONE_NUMBER_ID}/messages`;
+  }
+  return `${baseUrl}/messages`;
+}
 async function sendWhatsAppMessage(phoneNumber, message) {
   if (!WHATSAPP_API_URL || !WHATSAPP_API_TOKEN || !WHATSAPP_PHONE_NUMBER_ID) {
-    console.warn("\u26A0\uFE0F WhatsApp service not configured. Skipping WhatsApp message to:", phoneNumber);
+    console.warn(`
+\u26A0\uFE0F [WHATSAPP] Service NOT configured - skipping message to ${phoneNumber}`);
+    console.warn(`   WHATSAPP_API_URL: ${WHATSAPP_API_URL ? "\u2705 Set" : "\u274C Missing"}`);
+    console.warn(`   WHATSAPP_API_TOKEN: ${WHATSAPP_API_TOKEN ? "\u2705 Set" : "\u274C Missing"}`);
+    console.warn(`   WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID ? "\u2705 Set" : "\u274C Missing"}`);
+    console.warn(`   To enable: Configure these in .env file
+`);
     return false;
   }
   try {
+    const cleanPhone = phoneNumber.replace(/[^0-9]/g, "");
+    console.log("\n================================================================================");
+    console.log(`\u{1F4F1} [WHATSAPP-REQUEST] Sending message to: ${phoneNumber}`);
+    console.log("================================================================================");
+    console.log(`\u{1F4DE} Cleaned phone: ${cleanPhone}`);
+    console.log(`\u{1F4DD} Message length: ${message.length} chars`);
+    console.log(`\u{1F4CD} API Base URL: ${WHATSAPP_API_URL}`);
+    console.log(`
+\u{1F510} [TOKEN-DEBUG]`);
+    console.log(`   Token exists: ${WHATSAPP_API_TOKEN ? "\u2705 YES" : "\u274C NO"}`);
+    console.log(`   Token length: ${WHATSAPP_API_TOKEN.length} chars`);
+    console.log(`   Token first 30: ${WHATSAPP_API_TOKEN.substring(0, 30)}...`);
+    console.log(`   Token last 30: ...${WHATSAPP_API_TOKEN.substring(Math.max(0, WHATSAPP_API_TOKEN.length - 30))}`);
+    console.log(`
+\u{1F194} [PHONE-ID-DEBUG]`);
+    console.log(`   Phone ID exists: ${WHATSAPP_PHONE_NUMBER_ID ? "\u2705 YES" : "\u274C NO"}`);
+    console.log(`   Phone ID value: ${WHATSAPP_PHONE_NUMBER_ID}`);
+    console.log(`   Phone ID length: ${WHATSAPP_PHONE_NUMBER_ID.length} chars`);
     const payload = {
       messaging_product: "whatsapp",
-      to: phoneNumber.replace(/[^0-9]/g, ""),
-      // Remove non-numeric characters
+      to: cleanPhone,
       type: "text",
       text: {
         preview_url: false,
         body: message
       }
     };
+    console.log(`
+\u{1F4E4} [PAYLOAD-DEBUG]`);
+    console.log(`   Payload:`, JSON.stringify(payload, null, 2));
+    const endpoint = getWhatsAppMessagesEndpoint();
+    console.log(`
+\u{1F517} [ENDPOINT-DEBUG]`);
+    console.log(`   Full endpoint: ${endpoint}`);
+    console.log(`   Method: POST`);
+    const requestHeaders = {
+      Authorization: `Bearer ${WHATSAPP_API_TOKEN.substring(0, 20)}...${WHATSAPP_API_TOKEN.substring(WHATSAPP_API_TOKEN.length - 20)}`,
+      "Content-Type": "application/json"
+    };
+    console.log(`
+\u{1F4CB} [HEADERS-DEBUG]`);
+    console.log(`   Authorization (masked): Bearer ${WHATSAPP_API_TOKEN.substring(0, 20)}...`);
+    console.log(`   Content-Type: application/json`);
+    console.log(`   Full Authorization length: ${WHATSAPP_API_TOKEN.length} chars`);
+    console.log(`
+\u23F3 [REQUEST-STATUS] Making HTTP POST request...`);
     const response = await axios.post(
-      `${WHATSAPP_API_URL}/messages`,
+      endpoint,
       payload,
       {
         headers: {
@@ -5987,10 +6064,53 @@ async function sendWhatsAppMessage(phoneNumber, message) {
         }
       }
     );
-    console.log(`\u2705 WhatsApp message sent to ${phoneNumber}:`, response.data?.messages?.[0]?.id);
+    const msgId = response.data?.messages?.[0]?.id;
+    console.log(`
+\u2705 [WHATSAPP-SUCCESS]`);
+    console.log(`   Message sent successfully!`);
+    console.log(`   Response status: ${response.status} ${response.statusText}`);
+    console.log(`   Message ID: ${msgId}`);
+    console.log(`   To: ${phoneNumber}`);
+    console.log(`   Response data:`, JSON.stringify(response.data, null, 2));
+    console.log("================================================================================\n");
     return true;
   } catch (error) {
-    console.error(`\u274C WhatsApp send failed for ${phoneNumber}:`, error instanceof Error ? error.message : error);
+    console.error(`
+================================================================================`);
+    console.error(`\u274C [WHATSAPP-ERROR] Failed to send message to ${phoneNumber}`);
+    console.error(`================================================================================`);
+    if (axios.isAxiosError(error)) {
+      console.error(`\u{1F4CA} [ERROR-DETAILS]`);
+      console.error(`   Status Code: ${error.response?.status}`);
+      console.error(`   Status Text: ${error.response?.statusText}`);
+      console.error(`   Error Message: ${error.message}`);
+      console.error(`   URL: ${error.config?.url}`);
+      console.error(`   Method: ${error.config?.method}`);
+      if (error.config?.headers) {
+        console.error(`   Request Headers:`, JSON.stringify({
+          Authorization: `Bearer ${WHATSAPP_API_TOKEN.substring(0, 20)}...`,
+          "Content-Type": error.config.headers["Content-Type"]
+        }, null, 2));
+      }
+      if (error.response?.data) {
+        console.error(`   Response Body:`, JSON.stringify(error.response.data, null, 2));
+      }
+      console.error(`   Error Code: ${error.code}`);
+    } else if (error instanceof Error) {
+      console.error(`   Type: ${error.name}`);
+      console.error(`   Message: ${error.message}`);
+      console.error(`   Stack: ${error.stack}`);
+    } else {
+      console.error(`   Error (unknown type): ${JSON.stringify(error)}`);
+    }
+    console.error(`
+\u26A0\uFE0F [POSSIBLE-CAUSES]`);
+    console.error(`   \u2022 Token has expired or been revoked`);
+    console.error(`   \u2022 Phone number ID is incorrect`);
+    console.error(`   \u2022 Invalid recipient phone number`);
+    console.error(`   \u2022 WhatsApp API endpoint changed`);
+    console.error(`   \u2022 Network connectivity issue`);
+    console.error("================================================================================\n");
     return false;
   }
 }
@@ -6017,10 +6137,28 @@ An order is scheduled for delivery in 2 HOURS!
   `.trim();
   return sendWhatsAppMessage(recipientPhone, message);
 }
-async function sendOrderPlacedAdminNotification(orderId, userName, amount, adminPhone) {
+async function sendOrderPlacedAdminNotification(orderId, userName, amount, adminPhone, items, address) {
+  console.log(`
+\u{1F4F1} [WHATSAPP-ADMIN-ORDER] Starting order notification for ${orderId}`);
   if (!adminPhone || typeof adminPhone !== "string" || adminPhone.trim().length === 0) {
-    console.warn(`\u26A0\uFE0F Admin phone not configured. Skipping order notification for order ${orderId}`);
+    console.warn(`\u274C [WHATSAPP-ADMIN-ORDER] Admin phone not configured!`);
+    console.warn(`   Phone value: ${adminPhone}`);
+    console.warn(`   Type: ${typeof adminPhone}`);
+    console.warn(`   Length: ${adminPhone?.length || 0}`);
+    console.warn(`   Order ${orderId} notification SKIPPED - no admin phone to send to`);
     return false;
+  }
+  console.log(`\u2705 [WHATSAPP-ADMIN-ORDER] Admin phone found: ${adminPhone}`);
+  console.log(`   Order: ${orderId}`);
+  console.log(`   Customer: ${userName}`);
+  console.log(`   Amount: \u20B9${amount}`);
+  console.log(`   Items: ${items?.length || 0} item(s)`);
+  console.log(`   Address: ${address ? "\u2705 Provided" : "\u274C Missing"}`);
+  let itemsList = "";
+  if (items && items.length > 0) {
+    itemsList = items.map((item) => `\u2022 ${item.name} x${item.quantity} = \u20B9${item.price * item.quantity}`).join("\n");
+  } else {
+    itemsList = "\u2022 No items provided";
   }
   const message = `
 \u{1F4E6} *NEW ORDER RECEIVED* \u{1F4E6}
@@ -6029,12 +6167,44 @@ Order #: ${orderId}
 Customer: ${userName}
 Amount: \u20B9${amount}
 
+\u{1F4CB} *Items:*
+${itemsList}
+
+\u{1F4CD} *Delivery Address:*
+${address || "Address not provided"}
+
 \u{1F517} View in dashboard to approve payment
 
 -RotiHai Admin System
   `.trim();
+  console.log(`\u{1F4DD} [WHATSAPP-ADMIN-ORDER] Message prepared: ${message.length} chars`);
   sendWhatsAppMessage(adminPhone, message).catch((error) => {
-    console.error(`\u26A0\uFE0F Failed to send admin notification for order ${orderId}:`, error);
+    console.error(`\u274C [WHATSAPP-ADMIN-ORDER] Failed to send admin notification for order ${orderId}:`, error);
+  });
+  console.log(`\u{1F4E4} [WHATSAPP-ADMIN-ORDER] WhatsApp message queued for sending (non-blocking)
+`);
+  return true;
+}
+async function sendPaymentInitiatedAdminNotification(checkoutOrOrderId, userName, userPhone, amount, adminPhone) {
+  if (!adminPhone || typeof adminPhone !== "string" || adminPhone.trim().length === 0) {
+    console.warn(`Admin phone not configured. Skipping payment initiated notification for ${checkoutOrOrderId}`);
+    return false;
+  }
+  const safeAmount = Number.isFinite(amount) ? amount.toFixed(2) : "0.00";
+  const message = `
+*PAYMENT MARKED BY USER*
+
+Order/Checkout ID: ${checkoutOrOrderId}
+Customer: ${userName || "Unknown"}
+Phone: ${userPhone || "Not provided"}
+Amount: Rs.${safeAmount}
+
+User clicked "I Paid". Please verify payment in Admin > Payments.
+
+-RotiHai Admin System
+  `.trim();
+  sendWhatsAppMessage(adminPhone, message).catch((error) => {
+    console.error(`Failed to send payment initiated admin notification for ${checkoutOrOrderId}:`, error);
   });
   return true;
 }
@@ -6075,20 +6245,17 @@ Delivery Address: ${address}
 
 -RotiHai Team
   `.trim();
-  let successCount = 0;
   for (const deliveryPersonId of deliveryPersonIds) {
     const phone = deliveryPersonPhones.get(deliveryPersonId);
     if (!phone || typeof phone !== "string" || phone.trim().length === 0) {
       console.warn(`\u26A0\uFE0F Phone not found for delivery person ${deliveryPersonId}, skipping notification`);
       continue;
     }
-    sendWhatsAppMessage(phone, message).then((success) => {
-      if (success) successCount++;
-    }).catch((error) => {
+    sendWhatsAppMessage(phone, message).catch((error) => {
       console.error(`\u26A0\uFE0F Failed to send delivery notification to ${deliveryPersonId}:`, error);
     });
   }
-  return successCount;
+  return deliveryPersonIds.length;
 }
 async function sendDeliveryCompletedNotification(userId, orderId, userPhone) {
   if (!userPhone || typeof userPhone !== "string" || userPhone.trim().length === 0) {
@@ -6140,6 +6307,18 @@ var init_whatsappService = __esm({
     WHATSAPP_API_URL = process.env.WHATSAPP_API_URL || "";
     WHATSAPP_API_TOKEN = process.env.WHATSAPP_API_TOKEN || "";
     WHATSAPP_PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID || "";
+    console.log("\n================================================================================");
+    console.log("\u{1F4F1} [WHATSAPP-CONFIG] Environment Variables Loaded at Module Init:");
+    console.log("================================================================================");
+    console.log(`\u2705 WHATSAPP_API_URL: ${WHATSAPP_API_URL ? "SET" : "\u274C MISSING"}`);
+    console.log(`   Value: ${WHATSAPP_API_URL}`);
+    console.log(`\u2705 WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID ? "SET" : "\u274C MISSING"}`);
+    console.log(`   Value: ${WHATSAPP_PHONE_NUMBER_ID}`);
+    console.log(`\u2705 WHATSAPP_API_TOKEN: ${WHATSAPP_API_TOKEN ? "SET" : "\u274C MISSING"}`);
+    console.log(`   Length: ${WHATSAPP_API_TOKEN.length} chars`);
+    console.log(`   First 20 chars: ${WHATSAPP_API_TOKEN.substring(0, 20)}...`);
+    console.log(`   Last 20 chars: ...${WHATSAPP_API_TOKEN.substring(WHATSAPP_API_TOKEN.length - 20)}`);
+    console.log("================================================================================\n");
   }
 });
 
@@ -8034,6 +8213,26 @@ function registerAdminRoutes(app2) {
           newBalance: walletUpdateResult.newWalletBalance
         };
         console.log(`\u2705 [RESPONSE] Wallet deduction details included: \u20B9${walletToDeduct} deducted, new balance: \u20B9${walletUpdateResult.newWalletBalance}`);
+      }
+      if (paymentStatus === "confirmed" && updatedOrder) {
+        let whatsappUrl = "";
+        if (updatedOrder.chefId) {
+          const chef = await storage.getPartnerById(updatedOrder.chefId);
+          if (chef && chef.phone) {
+            const rawChefPhone = chef.phone.replace(/\D/g, "");
+            const chefPhone = rawChefPhone.startsWith("91") && rawChefPhone.length === 12 ? rawChefPhone : `91${rawChefPhone.slice(-10)}`;
+            const itemsList = Array.isArray(updatedOrder.items) ? updatedOrder.items.map((i) => `${i.quantity}x ${i.name}`).join("\n") : "Items details not available";
+            const message = `*NEW ORDER ALERT*
+
+Order ID: #${updatedOrder.id.slice(0, 8)}
+Items:
+${itemsList}
+
+Please prepare this order.`;
+            whatsappUrl = `https://wa.me/${chefPhone}?text=${encodeURIComponent(message)}`;
+            response.whatsappUrl = whatsappUrl;
+          }
+        }
       }
       if (userCreated) {
         response.userCreated = true;
@@ -13178,6 +13377,51 @@ import { eq as eq8 } from "drizzle-orm";
 import axios2 from "axios";
 var DEFAULT_DELIVERY_TIME = "09:00";
 var WEEKDAY_NAMES = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+var PAYMENT_INITIATED_ADMIN_NOTIFY_TTL_MS = 5 * 60 * 1e3;
+var paymentInitiatedAdminNotifications = /* @__PURE__ */ new Map();
+function shouldSendPaymentInitiatedAdminNotification(id) {
+  const now = Date.now();
+  const previousSentAt = paymentInitiatedAdminNotifications.get(id);
+  if (previousSentAt && now - previousSentAt < PAYMENT_INITIATED_ADMIN_NOTIFY_TTL_MS) {
+    return false;
+  }
+  paymentInitiatedAdminNotifications.set(id, now);
+  for (const [key, sentAt] of paymentInitiatedAdminNotifications) {
+    if (now - sentAt > PAYMENT_INITIATED_ADMIN_NOTIFY_TTL_MS) {
+      paymentInitiatedAdminNotifications.delete(key);
+    }
+  }
+  return true;
+}
+async function getPrimaryAdminPhoneNumber() {
+  try {
+    console.log("\u{1F50D} [ADMIN-PHONE] Fetching admin phone number from database...");
+    const admins = await storage.getAllAdmins();
+    console.log(`\u{1F4CA} [ADMIN-PHONE] Found ${admins.length} admin(s) in database`);
+    admins.forEach((admin, idx) => {
+      const hasPhone2 = admin.phone && admin.phone.trim().length > 0;
+      console.log(`   [${idx + 1}] ${admin.username} (${admin.role}): phone=${hasPhone2 ? "\u2705 " + admin.phone : "\u274C MISSING"}`);
+    });
+    const hasPhone = (admin) => typeof admin.phone === "string" && admin.phone.trim().length > 0;
+    const superAdminWithPhone = admins.find((admin) => admin.role === "super_admin" && hasPhone(admin));
+    const anyAdminWithPhone = admins.find(hasPhone);
+    const primaryAdmin = superAdminWithPhone || anyAdminWithPhone;
+    if (primaryAdmin) {
+      const phone = primaryAdmin.phone?.trim() || null;
+      console.log(`\u2705 [ADMIN-PHONE] Selected admin: ${primaryAdmin.username} (${primaryAdmin.role})`);
+      console.log(`\u{1F4DE} [ADMIN-PHONE] Admin phone: ${phone}`);
+      return phone;
+    } else {
+      console.warn(`\u26A0\uFE0F [ADMIN-PHONE] NO ADMIN WITH PHONE FOUND!`);
+      console.warn(`   Required: At least one admin must have a phone number`);
+      console.warn(`   To fix: UPDATE admin_users SET phone = '91XXXXXXXXXX' WHERE role = 'super_admin'`);
+      return null;
+    }
+  } catch (error) {
+    console.error("\u274C [ADMIN-PHONE] Failed to load admin phone from admin_users table:", error);
+    return null;
+  }
+}
 var rateLimitStore = /* @__PURE__ */ new Map();
 var REFERRAL_RATE_LIMIT = {
   windowMs: 60 * 1e3,
@@ -13411,7 +13655,7 @@ async function registerRoutes(app2) {
       return 4;
     }
   };
-  const computeSlotCutoffInfo = (slot, forceNextDay = true) => {
+  const computeSlotCutoffInfo = (slot, forceNextDay = false) => {
     const now = /* @__PURE__ */ new Date();
     console.log(`[CUTOFF] Starting computation - now: ${now.toISOString()}, slot.startTime: ${slot?.startTime}, forceNextDay: ${forceNextDay}`);
     const currentHour = now.getHours();
@@ -13434,7 +13678,7 @@ async function registerRoutes(app2) {
     let deliveryDate;
     let isPastCutoff;
     let cutoffDate;
-    if (forceNextDay || slotHasPassed || now > todayCutoffTime) {
+    if (forceNextDay === true || slotHasPassed || now > todayCutoffTime) {
       console.log(`[CUTOFF] ${forceNextDay ? "New subscription - forcing next day" : "Past cutoff"} - scheduling for tomorrow`);
       deliveryDate = new Date(todaySlot);
       deliveryDate.setDate(deliveryDate.getDate() + 1);
@@ -14875,6 +15119,12 @@ async function registerRoutes(app2) {
         }
       }
       console.log("\u{1F4DD} Order payload before DB insert:", JSON.stringify(orderPayload, null, 2));
+      console.log("[ORDER DEBUG BEFORE SAVE]", {
+        slotId: orderPayload.deliverySlotId,
+        deliveryTime: orderPayload.deliveryTime,
+        deliveryDate: orderPayload.deliveryDate,
+        now: /* @__PURE__ */ new Date()
+      });
       const order = await storage.createOrder(orderPayload);
       console.log("\u2705 Order created successfully:", order.id);
       console.log(`\u{1F4CB} Order Details: userId=${userId}, walletAmountUsed=${order.walletAmountUsed}`);
@@ -14957,16 +15207,65 @@ async function registerRoutes(app2) {
       })();
       (async () => {
         try {
+          console.log(`
+${"=".repeat(80)}`);
+          console.log(`\u{1F4E1} BACKGROUND TASKS FOR ORDER ${order.id}`);
+          console.log(`${"=".repeat(80)}`);
+          console.log(`
+1\uFE0F\u20E3 Broadcasting to WebSocket clients...`);
           broadcastNewOrder(order);
-          const adminPhone = process.env.ADMIN_PHONE_NUMBER;
-          await sendOrderPlacedAdminNotification(
+          console.log(`   \u2705 Broadcast sent`);
+          console.log(`
+2\uFE0F\u20E3 Fetching admin phone number...`);
+          const adminPhone = await getPrimaryAdminPhoneNumber();
+          if (!adminPhone) {
+            console.warn(`   \u274C No admin phone found - will skip WhatsApp`);
+          } else {
+            console.log(`   \u2705 Admin phone retrieved: ${adminPhone}`);
+          }
+          console.log(`
+3\uFE0F\u20E3 Sending WhatsApp notification to admin...`);
+          console.log(`[WHATSAPP-DEBUG] Order object keys:`, Object.keys(order));
+          console.log(`[WHATSAPP-DEBUG] order.items:`, order.items);
+          console.log(`[WHATSAPP-DEBUG] order.items type:`, typeof order.items);
+          console.log(`[WHATSAPP-DEBUG] order.address:`, order.address);
+          console.log(`[WHATSAPP-DEBUG] order.addressBuilding:`, order.addressBuilding);
+          console.log(`[WHATSAPP-DEBUG] order.addressStreet:`, order.addressStreet);
+          console.log(`[WHATSAPP-DEBUG] order.addressArea:`, order.addressArea);
+          console.log(`[WHATSAPP-DEBUG] order.addressCity:`, order.addressCity);
+          console.log(`[WHATSAPP-DEBUG] order.addressPincode:`, order.addressPincode);
+          const completeAddress = [
+            order.addressBuilding,
+            order.addressStreet,
+            order.addressArea,
+            order.addressCity,
+            order.addressPincode
+          ].filter(Boolean).join(", ");
+          let itemsArray;
+          if (typeof order.items === "string") {
+            try {
+              itemsArray = JSON.parse(order.items);
+            } catch (e) {
+              itemsArray = [];
+            }
+          } else if (Array.isArray(order.items)) {
+            itemsArray = order.items;
+          } else {
+            itemsArray = void 0;
+          }
+          const whatsappResult = await sendOrderPlacedAdminNotification(
             order.id,
             order.customerName,
             order.total,
-            adminPhone
+            adminPhone,
+            itemsArray,
+            completeAddress
           );
+          console.log(`   Result: ${whatsappResult ? "\u2705 Sent" : "\u26A0\uFE0F Skipped/Failed"}`);
+          console.log(`${"=".repeat(80)}
+`);
         } catch (err) {
-          console.error("\u26A0\uFE0F Error in background notification tasks:", err);
+          console.error("\u274C Error in background notification tasks:", err);
         }
       })();
     } catch (error) {
@@ -15083,6 +15382,52 @@ async function registerRoutes(app2) {
       res.json(order);
     } catch (error) {
       console.error("Error fetching order:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+  app2.post("/api/orders/:id/payment-initiated", async (req, res) => {
+    try {
+      const { id } = req.params;
+      let chefId = null;
+      let targetId = id;
+      let paymentNotificationDetails = null;
+      const order = await storage.getOrderById(id);
+      if (order) {
+        chefId = order.chefId || null;
+        paymentNotificationDetails = {
+          userName: order.customerName || "",
+          userPhone: order.phone || "",
+          amount: Number(order.total) || 0
+        };
+      } else {
+        const pendingCheckout = await storage.getPendingCheckout(id);
+        if (pendingCheckout) {
+          chefId = pendingCheckout.chefId || null;
+          paymentNotificationDetails = {
+            userName: pendingCheckout.customerName || "",
+            userPhone: pendingCheckout.phone || "",
+            amount: Number(pendingCheckout.total) || 0
+          };
+        }
+      }
+      if (chefId) {
+        broadcastPaymentInitiated(chefId, targetId);
+      }
+      const adminPhone = await getPrimaryAdminPhoneNumber();
+      if (paymentNotificationDetails && shouldSendPaymentInitiatedAdminNotification(targetId)) {
+        sendPaymentInitiatedAdminNotification(
+          targetId,
+          paymentNotificationDetails.userName,
+          paymentNotificationDetails.userPhone,
+          paymentNotificationDetails.amount,
+          adminPhone
+        ).catch((error) => {
+          console.error("Error sending payment initiated admin WhatsApp:", error);
+        });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error in payment-initiated:", error);
       res.status(500).json({ message: error.message });
     }
   });
@@ -15302,6 +15647,29 @@ async function registerRoutes(app2) {
 \u{1F4E3} Broadcasting payment confirmation for order ${updatedOrder.id}`);
         broadcastOrderUpdate(updatedOrder);
       }
+      try {
+        if (updatedOrder?.chefId) {
+          const chef = await storage.getChefById(updatedOrder.chefId);
+          if (chef?.phone) {
+            const itemsSummary = (updatedOrder.items || []).map((i) => `${i.name} x${i.quantity}`).join(", ");
+            const message = `\u{1F37D}\uFE0F New Order Received!
+
+Order ID: ${updatedOrder.id}
+Items: ${itemsSummary}
+Delivery Time: ${updatedOrder.deliveryTime || "ASAP"}
+Address: ${updatedOrder.address}
+
+Please accept and start preparation.`;
+            const whatsappUrl = `https://wa.me/${chef.phone}?text=${encodeURIComponent(message)}`;
+            response.whatsappUrl = whatsappUrl;
+            console.log(`[WHATSAPP READY] Chef ${chef.name} (masked): ${String(chef.phone).slice(-4).padStart(String(chef.phone).length, "*")}`);
+          } else {
+            console.warn("[WHATSAPP READY] Missing chef phone for chefId:", updatedOrder.chefId);
+          }
+        }
+      } catch (waErr) {
+        console.error("[WHATSAPP ERROR]", waErr?.message || waErr);
+      }
       res.json(response);
     } catch (error) {
       console.error("Error confirming payment:", error);
@@ -15472,6 +15840,10 @@ async function registerRoutes(app2) {
     try {
       const { id } = req.params;
       console.log(`[PENDING-CHECKOUT] Cancelling checkout: ${id}`);
+      const updatedOrders = await db.update(orders2).set({ status: "cancelled" }).where(eq8(orders2.pendingCheckoutId, id)).returning();
+      if (updatedOrders.length > 0) {
+        console.log(`[PENDING-CHECKOUT] \u2705 Associated order ${updatedOrders[0].id} also cancelled.`);
+      }
       const deleted = await storage.deletePendingCheckout(id);
       if (!deleted) {
         return res.status(404).json({ message: "Pending checkout not found" });

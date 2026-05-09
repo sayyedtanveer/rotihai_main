@@ -269,6 +269,51 @@ export function registerAdminRoutes(app: Express) {
     res.json({ message: "Logged out successfully" });
   });
 
+  app.post("/api/admin/auth/change-password", requireAdmin(), async (req: AuthenticatedAdminRequest, res) => {
+    try {
+      const { currentPassword, newPassword } = req.body;
+      const adminId = req.admin?.adminId;
+
+      if (!adminId) {
+        return res.status(401).json({ message: "Session expired. Please log in again." });
+      }
+
+      if (typeof currentPassword !== "string" || typeof newPassword !== "string") {
+        return res.status(400).json({ message: "Current password and new password are required" });
+      }
+
+      if (!currentPassword || !newPassword) {
+        return res.status(400).json({ message: "Current password and new password are required" });
+      }
+
+      if (newPassword.length < 6) {
+        return res.status(400).json({ message: "New password must be at least 6 characters long" });
+      }
+
+      if (currentPassword === newPassword) {
+        return res.status(400).json({ message: "New password must be different from current password" });
+      }
+
+      const admin = await storage.getAdminById(adminId);
+      if (!admin) {
+        return res.status(404).json({ message: "Admin account not found" });
+      }
+
+      const isCurrentPasswordValid = await verifyPassword(currentPassword, admin.passwordHash);
+      if (!isCurrentPasswordValid) {
+        return res.status(400).json({ message: "Current password is incorrect" });
+      }
+
+      const newPasswordHash = await hashPassword(newPassword);
+      await storage.updateAdminPassword(admin.id, newPasswordHash);
+
+      res.json({ message: "Password changed successfully" });
+    } catch (error) {
+      console.error("Admin change password error:", error);
+      res.status(500).json({ message: "Failed to change password" });
+    }
+  });
+
   // DEVELOPMENT ONLY - Reset admin password without verification
   app.post("/api/admin/auth/reset-password", async (req, res) => {
     try {
@@ -723,7 +768,6 @@ export function registerAdminRoutes(app: Express) {
           if (confirmedOrder.deliveryTime && confirmedOrder.deliverySlotId && confirmedOrder.chefId) {
             console.log(`📋 Scheduled delivery order detected for ${orderId} - Delivery Time: ${confirmedOrder.deliveryTime}`);
           }
-
           // Broadcast to chef and admin
           console.log(`\n📡 NOW BROADCASTING TO CHEF AND ADMINS...`);
           broadcastOrderUpdate(confirmedOrder);
@@ -743,6 +787,30 @@ export function registerAdminRoutes(app: Express) {
           newBalance: walletUpdateResult.newWalletBalance,
         };
         console.log(`✅ [RESPONSE] Wallet deduction details included: ₹${walletToDeduct} deducted, new balance: ₹${walletUpdateResult.newWalletBalance}`);
+      }
+
+      // Add WhatsApp URL if payment is confirmed
+      if (paymentStatus === "confirmed" && updatedOrder) {
+        let whatsappUrl = "";
+        if (updatedOrder.chefId) {
+          const chef = await storage.getChefById(updatedOrder.chefId);
+          if (chef && chef.phone) {
+            const rawChefPhone = chef.phone.replace(/\D/g, "");
+            const chefPhone = rawChefPhone.startsWith("91") && rawChefPhone.length === 12
+              ? rawChefPhone
+              : `91${rawChefPhone.slice(-10)}`;
+            const itemsList = Array.isArray(updatedOrder.items) 
+              ? updatedOrder.items.map((i: any) => `${i.quantity}x ${i.name}`).join("\n") 
+              : "Items details not available";
+            
+            const message = `*NEW ORDER ALERT*\n\n` +
+                            `Order ID: #${updatedOrder.id.slice(0, 8)}\n` +
+                            `Items:\n${itemsList}\n\n` +
+                            `Please prepare this order.`;
+            whatsappUrl = `https://wa.me/${chefPhone}?text=${encodeURIComponent(message)}`;
+            response.whatsappUrl = whatsappUrl;
+          }
+        }
       }
 
       // Include user creation details if new account was created

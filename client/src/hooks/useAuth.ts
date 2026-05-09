@@ -37,6 +37,8 @@ interface User {
   address?: string;
   walletBalance: number;
   referralCode?: string;
+  latitude?: number | null;
+  longitude?: number | null;
   pendingBonus?: {
     amount: number;
     minOrderAmount: number;

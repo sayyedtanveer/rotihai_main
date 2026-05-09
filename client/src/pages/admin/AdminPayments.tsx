@@ -9,11 +9,11 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from "@/components/ui/pagination";
-import type { Order } from "@shared/schema";
+import type { Chef, Order, User } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 import { format } from "date-fns";
-import { CheckCircle, Clock, CreditCard, Search, Filter } from "lucide-react";
+import { CheckCircle, Clock, CreditCard, ExternalLink, Search, Filter } from "lucide-react";
 import { useState, useEffect } from "react";
 import { playNotificationSoundTwoTone } from "@/lib/notificationSound";
 import { getWebSocketURL } from "@/lib/fetchClient";
@@ -87,6 +87,22 @@ export default function AdminPayments() {
     },
   });
 
+  const { data: chefs } = useQuery<Chef[]>({
+    queryKey: ["/api/admin", "chefs"],
+    queryFn: async () => {
+      const response = await api.get("/api/admin/chefs");
+      return response.data;
+    },
+  });
+
+  const { data: users } = useQuery<User[]>({
+    queryKey: ["/api/admin", "users"],
+    queryFn: async () => {
+      const response = await api.get("/api/admin/users");
+      return response.data;
+    },
+  });
+
   const markAsPaidMutation = useMutation({
     mutationFn: async ({ orderId }: { orderId: string }) => {
       const response = await api.patch(`/api/admin/orders/${orderId}/payment`, {
@@ -119,9 +135,14 @@ export default function AdminPayments() {
       });
       return response.data;
     },
-    onSuccess: () => {
+    onSuccess: (data: any) => {
       // 🔊 Play notification sound
       playNotificationSoundTwoTone();
+
+      // Open WhatsApp if URL is returned
+      if (data?.whatsappUrl) {
+        window.open(data.whatsappUrl, "_blank");
+      }
 
       queryClient.invalidateQueries({ queryKey: ["/api/admin", "orders", "payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin", "orders"] });
@@ -191,6 +212,107 @@ export default function AdminPayments() {
       default:
         return "bg-slate-100 text-slate-800 dark:bg-slate-900 dark:text-slate-200";
     }
+  };
+
+  const formatDistance = (distance: Order["distance"]) => {
+    if (distance === null || distance === undefined || distance === "") {
+      return "-";
+    }
+
+    const parsedDistance = Number(distance);
+    if (!Number.isFinite(parsedDistance)) {
+      return "-";
+    }
+
+    return `${Number(parsedDistance.toFixed(2))} km`;
+  };
+
+  const getOrderAddress = (order: Order) => {
+    const structuredAddress = [
+      order.addressBuilding,
+      order.addressStreet,
+      order.addressArea,
+      order.addressCity,
+      order.addressPincode,
+    ]
+      .filter(Boolean)
+      .join(", ");
+
+    return structuredAddress || order.address || "";
+  };
+
+  const normalizePhone = (phone?: string | null) => phone?.replace(/\D/g, "") || "";
+
+  const toFiniteNumber = (value: unknown) => {
+    const parsed = typeof value === "number" ? value : Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+
+  const getCoordinatePair = (latitude: unknown, longitude: unknown) => {
+    const lat = toFiniteNumber(latitude);
+    const lon = toFiniteNumber(longitude);
+
+    if (
+      lat === null ||
+      lon === null ||
+      lat < -90 ||
+      lat > 90 ||
+      lon < -180 ||
+      lon > 180 ||
+      (lat === 0 && lon === 0)
+    ) {
+      return null;
+    }
+
+    return `${lat},${lon}`;
+  };
+
+  const getChefAddress = (chef?: Chef) => {
+    if (!chef) {
+      return "";
+    }
+
+    const structuredAddress = [
+      (chef as any).addressBuilding,
+      (chef as any).addressStreet,
+      (chef as any).addressArea,
+      (chef as any).addressCity,
+      (chef as any).addressPincode,
+    ]
+      .filter(Boolean)
+      .join(", ");
+
+    return structuredAddress || chef.address?.trim() || "";
+  };
+
+  const isDefaultKurlaCoordinate = (coordinatePair: string | null) => {
+    if (!coordinatePair) {
+      return false;
+    }
+
+    const [lat, lon] = coordinatePair.split(",").map(Number);
+    return Math.abs(lat - 19.0728) < 0.000001 && Math.abs(lon - 72.8826) < 0.000001;
+  };
+
+  const getDirectionsUrl = (order: Order) => {
+    const chef = chefs?.find((item) => item.id === order.chefId);
+    const user = users?.find((item) => item.id === order.userId) ||
+      users?.find((item) => normalizePhone(item.phone) === normalizePhone(order.phone));
+    const chefCoordinates = getCoordinatePair(chef?.latitude, chef?.longitude);
+    const chefAddress = getChefAddress(chef);
+    const origin = chefCoordinates && (!isDefaultKurlaCoordinate(chefCoordinates) || !chefAddress)
+      ? chefCoordinates
+      : chefAddress || chefCoordinates || "";
+    const orderCoordinates = getCoordinatePair((order as any).customerLatitude, (order as any).customerLongitude);
+    const userCoordinates = getCoordinatePair(user?.latitude, user?.longitude);
+    const destination =
+      orderCoordinates || userCoordinates || getOrderAddress(order);
+
+    if (!origin || !destination) {
+      return null;
+    }
+
+    return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&travelmode=driving`;
   };
 
   // Filter and search orders
@@ -298,6 +420,7 @@ export default function AdminPayments() {
                       <TableHead>Order ID</TableHead>
                       <TableHead>Customer Name</TableHead>
                       <TableHead>Address</TableHead>
+                      <TableHead>Distance / Map</TableHead>
                       <TableHead>Items</TableHead>
                       <TableHead>Total</TableHead>
                       <TableHead>Date</TableHead>
@@ -307,8 +430,11 @@ export default function AdminPayments() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {paginatedOrders.map((order) => (
-                      <TableRow key={order.id} data-testid={`row-payment-${order.id}`}>
+                    {paginatedOrders.map((order) => {
+                      const directionsUrl = getDirectionsUrl(order);
+
+                      return (
+                        <TableRow key={order.id} data-testid={`row-payment-${order.id}`}>
                         <TableCell className="font-medium">
                           #{order.id.slice(0, 8)}
                         </TableCell>
@@ -325,6 +451,26 @@ export default function AdminPayments() {
                             </p>
                             {order.addressPincode && (
                               <p className="text-xs text-slate-500 mt-0.5">{order.addressCity} - {order.addressPincode}</p>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="text-sm">
+                            <p className="font-medium text-slate-700 dark:text-slate-300">
+                              {formatDistance(order.distance)}
+                            </p>
+                            {directionsUrl ? (
+                              <a
+                                href={directionsUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700 hover:underline"
+                              >
+                                <ExternalLink className="h-3 w-3" />
+                                Open map
+                              </a>
+                            ) : (
+                              <p className="mt-1 text-xs text-slate-500">Map unavailable</p>
                             )}
                           </div>
                         </TableCell>
@@ -404,8 +550,9 @@ export default function AdminPayments() {
                             )}
                           </div>
                         </TableCell>
-                      </TableRow>
-                    ))}
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
 

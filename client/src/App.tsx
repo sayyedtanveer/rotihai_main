@@ -52,6 +52,7 @@ import AdminNotificationSettings from "@/pages/admin/AdminNotificationSettings";
 import AdminChefPerformance from "@/pages/admin/ChefPerformance";
 import AdminPendingCheckouts from "@/pages/admin/AdminPendingCheckouts";
 import AdminPaymentSettings from "@/pages/admin/AdminPaymentSettings";
+import PrivacyPolicy from "@/pages/PrivacyPolicy";
 // Add AdminCartSettings import here
 const AdminCartSettings = lazy(() => import("@/pages/admin/AdminCartSettings"));
 
@@ -161,6 +162,7 @@ function Router() {
         component={() => <ProtectedRoute component={InviteEarn} />}
       />
 
+      <Route path="/privacy-policy" component={PrivacyPolicy} />
       <Route path="/track/:orderId" component={OrderTracking} />
       <Route component={NotFound} />
     </Switch>
