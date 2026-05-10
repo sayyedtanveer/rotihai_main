@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from "@/components/ui/pagination";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Order, DeliveryPersonnel } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
@@ -243,6 +244,14 @@ export default function AdminOrders() {
           </p>
         </div>
 
+        {/* Quick Tabs */}
+        <Tabs value={statusFilter === "cancelled" ? "cancelled" : "all"} onValueChange={(v) => { setStatusFilter(v); setCurrentPage(1); }}>
+          <TabsList>
+            <TabsTrigger value="all">All Orders</TabsTrigger>
+            <TabsTrigger value="cancelled">Cancelled</TabsTrigger>
+          </TabsList>
+        </Tabs>
+
         {/* Filters */}
         <Card>
           <CardHeader>
@@ -414,9 +423,13 @@ export default function AdminOrders() {
                           <Select
                             value={order.status}
                             onValueChange={(status) => updateStatusMutation.mutate({ orderId: order.id, status })}
-                            disabled={updateStatusMutation.isPending}
+                            disabled={updateStatusMutation.isPending || order.status === "delivered" || order.status === "completed"}
                           >
-                            <SelectTrigger className="w-36" data-testid={`select-status-${order.id}`}>
+                            <SelectTrigger 
+                              className="w-36" 
+                              data-testid={`select-status-${order.id}`}
+                              title={order.status === "delivered" || order.status === "completed" ? "Delivered orders cannot be modified" : ""}
+                            >
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>

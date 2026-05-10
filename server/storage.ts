@@ -938,7 +938,8 @@ export class MemStorage implements IStorage {
   }> {
     const orders = await db.query.orders.findMany();
     const users = await db.query.users.findMany();
-    const totalRevenue = orders.reduce((sum, order) => sum + order.total, 0);
+    const revenueOrders = orders.filter((o) => o.status !== "cancelled");
+    const totalRevenue = revenueOrders.reduce((sum, order) => sum + order.total, 0);
     const pendingOrders = orders.filter((o) => o.status === "pending").length;
     const completedOrders = orders.filter((o) => o.status === "delivered" || o.status === "completed").length;
 

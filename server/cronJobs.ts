@@ -543,10 +543,10 @@ export async function expirePendingPaymentOrders(): Promise<void> {
     let expiredCount = 0;
     for (const order of expiredOrders) {
       try {
-        // Mark order as expired using storage interface (accepts any status string)
-        await storage.updateOrderStatus(order.id, "expired");
+        // ✅ Mark order as CANCELLED (not "expired") when payment expires
+        await storage.updateOrderStatus(order.id, "cancelled");
 
-        console.log(`[EXPIRY-CHECK] ⏱️ Order ${order.id} marked as EXPIRED (expiresAt: ${order.expiresAt})`);
+        console.log(`[EXPIRY-CHECK] ⏱️ Order ${order.id} marked as CANCELLED (expiresAt: ${order.expiresAt})`);
         expiredCount++;
 
         // Optionally: Send notification to user about expired order
