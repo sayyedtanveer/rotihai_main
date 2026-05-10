@@ -271,7 +271,7 @@ export default function PaymentQRDialog({
         // If backend provided a WhatsApp URL, open it in a new tab so user can notify the chef
         try {
           const wa = res.data.whatsappUrl || res.data?.order?.whatsappUrl;
-          if (wa) window.open(wa, "_blank");
+          // if (wa) window.open(wa, "_blank");
         } catch (openErr) {
           console.warn("Failed to open WhatsApp link:", openErr);
         }
@@ -294,7 +294,7 @@ export default function PaymentQRDialog({
 
         try {
           const wa = res.data.whatsappUrl;
-          if (wa) window.open(wa, "_blank");
+          // if (wa) window.open(wa, "_blank");
         } catch (openErr) {
           console.warn("Failed to open WhatsApp link:", openErr);
         }

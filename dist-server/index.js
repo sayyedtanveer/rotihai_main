@@ -466,6 +466,10 @@ var init_schema = __esm({
       platformFeeBelow100: integer("platform_fee_below_100").notNull().default(0),
       platformFeeBelow200: integer("platform_fee_below_200").notNull().default(0),
       platformFeeAbove200: integer("platform_fee_above_200").notNull().default(0),
+      enableRoadDistanceMultiplier: boolean("enable_road_distance_multiplier").notNull().default(true),
+      // 🛣️ Toggle to enable/disable multiplier
+      roadDistanceMultiplier: decimal("road_distance_multiplier", { precision: 3, scale: 2 }).notNull().default("1.50"),
+      // 1.5x default multiplier for road distance
       createdAt: timestamp("created_at").notNull().defaultNow(),
       updatedAt: timestamp("updated_at").notNull().defaultNow()
     });
@@ -1222,6 +1226,127 @@ var init_db = __esm({
   }
 });
 
+// shared/deliveryUtils.ts
+var deliveryUtils_exports = {};
+__export(deliveryUtils_exports, {
+  ROAD_DISTANCE_MULTIPLIER: () => ROAD_DISTANCE_MULTIPLIER,
+  STORE_LOCATION: () => STORE_LOCATION,
+  calculateDelivery: () => calculateDelivery,
+  calculateDistance: () => calculateDistance,
+  calculateFullDelivery: () => calculateFullDelivery,
+  getRoadAdjustedDistance: () => getRoadAdjustedDistance
+});
+function getRoadAdjustedDistance(rawDistance, customMultiplier) {
+  const multiplier = customMultiplier ?? ROAD_DISTANCE_MULTIPLIER;
+  return Number((rawDistance * multiplier).toFixed(2));
+}
+function calculateDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const toRad = (deg) => deg * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.asin(Math.sqrt(a));
+  const distance = R * c;
+  return parseFloat(distance.toFixed(2));
+}
+function calculateDelivery(distance, subtotal, deliverySettings3, customMultiplier) {
+  let deliveryFee = 0;
+  let freeDeliveryEligible = false;
+  let amountForFreeDelivery;
+  let deliveryRangeName;
+  if (!deliverySettings3 || deliverySettings3.length === 0) {
+    console.warn("No delivery settings configured by admin");
+    return {
+      deliveryFee: 0,
+      freeDeliveryEligible: false,
+      amountForFreeDelivery: void 0,
+      deliveryRangeName: "No delivery settings configured"
+    };
+  }
+  const activeSettings = deliverySettings3.filter((s) => s.isActive);
+  if (activeSettings.length === 0) {
+    console.warn("No active delivery settings found");
+    return {
+      deliveryFee: 0,
+      freeDeliveryEligible: false,
+      amountForFreeDelivery: void 0,
+      deliveryRangeName: "No active delivery settings"
+    };
+  }
+  const adjustedDistance = getRoadAdjustedDistance(distance, customMultiplier);
+  console.log(`[Delivery Calc] Adjusted road distance for slabs: ${adjustedDistance}km`);
+  console.log(`[Delivery Calc] Distance: ${distance}km, Subtotal: \u20B9${subtotal}`);
+  console.log(`[Delivery Calc] Active settings:`, activeSettings.map(
+    (s) => `${s.name}: ${s.minDistance}-${s.maxDistance}km = \u20B9${s.price}`
+  ));
+  const matchingSetting = activeSettings.find((setting) => {
+    const minDist = parseFloat(setting.minDistance);
+    const maxDist = parseFloat(setting.maxDistance);
+    const matches = adjustedDistance >= minDist && adjustedDistance <= maxDist;
+    console.log(`[Delivery Calc] Checking ${setting.name} (${minDist}-${maxDist}km): ${matches ? "MATCH" : "no match"}`);
+    return matches;
+  });
+  console.log(`[Delivery Calc] Matching setting:`, matchingSetting?.name || "NONE");
+  if (matchingSetting) {
+    deliveryFee = matchingSetting.price;
+    deliveryRangeName = matchingSetting.name;
+    const minOrderForRange = matchingSetting.minOrderAmount || 0;
+    if (deliveryFee === 0 || minOrderForRange > 0 && subtotal >= minOrderForRange) {
+      freeDeliveryEligible = true;
+      deliveryFee = 0;
+    } else {
+      if (minOrderForRange > 0) {
+        amountForFreeDelivery = minOrderForRange - subtotal;
+      }
+      freeDeliveryEligible = false;
+    }
+    const result = {
+      deliveryFee,
+      freeDeliveryEligible,
+      amountForFreeDelivery,
+      deliveryRangeName,
+      minOrderAmount: minOrderForRange
+      // Return min order for this range
+    };
+    console.log(`[Delivery Calc] Final result:`, result);
+    return result;
+  } else {
+    deliveryFee = 0;
+    deliveryRangeName = "Outside delivery zone";
+    const result = {
+      deliveryFee,
+      freeDeliveryEligible,
+      amountForFreeDelivery,
+      deliveryRangeName,
+      minOrderAmount: 0
+    };
+    console.log(`[Delivery Calc] Final result:`, result);
+    return result;
+  }
+}
+function calculateFullDelivery(userLat, userLon, chefLat, chefLon, subtotal, deliverySettings3, customMultiplier) {
+  const distance = calculateDistance(userLat, userLon, chefLat, chefLon);
+  const delivery = calculateDelivery(distance, subtotal, deliverySettings3, customMultiplier);
+  return {
+    distance,
+    ...delivery
+  };
+}
+var ROAD_DISTANCE_MULTIPLIER, STORE_LOCATION;
+var init_deliveryUtils = __esm({
+  "shared/deliveryUtils.ts"() {
+    "use strict";
+    ROAD_DISTANCE_MULTIPLIER = 1.5;
+    STORE_LOCATION = {
+      latitude: 28.6139,
+      // Example: New Delhi
+      longitude: 77.209,
+      address: "Main Store, Connaught Place, New Delhi"
+    };
+  }
+});
+
 // server/storage.ts
 var storage_exports = {};
 __export(storage_exports, {
@@ -1314,6 +1439,7 @@ var init_storage = __esm({
   "server/storage.ts"() {
     "use strict";
     init_db();
+    init_deliveryUtils();
     MemStorage = class {
       users;
       categories = /* @__PURE__ */ new Map();
@@ -3239,10 +3365,12 @@ var init_storage = __esm({
           return 10;
         }
         try {
+          const adjustedDistance = getRoadAdjustedDistance(distance);
           const matchingSlab = await this.getDeliveryPartnerPayoutByPincodeAndDistance(
             pincode || null,
-            distance
+            adjustedDistance
           );
+          console.log(`[PARTNER-PAYOUT] Adjusted road distance for slabs: ${adjustedDistance}km`);
           if (matchingSlab) {
             console.log(`[PARTNER-PAYOUT] Distance: ${distance}km, Pincode: ${pincode || "N/A"}, Payout: \u20B9${matchingSlab.payoutAmount}`);
             return matchingSlab.payoutAmount;
@@ -5985,6 +6113,18 @@ var init_timeFormatter = __esm({
 });
 
 // server/whatsappService.ts
+var whatsappService_exports = {};
+__export(whatsappService_exports, {
+  sendChefAssignmentNotification: () => sendChefAssignmentNotification,
+  sendDeliveryAvailableNotification: () => sendDeliveryAvailableNotification,
+  sendDeliveryCompletedNotification: () => sendDeliveryCompletedNotification,
+  sendMissedDeliveryNotification: () => sendMissedDeliveryNotification,
+  sendOrderPlacedAdminNotification: () => sendOrderPlacedAdminNotification,
+  sendPaymentInitiatedAdminNotification: () => sendPaymentInitiatedAdminNotification,
+  sendScheduledDeliveryReminder: () => sendScheduledDeliveryReminder,
+  sendScheduledOrder2HourReminder: () => sendScheduledOrder2HourReminder,
+  sendWhatsAppMessage: () => sendWhatsAppMessage
+});
 import axios from "axios";
 function getWhatsAppMessagesEndpoint() {
   const baseUrl = WHATSAPP_API_URL.replace(/\/$/, "");
@@ -5996,36 +6136,22 @@ function getWhatsAppMessagesEndpoint() {
   }
   return `${baseUrl}/messages`;
 }
-async function sendWhatsAppMessage(phoneNumber, message) {
+async function sendWhatsAppMessage(phoneNumber, message, contextId) {
   if (!WHATSAPP_API_URL || !WHATSAPP_API_TOKEN || !WHATSAPP_PHONE_NUMBER_ID) {
-    console.warn(`
-\u26A0\uFE0F [WHATSAPP] Service NOT configured - skipping message to ${phoneNumber}`);
-    console.warn(`   WHATSAPP_API_URL: ${WHATSAPP_API_URL ? "\u2705 Set" : "\u274C Missing"}`);
-    console.warn(`   WHATSAPP_API_TOKEN: ${WHATSAPP_API_TOKEN ? "\u2705 Set" : "\u274C Missing"}`);
-    console.warn(`   WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID ? "\u2705 Set" : "\u274C Missing"}`);
-    console.warn(`   To enable: Configure these in .env file
-`);
+    console.warn("[WHATSAPP] Service not configured. Skipping message.");
     return false;
   }
+  const cleanPhone = phoneNumber.replace(/[^0-9]/g, "");
+  const maskedPhone = cleanPhone.length > 4 ? `${"*".repeat(cleanPhone.length - 4)}${cleanPhone.slice(-4)}` : "****";
+  const endpoint = getWhatsAppMessagesEndpoint();
+  const contextLog = contextId ? ` [${contextId}]` : "";
   try {
-    const cleanPhone = phoneNumber.replace(/[^0-9]/g, "");
-    console.log("\n================================================================================");
-    console.log(`\u{1F4F1} [WHATSAPP-REQUEST] Sending message to: ${phoneNumber}`);
-    console.log("================================================================================");
-    console.log(`\u{1F4DE} Cleaned phone: ${cleanPhone}`);
-    console.log(`\u{1F4DD} Message length: ${message.length} chars`);
-    console.log(`\u{1F4CD} API Base URL: ${WHATSAPP_API_URL}`);
-    console.log(`
-\u{1F510} [TOKEN-DEBUG]`);
-    console.log(`   Token exists: ${WHATSAPP_API_TOKEN ? "\u2705 YES" : "\u274C NO"}`);
-    console.log(`   Token length: ${WHATSAPP_API_TOKEN.length} chars`);
-    console.log(`   Token first 30: ${WHATSAPP_API_TOKEN.substring(0, 30)}...`);
-    console.log(`   Token last 30: ...${WHATSAPP_API_TOKEN.substring(Math.max(0, WHATSAPP_API_TOKEN.length - 30))}`);
-    console.log(`
-\u{1F194} [PHONE-ID-DEBUG]`);
-    console.log(`   Phone ID exists: ${WHATSAPP_PHONE_NUMBER_ID ? "\u2705 YES" : "\u274C NO"}`);
-    console.log(`   Phone ID value: ${WHATSAPP_PHONE_NUMBER_ID}`);
-    console.log(`   Phone ID length: ${WHATSAPP_PHONE_NUMBER_ID.length} chars`);
+    console.log(`[WHATSAPP] \u{1F4E4} SENDING REQUEST${contextLog}`);
+    console.log(`  \u2192 To: ${maskedPhone}`);
+    console.log(`  \u2192 Endpoint: ${endpoint}`);
+    console.log(`  \u2192 Phone ID: ${WHATSAPP_PHONE_NUMBER_ID}`);
+    console.log(`  \u2192 Auth Token: ${WHATSAPP_API_TOKEN ? "\u2705 Present" : "\u274C Missing"}`);
+    console.log(`  \u2192 Message length: ${message.length} chars`);
     const payload = {
       messaging_product: "whatsapp",
       to: cleanPhone,
@@ -6035,25 +6161,6 @@ async function sendWhatsAppMessage(phoneNumber, message) {
         body: message
       }
     };
-    console.log(`
-\u{1F4E4} [PAYLOAD-DEBUG]`);
-    console.log(`   Payload:`, JSON.stringify(payload, null, 2));
-    const endpoint = getWhatsAppMessagesEndpoint();
-    console.log(`
-\u{1F517} [ENDPOINT-DEBUG]`);
-    console.log(`   Full endpoint: ${endpoint}`);
-    console.log(`   Method: POST`);
-    const requestHeaders = {
-      Authorization: `Bearer ${WHATSAPP_API_TOKEN.substring(0, 20)}...${WHATSAPP_API_TOKEN.substring(WHATSAPP_API_TOKEN.length - 20)}`,
-      "Content-Type": "application/json"
-    };
-    console.log(`
-\u{1F4CB} [HEADERS-DEBUG]`);
-    console.log(`   Authorization (masked): Bearer ${WHATSAPP_API_TOKEN.substring(0, 20)}...`);
-    console.log(`   Content-Type: application/json`);
-    console.log(`   Full Authorization length: ${WHATSAPP_API_TOKEN.length} chars`);
-    console.log(`
-\u23F3 [REQUEST-STATUS] Making HTTP POST request...`);
     const response = await axios.post(
       endpoint,
       payload,
@@ -6064,55 +6171,60 @@ async function sendWhatsAppMessage(phoneNumber, message) {
         }
       }
     );
-    const msgId = response.data?.messages?.[0]?.id;
-    console.log(`
-\u2705 [WHATSAPP-SUCCESS]`);
-    console.log(`   Message sent successfully!`);
-    console.log(`   Response status: ${response.status} ${response.statusText}`);
-    console.log(`   Message ID: ${msgId}`);
-    console.log(`   To: ${phoneNumber}`);
-    console.log(`   Response data:`, JSON.stringify(response.data, null, 2));
-    console.log("================================================================================\n");
+    const messageId = response.data?.messages?.[0]?.id;
+    console.log(`[WHATSAPP] \u2705 META API SUCCESS${contextLog}`);
+    console.log(`  \u2192 Message ID: ${messageId || "unknown"}`);
+    console.log(`  \u2192 Recipient: ${maskedPhone}`);
+    console.log(`  \u2192 Status Code: ${response.status}`);
     return true;
   } catch (error) {
-    console.error(`
-================================================================================`);
-    console.error(`\u274C [WHATSAPP-ERROR] Failed to send message to ${phoneNumber}`);
-    console.error(`================================================================================`);
+    console.error(`[WHATSAPP] \u274C META API FAILED${contextLog}`);
+    console.error(`  \u2192 Recipient: ${maskedPhone}`);
     if (axios.isAxiosError(error)) {
-      console.error(`\u{1F4CA} [ERROR-DETAILS]`);
-      console.error(`   Status Code: ${error.response?.status}`);
-      console.error(`   Status Text: ${error.response?.statusText}`);
-      console.error(`   Error Message: ${error.message}`);
-      console.error(`   URL: ${error.config?.url}`);
-      console.error(`   Method: ${error.config?.method}`);
-      if (error.config?.headers) {
-        console.error(`   Request Headers:`, JSON.stringify({
-          Authorization: `Bearer ${WHATSAPP_API_TOKEN.substring(0, 20)}...`,
-          "Content-Type": error.config.headers["Content-Type"]
-        }, null, 2));
-      }
+      console.error(`  \u2192 HTTP Status: ${error.response?.status || "unknown"}`);
+      console.error(`  \u2192 Message: ${error.message}`);
       if (error.response?.data) {
-        console.error(`   Response Body:`, JSON.stringify(error.response.data, null, 2));
+        console.error(`  \u2192 RAW ERROR RESPONSE:`, JSON.stringify(error.response.data, null, 2));
+        const metaError = error.response.data;
+        if (metaError?.error?.code) {
+          console.error(`  \u2192 Meta Error Code: ${metaError.error.code}`);
+          console.error(`  \u2192 Meta Error Message: ${metaError.error.message}`);
+          if (metaError.error.code === 131030) {
+            console.error(`  \u2192 \u{1F50D} HINT: Error 131030 = "Recipient not in allowed list" (Sandbox mode)`);
+            console.error(`     \u2192 Add ${maskedPhone} to WhatsApp Test Numbers in Meta Business Manager`);
+          }
+        }
       }
-      console.error(`   Error Code: ${error.code}`);
     } else if (error instanceof Error) {
-      console.error(`   Type: ${error.name}`);
-      console.error(`   Message: ${error.message}`);
-      console.error(`   Stack: ${error.stack}`);
+      console.error(`  \u2192 Error: ${error.message}`);
     } else {
-      console.error(`   Error (unknown type): ${JSON.stringify(error)}`);
+      console.error(`  \u2192 Error: ${JSON.stringify(error)}`);
     }
-    console.error(`
-\u26A0\uFE0F [POSSIBLE-CAUSES]`);
-    console.error(`   \u2022 Token has expired or been revoked`);
-    console.error(`   \u2022 Phone number ID is incorrect`);
-    console.error(`   \u2022 Invalid recipient phone number`);
-    console.error(`   \u2022 WhatsApp API endpoint changed`);
-    console.error(`   \u2022 Network connectivity issue`);
-    console.error("================================================================================\n");
     return false;
   }
+}
+async function sendScheduledDeliveryReminder(recipientName, recipientPhone, orderNumber, deliveryTime, deliveryDate, customerName, items) {
+  const timeString = formatTime12Hour(deliveryTime);
+  const itemsList = items.join(", ");
+  const message = `
+\u{1F680} *Scheduled Delivery Reminder* \u{1F680}
+
+Hi ${recipientName},
+
+You have a scheduled delivery order coming up!
+
+\u{1F4CB} *Order Details:*
+\u2022 Order #: ${orderNumber}
+\u2022 Customer: ${customerName}
+\u2022 Items: ${itemsList}
+\u2022 Delivery Time: ${timeString}
+\u2022 Delivery Date: ${deliveryDate}
+
+\u23F0 Please prepare accordingly!
+
+-RotiHai Team
+  `.trim();
+  return sendWhatsAppMessage(recipientPhone, message);
 }
 async function sendScheduledOrder2HourReminder(recipientName, recipientPhone, orderNumber, deliveryTime, deliveryDate, customerName, items) {
   const timeString = formatTime12Hour(deliveryTime);
@@ -6178,10 +6290,10 @@ ${address || "Address not provided"}
 -RotiHai Admin System
   `.trim();
   console.log(`\u{1F4DD} [WHATSAPP-ADMIN-ORDER] Message prepared: ${message.length} chars`);
-  sendWhatsAppMessage(adminPhone, message).catch((error) => {
-    console.error(`\u274C [WHATSAPP-ADMIN-ORDER] Failed to send admin notification for order ${orderId}:`, error);
+  sendWhatsAppMessage(adminPhone, message, `ORDER#${orderId}`).catch((error) => {
+    console.error(`[WHATSAPP-ADMIN-ORDER] Async error caught:`, error);
   });
-  console.log(`\u{1F4E4} [WHATSAPP-ADMIN-ORDER] WhatsApp message queued for sending (non-blocking)
+  console.log(`[WHATSAPP-ADMIN-ORDER] \u23F3 Background send initiated (check logs for async success/failure)
 `);
   return true;
 }
@@ -6203,8 +6315,8 @@ User clicked "I Paid". Please verify payment in Admin > Payments.
 
 -RotiHai Admin System
   `.trim();
-  sendWhatsAppMessage(adminPhone, message).catch((error) => {
-    console.error(`Failed to send payment initiated admin notification for ${checkoutOrOrderId}:`, error);
+  sendWhatsAppMessage(adminPhone, message, `PAYMENT#${checkoutOrOrderId}`).catch((error) => {
+    console.error(`[WHATSAPP-PAYMENT] Async error caught:`, error);
   });
   return true;
 }
@@ -6307,18 +6419,6 @@ var init_whatsappService = __esm({
     WHATSAPP_API_URL = process.env.WHATSAPP_API_URL || "";
     WHATSAPP_API_TOKEN = process.env.WHATSAPP_API_TOKEN || "";
     WHATSAPP_PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID || "";
-    console.log("\n================================================================================");
-    console.log("\u{1F4F1} [WHATSAPP-CONFIG] Environment Variables Loaded at Module Init:");
-    console.log("================================================================================");
-    console.log(`\u2705 WHATSAPP_API_URL: ${WHATSAPP_API_URL ? "SET" : "\u274C MISSING"}`);
-    console.log(`   Value: ${WHATSAPP_API_URL}`);
-    console.log(`\u2705 WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID ? "SET" : "\u274C MISSING"}`);
-    console.log(`   Value: ${WHATSAPP_PHONE_NUMBER_ID}`);
-    console.log(`\u2705 WHATSAPP_API_TOKEN: ${WHATSAPP_API_TOKEN ? "SET" : "\u274C MISSING"}`);
-    console.log(`   Length: ${WHATSAPP_API_TOKEN.length} chars`);
-    console.log(`   First 20 chars: ${WHATSAPP_API_TOKEN.substring(0, 20)}...`);
-    console.log(`   Last 20 chars: ...${WHATSAPP_API_TOKEN.substring(WHATSAPP_API_TOKEN.length - 20)}`);
-    console.log("================================================================================\n");
   }
 });
 
@@ -6598,118 +6698,6 @@ var init_gpayVerificationService = __esm({
       }
     };
     gpayVerificationService = new GPayVerificationService();
-  }
-});
-
-// shared/deliveryUtils.ts
-var deliveryUtils_exports = {};
-__export(deliveryUtils_exports, {
-  STORE_LOCATION: () => STORE_LOCATION,
-  calculateDelivery: () => calculateDelivery,
-  calculateDistance: () => calculateDistance,
-  calculateFullDelivery: () => calculateFullDelivery
-});
-function calculateDistance(lat1, lon1, lat2, lon2) {
-  const R = 6371;
-  const toRad = (deg) => deg * Math.PI / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.asin(Math.sqrt(a));
-  const distance = R * c;
-  return parseFloat(distance.toFixed(2));
-}
-function calculateDelivery(distance, subtotal, deliverySettings3) {
-  let deliveryFee = 0;
-  let freeDeliveryEligible = false;
-  let amountForFreeDelivery;
-  let deliveryRangeName;
-  if (!deliverySettings3 || deliverySettings3.length === 0) {
-    console.warn("No delivery settings configured by admin");
-    return {
-      deliveryFee: 0,
-      freeDeliveryEligible: false,
-      amountForFreeDelivery: void 0,
-      deliveryRangeName: "No delivery settings configured"
-    };
-  }
-  const activeSettings = deliverySettings3.filter((s) => s.isActive);
-  if (activeSettings.length === 0) {
-    console.warn("No active delivery settings found");
-    return {
-      deliveryFee: 0,
-      freeDeliveryEligible: false,
-      amountForFreeDelivery: void 0,
-      deliveryRangeName: "No active delivery settings"
-    };
-  }
-  console.log(`[Delivery Calc] Distance: ${distance}km, Subtotal: \u20B9${subtotal}`);
-  console.log(`[Delivery Calc] Active settings:`, activeSettings.map(
-    (s) => `${s.name}: ${s.minDistance}-${s.maxDistance}km = \u20B9${s.price}`
-  ));
-  const matchingSetting = activeSettings.find((setting) => {
-    const minDist = parseFloat(setting.minDistance);
-    const maxDist = parseFloat(setting.maxDistance);
-    const matches = distance >= minDist && distance <= maxDist;
-    console.log(`[Delivery Calc] Checking ${setting.name} (${minDist}-${maxDist}km): ${matches ? "MATCH" : "no match"}`);
-    return matches;
-  });
-  console.log(`[Delivery Calc] Matching setting:`, matchingSetting?.name || "NONE");
-  if (matchingSetting) {
-    deliveryFee = matchingSetting.price;
-    deliveryRangeName = matchingSetting.name;
-    const minOrderForRange = matchingSetting.minOrderAmount || 0;
-    if (deliveryFee === 0 || minOrderForRange > 0 && subtotal >= minOrderForRange) {
-      freeDeliveryEligible = true;
-      deliveryFee = 0;
-    } else {
-      if (minOrderForRange > 0) {
-        amountForFreeDelivery = minOrderForRange - subtotal;
-      }
-      freeDeliveryEligible = false;
-    }
-    const result = {
-      deliveryFee,
-      freeDeliveryEligible,
-      amountForFreeDelivery,
-      deliveryRangeName,
-      minOrderAmount: minOrderForRange
-      // Return min order for this range
-    };
-    console.log(`[Delivery Calc] Final result:`, result);
-    return result;
-  } else {
-    deliveryFee = 0;
-    deliveryRangeName = "Outside delivery zone";
-    const result = {
-      deliveryFee,
-      freeDeliveryEligible,
-      amountForFreeDelivery,
-      deliveryRangeName,
-      minOrderAmount: 0
-    };
-    console.log(`[Delivery Calc] Final result:`, result);
-    return result;
-  }
-}
-function calculateFullDelivery(userLat, userLon, chefLat, chefLon, subtotal, deliverySettings3) {
-  const distance = calculateDistance(userLat, userLon, chefLat, chefLon);
-  const delivery = calculateDelivery(distance, subtotal, deliverySettings3);
-  return {
-    distance,
-    ...delivery
-  };
-}
-var STORE_LOCATION;
-var init_deliveryUtils = __esm({
-  "shared/deliveryUtils.ts"() {
-    "use strict";
-    STORE_LOCATION = {
-      latitude: 28.6139,
-      // Example: New Delhi
-      longitude: 77.209,
-      address: "Main Store, Connaught Place, New Delhi"
-    };
   }
 });
 
@@ -7853,6 +7841,41 @@ function registerAdminRoutes(app2) {
     res.clearCookie("refreshToken");
     res.json({ message: "Logged out successfully" });
   });
+  app2.post("/api/admin/auth/change-password", requireAdmin(), async (req, res) => {
+    try {
+      const { currentPassword, newPassword } = req.body;
+      const adminId = req.admin?.adminId;
+      if (!adminId) {
+        return res.status(401).json({ message: "Session expired. Please log in again." });
+      }
+      if (typeof currentPassword !== "string" || typeof newPassword !== "string") {
+        return res.status(400).json({ message: "Current password and new password are required" });
+      }
+      if (!currentPassword || !newPassword) {
+        return res.status(400).json({ message: "Current password and new password are required" });
+      }
+      if (newPassword.length < 6) {
+        return res.status(400).json({ message: "New password must be at least 6 characters long" });
+      }
+      if (currentPassword === newPassword) {
+        return res.status(400).json({ message: "New password must be different from current password" });
+      }
+      const admin = await storage.getAdminById(adminId);
+      if (!admin) {
+        return res.status(404).json({ message: "Admin account not found" });
+      }
+      const isCurrentPasswordValid = await verifyPassword(currentPassword, admin.passwordHash);
+      if (!isCurrentPasswordValid) {
+        return res.status(400).json({ message: "Current password is incorrect" });
+      }
+      const newPasswordHash = await hashPassword(newPassword);
+      await storage.updateAdminPassword(admin.id, newPasswordHash);
+      res.json({ message: "Password changed successfully" });
+    } catch (error) {
+      console.error("Admin change password error:", error);
+      res.status(500).json({ message: "Failed to change password" });
+    }
+  });
   app2.post("/api/admin/auth/reset-password", async (req, res) => {
     try {
       const { username, newPassword } = req.body;
@@ -8217,7 +8240,7 @@ function registerAdminRoutes(app2) {
       if (paymentStatus === "confirmed" && updatedOrder) {
         let whatsappUrl = "";
         if (updatedOrder.chefId) {
-          const chef = await storage.getPartnerById(updatedOrder.chefId);
+          const chef = await storage.getChefById(updatedOrder.chefId);
           if (chef && chef.phone) {
             const rawChefPhone = chef.phone.replace(/\D/g, "");
             const chefPhone = rawChefPhone.startsWith("91") && rawChefPhone.length === 12 ? rawChefPhone : `91${rawChefPhone.slice(-10)}`;
@@ -11186,12 +11209,18 @@ Please prepare this order.`;
           platformFeeEnabled: false,
           platformFeeBelow100: 0,
           platformFeeBelow200: 0,
-          platformFeeAbove200: 0
+          platformFeeAbove200: 0,
+          roadDistanceMultiplier: "1.50"
+          // 🛣️ Default 1.5x multiplier for road distance adjustment
         });
         console.log("\u2705 Initialized default payment settings in database");
       }
     } catch (error) {
-      console.error("Error initializing payment settings:", error);
+      if (error.message && error.message.includes("road_distance_multiplier")) {
+        console.warn("\u26A0\uFE0F  [MIGRATION PENDING] road_distance_multiplier column missing - run migration: migrations/0015_add_road_distance_multiplier.sql");
+      } else {
+        console.error("Error initializing payment settings:", error);
+      }
     }
   };
   initializePaymentSettings();
@@ -11207,7 +11236,9 @@ Please prepare this order.`;
           platformFeeEnabled: false,
           platformFeeBelow100: 0,
           platformFeeBelow200: 0,
-          platformFeeAbove200: 0
+          platformFeeAbove200: 0,
+          enableRoadDistanceMultiplier: true,
+          roadDistanceMultiplier: "1.50"
         };
       }
       return settings;
@@ -11221,7 +11252,9 @@ Please prepare this order.`;
         platformFeeEnabled: false,
         platformFeeBelow100: 0,
         platformFeeBelow200: 0,
-        platformFeeAbove200: 0
+        platformFeeAbove200: 0,
+        enableRoadDistanceMultiplier: true,
+        roadDistanceMultiplier: "1.50"
       };
     }
   };
@@ -11247,6 +11280,8 @@ Please prepare this order.`;
           platformFeeBelow100: settings.platformFeeBelow100,
           platformFeeBelow200: settings.platformFeeBelow200,
           platformFeeAbove200: settings.platformFeeAbove200,
+          enableRoadDistanceMultiplier: settings.enableRoadDistanceMultiplier === void 0 ? true : !!settings.enableRoadDistanceMultiplier,
+          roadDistanceMultiplier: settings.roadDistanceMultiplier || "1.50",
           updatedAt: /* @__PURE__ */ new Date()
         }).where(eq2(paymentSettings2.id, existing.id)).returning();
         result = updated[0];
@@ -11265,7 +11300,9 @@ Please prepare this order.`;
           platformFeeEnabled: settings.platformFeeEnabled,
           platformFeeBelow100: settings.platformFeeBelow100,
           platformFeeBelow200: settings.platformFeeBelow200,
-          platformFeeAbove200: settings.platformFeeAbove200
+          platformFeeAbove200: settings.platformFeeAbove200,
+          enableRoadDistanceMultiplier: settings.enableRoadDistanceMultiplier === void 0 ? true : !!settings.enableRoadDistanceMultiplier,
+          roadDistanceMultiplier: settings.roadDistanceMultiplier || "1.50"
         }).returning();
         result = inserted[0];
         console.log("[PAYMENT-SETTINGS-WRITE] \u2705 INSERT successful, result:", {
@@ -11305,14 +11342,16 @@ Please prepare this order.`;
   app2.post("/api/admin/payment-settings", requireAdmin(), async (req, res) => {
     try {
       console.log("[ADMIN-PAYMENT-SETTINGS] POST request received with body:", req.body);
-      const { merchantPhone, upiId, merchantName, supportPhone, platformFeeEnabled, platformFeeBelow100, platformFeeBelow200, platformFeeAbove200 } = req.body;
+      const { merchantPhone, upiId, merchantName, supportPhone, platformFeeEnabled, platformFeeBelow100, platformFeeBelow200, platformFeeAbove200, roadDistanceMultiplier, enableRoadDistanceMultiplier } = req.body;
       console.log("[ADMIN-PAYMENT-SETTINGS] Extracted fields:", {
         merchantPhone,
         merchantName,
         platformFeeEnabled,
         platformFeeBelow100,
         platformFeeBelow200,
-        platformFeeAbove200
+        platformFeeAbove200,
+        roadDistanceMultiplier,
+        enableRoadDistanceMultiplier
       });
       if (!merchantPhone || !merchantName) {
         res.status(400).json({ message: "Merchant phone and name are required" });
@@ -11323,6 +11362,23 @@ Please prepare this order.`;
         res.status(400).json({ message: "Invalid merchant phone number. Use 10 digits or +91 format." });
         return;
       }
+      let validatedMultiplier = "1.50";
+      if (roadDistanceMultiplier !== void 0 && roadDistanceMultiplier !== null) {
+        const multiplierNum = parseFloat(roadDistanceMultiplier);
+        if (isNaN(multiplierNum) || multiplierNum <= 0) {
+          res.status(400).json({ message: "Road distance multiplier must be a positive number greater than 0" });
+          return;
+        }
+        if (multiplierNum > 5) {
+          res.status(400).json({ message: "Road distance multiplier cannot exceed 5.0 for safety reasons" });
+          return;
+        }
+        validatedMultiplier = multiplierNum.toFixed(2);
+      }
+      let validatedEnable = true;
+      if (enableRoadDistanceMultiplier !== void 0 && enableRoadDistanceMultiplier !== null) {
+        validatedEnable = !!enableRoadDistanceMultiplier;
+      }
       console.log("[ADMIN-PAYMENT-SETTINGS] Calling writePaymentSettings()...");
       const settings = await writePaymentSettings({
         merchantPhone,
@@ -11332,14 +11388,17 @@ Please prepare this order.`;
         platformFeeEnabled: !!platformFeeEnabled,
         platformFeeBelow100: Number(platformFeeBelow100) || 0,
         platformFeeBelow200: Number(platformFeeBelow200) || 0,
-        platformFeeAbove200: Number(platformFeeAbove200) || 0
+        platformFeeAbove200: Number(platformFeeAbove200) || 0,
+        roadDistanceMultiplier: validatedMultiplier,
+        enableRoadDistanceMultiplier: validatedEnable
       });
       console.log("[ADMIN-PAYMENT-SETTINGS] \u2705 Settings saved, returned data:", {
         id: settings?.id,
         platformFeeEnabled: settings?.platformFeeEnabled,
         platformFeeBelow100: settings?.platformFeeBelow100,
         platformFeeBelow200: settings?.platformFeeBelow200,
-        platformFeeAbove200: settings?.platformFeeAbove200
+        platformFeeAbove200: settings?.platformFeeAbove200,
+        roadDistanceMultiplier: settings?.roadDistanceMultiplier
       });
       res.json({
         message: "Payment settings updated successfully",
@@ -13412,7 +13471,12 @@ async function getPrimaryAdminPhoneNumber() {
       console.log(`\u{1F4DE} [ADMIN-PHONE] Admin phone: ${phone}`);
       return phone;
     } else {
-      console.warn(`\u26A0\uFE0F [ADMIN-PHONE] NO ADMIN WITH PHONE FOUND!`);
+      console.warn(`\u26A0\uFE0F [ADMIN-PHONE] NO ADMIN WITH PHONE FOUND! Trying fallback to ADMIN_WHATSAPP_PHONE env var.`);
+      const envFallback = process.env.ADMIN_WHATSAPP_PHONE || process.env.SUPPORT_PHONE || null;
+      if (envFallback && String(envFallback).trim().length > 0) {
+        console.log(`\u2705 [ADMIN-PHONE] Using fallback admin phone from env: ${envFallback}`);
+        return String(envFallback).trim();
+      }
       console.warn(`   Required: At least one admin must have a phone number`);
       console.warn(`   To fix: UPDATE admin_users SET phone = '91XXXXXXXXXX' WHERE role = 'super_admin'`);
       return null;
@@ -14892,9 +14956,29 @@ async function registerRoutes(app2) {
           addressDistance
         });
         sanitized.deliveryFee = expectedDeliveryFee;
-        sanitized.distance = addressDistance.toFixed(2);
+        let roadDistanceMultiplier = 1.5;
+        try {
+          const paymentSettingsData = await db.query.paymentSettings.findFirst();
+          if (paymentSettingsData) {
+            const enabled = paymentSettingsData.enableRoadDistanceMultiplier;
+            const dbMultiplier = paymentSettingsData.roadDistanceMultiplier;
+            if (enabled === false) {
+              roadDistanceMultiplier = 1;
+              console.log(`[DISTANCE-MULTIPLIER] Multiplier disabled by admin - using 1.0x`);
+            } else if (dbMultiplier) {
+              roadDistanceMultiplier = parseFloat(dbMultiplier);
+              console.log(`[DISTANCE-MULTIPLIER] Using admin-configured multiplier: ${roadDistanceMultiplier}x`);
+            }
+          }
+        } catch (err) {
+          console.warn(`[DISTANCE-MULTIPLIER] Could not fetch admin settings, using default 1.5x:`, err);
+        }
+        const { getRoadAdjustedDistance: getAdjustedDist } = await Promise.resolve().then(() => (init_deliveryUtils(), deliveryUtils_exports));
+        const adjustedDistance = getAdjustedDist(addressDistance, roadDistanceMultiplier);
+        sanitized.distance = adjustedDistance.toFixed(2);
+        console.log(`[DISTANCE-ADJUSTED] Raw: ${addressDistance.toFixed(2)}km \u2192 Adjusted: ${adjustedDistance.toFixed(2)}km (multiplier: ${roadDistanceMultiplier}x)`);
         const deliveryPartnerPayout = await storage.calculateDeliveryPartnerPayout(
-          addressDistance,
+          adjustedDistance,
           sanitized.addressPincode
           // Pass pincode for regional rate matching
         );
@@ -14907,22 +14991,22 @@ async function registerRoutes(app2) {
         let platformFee = 0;
         try {
           const paymentSettingsResponse = await fetch(`http://localhost:${process.env.PORT || 5e3}/api/payment-settings`);
-          const paymentSettings3 = paymentSettingsResponse.ok ? await paymentSettingsResponse.json() : {};
-          if (paymentSettings3?.platformFeeEnabled) {
+          const paymentSettings4 = paymentSettingsResponse.ok ? await paymentSettingsResponse.json() : {};
+          if (paymentSettings4?.platformFeeEnabled) {
             const subtotalAmount = sanitized.subtotal || 0;
             if (subtotalAmount < 100) {
-              platformFee = paymentSettings3.platformFeeBelow100 || 0;
+              platformFee = paymentSettings4.platformFeeBelow100 || 0;
             } else if (subtotalAmount < 200) {
-              platformFee = paymentSettings3.platformFeeBelow200 || 0;
+              platformFee = paymentSettings4.platformFeeBelow200 || 0;
             } else {
-              platformFee = paymentSettings3.platformFeeAbove200 || 0;
+              platformFee = paymentSettings4.platformFeeAbove200 || 0;
             }
           }
           sanitized.platformFee = platformFee;
           console.log("[PLATFORM-FEE] Calculated fee from payment settings:", {
             subtotal: sanitized.subtotal,
             fee: platformFee,
-            platformFeeEnabled: paymentSettings3?.platformFeeEnabled
+            platformFeeEnabled: paymentSettings4?.platformFeeEnabled
           });
         } catch (pfErr) {
           console.error("[PLATFORM-FEE] Error calculating fee:", pfErr);
@@ -15225,15 +15309,6 @@ ${"=".repeat(80)}`);
           }
           console.log(`
 3\uFE0F\u20E3 Sending WhatsApp notification to admin...`);
-          console.log(`[WHATSAPP-DEBUG] Order object keys:`, Object.keys(order));
-          console.log(`[WHATSAPP-DEBUG] order.items:`, order.items);
-          console.log(`[WHATSAPP-DEBUG] order.items type:`, typeof order.items);
-          console.log(`[WHATSAPP-DEBUG] order.address:`, order.address);
-          console.log(`[WHATSAPP-DEBUG] order.addressBuilding:`, order.addressBuilding);
-          console.log(`[WHATSAPP-DEBUG] order.addressStreet:`, order.addressStreet);
-          console.log(`[WHATSAPP-DEBUG] order.addressArea:`, order.addressArea);
-          console.log(`[WHATSAPP-DEBUG] order.addressCity:`, order.addressCity);
-          console.log(`[WHATSAPP-DEBUG] order.addressPincode:`, order.addressPincode);
           const completeAddress = [
             order.addressBuilding,
             order.addressStreet,
@@ -15261,7 +15336,6 @@ ${"=".repeat(80)}`);
             itemsArray,
             completeAddress
           );
-          console.log(`   Result: ${whatsappResult ? "\u2705 Sent" : "\u26A0\uFE0F Skipped/Failed"}`);
           console.log(`${"=".repeat(80)}
 `);
         } catch (err) {
@@ -18471,6 +18545,69 @@ Please accept and start preparation.`;
     } catch (error) {
       console.error("Newsletter subscription error:", error);
       res.status(500).json({ success: false, message: "Something went wrong. Please try again." });
+    }
+  });
+  app2.post("/api/test-whatsapp-admin", async (req, res) => {
+    try {
+      console.log("\n\u{1F9EA} [TEST] WhatsApp admin notification test started");
+      const adminPhone = await getPrimaryAdminPhoneNumber();
+      if (!adminPhone) {
+        console.warn("\u274C [TEST] No admin phone found");
+        return res.status(400).json({
+          success: false,
+          message: "No admin phone configured in database",
+          debug: {
+            error: "Admin phone not found",
+            check_db: "SELECT phone FROM admin_users WHERE role = 'super_admin' LIMIT 1"
+          }
+        });
+      }
+      const testMessage = `
+\u{1F9EA} *TEST MESSAGE* \u{1F9EA}
+
+This is a test WhatsApp message from RotiHai
+Sent at: ${(/* @__PURE__ */ new Date()).toLocaleString()}
+
+If you received this, WhatsApp integration is working! \u2705
+
+-RotiHai Admin System
+      `.trim();
+      console.log(`\u{1F4E4} [TEST] Sending test message to: ${adminPhone}`);
+      console.log(`\u{1F4DD} [TEST] Message length: ${testMessage.length} chars`);
+      const { sendWhatsAppMessage: sendWhatsAppMessage2 } = await Promise.resolve().then(() => (init_whatsappService(), whatsappService_exports));
+      const sent = await sendWhatsAppMessage2(adminPhone, testMessage);
+      if (sent) {
+        console.log(`\u2705 [TEST] Test message sent successfully to ${adminPhone}`);
+        res.json({
+          success: true,
+          message: "Test message sent successfully!",
+          debug: {
+            phone: adminPhone,
+            message_length: testMessage.length,
+            timestamp: (/* @__PURE__ */ new Date()).toISOString()
+          }
+        });
+      } else {
+        console.error(`\u274C [TEST] Failed to send test message to ${adminPhone}`);
+        res.status(500).json({
+          success: false,
+          message: "Failed to send test message",
+          debug: {
+            phone: adminPhone,
+            error: "sendWhatsAppMessage returned false"
+          }
+        });
+      }
+    } catch (error) {
+      console.error("\u274C [TEST] Error in WhatsApp test endpoint:", error);
+      res.status(500).json({
+        success: false,
+        message: "Error sending test message",
+        error: error.message,
+        debug: {
+          timestamp: (/* @__PURE__ */ new Date()).toISOString()
+        }
+      });
     }
   });
   const httpServer = createServer(app2);

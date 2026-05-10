@@ -23,6 +23,9 @@ export default function AdminPaymentSettings() {
     platformFeeBelow100: 0,
     platformFeeBelow200: 0,
     platformFeeAbove200: 0,
+    // 🛣️ Road Distance Multiplier
+    enableRoadDistanceMultiplier: true,
+    roadDistanceMultiplier: "1.50",
   });
 
   // Load payment settings from API
@@ -346,6 +349,76 @@ export default function AdminPaymentSettings() {
                 ℹ️ Platform fee is currently disabled - no fees will be charged to customers
               </div>
             )}
+          </CardContent>
+        </Card>
+
+        {/* 🛣️ Road Distance Multiplier Configuration */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Delivery Distance Settings</CardTitle>
+            <CardDescription>
+              Adjust the multiplier applied to delivery distances for fees and partner payouts
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {/* Road Distance Multiplier */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="roadDistanceMultiplier" className="mb-0">
+                  Road Distance Multiplier (1.00 - 5.00)
+                </Label>
+                <div className="flex items-center gap-3">
+                  <input
+                    id="enableRoadDistanceMultiplier"
+                    type="checkbox"
+                    checked={!!paymentConfig.enableRoadDistanceMultiplier}
+                    onChange={(e) =>
+                      setPaymentConfig({
+                        ...paymentConfig,
+                        enableRoadDistanceMultiplier: e.target.checked,
+                      })
+                    }
+                    className="w-5 h-5 rounded border-slate-300 cursor-pointer"
+                  />
+                  <Label htmlFor="enableRoadDistanceMultiplier" className="cursor-pointer text-sm">
+                    Enable multiplier
+                  </Label>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="roadDistanceMultiplier"
+                  type="number"
+                  min="1"
+                  max="5"
+                  step="0.01"
+                  value={paymentConfig.roadDistanceMultiplier}
+                  disabled={!paymentConfig.enableRoadDistanceMultiplier}
+                  onChange={(e) =>
+                    setPaymentConfig({
+                      ...paymentConfig,
+                      roadDistanceMultiplier: e.target.value,
+                    })
+                  }
+                  placeholder="e.g., 1.50"
+                  className="flex-1"
+                />
+                <span className="text-slate-600 dark:text-slate-400 font-medium">
+                  ×
+                </span>
+              </div>
+              <p className="text-xs text-slate-500">
+                This multiplier is applied to the raw haversine distance for:
+              </p>
+              <ul className="text-xs text-slate-500 ml-4 space-y-1 list-disc">
+                <li>Delivery fee calculations (fee slabs)</li>
+                <li>Delivery partner payouts</li>
+                <li>Distance displayed to customers and admin</li>
+              </ul>
+              <div className="mt-3 p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded text-xs text-amber-900 dark:text-amber-100">
+                <strong>Example:</strong> If raw distance is 0.81 km and multiplier is 1.50, customers will see 1.22 km and pay accordingly.
+              </div>
+            </div>
           </CardContent>
         </Card>
 

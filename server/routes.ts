@@ -13,7 +13,7 @@ import { verifyToken as verifyUserToken } from "./userAuth";
 import { requireAdmin } from "./adminAuth";
 import { sendEmail, createWelcomeEmail, createPasswordResetEmail, createPasswordChangeConfirmationEmail, sendOrderConfirmationEmail } from "./emailService";
 import { sendOrderPlacedAdminNotification, sendPaymentInitiatedAdminNotification } from "./whatsappService";
-import { db, subscriptions, orders, walletSettings, referralRewards, newsletterSubscribers, users, deliveryPersonnel } from "@shared/db";
+import { db, subscriptions, orders, walletSettings, referralRewards, newsletterSubscribers, users, deliveryPersonnel, paymentSettings } from "@shared/db";
 import { eq } from "drizzle-orm";
 import { ZodError } from "zod";
 import axios from "axios";
@@ -69,10 +69,15 @@ async function getPrimaryAdminPhoneNumber(): Promise<string | null> {
       console.log(`📞 [ADMIN-PHONE] Admin phone: ${phone}`);
       return phone;
     } else {
-      console.warn(`⚠️ [ADMIN-PHONE] NO ADMIN WITH PHONE FOUND!`);
-      console.warn(`   Required: At least one admin must have a phone number`);
-      console.warn(`   To fix: UPDATE admin_users SET phone = '91XXXXXXXXXX' WHERE role = 'super_admin'`);
-      return null;
+        console.warn(`⚠️ [ADMIN-PHONE] NO ADMIN WITH PHONE FOUND! Trying fallback to ADMIN_WHATSAPP_PHONE env var.`);
+        const envFallback = process.env.ADMIN_WHATSAPP_PHONE || process.env.SUPPORT_PHONE || null;
+        if (envFallback && String(envFallback).trim().length > 0) {
+          console.log(`✅ [ADMIN-PHONE] Using fallback admin phone from env: ${envFallback}`);
+          return String(envFallback).trim();
+        }
+        console.warn(`   Required: At least one admin must have a phone number`);
+        console.warn(`   To fix: UPDATE admin_users SET phone = '91XXXXXXXXXX' WHERE role = 'super_admin'`);
+        return null;
     }
   } catch (error) {
     console.error("❌ [ADMIN-PHONE] Failed to load admin phone from admin_users table:", error);
@@ -2026,14 +2031,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Overwrite any client-supplied deliveryFee with server-calculated value
         (sanitized as any).deliveryFee = expectedDeliveryFee;
 
-        // 🛣️ Apply road distance multiplier for accurate display and payout
+        // 🛣️ Fetch admin-configured distance multiplier and apply it
+        // This allows admins to adjust the road distance multiplier without code changes
+        let roadDistanceMultiplier = 1.5; // Default fallback
+        try {
+          const paymentSettingsData = await db.query.paymentSettings.findFirst();
+          if (paymentSettingsData) {
+            const enabled = (paymentSettingsData as any).enableRoadDistanceMultiplier;
+            const dbMultiplier = (paymentSettingsData as any).roadDistanceMultiplier;
+            if (enabled === false) {
+              roadDistanceMultiplier = 1.0;
+              console.log(`[DISTANCE-MULTIPLIER] Multiplier disabled by admin - using 1.0x`);
+            } else if (dbMultiplier) {
+              roadDistanceMultiplier = parseFloat(dbMultiplier as any);
+              console.log(`[DISTANCE-MULTIPLIER] Using admin-configured multiplier: ${roadDistanceMultiplier}x`);
+            }
+          }
+        } catch (err) {
+          console.warn(`[DISTANCE-MULTIPLIER] Could not fetch admin settings, using default 1.5x:`, err);
+        }
+
+        // Apply road distance multiplier for accurate display and payout
         // This matches the adjusted distance used in fee calculation
-        const adjustedDistance = getRoadAdjustedDistance(addressDistance);
+        const { getRoadAdjustedDistance: getAdjustedDist } = await import("@shared/deliveryUtils");
+        const adjustedDistance = getAdjustedDist(addressDistance, roadDistanceMultiplier);
         
         // Store ADJUSTED distance for delivery partner payout calculation (as string for DECIMAL type)
         (sanitized as any).distance = adjustedDistance.toFixed(2);
 
-        console.log(`[DISTANCE-ADJUSTED] Raw: ${addressDistance.toFixed(2)}km → Adjusted: ${adjustedDistance.toFixed(2)}km`);
+        console.log(`[DISTANCE-ADJUSTED] Raw: ${addressDistance.toFixed(2)}km → Adjusted: ${adjustedDistance.toFixed(2)}km (multiplier: ${roadDistanceMultiplier}x)`);
 
         // Calculate distance-based delivery partner payout (fetches from database)
         // Use ADJUSTED distance for payout consistency with fee calculation
@@ -2469,18 +2495,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           console.log(`\n3️⃣ Sending WhatsApp notification to admin...`);
           
-          // 🔍 Debug: Log the order object structure
-          console.log(`[WHATSAPP-DEBUG] Order object keys:`, Object.keys(order));
-          console.log(`[WHATSAPP-DEBUG] order.items:`, order.items);
-          console.log(`[WHATSAPP-DEBUG] order.items type:`, typeof order.items);
-          console.log(`[WHATSAPP-DEBUG] order.address:`, order.address);
-          console.log(`[WHATSAPP-DEBUG] order.addressBuilding:`, order.addressBuilding);
-          console.log(`[WHATSAPP-DEBUG] order.addressStreet:`, order.addressStreet);
-          console.log(`[WHATSAPP-DEBUG] order.addressArea:`, order.addressArea);
-          console.log(`[WHATSAPP-DEBUG] order.addressCity:`, order.addressCity);
-          console.log(`[WHATSAPP-DEBUG] order.addressPincode:`, order.addressPincode);
-          
-          // 📦 Build complete address
+          //  Build complete address
           const completeAddress = [
             order.addressBuilding,
             order.addressStreet,
@@ -2511,7 +2526,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             itemsArray,
             completeAddress
           );
-          console.log(`   Result: ${whatsappResult ? "✅ Sent" : "⚠️ Skipped/Failed"}`);
+          // Note: Actual WhatsApp send status will be visible in async logs above
           console.log(`${'='.repeat(80)}\n`);
         } catch (err) {
           console.error("❌ Error in background notification tasks:", err);
@@ -6719,6 +6734,79 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error("Newsletter subscription error:", error);
       res.status(500).json({ success: false, message: "Something went wrong. Please try again." });
+    }
+  });
+
+  // 🧪 TEST ENDPOINT - Send WhatsApp test message to admin
+  app.post("/api/test-whatsapp-admin", async (req: any, res) => {
+    try {
+      console.log("\n🧪 [TEST] WhatsApp admin notification test started");
+
+      const adminPhone = await getPrimaryAdminPhoneNumber();
+
+      if (!adminPhone) {
+        console.warn("❌ [TEST] No admin phone found");
+        return res.status(400).json({
+          success: false,
+          message: "No admin phone configured in database",
+          debug: {
+            error: "Admin phone not found",
+            check_db: "SELECT phone FROM admin_users WHERE role = 'super_admin' LIMIT 1",
+          },
+        });
+      }
+
+      const testMessage = `
+🧪 *TEST MESSAGE* 🧪
+
+This is a test WhatsApp message from RotiHai
+Sent at: ${new Date().toLocaleString()}
+
+If you received this, WhatsApp integration is working! ✅
+
+-RotiHai Admin System
+      `.trim();
+
+      console.log(`📤 [TEST] Sending test message to: ${adminPhone}`);
+      console.log(`📝 [TEST] Message length: ${testMessage.length} chars`);
+
+      // Import sendWhatsAppMessage from whatsappService
+      const { sendWhatsAppMessage } = await import("./whatsappService");
+
+      const sent = await sendWhatsAppMessage(adminPhone, testMessage);
+
+      if (sent) {
+        console.log(`✅ [TEST] Test message sent successfully to ${adminPhone}`);
+        res.json({
+          success: true,
+          message: "Test message sent successfully!",
+          debug: {
+            phone: adminPhone,
+            message_length: testMessage.length,
+            timestamp: new Date().toISOString(),
+          },
+        });
+      } else {
+        console.error(`❌ [TEST] Failed to send test message to ${adminPhone}`);
+        res.status(500).json({
+          success: false,
+          message: "Failed to send test message",
+          debug: {
+            phone: adminPhone,
+            error: "sendWhatsAppMessage returned false",
+          },
+        });
+      }
+    } catch (error: any) {
+      console.error("❌ [TEST] Error in WhatsApp test endpoint:", error);
+      res.status(500).json({
+        success: false,
+        message: "Error sending test message",
+        error: error.message,
+        debug: {
+          timestamp: new Date().toISOString(),
+        },
+      });
     }
   });
 
