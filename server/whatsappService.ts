@@ -30,7 +30,7 @@ interface WhatsAppMessage {
   };
 }
 
-export async function sendWhatsAppMessage(phoneNumber: string, message: string): Promise<boolean> {
+export async function sendWhatsAppMessage(phoneNumber: string, message: string, contextId?: string): Promise<boolean> {
   if (!WHATSAPP_API_URL || !WHATSAPP_API_TOKEN || !WHATSAPP_PHONE_NUMBER_ID) {
     console.warn("[WHATSAPP] Service not configured. Skipping message.");
     return false;
@@ -41,7 +41,18 @@ export async function sendWhatsAppMessage(phoneNumber: string, message: string):
     ? `${"*".repeat(cleanPhone.length - 4)}${cleanPhone.slice(-4)}`
     : "****";
 
+  const endpoint = getWhatsAppMessagesEndpoint();
+  const contextLog = contextId ? ` [${contextId}]` : "";
+
   try {
+    // ✅ LOG BEFORE SENDING: Request details
+    console.log(`[WHATSAPP] 📤 SENDING REQUEST${contextLog}`);
+    console.log(`  → To: ${maskedPhone}`);
+    console.log(`  → Endpoint: ${endpoint}`);
+    console.log(`  → Phone ID: ${WHATSAPP_PHONE_NUMBER_ID}`);
+    console.log(`  → Auth Token: ${WHATSAPP_API_TOKEN ? "✅ Present" : "❌ Missing"}`);
+    console.log(`  → Message length: ${message.length} chars`);
+
     const payload: WhatsAppMessage = {
       messaging_product: "whatsapp",
       to: cleanPhone,
@@ -53,7 +64,7 @@ export async function sendWhatsAppMessage(phoneNumber: string, message: string):
     };
 
     const response = await axios.post(
-      getWhatsAppMessagesEndpoint(),
+      endpoint,
       payload,
       {
         headers: {
@@ -63,19 +74,41 @@ export async function sendWhatsAppMessage(phoneNumber: string, message: string):
       }
     );
 
+    // ✅ LOG ON SUCCESS: ONLY AFTER axios resolves with 200
     const messageId = response.data?.messages?.[0]?.id;
-    console.log(`[WHATSAPP] Message sent to ${maskedPhone}: ${messageId || "unknown message id"}`);
+    console.log(`[WHATSAPP] ✅ META API SUCCESS${contextLog}`);
+    console.log(`  → Message ID: ${messageId || "unknown"}`);
+    console.log(`  → Recipient: ${maskedPhone}`);
+    console.log(`  → Status Code: ${response.status}`);
     return true;
   } catch (error) {
+    // ❌ LOG ON FAILURE: Full error details for debugging
+    console.error(`[WHATSAPP] ❌ META API FAILED${contextLog}`);
+    console.error(`  → Recipient: ${maskedPhone}`);
+    
     if (axios.isAxiosError(error)) {
-      console.error(`[WHATSAPP] Send failed for ${maskedPhone}: ${error.response?.status || ""} ${error.message}`);
+      console.error(`  → HTTP Status: ${error.response?.status || "unknown"}`);
+      console.error(`  → Message: ${error.message}`);
+      
       if (error.response?.data) {
-        console.error("[WHATSAPP] Error response:", JSON.stringify(error.response.data));
+        console.error(`  → RAW ERROR RESPONSE:`, JSON.stringify(error.response.data, null, 2));
+        
+        // Extract Meta error code for easier debugging
+        const metaError = error.response.data as any;
+        if (metaError?.error?.code) {
+          console.error(`  → Meta Error Code: ${metaError.error.code}`);
+          console.error(`  → Meta Error Message: ${metaError.error.message}`);
+          
+          if (metaError.error.code === 131030) {
+            console.error(`  → 🔍 HINT: Error 131030 = "Recipient not in allowed list" (Sandbox mode)`);
+            console.error(`     → Add ${maskedPhone} to WhatsApp Test Numbers in Meta Business Manager`);
+          }
+        }
       }
     } else if (error instanceof Error) {
-      console.error(`[WHATSAPP] Send failed for ${maskedPhone}: ${error.message}`);
+      console.error(`  → Error: ${error.message}`);
     } else {
-      console.error(`[WHATSAPP] Send failed for ${maskedPhone}: ${JSON.stringify(error)}`);
+      console.error(`  → Error: ${JSON.stringify(error)}`);
     }
 
     return false;
@@ -214,12 +247,12 @@ ${address || "Address not provided"}
 
   console.log(`📝 [WHATSAPP-ADMIN-ORDER] Message prepared: ${message.length} chars`);
 
-  // Non-blocking - fire and forget
-  sendWhatsAppMessage(adminPhone, message).catch(error => {
-    console.error(`❌ [WHATSAPP-ADMIN-ORDER] Failed to send admin notification for order ${orderId}:`, error);
+  // Non-blocking - fire and forget (actual async result visible in logs)
+  sendWhatsAppMessage(adminPhone, message, `ORDER#${orderId}`).catch(error => {
+    console.error(`[WHATSAPP-ADMIN-ORDER] Async error caught:`, error);
   });
 
-  console.log(`📤 [WHATSAPP-ADMIN-ORDER] WhatsApp message queued for sending (non-blocking)\n`);
+  console.log(`[WHATSAPP-ADMIN-ORDER] ⏳ Background send initiated (check logs for async success/failure)\n`);
   return true;
 }
 
@@ -253,8 +286,8 @@ User clicked "I Paid". Please verify payment in Admin > Payments.
 -RotiHai Admin System
   `.trim();
 
-  sendWhatsAppMessage(adminPhone, message).catch(error => {
-    console.error(`Failed to send payment initiated admin notification for ${checkoutOrOrderId}:`, error);
+  sendWhatsAppMessage(adminPhone, message, `PAYMENT#${checkoutOrOrderId}`).catch(error => {
+    console.error(`[WHATSAPP-PAYMENT] Async error caught:`, error);
   });
 
   return true;

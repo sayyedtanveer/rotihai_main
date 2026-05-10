@@ -13,10 +13,13 @@ export interface DeliverySetting {
   isActive: boolean;
 }
 
-export const ROAD_DISTANCE_MULTIPLIER = 1.5;
+// Default multiplier - will be overridden by admin settings from database
+// DO NOT CHANGE THIS - Update via Admin Panel instead
+export const ROAD_DISTANCE_MULTIPLIER = 1.5; // Default, can be overridden by admin
 
-export function getRoadAdjustedDistance(rawDistance: number): number {
-  return Number((rawDistance * ROAD_DISTANCE_MULTIPLIER).toFixed(2));
+export function getRoadAdjustedDistance(rawDistance: number, customMultiplier?: number): number {
+  const multiplier = customMultiplier ?? ROAD_DISTANCE_MULTIPLIER;
+  return Number((rawDistance * multiplier).toFixed(2));
 }
 
 // Haversine formula to calculate distance between two coordinates in kilometers
@@ -61,7 +64,8 @@ export interface DeliveryCalculation {
 export function calculateDelivery(
   distance: number,
   subtotal: number,
-  deliverySettings?: DeliverySetting[]
+  deliverySettings?: DeliverySetting[],
+  customMultiplier?: number
 ): Omit<DeliveryCalculation, 'distance'> {
   let deliveryFee: number = 0;
   let freeDeliveryEligible = false;
@@ -92,7 +96,7 @@ export function calculateDelivery(
     };
   }
 
-  const adjustedDistance = getRoadAdjustedDistance(distance);
+  const adjustedDistance = getRoadAdjustedDistance(distance, customMultiplier);
 
   // Find matching delivery range based on adjusted road distance
   console.log(`[Delivery Calc] Adjusted road distance for slabs: ${adjustedDistance}km`);
@@ -167,10 +171,11 @@ export function calculateFullDelivery(
   chefLat: number,
   chefLon: number,
   subtotal: number,
-  deliverySettings?: DeliverySetting[]
+  deliverySettings?: DeliverySetting[],
+  customMultiplier?: number
 ): DeliveryCalculation {
   const distance = calculateDistance(userLat, userLon, chefLat, chefLon);
-  const delivery = calculateDelivery(distance, subtotal, deliverySettings);
+  const delivery = calculateDelivery(distance, subtotal, deliverySettings, customMultiplier);
 
   return {
     distance,

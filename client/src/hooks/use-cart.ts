@@ -46,10 +46,15 @@ interface CartStore {
   userLongitude: number | null;
   isLocationExact: boolean; // New flag for location precision
   deliverySettings: DeliverySetting[];
+  paymentSettings: {
+    enableRoadDistanceMultiplier: boolean;
+    roadDistanceMultiplier: string;
+  };
   chefStatuses: Record<string, boolean>;
   setUserLocation: (lat: number | null, lon: number | null, isExact?: boolean) => void;
   setDeliverySettings: (settings: DeliverySetting[]) => void;
   fetchDeliverySettings: () => Promise<void>;
+  fetchPaymentSettings: () => Promise<void>;
   updateChefStatus: (chefId: string, isActive: boolean) => void;
   setChefStatuses: (statuses: ChefStatus[]) => void;
   fetchChefStatuses: () => Promise<void>;
@@ -85,6 +90,11 @@ export const useCart = create<CartStore>()(
       userLongitude: null,
       isLocationExact: false, // Default to false (approximate)
       deliverySettings: [],
+          // Payment settings from admin (road distance multiplier + enable flag)
+          paymentSettings: {
+            enableRoadDistanceMultiplier: true,
+            roadDistanceMultiplier: "1.50",
+          },
       chefStatuses: {},
 
       setUserLocation: (lat: number | null, lon: number | null, isExact = false) => {
@@ -103,6 +113,18 @@ export const useCart = create<CartStore>()(
           }
         } catch (error) {
           console.error("Failed to fetch delivery settings:", error);
+        }
+      },
+
+      // Fetch admin payment settings (multiplier) so UI calculations match server
+      fetchPaymentSettings: async () => {
+        try {
+          const response = await apiClient.get("/api/admin/payment-settings");
+          if (response.status === 200 && response.data) {
+            set({ paymentSettings: response.data });
+          }
+        } catch (error) {
+          console.error("Failed to fetch payment settings:", error);
         }
       },
 
@@ -354,7 +376,12 @@ export const useCart = create<CartStore>()(
             );
 
             // Calculate delivery fee using shared utility with admin settings
-            const deliveryCalc = calculateDelivery(distance, subtotal, deliverySettings);
+            const ps = get().paymentSettings;
+            const multiplier = ps && ps.enableRoadDistanceMultiplier === false
+              ? 1.0
+              : parseFloat(ps?.roadDistanceMultiplier ?? "1.50");
+
+            const deliveryCalc = calculateDelivery(distance, subtotal, deliverySettings, multiplier);
             deliveryFee = deliveryCalc.deliveryFee;
             freeDeliveryEligible = deliveryCalc.freeDeliveryEligible;
             amountForFreeDelivery = deliveryCalc.amountForFreeDelivery;

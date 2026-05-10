@@ -180,13 +180,47 @@ export default function CheckoutDialog({
 
   // Delivery address zone validation (NOT GPS-based)
   const [addressInDeliveryZone, setAddressInDeliveryZone] = useState(true);
-  const [addressZoneValidated, setAddressZoneValidated] = useState(false);
-  const [addressZoneDistance, setAddressZoneDistance] = useState<number>(0);
+  const [addressZoneValidated, setAddressZoneValidated] = useState<boolean>(() => {
+    try {
+      const stored = localStorage.getItem("lastValidatedDeliveryAddress");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        return !!(parsed && parsed.isInZone && parsed.address && parsed.pincode);
+      }
+    } catch (e) {
+      // ignore
+    }
+    return false;
+  });
+  const [addressZoneDistance, setAddressZoneDistance] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem("lastValidatedDeliveryAddress");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        return parsed && parsed.distance ? Number(parsed.distance) : 0;
+      }
+    } catch (e) {
+      // ignore
+    }
+    return 0;
+  });
   const [isReValidatingPincode, setIsReValidatingPincode] = useState(false);
   const autoGeocodeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Address confirmation state - controls visibility of below content
-  const [addressConfirmed, setAddressConfirmed] = useState(false);
+  const [addressConfirmed, setAddressConfirmed] = useState<boolean>(() => {
+    try {
+      const stored = localStorage.getItem("lastValidatedDeliveryAddress");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        const hasComplete = parsed && parsed.isInZone && parsed.address && parsed.pincode && parsed.areaName;
+        return !!hasComplete;
+      }
+    } catch (e) {
+      // ignore
+    }
+    return false;
+  });
 
   const prepareRestoredAddressForRevalidation = (hasCompleteAddress: boolean) => {
     setAddressZoneValidated(false);
@@ -194,7 +228,10 @@ export default function CheckoutDialog({
     setAddressConfirmed(false);
     setLocationError("");
     setDeliveryDistance(null);
-    setIsEditingAddress(!hasCompleteAddress);
+    // Do not force the edit panel open when restoring a stored/auto-filled pincode.
+    // Only open the edit form if it was already open previously and the restored
+    // data indicates incompleteness. This avoids a visual flash on dialog open.
+    setIsEditingAddress((prev) => prev && !hasCompleteAddress);
   };
 
   const hasUsableCoordinates = (latitude: unknown, longitude: unknown) => {
@@ -226,7 +263,20 @@ export default function CheckoutDialog({
   const firstInputRef = useRef<HTMLInputElement>(null);
 
   // State for View/Edit mode
-  const [isEditingAddress, setIsEditingAddress] = useState(true);
+  // Default to closed (not editing) when a recently validated delivery address exists
+  const [isEditingAddress, setIsEditingAddress] = useState<boolean>(() => {
+    try {
+      const stored = localStorage.getItem("lastValidatedDeliveryAddress");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        const hasComplete = parsed && parsed.isInZone && parsed.address && parsed.pincode && parsed.areaName;
+        return !hasComplete; // if complete and validated, do not show edit form
+      }
+    } catch (e) {
+      // ignore parse errors and fall through
+    }
+    return true;
+  });
 
   // ✅ HELPER: Check if all 4 required address fields are complete
   const isAddressComplete =
@@ -2510,14 +2560,19 @@ export default function CheckoutDialog({
   ) => {
     const distance = calculateDistance(chefLat, chefLon, customerLat, customerLon);
 
-    // Get delivery settings from cart store or props
-    // This ensures we use the exact same logic as the backend/admin panel
-    const settings = useCart.getState().deliverySettings;
+    // Get delivery settings and admin multiplier from cart store
+    const state = useCart.getState();
+    const settings = state.deliverySettings;
+    const ps = state.paymentSettings;
+    const multiplier = ps && ps.enableRoadDistanceMultiplier === false
+      ? 1.0
+      : parseFloat(ps?.roadDistanceMultiplier ?? "1.50");
 
     const { deliveryFee, freeDeliveryEligible, amountForFreeDelivery, minOrderAmount } = calculateDelivery(
       distance,
       subtotal,
-      settings
+      settings,
+      multiplier
     );
 
     // Update state to reflect delivery constraints

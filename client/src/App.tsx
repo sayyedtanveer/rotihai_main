@@ -13,6 +13,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useOrderNotifications } from "@/hooks/useOrderNotifications";
 import { useVersionCheck } from "@/hooks/useVersionCheck";
 import { useToast } from "@/hooks/use-toast";
+import { useCart } from "@/hooks/use-cart";
 import Home from "@/pages/Home";
 import MyOrders from "@/pages/MyOrders";
 import MySubscriptions from "@/pages/MySubscriptions";
@@ -239,6 +240,16 @@ function AppContent() {
     }, 3000); // Hide spinner after 3 seconds
 
     return () => clearTimeout(timer);
+  }, []);
+
+  // Fetch admin payment settings on app start so UI uses same multiplier as server
+  useEffect(() => {
+    // Fire-and-forget; store will cache the value
+    try {
+      useCart.getState().fetchPaymentSettings();
+    } catch (e) {
+      console.warn("Failed to init payment settings:", e);
+    }
   }, []);
 
   useEffect(() => {

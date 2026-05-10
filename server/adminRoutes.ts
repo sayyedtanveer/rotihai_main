@@ -4482,11 +4482,16 @@ export function registerAdminRoutes(app: Express) {
           platformFeeBelow100: 0,
           platformFeeBelow200: 0,
           platformFeeAbove200: 0,
+          roadDistanceMultiplier: "1.50", // 🛣️ Default 1.5x multiplier for road distance adjustment
         });
         console.log("✅ Initialized default payment settings in database");
       }
-    } catch (error) {
-      console.error("Error initializing payment settings:", error);
+    } catch (error: any) {
+      if (error.message && error.message.includes("road_distance_multiplier")) {
+        console.warn("⚠️  [MIGRATION PENDING] road_distance_multiplier column missing - run migration: migrations/0015_add_road_distance_multiplier.sql");
+      } else {
+        console.error("Error initializing payment settings:", error);
+      }
     }
   };
 
@@ -4508,6 +4513,8 @@ export function registerAdminRoutes(app: Express) {
           platformFeeBelow100: 0,
           platformFeeBelow200: 0,
           platformFeeAbove200: 0,
+          enableRoadDistanceMultiplier: true,
+          roadDistanceMultiplier: "1.50",
         };
       }
       return settings;
@@ -4523,6 +4530,8 @@ export function registerAdminRoutes(app: Express) {
         platformFeeBelow100: 0,
         platformFeeBelow200: 0,
         platformFeeAbove200: 0,
+        enableRoadDistanceMultiplier: true,
+        roadDistanceMultiplier: "1.50",
       };
     }
   };
@@ -4555,6 +4564,8 @@ export function registerAdminRoutes(app: Express) {
             platformFeeBelow100: settings.platformFeeBelow100,
             platformFeeBelow200: settings.platformFeeBelow200,
             platformFeeAbove200: settings.platformFeeAbove200,
+            enableRoadDistanceMultiplier: settings.enableRoadDistanceMultiplier === undefined ? true : !!settings.enableRoadDistanceMultiplier,
+            roadDistanceMultiplier: settings.roadDistanceMultiplier || "1.50",
             updatedAt: new Date(),
           })
           .where(eq(paymentSettings.id, existing.id))
@@ -4580,6 +4591,8 @@ export function registerAdminRoutes(app: Express) {
             platformFeeBelow100: settings.platformFeeBelow100,
             platformFeeBelow200: settings.platformFeeBelow200,
             platformFeeAbove200: settings.platformFeeAbove200,
+            enableRoadDistanceMultiplier: settings.enableRoadDistanceMultiplier === undefined ? true : !!settings.enableRoadDistanceMultiplier,
+            roadDistanceMultiplier: settings.roadDistanceMultiplier || "1.50",
           })
           .returning();
         
@@ -4629,7 +4642,7 @@ export function registerAdminRoutes(app: Express) {
     try {
       console.log("[ADMIN-PAYMENT-SETTINGS] POST request received with body:", req.body);
       
-      const { merchantPhone, upiId, merchantName, supportPhone, platformFeeEnabled, platformFeeBelow100, platformFeeBelow200, platformFeeAbove200 } = req.body;
+      const { merchantPhone, upiId, merchantName, supportPhone, platformFeeEnabled, platformFeeBelow100, platformFeeBelow200, platformFeeAbove200, roadDistanceMultiplier, enableRoadDistanceMultiplier } = req.body;
 
       console.log("[ADMIN-PAYMENT-SETTINGS] Extracted fields:", {
         merchantPhone,
@@ -4638,6 +4651,8 @@ export function registerAdminRoutes(app: Express) {
         platformFeeBelow100,
         platformFeeBelow200,
         platformFeeAbove200,
+        roadDistanceMultiplier,
+        enableRoadDistanceMultiplier,
       });
 
       // Validate required fields
@@ -4653,6 +4668,27 @@ export function registerAdminRoutes(app: Express) {
         return;
       }
 
+      // 🛣️ Validate road distance multiplier if provided
+      let validatedMultiplier = "1.50";
+      if (roadDistanceMultiplier !== undefined && roadDistanceMultiplier !== null) {
+        const multiplierNum = parseFloat(roadDistanceMultiplier);
+        if (isNaN(multiplierNum) || multiplierNum <= 0) {
+          res.status(400).json({ message: "Road distance multiplier must be a positive number greater than 0" });
+          return;
+        }
+        if (multiplierNum > 5) {
+          res.status(400).json({ message: "Road distance multiplier cannot exceed 5.0 for safety reasons" });
+          return;
+        }
+        validatedMultiplier = multiplierNum.toFixed(2);
+      }
+
+      // Validate enable flag if provided
+      let validatedEnable = true;
+      if (enableRoadDistanceMultiplier !== undefined && enableRoadDistanceMultiplier !== null) {
+        validatedEnable = !!enableRoadDistanceMultiplier;
+      }
+
       // Save to database
       console.log("[ADMIN-PAYMENT-SETTINGS] Calling writePaymentSettings()...");
       
@@ -4665,6 +4701,8 @@ export function registerAdminRoutes(app: Express) {
         platformFeeBelow100: Number(platformFeeBelow100) || 0,
         platformFeeBelow200: Number(platformFeeBelow200) || 0,
         platformFeeAbove200: Number(platformFeeAbove200) || 0,
+        roadDistanceMultiplier: validatedMultiplier,
+        enableRoadDistanceMultiplier: validatedEnable,
       });
 
       console.log("[ADMIN-PAYMENT-SETTINGS] ✅ Settings saved, returned data:", {
@@ -4673,6 +4711,7 @@ export function registerAdminRoutes(app: Express) {
         platformFeeBelow100: settings?.platformFeeBelow100,
         platformFeeBelow200: settings?.platformFeeBelow200,
         platformFeeAbove200: settings?.platformFeeAbove200,
+        roadDistanceMultiplier: settings?.roadDistanceMultiplier,
       });
 
       res.json({

@@ -355,6 +355,8 @@ export const paymentSettings = pgTable("payment_settings", {
   platformFeeBelow100: integer("platform_fee_below_100").notNull().default(0),
   platformFeeBelow200: integer("platform_fee_below_200").notNull().default(0),
   platformFeeAbove200: integer("platform_fee_above_200").notNull().default(0),
+  enableRoadDistanceMultiplier: boolean("enable_road_distance_multiplier").notNull().default(true), // 🛣️ Toggle to enable/disable multiplier
+  roadDistanceMultiplier: decimal("road_distance_multiplier", { precision: 3, scale: 2 }).notNull().default("1.50"), // 1.5x default multiplier for road distance
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
