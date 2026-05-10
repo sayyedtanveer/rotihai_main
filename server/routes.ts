@@ -2524,7 +2524,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             order.total,
             adminPhone,
             itemsArray,
-            completeAddress
+            completeAddress,
+            order.phone,
+            order.deliveryTime
           );
           // Note: Actual WhatsApp send status will be visible in async logs above
           console.log(`${'='.repeat(80)}\n`);
@@ -6469,9 +6471,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json({
         success: true,
+        distance: distance || 0,
         deliveryFee: feeResult.deliveryFee,
         isFreeDelivery: feeResult.isFreeDelivery,
+        breakdown: {
+          subtotal: orderAmount,
+          deliveryFee: feeResult.deliveryFee,
+          total: orderAmount + (feeResult.isFreeDelivery ? 0 : feeResult.deliveryFee),
+        },
       });
+    } catch (error: any) {
+      console.error("Delivery fee calculation error:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to calculate delivery fee",
+      });
+    }
+  });
 
       // ================= PUSH NOTIFICATIONS ENDPOINTS =================
 
@@ -6677,27 +6693,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       });
 
-      // ================= END PUSH NOTIFICATIONS ENDPOINTS =================
 
-      res.json({
-        success: true,
-        distance: distance || 0,
-        deliveryFee: feeResult.deliveryFee,
-        isFreeDelivery: feeResult.isFreeDelivery,
-        breakdown: {
-          subtotal: orderAmount,
-          deliveryFee: feeResult.deliveryFee,
-          total: orderAmount + (feeResult.isFreeDelivery ? 0 : feeResult.deliveryFee),
-        },
-      });
-    } catch (error: any) {
-      console.error("Delivery fee calculation error:", error);
-      res.status(500).json({
-        success: false,
-        message: "Failed to calculate delivery fee",
-      });
-    }
-  });
 
   // ============================================
   // NEWSLETTER SUBSCRIPTION

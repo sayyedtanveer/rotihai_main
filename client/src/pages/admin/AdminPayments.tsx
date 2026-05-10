@@ -77,8 +77,10 @@ export default function AdminPayments() {
       const response = await api.get("/api/admin/orders");
       const allOrders = response.data;
       // Filter for only pending and paid payments (not yet confirmed)
+      // ✅ EXCLUDE cancelled orders (auto-expired or manually cancelled)
       const filteredOrders = allOrders.filter((order: Order) =>
-        order.paymentStatus === "pending" || order.paymentStatus === "paid"
+        (order.paymentStatus === "pending" || order.paymentStatus === "paid") &&
+        order.status !== "cancelled"
       );
       // Sort by latest first (descending order by createdAt)
       return filteredOrders.sort((a: Order, b: Order) =>
@@ -129,20 +131,15 @@ export default function AdminPayments() {
   });
 
   const confirmPaymentMutation = useMutation({
-    mutationFn: async ({ orderId }: { orderId: string }) => {
+    mutationFn: async ({ orderId }: { orderId: string; userId?: string }) => {
       const response = await api.patch(`/api/admin/orders/${orderId}/payment`, {
         paymentStatus: "confirmed"
       });
       return response.data;
     },
-    onSuccess: (data: any) => {
+    onSuccess: (data: any, variables: { orderId: string; userId?: string }) => {
       // 🔊 Play notification sound
       playNotificationSoundTwoTone();
-
-      // Open WhatsApp if URL is returned
-      if (data?.whatsappUrl) {
-        window.open(data.whatsappUrl, "_blank");
-      }
 
       queryClient.invalidateQueries({ queryKey: ["/api/admin", "orders", "payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin", "orders"] });
@@ -153,20 +150,26 @@ export default function AdminPayments() {
         description: "Chef is now preparing the order",
       });
 
-      // 📱 Send push notification to offline users (non-blocking, fire and forget)
-      try {
-        api.post("/api/push/send", {
-          userType: "customer",
-          notification: {
-            title: "✓ Payment Confirmed",
-            body: "Your order has been confirmed. Chef is preparing it now.",
-            tag: "payment-confirmation",
-          },
-        }).catch((e) => {
-          console.log("ℹ️ Push notification send failed or not configured", e.message);
-        });
-      } catch (e) {
-        // Ignore synchronous errors in setting up the request
+      const customerUserId = data?.order?.userId ?? variables.userId;
+      if (customerUserId) {
+        // 📱 Send push notification to offline customers if push is configured
+        try {
+          api.post("/api/push/send", {
+            userType: "customer",
+            userId: customerUserId,
+            notification: {
+              title: "✓ Payment Confirmed",
+              body: "Your order has been confirmed. Chef is preparing it now.",
+              tag: "payment-confirmation",
+            },
+          }).catch((e) => {
+            console.log("ℹ️ Push notification send failed or not configured", e.message);
+          });
+        } catch (e) {
+          // Ignore synchronous errors in setting up the request
+        }
+      } else {
+        console.log("ℹ️ Skipping push send because customer userId is not available after confirmation");
       }
     },
     onError: (error: any) => {
@@ -533,7 +536,7 @@ export default function AdminPayments() {
                                 {(order.paymentStatus === "paid" || order.paymentStatus === "pending") && (
                                   <Button
                                     size="sm"
-                                    onClick={() => confirmPaymentMutation.mutate({ orderId: order.id })}
+                                    onClick={() => confirmPaymentMutation.mutate({ orderId: order.id, userId: order.userId ?? undefined })}
                                     disabled={confirmPaymentMutation.isPending}
                                     data-testid={`button-confirm-${order.id}`}
                                   >

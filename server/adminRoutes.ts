@@ -448,16 +448,24 @@ export function registerAdminRoutes(app: Express) {
         return;
       }
 
-      // FIX: When admin tries to set "preparing", change to "accepted_by_chef" so delivery partners can claim it
-      if (status === "preparing") {
-        console.log(`⚠️ Admin tried to set status to "preparing", converting to "accepted_by_chef" for delivery assignment`);
-        status = "accepted_by_chef";
-      }
-
       const order = await storage.getOrderById(id);
       if (!order) {
         res.status(404).json({ message: "Order not found" });
         return;
+      }
+
+      // ✅ PREVENT EDITING DELIVERED/COMPLETED ORDERS
+      if (order.status === "delivered" || order.status === "completed") {
+        res.status(400).json({ 
+          message: `Cannot modify ${order.status} orders. Order lifecycle is complete.` 
+        });
+        return;
+      }
+
+      // FIX: When admin tries to set "preparing", change to "accepted_by_chef" so delivery partners can claim it
+      if (status === "preparing") {
+        console.log(`⚠️ Admin tried to set status to "preparing", converting to "accepted_by_chef" for delivery assignment`);
+        status = "accepted_by_chef";
       }
 
       // --- Roti Category + Delivery Time Slot Flow (PARITY WITH CHEF) ---

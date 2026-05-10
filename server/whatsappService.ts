@@ -6,6 +6,11 @@ const WHATSAPP_API_URL = process.env.WHATSAPP_API_URL || "";
 const WHATSAPP_API_TOKEN = process.env.WHATSAPP_API_TOKEN || "";
 const WHATSAPP_PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID || "";
 
+// Template Configuration (optional, for business-initiated messages outside 24h window)
+const WHATSAPP_TEMPLATE_ORDER_ADMIN = process.env.WHATSAPP_TEMPLATE_ORDER_ADMIN || "";
+const WHATSAPP_TEMPLATE_PAYMENT_ADMIN = process.env.WHATSAPP_TEMPLATE_PAYMENT_ADMIN || "";
+const WHATSAPP_TEMPLATE_LANGUAGE = process.env.WHATSAPP_TEMPLATE_LANGUAGE || "en_US";
+
 function getWhatsAppMessagesEndpoint(): string {
   const baseUrl = WHATSAPP_API_URL.replace(/\/$/, "");
 
@@ -20,15 +25,36 @@ function getWhatsAppMessagesEndpoint(): string {
   return `${baseUrl}/messages`;
 }
 
-interface WhatsAppMessage {
+interface WhatsAppTextMessage {
   messaging_product: string;
   to: string;
-  type: string;
-  text?: {
+  type: "text";
+  text: {
     preview_url: boolean;
     body: string;
   };
 }
+
+interface WhatsAppTemplateMessage {
+  messaging_product: string;
+  to: string;
+  type: "template";
+  template: {
+    name: string;
+    language: {
+      code: string;
+    };
+    components: Array<{
+      type: "body";
+      parameters: Array<{
+        type: "text";
+        text: string;
+      }>;
+    }>;
+  };
+}
+
+type WhatsAppMessage = WhatsAppTextMessage | WhatsAppTemplateMessage;
 
 export async function sendWhatsAppMessage(phoneNumber: string, message: string, contextId?: string): Promise<boolean> {
   if (!WHATSAPP_API_URL || !WHATSAPP_API_TOKEN || !WHATSAPP_PHONE_NUMBER_ID) {
@@ -115,6 +141,107 @@ export async function sendWhatsAppMessage(phoneNumber: string, message: string, 
   }
 }
 
+/**
+ * Send WhatsApp template message for business-initiated messages outside 24h conversation window
+ * Falls back to text message if template is not configured or fails
+ */
+export async function sendWhatsAppTemplateMessage(
+  phoneNumber: string,
+  templateName: string,
+  templateParams: string[],
+  fallbackMessage: string,
+  contextId?: string
+): Promise<boolean> {
+  if (!WHATSAPP_API_URL || !WHATSAPP_API_TOKEN || !WHATSAPP_PHONE_NUMBER_ID) {
+    console.warn("[WHATSAPP] Service not configured. Skipping message.");
+    return false;
+  }
+
+  // If template not configured, use text mode
+  if (!templateName || !templateName.trim()) {
+    console.log(`[WHATSAPP] 📝 Template not configured. Using text mode as fallback.${contextId ? ` [${contextId}]` : ""}`);
+    return sendWhatsAppMessage(phoneNumber, fallbackMessage, contextId);
+  }
+
+  const cleanPhone = phoneNumber.replace(/[^0-9]/g, "");
+  const maskedPhone = cleanPhone.length > 4
+    ? `${"*".repeat(cleanPhone.length - 4)}${cleanPhone.slice(-4)}`
+    : "****";
+
+  const endpoint = getWhatsAppMessagesEndpoint();
+  const contextLog = contextId ? ` [${contextId}]` : "";
+
+  try {
+    // ✅ LOG BEFORE SENDING: Template request details
+    console.log(`[WHATSAPP] 📤 SENDING TEMPLATE REQUEST${contextLog}`);
+    console.log(`  → To: ${maskedPhone}`);
+    console.log(`  → Template: ${templateName}`);
+    console.log(`  → Language: ${WHATSAPP_TEMPLATE_LANGUAGE}`);
+    console.log(`  → Parameters: ${templateParams.length} variable(s)`);
+    console.log(`  → Endpoint: ${endpoint}`);
+
+    const payload: WhatsAppTemplateMessage = {
+      messaging_product: "whatsapp",
+      to: cleanPhone,
+      type: "template",
+      template: {
+        name: templateName,
+        language: {
+          code: WHATSAPP_TEMPLATE_LANGUAGE,
+        },
+        components: [
+          {
+            type: "body",
+            parameters: templateParams.map(param => ({
+              type: "text",
+              text: param,
+            })),
+          },
+        ],
+      },
+    };
+
+    const response = await axios.post(
+      endpoint,
+      payload,
+      {
+        headers: {
+          Authorization: `Bearer ${WHATSAPP_API_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    // ✅ LOG ON SUCCESS: ONLY AFTER axios resolves with 200
+    const messageId = response.data?.messages?.[0]?.id;
+    console.log(`[WHATSAPP] ✅ TEMPLATE API SUCCESS${contextLog}`);
+    console.log(`  → Message ID: ${messageId || "unknown"}`);
+    console.log(`  → Recipient: ${maskedPhone}`);
+    console.log(`  → Status Code: ${response.status}`);
+    return true;
+  } catch (error) {
+    // ❌ LOG ON FAILURE: Attempt text fallback
+    console.error(`[WHATSAPP] ⚠️ TEMPLATE API FAILED${contextLog}`);
+    console.error(`  → Recipient: ${maskedPhone}`);
+    
+    if (axios.isAxiosError(error)) {
+      console.error(`  → HTTP Status: ${error.response?.status || "unknown"}`);
+      console.error(`  → Message: ${error.message}`);
+      
+      if (error.response?.data) {
+        const metaError = error.response.data as any;
+        if (metaError?.error?.message) {
+          console.error(`  → Meta Error: ${metaError.error.message}`);
+        }
+      }
+    }
+
+    // Fallback: try text message
+    console.log(`[WHATSAPP] 🔄 FALLING BACK TO TEXT MESSAGE${contextLog}`);
+    return sendWhatsAppMessage(phoneNumber, fallbackMessage, `${contextId}|FALLBACK`);
+  }
+}
+
 export async function sendScheduledDeliveryReminder(
   recipientName: string,
   recipientPhone: string,
@@ -187,6 +314,7 @@ An order is scheduled for delivery in 2 HOURS!
 
 /**
  * Send WhatsApp notification to admin when a new order is placed
+ * Uses Meta template if configured, falls back to text mode
  * Non-blocking, fire-and-forget with graceful error handling
  */
 export async function sendOrderPlacedAdminNotification(
@@ -195,7 +323,9 @@ export async function sendOrderPlacedAdminNotification(
   amount: number,
   adminPhone?: string | null,
   items?: Array<{ name: string; quantity: number; price: number }>,
-  address?: string
+  address?: string,
+  customerPhone?: string | null,
+  deliveryTime?: string | null
 ): Promise<boolean> {
   console.log(`\n📱 [WHATSAPP-ADMIN-ORDER] Starting order notification for ${orderId}`);
   
@@ -226,8 +356,8 @@ export async function sendOrderPlacedAdminNotification(
     itemsList = "• No items provided";
   }
 
-  // Build message with items and address
-  const message = `
+  // Build complete message with all order details (used in both template fallback and text mode)
+  const textMessage = `
 📦 *NEW ORDER RECEIVED* 📦
 
 Order #: ${orderId}
@@ -245,12 +375,31 @@ ${address || "Address not provided"}
 -RotiHai Admin System
   `.trim();
 
-  console.log(`📝 [WHATSAPP-ADMIN-ORDER] Message prepared: ${message.length} chars`);
+  console.log(`📝 [WHATSAPP-ADMIN-ORDER] Message prepared: ${textMessage.length} chars`);
 
   // Non-blocking - fire and forget (actual async result visible in logs)
-  sendWhatsAppMessage(adminPhone, message, `ORDER#${orderId}`).catch(error => {
-    console.error(`[WHATSAPP-ADMIN-ORDER] Async error caught:`, error);
-  });
+  if (WHATSAPP_TEMPLATE_ORDER_ADMIN) {
+    // Use template mode if configured
+    console.log(`[WHATSAPP-ADMIN-ORDER] Using template mode: ${WHATSAPP_TEMPLATE_ORDER_ADMIN}`);
+    const templateParams = [
+      orderId,                              // {{1}} Order ID
+      userName,                             // {{2}} Customer
+      customerPhone || "N/A",               // {{3}} Phone
+      amount.toString(),                    // {{4}} Amount
+      itemsList,                            // {{5}} Items
+      deliveryTime || "ASAP",               // {{6}} Delivery Time
+      address || "Address not provided",    // {{7}} Address
+    ];
+    sendWhatsAppTemplateMessage(adminPhone, WHATSAPP_TEMPLATE_ORDER_ADMIN, templateParams, textMessage, `ORDER#${orderId}`).catch(error => {
+      console.error(`[WHATSAPP-ADMIN-ORDER] Async error caught:`, error);
+    });
+  } else {
+    // Use text mode (default, backward compatible)
+    console.log(`[WHATSAPP-ADMIN-ORDER] Using text mode (template not configured)`);
+    sendWhatsAppMessage(adminPhone, textMessage, `ORDER#${orderId}`).catch(error => {
+      console.error(`[WHATSAPP-ADMIN-ORDER] Async error caught:`, error);
+    });
+  }
 
   console.log(`[WHATSAPP-ADMIN-ORDER] ⏳ Background send initiated (check logs for async success/failure)\n`);
   return true;
@@ -258,6 +407,7 @@ ${address || "Address not provided"}
 
 /**
  * Send WhatsApp notification to admin when a customer clicks "I Paid"
+ * Uses Meta template if configured, falls back to text mode
  * Non-blocking, fire-and-forget with graceful error handling
  */
 export async function sendPaymentInitiatedAdminNotification(
@@ -273,7 +423,7 @@ export async function sendPaymentInitiatedAdminNotification(
   }
 
   const safeAmount = Number.isFinite(amount) ? amount.toFixed(2) : "0.00";
-  const message = `
+  const textMessage = `
 *PAYMENT MARKED BY USER*
 
 Order/Checkout ID: ${checkoutOrOrderId}
@@ -286,9 +436,26 @@ User clicked "I Paid". Please verify payment in Admin > Payments.
 -RotiHai Admin System
   `.trim();
 
-  sendWhatsAppMessage(adminPhone, message, `PAYMENT#${checkoutOrOrderId}`).catch(error => {
-    console.error(`[WHATSAPP-PAYMENT] Async error caught:`, error);
-  });
+  // Non-blocking - fire and forget
+  if (WHATSAPP_TEMPLATE_PAYMENT_ADMIN) {
+    // Use template mode if configured
+    console.log(`[WHATSAPP-PAYMENT] Using template mode: ${WHATSAPP_TEMPLATE_PAYMENT_ADMIN}`);
+    const templateParams = [
+      checkoutOrOrderId,
+      userName || "Unknown",
+      userPhone || "Not provided",
+      safeAmount,
+    ];
+    sendWhatsAppTemplateMessage(adminPhone, WHATSAPP_TEMPLATE_PAYMENT_ADMIN, templateParams, textMessage, `PAYMENT#${checkoutOrOrderId}`).catch(error => {
+      console.error(`[WHATSAPP-PAYMENT] Async error caught:`, error);
+    });
+  } else {
+    // Use text mode (default, backward compatible)
+    console.log(`[WHATSAPP-PAYMENT] Using text mode (template not configured)`);
+    sendWhatsAppMessage(adminPhone, textMessage, `PAYMENT#${checkoutOrOrderId}`).catch(error => {
+      console.error(`[WHATSAPP-PAYMENT] Async error caught:`, error);
+    });
+  }
 
   return true;
 }
