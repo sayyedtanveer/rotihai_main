@@ -1,11 +1,11 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { getApiUrl } from "@/lib/apiBase";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -16,7 +16,7 @@ import { Label } from "@/components/ui/label";
 import type { Category, SubscriptionPlan, InsertSubscriptionPlan, Subscription } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Plus, Pencil, Trash2, Calendar, Users, Settings2, Pause, Play, Package, Clock, Truck, CheckCircle, AlertCircle, TrendingDown, Eye } from "lucide-react";
+import { Plus, Pencil, Trash2, Calendar, Users, Settings2, Pause, Play, Package, Clock, Truck, CheckCircle, AlertCircle, TrendingDown, Eye, ChevronDown } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertSubscriptionPlanSchema } from "@shared/schema";
@@ -32,6 +32,7 @@ export default function AdminSubscriptions() {
   const [editingPlan, setEditingPlan] = useState<SubscriptionPlan | null>(null);
   const [selectedDays, setSelectedDays] = useState<string[]>([]);
   const [currentFrequency, setCurrentFrequency] = useState<string>("daily");
+  const [expandedAdminSection, setExpandedAdminSection] = useState<string | null>(null);
 
   // Subscription management modals
   const [adjustModalOpen, setAdjustModalOpen] = useState(false);
@@ -175,6 +176,8 @@ export default function AdminSubscriptions() {
       name: "",
       description: "",
       categoryId: "",
+      sectionName: "",
+      sectionOrder: 0,
       frequency: "daily",
       price: 0,
       deliveryDays: [],
@@ -452,6 +455,8 @@ export default function AdminSubscriptions() {
       name: plan.name,
       description: plan.description,
       categoryId: plan.categoryId,
+      sectionName: plan.sectionName || "",
+      sectionOrder: (plan as any).sectionOrder ?? 0,
       frequency: plan.frequency,
       price: plan.price,
       deliveryDays: plan.deliveryDays as string[],
@@ -539,6 +544,49 @@ export default function AdminSubscriptions() {
                         <FormControl>
                           <Textarea {...field} placeholder="Describe the subscription plan" data-testid="input-plan-description" />
                         </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="sectionName"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Section / Type</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            placeholder="e.g., Roti, Lunch, Dinner"
+                            data-testid="input-plan-section"
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          Use this to label the subscription type. Plans with the same section name are grouped together.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="sectionOrder"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Section Display Order</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            type="number"
+                            min={0}
+                            onChange={e => field.onChange(parseInt(e.target.value) || 0)}
+                            placeholder="0"
+                            data-testid="input-plan-section-order"
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          Controls the order this section appears on the subscription page. Lower number = shown first.
+                        </FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -685,58 +733,107 @@ export default function AdminSubscriptions() {
 
           <TabsContent value="plans">
             {isLoading ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="space-y-3">
                 {[...Array(3)].map((_, i) => (
                   <Card key={i} className="animate-pulse">
                     <CardContent className="p-4">
-                      <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-3/4 mb-2"></div>
-                      <div className="h-3 bg-slate-200 dark:bg-slate-700 rounded w-1/2"></div>
+                      <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded w-1/3 mb-3" />
+                      <div className="h-3 bg-slate-200 dark:bg-slate-700 rounded w-1/4" />
                     </CardContent>
                   </Card>
                 ))}
               </div>
             ) : plans && plans.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {plans.map((plan) => (
-                  <Card key={plan.id} data-testid={`card-plan-${plan.id}`}>
-                    <CardHeader>
-                      <CardTitle className="flex items-center justify-between">
-                        <span>{plan.name}</span>
-                        <Badge variant={plan.isActive ? "default" : "secondary"}>
-                          {plan.isActive ? "Active" : "Inactive"}
-                        </Badge>
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                      <p className="text-sm text-slate-600 dark:text-slate-400">{plan.description}</p>
-                      <div className="flex items-center justify-between">
-                        <span className="text-2xl font-bold text-primary">₹{plan.price}</span>
-                        <Badge variant="outline" className="capitalize">{plan.frequency}</Badge>
+              <div className="space-y-3">
+                {/* Group plans by sectionName, sorted by sectionOrder */}
+                {(() => {
+                  const groupsMap = new Map<string, { sectionName: string; minOrder: number; plans: typeof plans }>();
+                  plans.forEach(plan => {
+                    const name = (plan.sectionName || "General").trim() || "General";
+                    if (!groupsMap.has(name)) {
+                      groupsMap.set(name, { sectionName: name, minOrder: (plan as any).sectionOrder ?? 0, plans: [] });
+                    }
+                    const g = groupsMap.get(name)!;
+                    g.minOrder = Math.min(g.minOrder, (plan as any).sectionOrder ?? 0);
+                    g.plans.push(plan);
+                  });
+                  const sorted = [...groupsMap.values()].sort((a, b) => a.minOrder - b.minOrder || a.sectionName.localeCompare(b.sectionName));
+
+                  return sorted.map((group, idx) => {
+                    const isOpen = expandedAdminSection === null ? idx === 0 : expandedAdminSection === group.sectionName;
+                    return (
+                      <div key={group.sectionName} className="rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden shadow-sm">
+                        {/* Section header */}
+                        <button
+                          type="button"
+                          onClick={() => setExpandedAdminSection(isOpen ? `__none__${group.sectionName}` : group.sectionName)}
+                          className="w-full flex items-center gap-3 px-4 py-3 text-left bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                        >
+                          <span className="flex-1 flex items-center gap-2">
+                            <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                              {group.sectionName}
+                            </span>
+                            <Badge variant="secondary" className="text-xs">
+                              {group.plans.length} plan{group.plans.length !== 1 ? "s" : ""}
+                            </Badge>
+                            <Badge variant="outline" className="text-xs text-slate-400">
+                              Order: {group.minOrder}
+                            </Badge>
+                          </span>
+                          <ChevronDown
+                            className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`}
+                          />
+                        </button>
+
+                        {/* Collapsible plan cards */}
+                        <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isOpen ? "max-h-[8000px] opacity-100" : "max-h-0 opacity-0"}`}>
+                          <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {group.plans.map((plan) => (
+                              <Card key={plan.id} data-testid={`card-plan-${plan.id}`} className="flex flex-col">
+                                <CardHeader className="pb-2">
+                                  <CardTitle className="text-sm flex items-center justify-between gap-2">
+                                    <span className="font-semibold truncate">{plan.name}</span>
+                                    <Badge variant={plan.isActive ? "default" : "secondary"} className="flex-shrink-0 text-xs">
+                                      {plan.isActive ? "Active" : "Inactive"}
+                                    </Badge>
+                                  </CardTitle>
+                                </CardHeader>
+                                <CardContent className="space-y-2 flex-1">
+                                  <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2">{plan.description}</p>
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-xl font-bold text-primary">₹{plan.price}</span>
+                                    <Badge variant="outline" className="capitalize text-xs">{plan.frequency}</Badge>
+                                  </div>
+                                  <div className="flex flex-wrap gap-1">
+                                    {(plan.deliveryDays as string[]).map(day => (
+                                      <Badge key={day} variant="secondary" className="text-xs capitalize">
+                                        {day.slice(0, 3)}
+                                      </Badge>
+                                    ))}
+                                  </div>
+                                  <div className="flex gap-2 pt-1">
+                                    <Button size="sm" variant="outline" className="flex-1" onClick={() => handleEdit(plan)} data-testid={`button-edit-${plan.id}`}>
+                                      <Pencil className="w-3 h-3 mr-1" /> Edit
+                                    </Button>
+                                    <Button size="sm" variant="outline" className="text-red-500 hover:text-red-700 hover:border-red-300" onClick={() => deleteMutation.mutate(plan.id)} data-testid={`button-delete-${plan.id}`}>
+                                      <Trash2 className="w-3 h-3" />
+                                    </Button>
+                                  </div>
+                                </CardContent>
+                              </Card>
+                            ))}
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex flex-wrap gap-1">
-                        {(plan.deliveryDays as string[]).map(day => (
-                          <Badge key={day} variant="secondary" className="text-xs capitalize">
-                            {day.slice(0, 3)}
-                          </Badge>
-                        ))}
-                      </div>
-                      <div className="flex gap-2 pt-2">
-                        <Button size="sm" variant="outline" onClick={() => handleEdit(plan)} data-testid={`button-edit-${plan.id}`}>
-                          <Pencil className="w-4 h-4" />
-                        </Button>
-                        <Button size="sm" variant="outline" onClick={() => deleteMutation.mutate(plan.id)} data-testid={`button-delete-${plan.id}`}>
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+                    );
+                  });
+                })()}
               </div>
             ) : (
               <Card>
                 <CardContent className="text-center py-12">
                   <Calendar className="w-12 h-12 mx-auto mb-4 text-slate-400" />
-                  <p className="text-slate-600 dark:text-slate-400">No subscription plans found</p>
+                  <p className="text-slate-600 dark:text-slate-400">No subscription plans found. Click "Add Plan" to create one.</p>
                 </CardContent>
               </Card>
             )}

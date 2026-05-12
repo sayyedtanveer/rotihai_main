@@ -9,6 +9,8 @@ import { usePartnerNotificationStore } from "@/store/partnerNotificationStore";
 export function usePartnerNotifications() {
   const [wsConnected, setWsConnected] = useState(false);
   const [newOrdersCount, setNewOrdersCount] = useState(0);
+  // Persistent pre-alert map: orderId → shortId. Cleared when admin confirms payment.
+  const [paymentPreAlerts, setPaymentPreAlerts] = useState<Map<string, string>>(new Map());
   const processedOrderIds = useRef<Set<string>>(new Set());
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -81,6 +83,23 @@ export function usePartnerNotifications() {
           } else if (broadcast.eventType === "subscription_update" || broadcast.eventType === "subscription_delivery") {
             queryClient.invalidateQueries({ queryKey: ["/api/partner/subscriptions"] });
             queryClient.invalidateQueries({ queryKey: ["/api/partner/subscription-deliveries"] });
+          } else if (broadcast.eventType === "PAYMENT_INITIATED") {
+            // Soft pre-alert only — informational, no bell, no count, no queries
+            const orderId = broadcast.payload?.orderId || broadcast.payload?.metadata?.orderId;
+            const shortId = orderId ? String(orderId).slice(0, 8) : "...";
+            toast({
+              title: "⏳ Possible Incoming Order (Missed)",
+              description: `Customer marked payment for order #${shortId}. Admin verification pending.`,
+              duration: 8000,
+            });
+            if (orderId) {
+              addNotification({
+                id: `pre_alert_${orderId}`,
+                orderId,
+                status: "payment_initiated",
+                message: `⏳ Customer marked payment for order #${shortId}. Awaiting admin verification.`,
+              });
+            }
           }
 
           processedIds.push(broadcast.id);
@@ -202,10 +221,17 @@ export function usePartnerNotifications() {
             console.log("🔔 Partner order update:", order.id.slice(0, 8), "status:", order.status);
 
             if (order.status === "confirmed" && order.paymentStatus === "confirmed") {
+              // ✅ Admin confirmed payment — dismiss the soft pre-alert banner if one exists
+              setPaymentPreAlerts(prev => {
+                if (!prev.has(order.id)) return prev;
+                const next = new Map(prev);
+                next.delete(order.id);
+                return next;
+              });
+
               if (!processedOrderIds.current.has(order.id)) {
                 processedOrderIds.current.add(order.id);
                 setNewOrdersCount((prev) => prev + 1);
-                // Add to persistent notification store (shows in bell dropdown)
                 addNotification({
                   id: `confirmed_${order.id}`,
                   orderId: order.id,
@@ -216,19 +242,16 @@ export function usePartnerNotifications() {
                 });
               }
 
-              // Always show in-app toast
               toast({
                 title: "✅ Order Confirmed — Action Required!",
                 description: `Order #${order.id.slice(0, 8)} — ₹${order.total} is ready to accept.`,
                 duration: 10000,
               });
 
-              // Always play alert sound
               try {
                 const confirmAudio = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBTGH0fPTgjMGHm7A7+OZURE=");
                 confirmAudio.play().catch(() => { });
               } catch (_) { }
-              // Browser notification popup (only if permission granted)
               if (Notification.permission === "granted") {
                 new Notification("New Order Confirmed!", {
                   body: `Order #${order.id.slice(0, 8)} — ₹${order.total} ready to accept!`,
@@ -269,6 +292,31 @@ export function usePartnerNotifications() {
             const audio = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBTGH0fPTgjMGHm7A7+OZURE=");
             audio.play().catch(() => { });
           }
+        }
+        if (data.type === "PAYMENT_INITIATED") {
+          // Soft pre-alert: shows toast + green banner + bell notification
+          // Does NOT update order count or invalidate queries — informational only
+          const shortId = data.orderId ? String(data.orderId).slice(0, 8) : "...";
+
+          // Toast (ephemeral, auto-dismisses)
+          toast({
+            title: "⏳ Possible Incoming Order",
+            description: `Customer marked payment for #${shortId}. Stay ready — awaiting admin verification.`,
+            duration: 8000,
+          });
+
+          // Persistent green banner (stays until order_update with paymentStatus=confirmed)
+          if (data.orderId) {
+            setPaymentPreAlerts(prev => new Map(prev).set(data.orderId, shortId));
+            // Bell notification
+            addNotification({
+              id: `pre_alert_${data.orderId}`,
+              orderId: data.orderId,
+              status: "payment_initiated",
+              message: `⏳ Customer marked payment for order #${shortId}. Awaiting admin verification.`,
+            });
+          }
+          console.log(`[PARTNER] Soft pre-alert received for order ${data.orderId} — admin verification pending`);
         }
       } catch (error) {
         console.error("Failed to parse WebSocket message:", error);
@@ -484,6 +532,7 @@ export function usePartnerNotifications() {
   return {
     wsConnected,
     newOrdersCount,
+    paymentPreAlerts,
     requestNotificationPermission,
     clearNewOrdersCount,
     disconnect,

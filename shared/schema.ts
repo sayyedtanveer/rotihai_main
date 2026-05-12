@@ -408,6 +408,8 @@ export const subscriptionPlans = pgTable("subscription_plans", {
   name: text("name").notNull(),
   description: text("description").notNull(),
   categoryId: varchar("category_id").notNull(),
+  sectionName: text("section_name").notNull().default("General"),
+  sectionOrder: integer("section_order").notNull().default(0), // Controls section display order (lower = first)
   frequency: subscriptionFrequencyEnum("frequency").notNull(),
   price: integer("price").notNull(),
   deliveryDays: jsonb("delivery_days").notNull(), // Array of days: ["monday", "tuesday", etc]

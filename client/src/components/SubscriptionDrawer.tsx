@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { getApiUrl } from "@/lib/apiBase";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -19,7 +19,7 @@ import LoginDialog from "./LoginDialog";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 import { format, addDays, differenceInDays, isPast, isAfter, add } from "date-fns";
-import { Calendar, Pause, Play, Clock, CheckCircle2, AlertCircle, Settings2, CalendarDays, History, RefreshCw, AlertTriangle, User, Loader2 } from "lucide-react";
+import { Calendar, Pause, Play, Clock, CheckCircle2, AlertCircle, Settings2, CalendarDays, History, RefreshCw, AlertTriangle, User, Loader2, ChevronDown } from "lucide-react";
 import type { SubscriptionPlan, Subscription } from "@shared/schema";
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/useAuth";
@@ -34,7 +34,6 @@ interface SubscriptionDrawerProps {
 function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
   const { toast } = useToast();
   const { user } = useAuth();
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [showPaymentQR, setShowPaymentQR] = useState(false);
   const [paymentDetails, setPaymentDetails] = useState<{
     subscriptionId: string;
@@ -143,6 +142,59 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
     },
     retry: 2,
   });
+
+  const [expandedSectionName, setExpandedSectionName] = useState<string | null>(null);
+  const accordionInitialized = useRef(false);
+
+  // Memoized section groups — sorted by sectionOrder (lowest first), then alphabetically
+  const activePlans = plans?.filter(p => p.isActive) || [];
+  const sectionGroups = useMemo(() => {
+    const groupsMap = new Map<string, { sectionName: string; minOrder: number; plans: SubscriptionPlan[] }>();
+
+    activePlans.forEach(plan => {
+      const sectionName = (plan.sectionName || "Others").trim() || "Others";
+      if (!groupsMap.has(sectionName)) {
+        groupsMap.set(sectionName, {
+          sectionName,
+          minOrder: (plan as any).sectionOrder ?? 0,
+          plans: [],
+        });
+      }
+      const group = groupsMap.get(sectionName)!;
+      group.minOrder = Math.min(group.minOrder, (plan as any).sectionOrder ?? 0);
+      group.plans.push(plan);
+    });
+
+    return [...groupsMap.values()]
+      .sort((a, b) => a.minOrder - b.minOrder || a.sectionName.localeCompare(b.sectionName))
+      .filter(g => g.plans.length > 0);
+  }, [plans]);
+
+  // Auto-open first (or previously-saved) section — runs only once after plans load
+  useEffect(() => {
+    if (accordionInitialized.current) return;
+    if (sectionGroups.length === 0) return;
+    accordionInitialized.current = true;
+
+    const saved = localStorage.getItem("subscriptionAccordionOpen");
+    if (saved && sectionGroups.some((group) => group.sectionName === saved)) {
+      setExpandedSectionName(saved);
+    } else {
+      setExpandedSectionName(sectionGroups[0].sectionName);
+    }
+  }, [sectionGroups]);
+
+  const toggleSection = (sectionName: string) => {
+    setExpandedSectionName((current) => {
+      const next = current === sectionName ? null : sectionName;
+      if (next) {
+        localStorage.setItem("subscriptionAccordionOpen", next);
+      } else {
+        localStorage.removeItem("subscriptionAccordionOpen");
+      }
+      return next;
+    });
+  };
 
   const getAuthHeaders = (): Record<string, string> => {
     const token = localStorage.getItem("userToken");
@@ -704,13 +756,6 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
 
   // Cancel mutation is removed as per the requirement
 
-  const activePlans = plans?.filter(p => p.isActive) || [];
-  const categories = Array.from(new Set(activePlans.map(p => p.categoryId)));
-
-  const filteredPlans = selectedCategory
-    ? activePlans.filter(p => p.categoryId === selectedCategory)
-    : activePlans;
-
   const subscribedPlanIds = mySubscriptions?.map(s => s.planId) || [];
 
   // Handler to check if plan needs delivery slot selection
@@ -1084,16 +1129,67 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
                   </CardContent>
                 </Card>
               ) : (
-                <div className="grid grid-cols-1 gap-4 mt-4">
-                  {filteredPlans.map(plan => (
-                    <SubscriptionCard
-                      key={plan.id}
-                      plan={plan}
-                      onSubscribe={handleSubscribe}
-                      isSubscribed={subscribedPlanIds.includes(plan.id)}
-                    />
-                  ))}
-                  {filteredPlans.length === 0 && (
+              <div className="space-y-3 mt-4">
+                  {sectionGroups.map((section, index) => {
+                    const isExpanded = section.sectionName === expandedSectionName;
+                    // Cycle through warm accent colors for each section
+                    const accentColors = [
+                      { bg: "from-orange-500 to-amber-500", light: "bg-orange-50 dark:bg-orange-950/30", border: "border-orange-200 dark:border-orange-800", text: "text-orange-700 dark:text-orange-300", dot: "bg-orange-500" },
+                      { bg: "from-emerald-500 to-teal-500", light: "bg-emerald-50 dark:bg-emerald-950/30", border: "border-emerald-200 dark:border-emerald-800", text: "text-emerald-700 dark:text-emerald-300", dot: "bg-emerald-500" },
+                      { bg: "from-violet-500 to-purple-500", light: "bg-violet-50 dark:bg-violet-950/30", border: "border-violet-200 dark:border-violet-800", text: "text-violet-700 dark:text-violet-300", dot: "bg-violet-500" },
+                      { bg: "from-rose-500 to-pink-500", light: "bg-rose-50 dark:bg-rose-950/30", border: "border-rose-200 dark:border-rose-800", text: "text-rose-700 dark:text-rose-300", dot: "bg-rose-500" },
+                      { bg: "from-sky-500 to-blue-500", light: "bg-sky-50 dark:bg-sky-950/30", border: "border-sky-200 dark:border-sky-800", text: "text-sky-700 dark:text-sky-300", dot: "bg-sky-500" },
+                    ];
+                    const accent = accentColors[index % accentColors.length];
+                    return (
+                      <div
+                        key={section.sectionName}
+                        className={`rounded-2xl border shadow-sm overflow-hidden transition-all duration-200 ${accent.border} ${isExpanded ? accent.light : "bg-white dark:bg-slate-900"}`}
+                      >
+                        {/* ── Section Header ── */}
+                        <button
+                          type="button"
+                          onClick={() => toggleSection(section.sectionName)}
+                          className="w-full flex items-center gap-3 px-4 py-4 text-left active:scale-[0.99] transition-transform"
+                        >
+                          {/* Colored gradient pill */}
+                          <span className={`flex-shrink-0 w-1 self-stretch rounded-full bg-gradient-to-b ${accent.bg}`} />
+                          <div className="flex-1 min-w-0">
+                            <p className={`text-base font-bold tracking-tight ${isExpanded ? accent.text : "text-slate-800 dark:text-slate-100"}`}>
+                              {section.sectionName}
+                            </p>
+                            <p className="text-xs text-slate-400 mt-0.5">
+                              {section.plans.length} plan{section.plans.length === 1 ? "" : "s"} available
+                            </p>
+                          </div>
+                          {/* Chevron */}
+                          <span className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center transition-all duration-200 ${isExpanded ? `bg-gradient-to-br ${accent.bg} text-white` : "bg-slate-100 dark:bg-slate-800 text-slate-400"}`}>
+                            <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${isExpanded ? "rotate-180" : ""}`} />
+                          </span>
+                        </button>
+
+                        {/* ── Collapsible Content — overflow-hidden is on THIS div so max-h-0 works ── */}
+                        <div
+                          className={`overflow-hidden transition-all duration-300 ease-in-out ${
+                            isExpanded ? "max-h-[4000px] opacity-100" : "max-h-0 opacity-0"
+                          }`}
+                        >
+                          <div className="px-3 pb-3 pt-1 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            {section.plans.map((plan) => (
+                              <SubscriptionCard
+                                key={plan.id}
+                                plan={plan}
+                                onSubscribe={handleSubscribe}
+                                isSubscribed={subscribedPlanIds.includes(plan.id)}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {sectionGroups.length === 0 && (
                     <Card>
                       <CardContent className="text-center py-12">
                         <Calendar className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />

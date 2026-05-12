@@ -30,7 +30,7 @@ export default function PartnerDashboard() {
   const chefName = localStorage.getItem("partnerChefName");
   const { toast } = useToast();
   const [, setLocation] = useLocation();
-  const { wsConnected, newOrdersCount, requestNotificationPermission, clearNewOrdersCount, disconnect } = usePartnerNotifications();
+  const { wsConnected, newOrdersCount, paymentPreAlerts, requestNotificationPermission, clearNewOrdersCount, disconnect } = usePartnerNotifications();
   const [selectedTab, setSelectedTab] = useState("dashboard");
   const [currentTime, setCurrentTime] = useState(new Date());
   const { isSupported: isWakeLockSupported, isAwake, toggleWakeLock } = useWakeLock();
@@ -463,6 +463,23 @@ export default function PartnerDashboard() {
 
         </div>
       </header>
+
+      {/* ✅ Persistent green pre-alert banners — one per pending payment, auto-dismissed on admin confirm */}
+      {paymentPreAlerts.size > 0 && (
+        <div className="sticky top-[57px] z-30 space-y-1">
+          {Array.from(paymentPreAlerts.entries()).map(([orderId, shortId]) => (
+            <div
+              key={orderId}
+              className="flex items-center gap-2 px-4 py-2.5 bg-green-500 text-white text-sm font-medium shadow-md"
+            >
+              <span className="text-base leading-none">🟢</span>
+              <span>
+                Payment submitted for order <strong>#{shortId}</strong> — awaiting admin verification. Stay ready!
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       <main className="px-3 md:px-6 py-4 md:py-8">
         <Tabs value={selectedTab} onValueChange={setSelectedTab} className="space-y-4 md:space-y-6">
