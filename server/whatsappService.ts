@@ -111,20 +111,20 @@ export async function sendWhatsAppMessage(phoneNumber: string, message: string, 
     // ❌ LOG ON FAILURE: Full error details for debugging
     console.error(`[WHATSAPP] ❌ META API FAILED${contextLog}`);
     console.error(`  → Recipient: ${maskedPhone}`);
-    
+
     if (axios.isAxiosError(error)) {
       console.error(`  → HTTP Status: ${error.response?.status || "unknown"}`);
       console.error(`  → Message: ${error.message}`);
-      
+
       if (error.response?.data) {
         console.error(`  → RAW ERROR RESPONSE:`, JSON.stringify(error.response.data, null, 2));
-        
+
         // Extract Meta error code for easier debugging
         const metaError = error.response.data as any;
         if (metaError?.error?.code) {
           console.error(`  → Meta Error Code: ${metaError.error.code}`);
           console.error(`  → Meta Error Message: ${metaError.error.message}`);
-          
+
           if (metaError.error.code === 131030) {
             console.error(`  → 🔍 HINT: Error 131030 = "Recipient not in allowed list" (Sandbox mode)`);
             console.error(`     → Add ${maskedPhone} to WhatsApp Test Numbers in Meta Business Manager`);
@@ -220,14 +220,15 @@ export async function sendWhatsAppTemplateMessage(
     console.log(`  → Status Code: ${response.status}`);
     return true;
   } catch (error) {
+
     // ❌ LOG ON FAILURE: Attempt text fallback
     console.error(`[WHATSAPP] ⚠️ TEMPLATE API FAILED${contextLog}`);
     console.error(`  → Recipient: ${maskedPhone}`);
-    
+
     if (axios.isAxiosError(error)) {
       console.error(`  → HTTP Status: ${error.response?.status || "unknown"}`);
       console.error(`  → Message: ${error.message}`);
-      
+
       if (error.response?.data) {
         const metaError = error.response.data as any;
         if (metaError?.error?.message) {
@@ -328,7 +329,7 @@ export async function sendOrderPlacedAdminNotification(
   deliveryTime?: string | null
 ): Promise<boolean> {
   console.log(`\n📱 [WHATSAPP-ADMIN-ORDER] Starting order notification for ${orderId}`);
-  
+
   // Gracefully handle missing phone number
   if (!adminPhone || typeof adminPhone !== "string" || adminPhone.trim().length === 0) {
     console.warn(`❌ [WHATSAPP-ADMIN-ORDER] Admin phone not configured!`);
@@ -351,7 +352,7 @@ export async function sendOrderPlacedAdminNotification(
   if (items && items.length > 0) {
     itemsList = items
       .map((item) => `• ${item.name} x${item.quantity} = ₹${item.price * item.quantity}`)
-      .join("\n");
+      .join(", ");
   } else {
     itemsList = "• No items provided";
   }
@@ -365,10 +366,10 @@ Customer: ${userName}
 Amount: ₹${amount}
 
 📋 *Items:*
-${itemsList}
+${itemsList.substring(0, 200)}
 
 📍 *Delivery Address:*
-${address || "Address not provided"}
+${(address || "Address not provided").substring(0, 300)}
 
 🔗 View in dashboard to approve payment
 
@@ -527,7 +528,7 @@ Delivery Address: ${address}
   // Send to each delivery person (non-blocking, fire and forget)
   for (const deliveryPersonId of deliveryPersonIds) {
     const phone = deliveryPersonPhones.get(deliveryPersonId);
-    
+
     if (!phone || typeof phone !== "string" || phone.trim().length === 0) {
       console.warn(`⚠️ Phone not found for delivery person ${deliveryPersonId}, skipping notification`);
       continue;

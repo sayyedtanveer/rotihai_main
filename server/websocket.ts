@@ -238,15 +238,23 @@ export function broadcastPaymentInitiated(chefId: string, orderId: string) {
   const message = JSON.stringify({
     type: "PAYMENT_INITIATED",
     orderId,
-    message: "Customer has completed payment. Verify soon."
+    message: "Customer has marked payment. Awaiting admin verification."
   });
 
+  let chefNotified = false;
   clients.forEach((client, clientId) => {
     if (client.type === "chef" && String(client.chefId) === String(chefId) && client.ws.readyState === WebSocket.OPEN) {
       client.ws.send(message);
-      console.log(`  ✅ Sent PAYMENT_INITIATED to chef ${clientId}`);
+      chefNotified = true;
+      console.log(`  ✅ Sent PAYMENT_INITIATED soft pre-alert to chef ${clientId}`);
     }
   });
+
+  // Save pending broadcast so offline chef gets soft pre-alert on reconnect
+  if (!chefNotified) {
+    savePendingBroadcast(chefId, "chef", "PAYMENT_INITIATED", { orderId, message: "Customer has marked payment. Awaiting admin verification." });
+    console.log(`  ⏳ Chef ${chefId} offline — saved PAYMENT_INITIATED as pending broadcast`);
+  }
 }
 
 

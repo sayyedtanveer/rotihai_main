@@ -1097,7 +1097,9 @@ export class MemStorage implements IStorage {
 
   // Subscription Plans
   async getSubscriptionPlans(): Promise<SubscriptionPlan[]> {
-    return db.query.subscriptionPlans.findMany();
+    return db.query.subscriptionPlans.findMany({
+      orderBy: (sp, { asc }) => [asc(sp.sectionOrder), asc(sp.name)],
+    });
   }
 
   async getSubscriptionPlan(id: string): Promise<SubscriptionPlan | undefined> {

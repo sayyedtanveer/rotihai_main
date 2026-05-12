@@ -1436,11 +1436,6 @@ export default function CheckoutDialog({
 
       console.log("[PROFILE-COORDS] ✅ Coordinates restored successfully");
       console.log(`[PROFILE-COORDS] Using saved coordinates: ${user.latitude}, ${user.longitude}`);
-    } else if (user.address && user.address !== currentCheckoutAddress && addressConfirmed) {
-      // Address changed since last order - require re-validation
-      console.log("[PROFILE-COORDS] ⚠️  Address changed since last order. Re-validation required.");
-      setAddressZoneValidated(false);
-      setAddressConfirmed(false);
     }
   }, [isOpen, isAuthenticated, user?.latitude, user?.longitude, user?.address, addressBuilding, addressStreet, addressArea, addressPincode, addressCity, addressConfirmed]);
 

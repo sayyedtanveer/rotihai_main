@@ -3923,24 +3923,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return;
       }
 
-      // If Roti subscription and slot provided, validate cutoff similar to single orders
-      if (isRotiCategory && deliverySlotId) {
-        const slot = await storage.getDeliveryTimeSlot(deliverySlotId);
-        if (!slot) {
-          res.status(400).json({ message: "Selected delivery slot not found" });
-          return;
-        }
-        const cutoffInfo = computeSlotCutoffInfo(slot);
-        if (cutoffInfo.isPastCutoff) {
-          res.status(400).json({
-            message: "Selected delivery slot missed the ordering cutoff for the upcoming delivery. Please schedule the subscription to start from the next available date.",
-            requiresReschedule: true,
-            nextAvailableDate: cutoffInfo.nextAvailableDate.toISOString(),
-            cutoffHoursBefore: cutoffInfo.cutoffHoursBefore,
-          });
-          return;
-        }
-      }
+      // Roti category slot requirement is already validated above.
+      // We do NOT validate cutoff for subscriptions here because subscriptions naturally
+      // start on the next available delivery date, which is handled below.
 
       // Check if user exists, if not create one
       let user = await storage.getUserByPhone(sanitizedPhone);

@@ -523,6 +523,9 @@ var init_schema = __esm({
       name: text("name").notNull(),
       description: text("description").notNull(),
       categoryId: varchar("category_id").notNull(),
+      sectionName: text("section_name").notNull().default("General"),
+      sectionOrder: integer("section_order").notNull().default(0),
+      // Controls section display order (lower = first)
       frequency: subscriptionFrequencyEnum("frequency").notNull(),
       price: integer("price").notNull(),
       deliveryDays: jsonb("delivery_days").notNull(),
@@ -1963,7 +1966,9 @@ var init_storage = __esm({
       }
       // Subscription Plans
       async getSubscriptionPlans() {
-        return db.query.subscriptionPlans.findMany();
+        return db.query.subscriptionPlans.findMany({
+          orderBy: (sp, { asc: asc2 }) => [asc2(sp.sectionOrder), asc2(sp.name)]
+        });
       }
       async getSubscriptionPlan(id) {
         return db.query.subscriptionPlans.findFirst({ where: (sp, { eq: eq10 }) => eq10(sp.id, id) });

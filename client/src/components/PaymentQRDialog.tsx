@@ -248,12 +248,19 @@ export default function PaymentQRDialog({
 
     try {
       const initId = paymentData?.pendingCheckoutId || orderIdFromCheckout;
-      if (initId) {
+      if (initId && !onPaymentConfirmed) { // Only do this for orders, not subscriptions
         try {
           await api.post(`/api/orders/${initId}/payment-initiated`);
         } catch (err) {
           console.warn("Payment initiated notify failed", err);
         }
+      }
+
+      // ✅ LEGACY MODE: Subscriptions
+      if (onPaymentConfirmed) {
+        console.log("[PAYMENT] Using legacy onPaymentConfirmed (subscription flow)");
+        onPaymentConfirmed("TXN" + Date.now());
+        return; // The parent component (SubscriptionDrawer) handles success and closing
       }
 
       // ✅ PRIORITY 1: Pending checkout (PRIMARY FLOW)
