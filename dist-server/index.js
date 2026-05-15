@@ -2651,7 +2651,15 @@ var init_storage = __esm({
         return setting;
       }
       async updateDeliverySetting(id, data) {
-        await db.update(deliverySettings2).set({ ...data, updatedAt: /* @__PURE__ */ new Date() }).where(eq(deliverySettings2.id, id));
+        const updateData = { updatedAt: /* @__PURE__ */ new Date() };
+        if (data.name !== void 0) updateData.name = data.name;
+        if (data.minDistance !== void 0) updateData.minDistance = String(data.minDistance);
+        if (data.maxDistance !== void 0) updateData.maxDistance = String(data.maxDistance);
+        if (data.price !== void 0) updateData.price = parseInt(String(data.price));
+        if (data.minOrderAmount !== void 0) updateData.minOrderAmount = parseInt(String(data.minOrderAmount));
+        if (data.isActive !== void 0) updateData.isActive = data.isActive;
+        if (data.pincode !== void 0) updateData.pincode = data.pincode;
+        await db.update(deliverySettings2).set(updateData).where(eq(deliverySettings2.id, id));
         return this.getDeliverySetting(id);
       }
       async deleteDeliverySetting(id) {

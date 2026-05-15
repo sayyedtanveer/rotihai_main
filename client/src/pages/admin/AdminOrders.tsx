@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from "@/components/ui/pagination";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Order, DeliveryPersonnel } from "@shared/schema";
@@ -349,9 +350,25 @@ export default function AdminOrders() {
                         </TableCell>
                         <TableCell>
                           <div className="max-w-xs text-sm">
-                            <p className="text-slate-700 dark:text-slate-300 whitespace-normal break-words line-clamp-2">
-                              {order.addressBuilding ? `${order.addressBuilding}, ${order.addressStreet ? order.addressStreet + ', ' : ''}${order.addressArea}` : (order.address || "No address provided")}
-                            </p>
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <p className="text-slate-700 dark:text-slate-300 whitespace-normal break-words line-clamp-2 cursor-help">
+                                    {order.addressBuilding ? `${order.addressBuilding}, ${order.addressStreet ? order.addressStreet + ', ' : ''}${order.addressArea}` : (order.address || "No address provided")}
+                                  </p>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="max-w-sm">
+                                  <div className="text-sm">
+                                    <p className="font-medium break-words">
+                                      {order.addressBuilding ? `${order.addressBuilding}, ${order.addressStreet ? order.addressStreet + ', ' : ''}${order.addressArea}` : (order.address || "No address provided")}
+                                    </p>
+                                    {order.addressPincode && (
+                                      <p className="text-xs mt-1">{order.addressCity} - {order.addressPincode}</p>
+                                    )}
+                                  </div>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
                             {order.addressPincode && (
                               <p className="text-xs text-slate-500 mt-0.5">{order.addressCity} - {order.addressPincode}</p>
                             )}
