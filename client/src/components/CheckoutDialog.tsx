@@ -944,12 +944,24 @@ export default function CheckoutDialog({
     nextAvailableDate: string;
   }>(null);
 
+  // 🔧 CRITICAL: Single source of truth for delivery minimum order logic
+  // This ensures display and calculation stay synchronized (prevents flickering)
+  const deliveryMinimumLogic = useMemo(() => {
+    const minAmount = cart?.minOrderAmount || 0;
+    const isBelow = minAmount > 0 && subtotal < minAmount;
+    const shortfall = isBelow ? minAmount - subtotal : 0;
+    return {
+      deliveryMin: minAmount,
+      isBelowMin: isBelow,
+      amountShortfall: shortfall,
+      chargeAmount: isBelow ? deliveryFee : 0,
+    };
+  }, [cart?.minOrderAmount, subtotal, deliveryFee]);
+
   // Determine if wallet checkbox should be disabled
   const isWalletCheckboxDisabled = useMemo(() => {
     // Calculate if delivery fee should actually be charged
-    const deliveryMin = cart?.minOrderAmount || 0;
-    const isBelowMin = deliveryMin > 0 && subtotal < deliveryMin;
-    const actualFeeForCalc = isBelowMin ? deliveryFee : 0;
+    const actualFeeForCalc = deliveryMinimumLogic.chargeAmount;
     const disabled = minOrderAmountForWallet > 0 && (subtotal + actualFeeForCalc - discount) < minOrderAmountForWallet;
     console.log("[WALLET CHECKBOX] Disabled state calculation:", {
       minOrderAmountForWallet,
@@ -961,7 +973,7 @@ export default function CheckoutDialog({
       isDisabled: disabled,
     });
     return disabled;
-  }, [minOrderAmountForWallet, subtotal, deliveryFee, discount, cart?.minOrderAmount]);
+  }, [minOrderAmountForWallet, subtotal, discount, deliveryMinimumLogic]);
 
   useEffect(() => {
     if (cart) {
@@ -1000,9 +1012,9 @@ export default function CheckoutDialog({
       const calculatedDeliveryFee = deliveryFee !== 0 || customerLatitude !== null ? deliveryFee : (cart.deliveryFee ?? 20);
       const calculatedDeliveryDistance = deliveryDistance;
 
-      // Check if order is below delivery minimum
-      const deliveryMin = cart?.minOrderAmount || 0;
-      const isBelowMin = deliveryMin > 0 && calculatedSubtotal < deliveryMin;
+      // 🔧 CRITICAL: Use consolidated minimum order logic (prevents race condition)
+      // This ensures display and total calculation stay in sync
+      const isBelowMin = deliveryMinimumLogic.isBelowMin;
 
       // ⚠️ CRITICAL FIX: Charge delivery fee ONLY if BELOW minimum order amount
       // If order meets minimum threshold, delivery is FREE (deliveryFee = 0)
@@ -1074,8 +1086,8 @@ export default function CheckoutDialog({
         calculatedSubtotal,
         calculatedDeliveryFee,
         actualDeliveryFee,
-        deliveryMin,
-        isBelowMinimum: deliveryMin > 0 && calculatedSubtotal < deliveryMin,
+        deliveryMin: deliveryMinimumLogic.deliveryMin,
+        isBelowMinimum: deliveryMinimumLogic.isBelowMin,
         calculatedDiscount,
         baseTotal,
         minOrderAmountForWallet,
@@ -1131,18 +1143,13 @@ export default function CheckoutDialog({
 
       setTotal(baseTotal);
 
-      // Set minimum order display state
-      setDeliveryMinOrderAmount(deliveryMin);
-
-      if (deliveryMin > 0 && calculatedSubtotal < deliveryMin) {
-        setIsBelowDeliveryMinimum(true);
-        setAmountNeededForFreeDelivery(deliveryMin - calculatedSubtotal);
-      } else {
-        setIsBelowDeliveryMinimum(false);
-        setAmountNeededForFreeDelivery(0);
-      }
+      // 🔧 CRITICAL: Use consolidated minimum order logic states
+      // This ensures display matches calculation (prevents flickering)
+      setDeliveryMinOrderAmount(deliveryMinimumLogic.deliveryMin);
+      setIsBelowDeliveryMinimum(deliveryMinimumLogic.isBelowMin);
+      setAmountNeededForFreeDelivery(deliveryMinimumLogic.amountShortfall);
     }
-  }, [cart, address, appliedCoupon, useBonusAtCheckout, bonusEligible, pendingBonus, maxBonusUsagePerOrder, bonusAmountToUse, useWalletBalance, user?.walletBalance, maxWalletUsagePerOrder, minOrderAmountForWallet, deliveryFee, customerLatitude, customerLongitude, platformFeeConfig]);
+  }, [cart, address, appliedCoupon, useBonusAtCheckout, bonusEligible, pendingBonus, maxBonusUsagePerOrder, bonusAmountToUse, useWalletBalance, user?.walletBalance, maxWalletUsagePerOrder, minOrderAmountForWallet, deliveryFee, deliveryMinimumLogic, customerLatitude, customerLongitude, platformFeeConfig]);
   const profileInitializedRef = useRef(false);
 
   useEffect(() => {

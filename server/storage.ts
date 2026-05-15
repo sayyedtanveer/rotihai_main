@@ -1958,7 +1958,17 @@ export class MemStorage implements IStorage {
   }
 
   async updateDeliverySetting(id: string, data: Partial<DeliverySetting>): Promise<DeliverySetting | undefined> {
-    await db.update(deliverySettings).set({ ...data, updatedAt: new Date() }).where(eq(deliverySettings.id, id));
+    const updateData: any = { updatedAt: new Date() };
+    
+    if (data.name !== undefined) updateData.name = data.name;
+    if (data.minDistance !== undefined) updateData.minDistance = String(data.minDistance);
+    if (data.maxDistance !== undefined) updateData.maxDistance = String(data.maxDistance);
+    if (data.price !== undefined) updateData.price = parseInt(String(data.price));
+    if (data.minOrderAmount !== undefined) updateData.minOrderAmount = parseInt(String(data.minOrderAmount));
+    if (data.isActive !== undefined) updateData.isActive = data.isActive;
+    if (data.pincode !== undefined) updateData.pincode = data.pincode;
+
+    await db.update(deliverySettings).set(updateData).where(eq(deliverySettings.id, id));
     return this.getDeliverySetting(id);
   }
 

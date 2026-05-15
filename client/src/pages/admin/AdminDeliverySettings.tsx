@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { DeliverySetting, DeliveryPersonnel, DeliveryPartnerPayout } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Truck, Plus, Trash2, MapPin, Users, UserCog, DollarSign } from "lucide-react";
+import { Truck, Plus, Trash2, MapPin, Users, UserCog, DollarSign, Edit2, Check, X } from "lucide-react";
 import { useState } from "react";
 
 export default function AdminDeliverySettings() {
@@ -23,6 +23,9 @@ export default function AdminDeliverySettings() {
     price: "",
     minOrderAmount: "",
   });
+
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingData, setEditingData] = useState<Partial<DeliverySetting> | null>(null);
 
   const [newDeliveryPerson, setNewDeliveryPerson] = useState({
     name: "",
@@ -799,49 +802,128 @@ export default function AdminDeliverySettings() {
                             className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg"
                             data-testid={`card-setting-${setting.id}`}
                           >
-                            <div className="flex items-center justify-between">
-                              <div className="flex-1">
-                                <h3 className="font-semibold text-lg text-slate-900 dark:text-slate-100">
-                                  {setting.name}
-                                </h3>
-                                <p className="text-sm text-slate-600 dark:text-slate-400">
-                                  {setting.minDistance} km - {setting.maxDistance} km
-                                </p>
-                                <div className="flex items-center gap-4 mt-1">
-                                  <p className="text-lg font-bold text-primary">₹{setting.price}</p>
-                                  <p className="text-sm text-slate-600 dark:text-slate-400">
-                                    Min Order: ₹{setting.minOrderAmount || 0}
-                                  </p>
-                                </div>
-                              </div>
-                              <div className="flex items-center gap-4">
-                                <div className="flex items-center gap-2">
-                                  <Label htmlFor={`active-${setting.id}`} className="text-sm">
-                                    Active
-                                  </Label>
-                                  <Switch
-                                    id={`active-${setting.id}`}
-                                    checked={setting.isActive}
-                                    onCheckedChange={(checked) =>
-                                      updateSettingMutation.mutate({
-                                        id: setting.id,
-                                        data: { isActive: checked },
-                                      })
-                                    }
-                                    data-testid={`switch-active-${setting.id}`}
+                            {editingId === setting.id ? (
+                              <div className="space-y-3">
+                                <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+                                  <Input
+                                    placeholder="Range Name"
+                                    value={editingData?.name || ""}
+                                    onChange={(e) => setEditingData({ ...editingData, name: e.target.value })}
+                                  />
+                                  <Input
+                                    type="number"
+                                    step="0.1"
+                                    placeholder="Min km"
+                                    value={editingData?.minDistance || ""}
+                                    onChange={(e) => setEditingData({ ...editingData, minDistance: e.target.value as any })}
+                                  />
+                                  <Input
+                                    type="number"
+                                    step="0.1"
+                                    placeholder="Max km"
+                                    value={editingData?.maxDistance || ""}
+                                    onChange={(e) => setEditingData({ ...editingData, maxDistance: e.target.value as any })}
+                                  />
+                                  <Input
+                                    type="number"
+                                    placeholder="Fee (₹)"
+                                    value={editingData?.price || ""}
+                                    onChange={(e) => setEditingData({ ...editingData, price: parseInt(e.target.value) || 0 })}
+                                  />
+                                  <Input
+                                    type="number"
+                                    placeholder="Min Order (₹)"
+                                    value={editingData?.minOrderAmount || ""}
+                                    onChange={(e) => setEditingData({ ...editingData, minOrderAmount: parseInt(e.target.value) || 0 })}
                                   />
                                 </div>
-                                <Button
-                                  variant="destructive"
-                                  size="icon"
-                                  onClick={() => deleteSettingMutation.mutate(setting.id)}
-                                  disabled={deleteSettingMutation.isPending}
-                                  data-testid={`button-delete-${setting.id}`}
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </Button>
+                                <div className="flex gap-2">
+                                  <Button
+                                    size="sm"
+                                    onClick={() => {
+                                      if (editingData) {
+                                        updateSettingMutation.mutate({
+                                          id: setting.id,
+                                          data: editingData,
+                                        });
+                                        setEditingId(null);
+                                        setEditingData(null);
+                                      }
+                                    }}
+                                    disabled={updateSettingMutation.isPending}
+                                  >
+                                    <Check className="w-4 h-4 mr-1" />
+                                    Save
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => {
+                                      setEditingId(null);
+                                      setEditingData(null);
+                                    }}
+                                  >
+                                    <X className="w-4 h-4 mr-1" />
+                                    Cancel
+                                  </Button>
+                                </div>
                               </div>
-                            </div>
+                            ) : (
+                              <div className="flex items-center justify-between">
+                                <div className="flex-1">
+                                  <h3 className="font-semibold text-lg text-slate-900 dark:text-slate-100">
+                                    {setting.name}
+                                  </h3>
+                                  <p className="text-sm text-slate-600 dark:text-slate-400">
+                                    {setting.minDistance} km - {setting.maxDistance} km
+                                  </p>
+                                  <div className="flex items-center gap-4 mt-1">
+                                    <p className="text-lg font-bold text-primary">₹{setting.price}</p>
+                                    <p className="text-sm text-slate-600 dark:text-slate-400">
+                                      Min Order: ₹{setting.minOrderAmount || 0}
+                                    </p>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-4">
+                                  <div className="flex items-center gap-2">
+                                    <Label htmlFor={`active-${setting.id}`} className="text-sm">
+                                      Active
+                                    </Label>
+                                    <Switch
+                                      id={`active-${setting.id}`}
+                                      checked={setting.isActive}
+                                      onCheckedChange={(checked) =>
+                                        updateSettingMutation.mutate({
+                                          id: setting.id,
+                                          data: { isActive: checked },
+                                        })
+                                      }
+                                      data-testid={`switch-active-${setting.id}`}
+                                    />
+                                  </div>
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    onClick={() => {
+                                      setEditingId(setting.id);
+                                      setEditingData(setting);
+                                    }}
+                                    data-testid={`button-edit-${setting.id}`}
+                                  >
+                                    <Edit2 className="w-4 h-4" />
+                                  </Button>
+                                  <Button
+                                    variant="destructive"
+                                    size="icon"
+                                    onClick={() => deleteSettingMutation.mutate(setting.id)}
+                                    disabled={deleteSettingMutation.isPending}
+                                    data-testid={`button-delete-${setting.id}`}
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </Button>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         ))}
                     </div>
