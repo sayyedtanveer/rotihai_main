@@ -5007,14 +5007,20 @@ function broadcastPaymentInitiated(chefId, orderId) {
   const message = JSON.stringify({
     type: "PAYMENT_INITIATED",
     orderId,
-    message: "Customer has completed payment. Verify soon."
+    message: "Customer has marked payment. Awaiting admin verification."
   });
+  let chefNotified = false;
   clients.forEach((client, clientId) => {
     if (client.type === "chef" && String(client.chefId) === String(chefId) && client.ws.readyState === WebSocket.OPEN) {
       client.ws.send(message);
-      console.log(`  \u2705 Sent PAYMENT_INITIATED to chef ${clientId}`);
+      chefNotified = true;
+      console.log(`  \u2705 Sent PAYMENT_INITIATED soft pre-alert to chef ${clientId}`);
     }
   });
+  if (!chefNotified) {
+    savePendingBroadcast(chefId, "chef", "PAYMENT_INITIATED", { orderId, message: "Customer has marked payment. Awaiting admin verification." });
+    console.log(`  \u23F3 Chef ${chefId} offline \u2014 saved PAYMENT_INITIATED as pending broadcast`);
+  }
 }
 function broadcastSubscriptionDelivery(subscription) {
   const message = JSON.stringify({
@@ -6356,7 +6362,7 @@ async function sendOrderPlacedAdminNotification(orderId, userName, amount, admin
   console.log(`   Address: ${address ? "\u2705 Provided" : "\u274C Missing"}`);
   let itemsList = "";
   if (items && items.length > 0) {
-    itemsList = items.map((item) => `\u2022 ${item.name} x${item.quantity} = \u20B9${item.price * item.quantity}`).join("\n");
+    itemsList = items.map((item) => `\u2022 ${item.name} x${item.quantity} = \u20B9${item.price * item.quantity}`).join(", ");
   } else {
     itemsList = "\u2022 No items provided";
   }
@@ -6368,10 +6374,10 @@ Customer: ${userName}
 Amount: \u20B9${amount}
 
 \u{1F4CB} *Items:*
-${itemsList}
+${itemsList.substring(0, 200)}
 
 \u{1F4CD} *Delivery Address:*
-${address || "Address not provided"}
+${(address || "Address not provided").substring(0, 300)}
 
 \u{1F517} View in dashboard to approve payment
 
@@ -16484,23 +16490,6 @@ Please accept and start preparation.`;
           categoryName: category?.name
         });
         return;
-      }
-      if (isRotiCategory && deliverySlotId) {
-        const slot = await storage.getDeliveryTimeSlot(deliverySlotId);
-        if (!slot) {
-          res.status(400).json({ message: "Selected delivery slot not found" });
-          return;
-        }
-        const cutoffInfo = computeSlotCutoffInfo(slot);
-        if (cutoffInfo.isPastCutoff) {
-          res.status(400).json({
-            message: "Selected delivery slot missed the ordering cutoff for the upcoming delivery. Please schedule the subscription to start from the next available date.",
-            requiresReschedule: true,
-            nextAvailableDate: cutoffInfo.nextAvailableDate.toISOString(),
-            cutoffHoursBefore: cutoffInfo.cutoffHoursBefore
-          });
-          return;
-        }
       }
       let user = await storage.getUserByPhone(sanitizedPhone);
       let isNewUser = false;

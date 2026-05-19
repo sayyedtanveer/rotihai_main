@@ -47,6 +47,48 @@ import { CheckoutDialogProps } from "@/types/checkoutdialogprops";
 import { useCart } from "@/hooks/use-cart";
 import OrderSummaryCard from "@/components/OrderSummaryCard";
 
+/*
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║  COORDINATE LIFECYCLE ARCHITECTURE - CRITICAL FOR ACCURATE DELIVERY FEES      ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+
+CRITICAL RULE: Checkout always geocodes the FULL address for accurate fees
+Do NOT reuse homepage approximate coordinates for delivery fee calculation
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ HOMEPAGE FLOW (Approximate Coordinates)                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ User enters pincode → StreetRefinementSheet → lightweight geocode           │
+│ Result: Approximate coordinates (±100-200m accuracy)                        │
+│ Purpose: ONLY for nearest chef sorting on homepage                          │
+│ Store: Kept in context (deliveryLocation) with source="pincode"            │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ CHECKOUT FLOW (Accurate Coordinates) - MUST ALWAYS GEOCODE FULL ADDRESS    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ User enters full address (building+street+area+pincode)                     │
+│ Checkout geocodes FULL address for accuracy                                 │
+│ Result: Accurate coordinates (±5-10m accuracy)                              │
+│ Purpose: FINAL delivery fee calculation & distance validation               │
+│ Do NOT use homepage approximate coordinates                                 │
+│ Flow: User enters address → clicks "Validate Address" → handlePincodeChange │
+│       → geocodes & calculates accurate fee → displays OrderSummaryCard      │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ DATABASE SAVE (After Successful Order)                                      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ Save accurate checkout coordinates to user profile                          │
+│ Future visits can reuse if full address hasn't changed                      │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+KEY RULES:
+✓ Homepage: Geocode once, use for chef sorting only
+✓ Checkout: Always geocode full address for accurate fee
+✓ Saved DB: Reuse only if exact address match
+✗ DO NOT use homepage pincode/street coords for delivery fees
+*/
 
 // Hook to check for mobile viewport
 function useIsMobile() {
@@ -1007,10 +1049,20 @@ export default function CheckoutDialog({
       setSubtotal(calculatedSubtotal);
       setItemDiscountSavings(itemSavings);
 
-      // Use current deliveryFee state (updated by calculateDynamicDeliveryFee) or cart default
-      // This ensures that geocoding-triggered fee updates are reflected in totals
-      const calculatedDeliveryFee = deliveryFee !== 0 || customerLatitude !== null ? deliveryFee : (cart.deliveryFee ?? 20);
+      // ✅ CRITICAL: Use checkout's deliveryFee as source of truth during checkout
+      // NEVER use cart.deliveryFee because it's calculated from stale userLatitude/userLongitude in cart hook
+      // During checkout:
+      // - If deliveryFee > 0: User validated address → use checkout's accurate fee
+      // - If deliveryFee = 0: Address not validated yet → use cart default
+      const calculatedDeliveryFee = deliveryFee > 0 ? deliveryFee : (cart.deliveryFee ?? 20);
       const calculatedDeliveryDistance = deliveryDistance;
+
+      console.log("[CHECKOUT-CALC-FEE] Choosing delivery fee source:", {
+        checkoutDeliveryFee: deliveryFee,
+        cartDeliveryFee: cart.deliveryFee,
+        selectedFee: calculatedDeliveryFee,
+        reason: deliveryFee > 0 ? "Using checkout-validated fee" : "Using cart default (not validated yet)"
+      });
 
       // 🔧 CRITICAL: Use consolidated minimum order logic (prevents race condition)
       // This ensures display and total calculation stay in sync
@@ -1045,7 +1097,15 @@ export default function CheckoutDialog({
       // ✅ DISPLAY shows calculatedDeliveryFee (the calculated amount like ₹20)
       // ✅ TOTAL uses actualDeliveryFee (what user pays - ₹0 if minimum met)
       // This ensures display shows "₹20 FREE" while total is correctly ₹0 delivery charge
-      setDeliveryFee(calculatedDeliveryFee);
+      // ✅ CRITICAL: Only update deliveryFee if checkout has validated (> 0), never from stale cart values
+      if (deliveryFee > 0) {
+        // Checkout validated address → keep the accurate fee
+        // Don't overwrite with cart's stale fee even if they differ
+        console.log("[CHECKOUT-CALC] Retaining checkout-validated fee during cart changes:", { deliveryFee });
+      } else {
+        // Address not validated yet → can use any fee as placeholder
+        setDeliveryFee(calculatedDeliveryFee);
+      }
 
       // 🆕 Calculate platform fee based on subtotal and config
       let calculatedPlatformFee = 0;
@@ -1485,67 +1545,20 @@ export default function CheckoutDialog({
 
   // Fetch pending bonus and referral info from user profile
   // Recalculate delivery fee whenever customer or chef coordinates change
+  // ✅ SIMPLIFIED: Don't recalculate fees here - only in handlePincodeChange/autoGeocodeAddress
+  // This prevents race conditions where useEffect might overwrite correct fees with stale coordinate calculations
   useEffect(() => {
-    console.log("[DELIVERY-FEE-CALC] useEffect triggered:", {
-      hasCart: !!cart,
-      customerLatitude,
-      customerLongitude,
-      cartChefLatitude: cart?.chefLatitude,
-      cartChefLongitude: cart?.chefLongitude,
-      checkLatitude: cart?.chefLatitude || cart?.chefLatitude === 0,
-      checkLongitude: cart?.chefLongitude || cart?.chefLongitude === 0,
-    });
-
-    if (
-      cart &&
-      customerLatitude !== null &&
-      customerLongitude !== null &&
-      (cart.chefLatitude || cart.chefLatitude === 0) &&
-      (cart.chefLongitude || cart.chefLongitude === 0)
-    ) {
-      // Use chef coordinates from cart (populated from chef API response)
-      const chefLat = cart.chefLatitude;
-      const chefLon = cart.chefLongitude;
-
-      console.log("[DELIVERY-FEE-CALC] Calling calculateDynamicDeliveryFee:", {
-        customerLatitude,
-        customerLongitude,
-        chefLat,
-        chefLon,
-        subtotal,
-        coordinateSource: deliveryLocation.source || "geocoded",
+    // Only update cart store location if address is validated
+    if (customerLatitude !== null && customerLongitude !== null && addressZoneValidated && addressInDeliveryZone) {
+      console.log("[DELIVERY-FEE-CALC] Updating cart store location:", {
+        lat: customerLatitude,
+        lon: customerLongitude,
+        validated: addressZoneValidated,
+        inZone: addressInDeliveryZone,
       });
-
-      // Calculate fee using chef coordinates from cart (chef fee data comes from API when needed)
-      const newDeliveryFee = calculateDynamicDeliveryFee(
-        customerLatitude,
-        customerLongitude,
-        chefLat,
-        chefLon
-      );
-
-      console.log("[DELIVERY-FEE-CALC] Fee calculated:", {
-        newDeliveryFee,
-        coordinateSource: deliveryLocation.source || "geocoded",
-        savedAddress: user?.address,
-        currentAddress: [addressBuilding, addressStreet, addressArea, addressPincode].filter(Boolean).join(", "),
-      });
-      setDeliveryFee(newDeliveryFee);
-
-      // Also recalculate total with new delivery fee
-      const distance = calculateDistance(chefLat, chefLon, customerLatitude, customerLongitude);
-      console.log("[DELIVERY-FEE-CALC] Distance calculated:", distance);
-      setDeliveryDistance(distance);
-
-      // ✅ Update cart store with exact location status if address is validated
-      // This ensures the "Starting from" message is removed in UI
-      if (addressZoneValidated && addressInDeliveryZone) {
-        useCart.getState().setUserLocation(customerLatitude, customerLongitude, true);
-      }
-    } else {
-      console.log("[DELIVERY-FEE-CALC] Conditions not met - skipping fee calculation");
+      useCart.getState().setUserLocation(customerLatitude, customerLongitude, true);
     }
-  }, [customerLatitude, customerLongitude, cart?.chefLatitude, cart?.chefLongitude, subtotal, addressZoneValidated, addressInDeliveryZone]);
+  }, [customerLatitude, customerLongitude, addressZoneValidated, addressInDeliveryZone]);
 
   // Auto-validate delivery on dialog open - use chef's coordinates if area is empty
   useEffect(() => {
@@ -1568,59 +1581,16 @@ export default function CheckoutDialog({
         console.log("[DELIVERY-ZONE] Skipping auto-validation because address area is empty");
         return;
       } else {
-        // If area has value AND we already have coordinates, skip geocoding and validate directly
-        const canReuseRestoredCoordinates =
-          customerLatitude !== null &&
-          customerLongitude !== null &&
-          deliveryLocation.source !== "pincode";
-
-        if (canReuseRestoredCoordinates) {
-          console.log("[DELIVERY-ZONE] Using restored coordinates instead of re-geocoding");
-          // Validate distance directly with restored coordinates
-          if (cart.chefLatitude !== undefined && cart.chefLatitude !== null && cart.chefLongitude !== undefined && cart.chefLongitude !== null) {
-            const distance = calculateDistance(
-              cart.chefLatitude,
-              cart.chefLongitude,
-              customerLatitude,
-              customerLongitude
-            );
-            const maxDeliveryDistance = cart.maxDeliveryDistanceKm || 10;
-            const isInZone = distance <= maxDeliveryDistance;
-            const restoredDeliveryFee = calculateDynamicDeliveryFee(
-              customerLatitude,
-              customerLongitude,
-              cart.chefLatitude,
-              cart.chefLongitude
-            );
-
-            setAddressZoneDistance(distance);
-            setDeliveryDistance(distance);
-            setDeliveryFee(restoredDeliveryFee);
-            setAddressInDeliveryZone(isInZone);
-            setAddressZoneValidated(true);
-
-            if (!isInZone) {
-              setLocationError(`Address is ${distance.toFixed(1)}km away. Max delivery distance is ${maxDeliveryDistance}km.`);
-            } else {
-              setLocationError("");
-            }
-            console.log("[DELIVERY-ZONE] Direct validation completed:", {
-              distance,
-              isInZone,
-              maxDeliveryDistance,
-              coordinateSource: deliveryLocation.source || "restored",
-            });
-          }
-          return;
-        } else {
-          // No coordinates, need to geocode
-          const fullAddress = [addressBuilding, addressStreet, addressArea, addressCity, addressPincode]
-            .filter(Boolean)
-            .join(", ");
-          console.log("[DELIVERY-ZONE] Auto-geocoding on dialog open:", fullAddress);
-          autoGeocodeAddress(fullAddress);
-          return;
-        }
+        // Full address has values - validate it
+        const fullAddress = [addressBuilding, addressStreet, addressArea, addressCity, addressPincode]
+          .filter(Boolean)
+          .join(", ");
+        
+        // ✅ SIMPLE RULE: Always geocode full address for checkout accuracy
+        // This ensures we use accurate coordinates for delivery fee, not approximate homepage coords
+        console.log("[DELIVERY-ZONE] 🔄 Geocoding checkout address for accurate delivery fee:", fullAddress);
+        autoGeocodeAddress(fullAddress);
+        return;
       }
     }
   }, [
@@ -2151,7 +2121,13 @@ export default function CheckoutDialog({
           });
 
           if (!isInZone) {
-            console.warn("[PINCODE-CHANGE] ❌ Pincode is outside delivery zone");
+            console.warn("[PINCODE-CHANGE] ❌ PINCODE OUTSIDE DELIVERY ZONE", {
+              distance: newDistance.toFixed(3) + " km",
+              maxAllowed: maxDeliveryDistance + " km",
+              userCoords: { lat: finalLat, lon: finalLon },
+              chefCoords: { lat: chefLat, lon: chefLon },
+              timestamp: new Date().toLocaleTimeString(),
+            });
             setLocationError(
               `Pincode ${newPincode} is ${newDistance.toFixed(1)}km away. ${chefData.name} delivers within ${maxDeliveryDistance}km.`
             );
@@ -2172,12 +2148,14 @@ export default function CheckoutDialog({
             chefLon
           );
 
-          console.log("[PINCODE-CHANGE] ✅ All validations passed!", {
+          console.log("[PINCODE-CHANGE] ✅ ALL VALIDATIONS PASSED!", {
             pincode: newPincode,
             area: pincodeData.area,
-            distance: newDistance.toFixed(2),
-            deliveryFee: newDeliveryFee,
+            distance: newDistance.toFixed(3) + " km",
+            deliveryFee: "₹" + newDeliveryFee,
             coordinateSource: finalLat === pincodeData.latitude ? 'pincode-center' : 'geocoded',
+            userCoords: { lat: finalLat, lon: finalLon },
+            timestamp: new Date().toLocaleTimeString(),
           });
 
           // Update all state with new validated data
@@ -2186,6 +2164,15 @@ export default function CheckoutDialog({
           setCustomerLongitude(finalLon);
           setAddressZoneDistance(newDistance);
           setDeliveryDistance(newDistance); // ✅ FIX: Ensure payment screen shows same distance as validation
+          setDeliveryFee(newDeliveryFee);
+          
+          console.log("[PINCODE-CHANGE] 🔄 STATE UPDATED WITH NEW COORDINATES:", {
+            setCustomerLatitude: finalLat.toFixed(5),
+            setCustomerLongitude: finalLon.toFixed(5),
+            setDeliveryDistance: newDistance.toFixed(5),
+            setDeliveryFee: newDeliveryFee,
+            timestamp: new Date().toLocaleTimeString(),
+          });
 
           // 🔍 DEBUG: Log exact coordinates used for pincode/area validation
           console.log("[DISTANCE-DEBUG] Coordinates used for pincode/area calculation:", {
@@ -2446,11 +2433,36 @@ export default function CheckoutDialog({
         distanceFromChef,
         note: "Address geocoding preferred over GPS for accuracy",
       });
+      
+      // ✅ CRITICAL: Calculate delivery fee with the geocoded coordinates
+      console.log("[AUTO-GEOCODE-FEE-CALC] 📍 About to calculate fee with coordinates:", {
+        latitude: data.latitude.toFixed(5),
+        longitude: data.longitude.toFixed(5),
+        chefLat: chefLat.toFixed(5),
+        chefLon: chefLon.toFixed(5),
+        distanceFromChef: distanceFromChef.toFixed(5),
+        timestamp: new Date().toLocaleTimeString(),
+      });
+      
+      const calculatedFee = calculateDynamicDeliveryFee(
+        data.latitude,
+        data.longitude,
+        chefLat,
+        chefLon
+      );
+      
+      console.log("[AUTO-GEOCODE-FEE-RESULT] 💰 Fee calculated:", {
+        calculatedFee,
+        distance: distanceFromChef.toFixed(5),
+        timestamp: new Date().toLocaleTimeString(),
+      });
+      
       setCustomerLatitude(data.latitude);
       setCustomerLongitude(data.longitude);
       setHasLocationPermission(true);
       setAddressZoneDistance(distanceFromChef);
       setDeliveryDistance(distanceFromChef); // ✅ FIX: Ensure payment screen shows same distance as validation
+      setDeliveryFee(calculatedFee); // ✅ NEW: Set fee calculated from accurate coordinates
 
       if (!isInZone) {
         console.log("[DELIVERY-ZONE] ❌ OUT OF ZONE - Address blocked");
@@ -2483,6 +2495,16 @@ export default function CheckoutDialog({
         setAddressInDeliveryZone(true);
         setAddressZoneValidated(true);
         setIsEditingAddress(false); // Switch to View Mode on success
+        
+        console.log("[AUTO-GEOCODE-COMPLETE] 📍 DISTANCE & FEE READY:", {
+          distance: distanceFromChef.toFixed(3) + " km",
+          maxAllowed: maxDeliveryDistance + " km",
+          isInZone: true,
+          userCoords: { lat: data.latitude, lon: data.longitude },
+          chefCoords: { lat: chefLat, lon: chefLon },
+          timestamp: new Date().toLocaleTimeString(),
+        });
+        
         // Update Context to SHOW menu (this triggers Home.tsx to load categories!)
         setDeliveryLocation({
           isInZone: true,
@@ -2562,6 +2584,15 @@ export default function CheckoutDialog({
   ) => {
     const distance = calculateDistance(chefLat, chefLon, customerLat, customerLon);
 
+    console.log("[CALC-FEE-INPUT] 📍 Coordinates received in calculateDynamicDeliveryFee:", {
+      customerLat: customerLat.toFixed(5),
+      customerLon: customerLon.toFixed(5),
+      chefLat: chefLat.toFixed(5),
+      chefLon: chefLon.toFixed(5),
+      calculatedDistance: distance.toFixed(5) + " km",
+      timestamp: new Date().toLocaleTimeString(),
+    });
+
     // Get delivery settings and admin multiplier from cart store
     const state = useCart.getState();
     const settings = state.deliverySettings;
@@ -2594,12 +2625,17 @@ export default function CheckoutDialog({
     setIsBelowDeliveryMinimum(isBelowMin);
     setMinOrderAmount(requiredAmount);
 
-    console.log("[DELIVERY-FEE] Calculated using Admin Settings:", {
+    console.log("[DELIVERY-FEE] 💰 Calculated using Admin Settings:", {
+      customerCoords: { lat: customerLat, lon: customerLon },
+      chefCoords: { lat: chefLat, lon: chefLon },
       rawDistance: distance.toFixed(5) + " km", // Show full precision
       displayDistance: Math.max(distance, 0.5).toFixed(1) + " km (Because UI shows min 0.5km)",
-      deliveryFee,
+      deliveryFee: "₹" + deliveryFee,
       freeDeliveryEligible,
-      minOrderAmount
+      minOrderAmount: "₹" + minOrderAmount,
+      subtotal: "₹" + subtotal,
+      multiplier: multiplier + "x",
+      timestamp: new Date().toLocaleTimeString(),
     });
 
     return deliveryFee;
@@ -3033,6 +3069,38 @@ export default function CheckoutDialog({
         // ✅ FIX 4: Reset wallet state to prevent reusing same balance in next order
         setUseWalletBalance(false);
         setWalletAmountToUse(0);
+
+        // ✅ ARCHITECTURE: Save final accurate coordinates to user profile
+        // Purpose: Future visits can reuse these trusted DB coordinates
+        // Skip geocoding on next checkout if address hasn't changed
+        if (isAuthenticated && customerLatitude !== null && customerLongitude !== null) {
+          try {
+            console.log("[CHECKOUT] 💾 Saving final accurate coordinates to user profile:", {
+              address,
+              latitude: customerLatitude,
+              longitude: customerLongitude,
+              reason: "Final checkout delivery coordinates - reusable for future visits"
+            });
+            
+            await api.put("/api/user/profile", {
+              latitude: customerLatitude,
+              longitude: customerLongitude,
+              address,
+              defaultDeliveryAddress: {
+                building: addressBuilding,
+                street: addressStreet,
+                area: addressArea,
+                city: addressCity,
+                pincode: addressPincode
+              }
+            }).catch((err) => {
+              // Non-blocking error - order still succeeds
+              console.warn("[CHECKOUT] Failed to save coordinates (non-blocking):", err.message);
+            });
+          } catch (err) {
+            console.warn("[CHECKOUT] Coordinate save error (non-blocking):", err);
+          }
+        }
 
         // ✅ Now show payment QR with order created
         onShowPaymentQR({

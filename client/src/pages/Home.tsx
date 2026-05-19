@@ -16,6 +16,7 @@ import LoginDialog from "@/components/LoginDialog";
 import Footer from "@/components/Footer";
 import PromotionalBannersSection from "@/components/PromotionalBannersSection";
 import ActiveOrderBanner from "@/components/ActiveOrderBanner";
+import { StreetRefinementSheet, getStoredStreetRefinement, saveStreetRefinement } from "@/components/StreetRefinementSheet";
 
 import { DeliveryAddressSelector } from "@/components/DeliveryAddressSelector";
 import { getImageUrl, handleImageError } from "@/lib/imageUrl";
@@ -161,6 +162,10 @@ export default function Home() {
   const [mobileNavTab, setMobileNavTab] = useState<string>("delivery");
   const [vegOnly, setVegOnly] = useState(false);
 
+  // ── Street Refinement Sheet ────────────────────────────────────────────────
+  const [showStreetSheet, setShowStreetSheet] = useState(false);
+  const [streetRefinementDone, setStreetRefinementDone] = useState(false);
+
   // ── Resume pending checkout ────────────────────────────────────────────────
   const [pendingCheckout, setPendingCheckout] = useState<any>(null);
   const [resumePaymentData, setResumePaymentData] = useState<any>(null);
@@ -287,7 +292,47 @@ export default function Home() {
     detectLocationAndZone();
   }, [setUserLocation, deliveryLocation, deliveryLocation.pincode, deliveryLocation.latitude, deliveryLocation.longitude]); // Added specific properties for Safari compatibility
 
+  // ── Show Street Refinement Sheet after pincode validation ─────────────────
+  useEffect(() => {
+    if (!userInDeliveryZone || !deliveryLocation.pincode) return;
 
+    try {
+      const stored = getStoredStreetRefinement();
+      if (stored && stored.pincode === deliveryLocation.pincode) {
+        // Already refined or skipped for this pincode — don't show again
+        setStreetRefinementDone(true);
+        return;
+      }
+    } catch { /* ignore */ }
+
+    // Delay slightly so the homepage renders first (chefs load behind the sheet)
+    const t = setTimeout(() => setShowStreetSheet(true), 900);
+    return () => clearTimeout(t);
+  }, [userInDeliveryZone, deliveryLocation.pincode]);
+
+  const handleStreetRefinementConfirm = (street: string) => {
+    const area = (deliveryLocation as any).address || (deliveryLocation as any).areaName || "";
+    saveStreetRefinement({
+      pincode: deliveryLocation.pincode || "",
+      area,
+      street,
+      skipped: false,
+    });
+    setShowStreetSheet(false);
+    setStreetRefinementDone(true);
+  };
+
+  const handleStreetRefinementSkip = () => {
+    const area = (deliveryLocation as any).address || (deliveryLocation as any).areaName || "";
+    saveStreetRefinement({
+      pincode: deliveryLocation.pincode || "",
+      area,
+      street: "",
+      skipped: true,
+    });
+    setShowStreetSheet(false);
+    setStreetRefinementDone(true);
+  };
 
   const handleCategoryTabChange = (value: string) => {
     setSelectedCategoryTab(value);
@@ -681,6 +726,19 @@ export default function Home() {
     });
     const highlightDish = sortedProducts.length > 0 ? sortedProducts[0].name : "";
 
+    // Pre-compute distance for distance-based sorting (avoid repeated haversine in sort)
+    let computedDistance: number | null = null;
+    if (userLatitude && userLongitude && chef.latitude && chef.longitude) {
+      const R = 6371;
+      const toRad = (d: number) => (d * Math.PI) / 180;
+      const dLat = toRad(chef.latitude - userLatitude);
+      const dLon = toRad(chef.longitude - userLongitude);
+      const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(toRad(userLatitude)) * Math.cos(toRad(chef.latitude)) * Math.sin(dLon / 2) ** 2;
+      computedDistance = Math.round(R * 2 * Math.asin(Math.sqrt(a)) * 10) / 10;
+    }
+
     return {
       ...chef,
       bestOfferPercentage: bestOffer,
@@ -689,6 +747,7 @@ export default function Home() {
       lowestPrice,
       highlightDish,
       productCount: chefProducts.length,
+      computedDistance,
     };
   });
 
@@ -757,7 +816,18 @@ export default function Home() {
 
     return true;
   }).sort((a, b) => {
-    // ✅ SORTING: By displayOrder first, then by availability
+    // ✅ SORTING: Distance-first after street refinement, then by displayOrder, then availability
+
+    // 0. Sort nearest chefs first whenever we have coordinates (pincode or street-refined)
+    if (userLatitude && userLongitude) {
+      const distA = (a as any).distanceFromUser ?? (a as any).computedDistance ?? 999;
+      const distB = (b as any).distanceFromUser ?? (b as any).computedDistance ?? 999;
+      // Apply distance sort when both chefs have valid distance data and differ by >0.3 km
+      if (distA !== 999 && distB !== 999 && Math.abs(distA - distB) > 0.3) {
+        return distA - distB; // Nearest first
+      }
+    }
+
     // 1. Sort by category displayOrder (lower value = higher priority)
     const categoryA = categories.find(c => c.id === a.categoryId);
     const categoryB = categories.find(c => c.id === b.categoryId);
@@ -765,7 +835,7 @@ export default function Home() {
     const orderB = categoryB?.displayOrder ?? 999;
 
     if (orderA !== orderB) {
-      return orderA - orderB; // Categories with lower displayOrder come first
+      return orderA - orderB;
     }
 
     // 2. Within same category, sort by availability (available chefs first)
@@ -773,10 +843,10 @@ export default function Home() {
     const isActiveB = chefStatuses[b.id] !== undefined ? chefStatuses[b.id] : (b.isActive !== false);
 
     if (isActiveA !== isActiveB) {
-      return isActiveA ? -1 : 1; // Available chefs come first (true = -1, false = 1)
+      return isActiveA ? -1 : 1;
     }
 
-    return 0; // Maintain original order if both conditions are equal
+    return 0;
   });
 
   // Filter products when showing "all" categories
@@ -974,6 +1044,15 @@ export default function Home() {
           </div>
         )}
         <Hero />
+
+        {/* Street Refinement Bottom Sheet — appears once after pincode validation */}
+        <StreetRefinementSheet
+          isOpen={showStreetSheet}
+          areaName={(deliveryLocation as any).address || (deliveryLocation as any).areaName || ""}
+          pincode={deliveryLocation.pincode || ""}
+          onConfirm={handleStreetRefinementConfirm}
+          onSkip={handleStreetRefinementSkip}
+        />
 
         {/* 🎁 Referral Bonus Banner */}
         <ReferralBonusBanner />
@@ -1260,22 +1339,13 @@ export default function Home() {
                     </Button>
                   </div>
                 ) : (
-                  filteredChefs.map(chef => {
+                  filteredChefs.map((chef, chefIdx) => {
                     const realtimeStatus = chefStatuses[chef.id];
                     const isChefActive = realtimeStatus !== undefined ? realtimeStatus : (chef.isActive !== false);
-                    let distance: number | null = null;
-
-                    if (userLatitude && userLongitude && chef.latitude && chef.longitude) {
-                      const R = 6371;
-                      const toRad = (deg: number) => deg * (Math.PI / 180);
-                      const dLat = toRad(chef.latitude - userLatitude);
-                      const dLon = toRad(chef.longitude - userLongitude);
-                      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                        Math.cos(toRad(userLatitude)) * Math.cos(toRad(chef.latitude)) *
-                        Math.sin(dLon / 2) * Math.sin(dLon / 2);
-                      const c = 2 * Math.asin(Math.sqrt(a));
-                      distance = Math.round(R * c * 10) / 10;
-                    }
+                    // Reuse pre-computed distance from chefsWithOffers map — no re-computation
+                    const distance: number | null = (chef as any).computedDistance ?? null;
+                    // Show "Nearest to you" badge only on the first active chef when we have coordinates
+                    const isNearestChef = chefIdx === 0 && !!userLatitude && !!userLongitude && distance !== null && isChefActive;
 
                     return (
                       <Card
@@ -1356,6 +1426,13 @@ export default function Home() {
                           )}
                         </div>
                         <div className="p-3">
+                          {/* Subtle nearest-chef recommendation badge */}
+                          {isNearestChef && (
+                            <div className="flex items-center gap-1 mb-1.5 text-[11px] font-medium text-amber-700 dark:text-amber-400" data-testid={`badge-nearest-chef-${chef.id}`}>
+                              <Zap className="h-3 w-3" />
+                              Nearest to you
+                            </div>
+                          )}
                           <div className="flex items-center gap-2 flex-wrap">
                             <h3 className="font-bold text-base line-clamp-1" data-testid={`text-partner-name-${chef.id}`}>
                               {chef.name}
@@ -1419,7 +1496,7 @@ export default function Home() {
                   ))
                 ) : (
                   filteredChefs
-                    .map(chef => {
+                    .map((chef, chefIdx) => {
                       let distance: number | null = null;
                       let deliveryFee: number | null = null;
                       const isChefActive = chef.isActive !== false;
@@ -1442,20 +1519,18 @@ export default function Home() {
                           const c = 2 * Math.asin(Math.sqrt(a));
                           const calculatedDistance = R * c;
                           if (calculatedDistance < 100) {
-                            // 🛣️ Apply road distance adjustment for display consistency with checkout
-                            // This uses the same multiplier (1.5x) as delivery fee calculation
                             const adjustedDistance = getRoadAdjustedDistance(calculatedDistance);
                             distance = parseFloat(adjustedDistance.toFixed(1));
-
-                            // Calculate delivery fee: using adjusted distance for consistency
                             const feePerKm = 5;
                             deliveryFee = Math.ceil(distance * feePerKm);
                           }
                         }
                       } else {
-                        // No location: show default delivery fee (₹20)
                         deliveryFee = 20;
                       }
+
+                      // Nearest badge: first active chef in the sorted list when coordinates exist
+                      const isNearestChef = chefIdx === 0 && !!userLatitude && !!userLongitude && distance !== null && isChefActive;
 
                       return (
                         <Card
@@ -1512,6 +1587,13 @@ export default function Home() {
                           </div>
 
                           <div className="p-3 sm:p-4">
+                            {/* Subtle nearest-chef recommendation badge */}
+                            {isNearestChef && (
+                              <div className="flex items-center gap-1 mb-1.5 text-[11px] font-medium text-amber-700 dark:text-amber-400" data-testid={`badge-nearest-chef-cat-${chef.id}`}>
+                                <Zap className="h-3 w-3" />
+                                Nearest to you
+                              </div>
+                            )}
                             <div className="flex items-start justify-between gap-2">
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 flex-wrap">

@@ -55,13 +55,22 @@ export default function OrderSummaryCard({
   if (!cart || !cart.items || cart.items.length === 0) return null;
 
   const itemCount = cart.items.reduce((sum, item) => sum + item.quantity, 0);
-  const resolvedDistance =
-    typeof deliveryDistance === "number"
-      ? deliveryDistance
-      : typeof cart.distance === "number"
-        ? cart.distance
-        : null;
+  // ✅ FIX: Prioritize deliveryDistance (from checkout address validation)
+  // Only fall back to cart.distance if deliveryDistance is not available
+  const resolvedDistance = deliveryDistance !== null ? deliveryDistance : (cart.distance ?? null);
   const distance = resolvedDistance !== null ? `${resolvedDistance.toFixed(2)} km` : "Distance unavailable";
+  
+  // 📊 LOG: Display what distance and fee we received
+  console.log("[ORDER-SUMMARY] Distance & Fee Display:", {
+    deliveryDistance,
+    cartDistance: cart.distance,
+    resolvedDistance,
+    deliveryFee,
+    cartDeliveryFee: cart.deliveryFee,
+    displayDistance: distance,
+    isBelowMinimum: isBelowDeliveryMinimum,
+    timestamp: new Date().toLocaleTimeString(),
+  });
 
   return (
     <Card className="w-full bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">
@@ -81,10 +90,10 @@ export default function OrderSummaryCard({
           {isExpanded ? <ChevronUp /> : <ChevronDown />}
         </div>
 
-        {/* <div className="flex gap-3 mt-2 text-xs text-slate-600">
+        <div className="flex gap-3 mt-2 text-xs text-slate-600">
           <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5" /> {distance}</span>
           <span className="flex items-center gap-1"><Star className="w-3.5 h-3.5 text-yellow-400" /> 4.8</span>
-        </div> */}
+        </div>
       </div>
 
       {/* ITEMS */}
