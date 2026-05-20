@@ -427,8 +427,8 @@ export default function CheckoutDialog({
       // Pre-fill all fields from stored validation
       setAddressPincode(storedPincode.pincode);
       setAddressArea(storedPincode.area);
-      setCustomerLatitude(storedPincode.latitude);
-      setCustomerLongitude(storedPincode.longitude);
+      // setCustomerLatitude(storedPincode.latitude);
+      // setCustomerLongitude(storedPincode.longitude);
 
       // ✅ FIX: Only set validated if ALL required fields will be present
       // Note: This will be validated on next check when other fields are filled
