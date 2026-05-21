@@ -175,21 +175,18 @@ export default function AdminOrders() {
     };
   }, []);
 
-  // Listen for reconnects / foregrounding to refetch orders
+  // Refetch orders only on genuine network recovery — not tab focus.
+  // WebSocket already delivers live order events; visibilitychange was redundant.
   useEffect(() => {
-    const handleReactivate = () => {
-      if (document.visibilityState === "visible" && navigator.onLine) {
-        console.log("🔄 Admin Orders: App returned online/foreground, refetching missed orders...");
-        queryClient.invalidateQueries({ queryKey: ["/api/admin", "orders"] });
-      }
+    const handleOnline = () => {
+      console.log("🔄 Admin Orders: Network restored, refetching missed orders...");
+      queryClient.invalidateQueries({ queryKey: ["/api/admin", "orders"] });
     };
 
-    document.addEventListener("visibilitychange", handleReactivate);
-    window.addEventListener("online", handleReactivate);
+    window.addEventListener("online", handleOnline);
 
     return () => {
-      document.removeEventListener("visibilitychange", handleReactivate);
-      window.removeEventListener("online", handleReactivate);
+      window.removeEventListener("online", handleOnline);
     };
   }, []);
 

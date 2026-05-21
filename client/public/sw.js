@@ -236,7 +236,7 @@ async function syncOrders() {
 
 // ✅ Handle incoming push notifications
 self.addEventListener('push', event => {
-  console.log('📬 Push notification received');
+  console.log('📬 Push notification received from server');
   
   try {
     let notificationData = {
@@ -251,11 +251,18 @@ self.addEventListener('push', event => {
     if (event.data) {
       try {
         const data = event.data.json();
+        console.log('📬 Push data (JSON):', data);
         notificationData = { ...notificationData, ...data };
       } catch (e) {
-        notificationData.body = event.data.text();
+        const textData = event.data.text();
+        console.log('📬 Push data (text):', textData);
+        notificationData.body = textData;
       }
+    } else {
+      console.warn('📬 Push event received but no data payload');
     }
+
+    console.log('📬 Displaying notification with:', notificationData);
 
     event.waitUntil(
       self.registration.showNotification(notificationData.title, {
@@ -265,34 +272,54 @@ self.addEventListener('push', event => {
         tag: notificationData.tag,
         requireInteraction: notificationData.requireInteraction,
         data: notificationData.data || {},
+        // ✅ IMPORTANT: These options help notifications show reliably
+        actions: [],
+        silent: false, // Allow system sound/vibration
       })
+        .then(() => {
+          console.log('✅ Notification displayed successfully');
+        })
+        .catch((err) => {
+          console.error('❌ Failed to display notification:', err);
+        })
     );
   } catch (error) {
-    console.error('Error handling push notification:', error);
+    console.error('❌ Error handling push notification:', error);
+    // Fallback: Show basic notification
     event.waitUntil(
       self.registration.showNotification('RotiHai', {
         body: 'New notification received',
         icon: '/icon-192.png',
+        badge: '/icon-96x96.png',
       })
+        .catch((err) => {
+          console.error('❌ Fallback notification also failed:', err);
+        })
     );
   }
 });
 
-// ✅ Handle notification clicks
+// ✅ Handle notification clicks — route to correct page based on notification data
 self.addEventListener('notificationclick', event => {
   console.log('🖱️ Notification clicked');
   event.notification.close();
 
+  const targetUrl = (event.notification.data && event.notification.data.url)
+    ? event.notification.data.url
+    : '/';
+
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
+      // Try to focus an existing window at the target URL
       for (let i = 0; i < clientList.length; i++) {
         const client = clientList[i];
-        if (client.url === '/' && 'focus' in client) {
+        if (client.url.includes(targetUrl) && 'focus' in client) {
           return client.focus();
         }
       }
+      // Open new window to target URL
       if (clients.openWindow) {
-        return clients.openWindow('/');
+        return clients.openWindow(targetUrl);
       }
     })
   );

@@ -5,12 +5,22 @@ import api from "@/lib/apiClient";
 export function useAdminAuth() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [admin, setAdmin] = useState<any | null>(null);
   const [, setLocation] = useLocation();
 
   useEffect(() => {
     const checkAuth = () => {
       const token = localStorage.getItem("adminToken");
       setIsAuthenticated(!!token);
+
+      // Load admin user object (if any) from localStorage
+      try {
+        const adminJson = localStorage.getItem("adminUser");
+        setAdmin(adminJson ? JSON.parse(adminJson) : null);
+      } catch (e) {
+        setAdmin(null);
+      }
+
       setIsLoading(false);
     };
 
@@ -28,6 +38,10 @@ export function useAdminAuth() {
       }
     };
 
+    // Only start the refresh interval if a token actually exists
+    const token = localStorage.getItem("adminToken");
+    if (!token) return;
+
     const tokenRefreshInterval = setInterval(refreshToken, 10 * 60 * 1000);
 
     return () => clearInterval(tokenRefreshInterval);
@@ -35,13 +49,16 @@ export function useAdminAuth() {
 
   const logout = () => {
     localStorage.removeItem("adminToken");
+    localStorage.removeItem("adminUser");
     setIsAuthenticated(false);
+    setAdmin(null);
     setLocation("/admin/login");
   };
 
   return {
     isAuthenticated,
     isLoading,
+    admin,
     logout,
   };
 }

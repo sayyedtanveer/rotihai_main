@@ -592,14 +592,50 @@ export function startCronJobs(): void {
   // Run all tasks initially
   runScheduledTasks();
   
-  // Run payment verification frequently (every 60 seconds)
-  let paymentPollingInterval = setInterval(async () => {
-    try {
-      await verifyPendingGPayPayments();
-    } catch (error) {
-      console.error("[GPAY-POLLING] Interval error:", error);
-    }
-  }, 60 * 1000); // 60 seconds
+  // Adaptive GPay polling: 60s when orders are pending, 5 min when idle
+  const GPAY_ACTIVE_INTERVAL = 60 * 1000;       // 60 seconds
+  const GPAY_IDLE_INTERVAL   = 5 * 60 * 1000;   // 5 minutes
+  let consecutiveEmptyRuns = 0;
+
+  let paymentPollingTimeout: ReturnType<typeof setTimeout>;
+
+  const scheduleNextGPayPoll = (delay: number) => {
+    paymentPollingTimeout = setTimeout(async () => {
+      try {
+        const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
+        const { db } = await import("../shared/db");
+        const { orders: ordersTable } = await import("../shared/schema");
+        const { and, eq, gte, isNull } = await import("drizzle-orm");
+        const pending = await db
+          .select({ id: ordersTable.id })
+          .from(ordersTable)
+          .where(
+            and(
+              eq(ordersTable.paymentStatus, "pending"),
+              eq(ordersTable.paymentSource, "google-pay"),
+              gte(ordersTable.createdAt, fifteenMinutesAgo),
+              isNull(ordersTable.paymentVerifiedBy)
+            )
+          )
+          .limit(1);
+
+        if (pending.length > 0) {
+          consecutiveEmptyRuns = 0;
+          await verifyPendingGPayPayments();
+          scheduleNextGPayPoll(GPAY_ACTIVE_INTERVAL);
+        } else {
+          consecutiveEmptyRuns++;
+          console.log(`[GPAY-POLLING] No pending orders — next check in 5 min (idle run #${consecutiveEmptyRuns})`);
+          scheduleNextGPayPoll(GPAY_IDLE_INTERVAL);
+        }
+      } catch (error) {
+        console.error("[GPAY-POLLING] Interval error:", error);
+        scheduleNextGPayPoll(GPAY_ACTIVE_INTERVAL); // retry at normal rate on error
+      }
+    }, delay);
+  };
+
+  scheduleNextGPayPoll(GPAY_ACTIVE_INTERVAL); // first run after 60s
   
   // Run subscription tasks every 5 minutes
   let subscriptionInterval = setInterval(() => {
@@ -628,7 +664,7 @@ export function startCronJobs(): void {
   
   // Cleanup on process exit
   process.on('exit', () => {
-    clearInterval(paymentPollingInterval);
-    clearInterval(subscriptionInterval);
-  });
+  clearTimeout(paymentPollingTimeout);
+  clearInterval(subscriptionInterval);
+});
 }

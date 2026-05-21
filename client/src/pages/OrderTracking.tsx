@@ -65,7 +65,7 @@ export default function OrderTracking() {
       return response.json();
     },
     enabled: !!orderId,
-    refetchInterval: 5000,
+    refetchInterval: 20000, // reduced from 5s — WebSocket handles real-time; this is a safety-net fallback
   });
 
   // Cast to any to access all properties (including extended ones from backend)

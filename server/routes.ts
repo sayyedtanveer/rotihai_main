@@ -6509,6 +6509,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       });
 
+      // Debug route (DEV ONLY) - expose whether VAPID env vars are available
+      app.get("/api/debug/vapid", async (req, res) => {
+        if (process.env.NODE_ENV === "production") {
+          return res.status(404).json({ message: "Not found" });
+        }
+
+        try {
+          const publicKey = process.env.VAPID_PUBLIC_KEY || null;
+          const privateKey = process.env.VAPID_PRIVATE_KEY || null;
+          res.json({
+            vapidPublicKeyExists: !!publicKey,
+            vapidPrivateKeyExists: !!privateKey,
+            vapidPublicKeySample: publicKey ? publicKey.slice(0, 10) + "..." : null,
+          });
+        } catch (err: any) {
+          res.status(500).json({ message: "error", error: err.message });
+        }
+      });
+
       // Register for push notifications
       app.post("/api/push/subscribe", async (req, res) => {
         try {

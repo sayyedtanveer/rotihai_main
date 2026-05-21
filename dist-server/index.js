@@ -4815,6 +4815,153 @@ var init_partnerAuth = __esm({
   }
 });
 
+// server/pushService.ts
+var pushService_exports = {};
+__export(pushService_exports, {
+  getVapidPublicKey: () => getVapidPublicKey,
+  isPushConfigured: () => isPushConfigured,
+  sendPushToAllAdmins: () => sendPushToAllAdmins,
+  sendPushToUser: () => sendPushToUser
+});
+import { eq as eq2, and as and2 } from "drizzle-orm";
+async function sendPushToUser(userId, userType, notification) {
+  try {
+    if (!webpush || !vapidPublicKey || !vapidPrivateKey) {
+      console.log("\u26A0\uFE0F Push notifications not configured, skipping send");
+      return { success: false, reason: "VAPID keys not configured" };
+    }
+    const subscriptions4 = await db.select().from(pushSubscriptions).where(
+      and2(
+        eq2(pushSubscriptions.userId, userId),
+        eq2(pushSubscriptions.userType, userType),
+        eq2(pushSubscriptions.isActive, true)
+      )
+    );
+    if (subscriptions4.length === 0) {
+      console.log(`\u2139\uFE0F No push subscriptions found for ${userType} ${userId}`);
+      return { success: true, sentCount: 0, reason: "No subscriptions" };
+    }
+    let sentCount = 0;
+    let failedCount = 0;
+    for (const sub of subscriptions4) {
+      try {
+        const subscription = sub.subscription;
+        const payloadJson = JSON.stringify({
+          title: notification.title,
+          body: notification.body,
+          icon: notification.icon || "/icon-192.png",
+          badge: notification.badge || "/icon-96x96.png",
+          tag: notification.tag || "notification",
+          data: notification.data || {},
+          timestamp: (/* @__PURE__ */ new Date()).toISOString()
+        });
+        await webpush.sendNotification(subscription, payloadJson);
+        sentCount++;
+        console.log(`\u2705 Push sent to ${userType} ${userId}`);
+      } catch (error) {
+        failedCount++;
+        if (error.statusCode === 410) {
+          await db.update(pushSubscriptions).set({ isActive: false }).where(eq2(pushSubscriptions.id, sub.id));
+          console.log(`\u{1F5D1}\uFE0F Removed invalid subscription for ${userType} ${userId}`);
+        } else {
+          console.error(
+            `\u26A0\uFE0F Failed to send push to ${userType} ${userId}:`,
+            error.message
+          );
+        }
+      }
+    }
+    return {
+      success: sentCount > 0,
+      sentCount,
+      failedCount,
+      totalSubscriptions: subscriptions4.length
+    };
+  } catch (error) {
+    console.error("Error sending push notification:", error);
+    return { success: false, reason: error.message };
+  }
+}
+async function sendPushToAllAdmins(notification) {
+  try {
+    if (!webpush || !vapidPublicKey || !vapidPrivateKey) {
+      return { success: false, reason: "VAPID keys not configured" };
+    }
+    const subscriptions4 = await db.select().from(pushSubscriptions).where(
+      and2(
+        eq2(pushSubscriptions.userType, "admin"),
+        eq2(pushSubscriptions.isActive, true)
+      )
+    );
+    if (subscriptions4.length === 0) {
+      return { success: true, sentCount: 0, reason: "No admin subscriptions" };
+    }
+    let sentCount = 0;
+    for (const sub of subscriptions4) {
+      try {
+        const subscription = sub.subscription;
+        const payloadJson = JSON.stringify({
+          title: notification.title,
+          body: notification.body,
+          icon: notification.icon || "/icon-192.png",
+          badge: notification.badge || "/icon-96x96.png",
+          tag: notification.tag || "notification",
+          data: notification.data || {},
+          timestamp: (/* @__PURE__ */ new Date()).toISOString()
+        });
+        await webpush.sendNotification(subscription, payloadJson);
+        sentCount++;
+      } catch (error) {
+        if (error.statusCode === 410) {
+          await db.update(pushSubscriptions).set({ isActive: false }).where(eq2(pushSubscriptions.id, sub.id));
+        }
+      }
+    }
+    return { success: sentCount > 0, sentCount, totalSubscriptions: subscriptions4.length };
+  } catch (error) {
+    console.error("Error sending push to admins:", error);
+    return { success: false, reason: error.message };
+  }
+}
+function getVapidPublicKey() {
+  return vapidPublicKey;
+}
+function isPushConfigured() {
+  return vapidConfigured && !!webpush;
+}
+var webpush, vapidConfigured, vapidPublicKey, vapidPrivateKey;
+var init_pushService = __esm({
+  "server/pushService.ts"() {
+    "use strict";
+    init_db();
+    init_schema();
+    webpush = null;
+    vapidConfigured = false;
+    vapidPublicKey = "";
+    vapidPrivateKey = "";
+    (async () => {
+      try {
+        webpush = await import("web-push");
+      } catch (error) {
+        console.warn("\u26A0\uFE0F web-push module not installed. Push notifications disabled.");
+        return;
+      }
+      vapidPublicKey = process.env.VAPID_PUBLIC_KEY || "";
+      vapidPrivateKey = process.env.VAPID_PRIVATE_KEY || "";
+      const vapidEmail = process.env.VAPID_EMAIL || "admin@rotihai.com";
+      if (webpush && vapidPublicKey && vapidPrivateKey) {
+        webpush.setVapidDetails(vapidEmail, vapidPublicKey, vapidPrivateKey);
+        console.log("\u2705 Web Push configured with VAPID keys");
+        vapidConfigured = true;
+      } else if (!webpush) {
+        console.warn("\u26A0\uFE0F web-push package not installed. Install with: npm install web-push");
+      } else {
+        console.warn("\u26A0\uFE0F VAPID keys not configured in environment variables.");
+      }
+    })();
+  }
+});
+
 // server/websocket.ts
 var websocket_exports = {};
 __export(websocket_exports, {
@@ -5002,6 +5149,28 @@ function broadcastNewOrder(order) {
   if (order.chefId) {
     savePendingBroadcast(order.chefId, "chef", "new_order", { data: order });
   }
+  (async () => {
+    try {
+      const { sendPushToAllAdmins: sendPushToAllAdmins2, sendPushToUser: sendPushToUser2 } = await Promise.resolve().then(() => (init_pushService(), pushService_exports));
+      const orderRef = `#${order.id.slice(0, 8).toUpperCase()}`;
+      await sendPushToAllAdmins2({
+        title: "\u{1F6D2} New Order Received",
+        body: `Order ${orderRef} \u2014 \u20B9${order.total}`,
+        tag: `new-order-${order.id}`,
+        data: { url: "/admin/orders" }
+      });
+      if (order.chefId) {
+        await sendPushToUser2(String(order.chefId), "chef", {
+          title: "\u{1F37D}\uFE0F New Order Available",
+          body: `Order ${orderRef} \u2014 \u20B9${order.total}`,
+          tag: `chef-order-${order.id}`,
+          data: { url: "/partner" }
+        });
+      }
+    } catch (err) {
+      console.warn("\u26A0\uFE0F Push notification error in broadcastNewOrder:", err);
+    }
+  })();
 }
 function broadcastPaymentInitiated(chefId, orderId) {
   const message = JSON.stringify({
@@ -5286,6 +5455,22 @@ function broadcastOrderUpdate(order) {
   if (order.assignedTo) {
     savePendingBroadcast(order.assignedTo, "delivery", "order_update", { data: order });
   }
+  if (order.status === "out_for_delivery" && order.userId) {
+    (async () => {
+      try {
+        const { sendPushToUser: sendPushToUser2 } = await Promise.resolve().then(() => (init_pushService(), pushService_exports));
+        const orderRef = `#${order.id.slice(0, 8).toUpperCase()}`;
+        await sendPushToUser2(String(order.userId), "customer", {
+          title: "\u{1F6B4} Your Order is On the Way!",
+          body: `Order ${orderRef} is out for delivery`,
+          tag: `customer-delivery-${order.id}`,
+          data: { url: "/" }
+        });
+      } catch (err) {
+        console.warn("\u26A0\uFE0F Push notification error in broadcastOrderUpdate:", err);
+      }
+    })();
+  }
   console.log(`================================================
 `);
 }
@@ -5308,6 +5493,20 @@ function notifyDeliveryAssignment(order, deliveryPersonId) {
     data: order,
     message: order.status === "confirmed" ? `Order #${order.id.slice(0, 8)} has been confirmed and is ready for pickup` : `New order #${order.id.slice(0, 8)} has been assigned to you`
   });
+  (async () => {
+    try {
+      const { sendPushToUser: sendPushToUser2 } = await Promise.resolve().then(() => (init_pushService(), pushService_exports));
+      const orderRef = `#${order.id.slice(0, 8).toUpperCase()}`;
+      await sendPushToUser2(deliveryPersonId, "delivery", {
+        title: "\u{1F6B4} New Delivery Assigned",
+        body: `Order ${orderRef} is ready for pickup`,
+        tag: `delivery-${order.id}`,
+        data: { url: "/delivery" }
+      });
+    } catch (err) {
+      console.warn("\u26A0\uFE0F Push notification error in notifyDeliveryAssignment:", err);
+    }
+  })();
 }
 async function broadcastPreparedOrderToAvailableDelivery(order) {
   const notificationStage = order.status === "accepted_by_chef" ? "CHEF_ACCEPTED" : order.status === "prepared" ? "FOOD_READY" : "ORDER_UPDATE";
@@ -6558,7 +6757,7 @@ var init_whatsappService = __esm({
 });
 
 // server/services/gpayVerificationService.ts
-import { eq as eq5, desc as desc2 } from "drizzle-orm";
+import { eq as eq6, desc as desc2 } from "drizzle-orm";
 var GPayVerificationService, gpayVerificationService;
 var init_gpayVerificationService = __esm({
   "server/services/gpayVerificationService.ts"() {
@@ -6579,7 +6778,7 @@ var init_gpayVerificationService = __esm({
         try {
           console.log(`[GPAY-VERIFY] Starting verification for Order#${orderId}, Phone: ${expectedPhone}, Amount: \u20B9${expectedAmount}`);
           const order = await db.query.orders.findFirst({
-            where: eq5(orders.id, orderId)
+            where: eq6(orders.id, orderId)
           });
           if (!order) {
             console.warn(`[GPAY-VERIFY] \u274C Order not found: ${orderId}`);
@@ -6822,7 +7021,7 @@ var init_gpayVerificationService = __esm({
       async getLastVerificationLog(orderId) {
         try {
           const log3 = await db.query.paymentVerificationLog.findFirst({
-            where: eq5(paymentVerificationLog.orderId, orderId),
+            where: eq6(paymentVerificationLog.orderId, orderId),
             orderBy: desc2(paymentVerificationLog.checkedAt)
           });
           return log3;
@@ -6833,146 +7032,6 @@ var init_gpayVerificationService = __esm({
       }
     };
     gpayVerificationService = new GPayVerificationService();
-  }
-});
-
-// server/pushService.ts
-var pushService_exports = {};
-__export(pushService_exports, {
-  getVapidPublicKey: () => getVapidPublicKey,
-  isPushConfigured: () => isPushConfigured,
-  sendPushToAllAdmins: () => sendPushToAllAdmins,
-  sendPushToUser: () => sendPushToUser
-});
-import { eq as eq7, and as and4 } from "drizzle-orm";
-async function sendPushToUser(userId, userType, notification) {
-  try {
-    if (!webpush || !vapidPublicKey || !vapidPrivateKey) {
-      console.log("\u26A0\uFE0F Push notifications not configured, skipping send");
-      return { success: false, reason: "VAPID keys not configured" };
-    }
-    const subscriptions4 = await db.select().from(pushSubscriptions).where(
-      and4(
-        eq7(pushSubscriptions.userId, userId),
-        eq7(pushSubscriptions.userType, userType),
-        eq7(pushSubscriptions.isActive, true)
-      )
-    );
-    if (subscriptions4.length === 0) {
-      console.log(`\u2139\uFE0F No push subscriptions found for ${userType} ${userId}`);
-      return { success: true, sentCount: 0, reason: "No subscriptions" };
-    }
-    let sentCount = 0;
-    let failedCount = 0;
-    for (const sub of subscriptions4) {
-      try {
-        const subscription = sub.subscription;
-        const payloadJson = JSON.stringify({
-          title: notification.title,
-          body: notification.body,
-          icon: notification.icon || "/icon-192.png",
-          badge: notification.badge || "/icon-96x96.png",
-          tag: notification.tag || "notification",
-          data: notification.data || {},
-          timestamp: (/* @__PURE__ */ new Date()).toISOString()
-        });
-        await webpush.sendNotification(subscription, payloadJson);
-        sentCount++;
-        console.log(`\u2705 Push sent to ${userType} ${userId}`);
-      } catch (error) {
-        failedCount++;
-        if (error.statusCode === 410) {
-          await db.update(pushSubscriptions).set({ isActive: false }).where(eq7(pushSubscriptions.id, sub.id));
-          console.log(`\u{1F5D1}\uFE0F Removed invalid subscription for ${userType} ${userId}`);
-        } else {
-          console.error(
-            `\u26A0\uFE0F Failed to send push to ${userType} ${userId}:`,
-            error.message
-          );
-        }
-      }
-    }
-    return {
-      success: sentCount > 0,
-      sentCount,
-      failedCount,
-      totalSubscriptions: subscriptions4.length
-    };
-  } catch (error) {
-    console.error("Error sending push notification:", error);
-    return { success: false, reason: error.message };
-  }
-}
-async function sendPushToAllAdmins(notification) {
-  try {
-    if (!webpush || !vapidPublicKey || !vapidPrivateKey) {
-      return { success: false, reason: "VAPID keys not configured" };
-    }
-    const subscriptions4 = await db.select().from(pushSubscriptions).where(
-      and4(
-        eq7(pushSubscriptions.userType, "admin"),
-        eq7(pushSubscriptions.isActive, true)
-      )
-    );
-    if (subscriptions4.length === 0) {
-      return { success: true, sentCount: 0, reason: "No admin subscriptions" };
-    }
-    let sentCount = 0;
-    for (const sub of subscriptions4) {
-      try {
-        const subscription = sub.subscription;
-        const payloadJson = JSON.stringify({
-          title: notification.title,
-          body: notification.body,
-          icon: notification.icon || "/icon-192.png",
-          badge: notification.badge || "/icon-96x96.png",
-          tag: notification.tag || "notification",
-          data: notification.data || {},
-          timestamp: (/* @__PURE__ */ new Date()).toISOString()
-        });
-        await webpush.sendNotification(subscription, payloadJson);
-        sentCount++;
-      } catch (error) {
-        if (error.statusCode === 410) {
-          await db.update(pushSubscriptions).set({ isActive: false }).where(eq7(pushSubscriptions.id, sub.id));
-        }
-      }
-    }
-    return { success: sentCount > 0, sentCount, totalSubscriptions: subscriptions4.length };
-  } catch (error) {
-    console.error("Error sending push to admins:", error);
-    return { success: false, reason: error.message };
-  }
-}
-function getVapidPublicKey() {
-  return vapidPublicKey;
-}
-function isPushConfigured() {
-  return !!(webpush && vapidPublicKey && vapidPrivateKey);
-}
-var webpush, vapidPublicKey, vapidPrivateKey, vapidEmail;
-var init_pushService = __esm({
-  "server/pushService.ts"() {
-    "use strict";
-    init_db();
-    init_schema();
-    webpush = null;
-    try {
-      webpush = __require("web-push");
-    } catch (error) {
-      console.warn("\u26A0\uFE0F web-push module not installed. Push notifications disabled.");
-    }
-    vapidPublicKey = process.env.VAPID_PUBLIC_KEY || "";
-    vapidPrivateKey = process.env.VAPID_PRIVATE_KEY || "";
-    vapidEmail = process.env.VAPID_EMAIL || "admin@rotihai.com";
-    if (webpush && vapidPublicKey && vapidPrivateKey) {
-      webpush.setVapidDetails(vapidEmail, vapidPublicKey, vapidPrivateKey);
-      console.log("\u2705 Web Push configured with VAPID keys");
-    } else if (!webpush) {
-      console.warn("\u26A0\uFE0F web-push package not installed. Install with: npm install web-push");
-    } else {
-      console.warn("\u26A0\uFE0F VAPID keys not configured in environment variables.");
-    }
   }
 });
 
@@ -7069,6 +7128,19 @@ var init_vite_config = __esm({
         hmr: {
           host: process.env.VITE_HMR_HOST || "localhost",
           port: 5173
+        },
+        // ✅ Proxy API requests to backend server
+        proxy: {
+          "/api": {
+            target: "http://localhost:5000",
+            changeOrigin: true,
+            rewrite: (path3) => path3
+          },
+          "/ws": {
+            target: "ws://localhost:5000",
+            ws: true,
+            rewrite: (path3) => path3
+          }
         }
       }
     });
@@ -7662,13 +7734,41 @@ async function runScheduledTasks() {
 function startCronJobs() {
   console.log("\u{1F550} Starting scheduled jobs...");
   runScheduledTasks();
-  let paymentPollingInterval = setInterval(async () => {
-    try {
-      await verifyPendingGPayPayments();
-    } catch (error) {
-      console.error("[GPAY-POLLING] Interval error:", error);
-    }
-  }, 60 * 1e3);
+  const GPAY_ACTIVE_INTERVAL = 60 * 1e3;
+  const GPAY_IDLE_INTERVAL = 5 * 60 * 1e3;
+  let consecutiveEmptyRuns = 0;
+  let paymentPollingTimeout;
+  const scheduleNextGPayPoll = (delay) => {
+    paymentPollingTimeout = setTimeout(async () => {
+      try {
+        const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1e3);
+        const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+        const { orders: ordersTable } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+        const { and: and6, eq: eq10, gte: gte3, isNull: isNull3 } = await import("drizzle-orm");
+        const pending = await db2.select({ id: ordersTable.id }).from(ordersTable).where(
+          and6(
+            eq10(ordersTable.paymentStatus, "pending"),
+            eq10(ordersTable.paymentSource, "google-pay"),
+            gte3(ordersTable.createdAt, fifteenMinutesAgo),
+            isNull3(ordersTable.paymentVerifiedBy)
+          )
+        ).limit(1);
+        if (pending.length > 0) {
+          consecutiveEmptyRuns = 0;
+          await verifyPendingGPayPayments();
+          scheduleNextGPayPoll(GPAY_ACTIVE_INTERVAL);
+        } else {
+          consecutiveEmptyRuns++;
+          console.log(`[GPAY-POLLING] No pending orders \u2014 next check in 5 min (idle run #${consecutiveEmptyRuns})`);
+          scheduleNextGPayPoll(GPAY_IDLE_INTERVAL);
+        }
+      } catch (error) {
+        console.error("[GPAY-POLLING] Interval error:", error);
+        scheduleNextGPayPoll(GPAY_ACTIVE_INTERVAL);
+      }
+    }, delay);
+  };
+  scheduleNextGPayPoll(GPAY_ACTIVE_INTERVAL);
   let subscriptionInterval = setInterval(() => {
     try {
       (async () => {
@@ -7691,7 +7791,7 @@ function startCronJobs() {
   console.log("\u2705 Payment polling started (every 60 seconds)");
   console.log("\u2705 Subscription tasks started (every 5 minutes)");
   process.on("exit", () => {
-    clearInterval(paymentPollingInterval);
+    clearTimeout(paymentPollingTimeout);
     clearInterval(subscriptionInterval);
   });
 }
@@ -7777,7 +7877,7 @@ init_emailService();
 init_whatsappService();
 import jwt5 from "jsonwebtoken";
 import { fromZodError } from "zod-validation-error";
-import { eq as eq2 } from "drizzle-orm";
+import { eq as eq3 } from "drizzle-orm";
 function registerAdminRoutes(app2) {
   function isDeliveryDay3(date, frequency, deliveryDays) {
     if (!deliveryDays || deliveryDays.length === 0) return false;
@@ -8288,7 +8388,7 @@ function registerAdminRoutes(app2) {
           }
           console.log(`\u2705 New user created on admin payment confirmation: ${user.id} - Phone: ${order.phone}`);
           userCreated = true;
-          await db.update(orders2).set({ userId: user.id }).where(eq2(orders2.id, orderId));
+          await db.update(orders2).set({ userId: user.id }).where(eq3(orders2.id, orderId));
           order.userId = user.id;
           accessToken = generateAccessToken2(user);
           refreshToken = generateRefreshToken2(user);
@@ -8305,7 +8405,7 @@ function registerAdminRoutes(app2) {
           }
         } else {
           console.log(`\u{1F464} User already exists with phone ${order.phone}, linking to order`);
-          await db.update(orders2).set({ userId: user.id }).where(eq2(orders2.id, orderId));
+          await db.update(orders2).set({ userId: user.id }).where(eq3(orders2.id, orderId));
           order.userId = user.id;
           accessToken = generateAccessToken2(user);
           refreshToken = generateRefreshToken2(user);
@@ -9246,7 +9346,7 @@ Please prepare this order.`;
       const { id } = req.params;
       console.log("Admin verifying subscription payment:", id);
       const subscription = await db.query.subscriptions.findFirst({
-        where: eq2(subscriptions.id, id)
+        where: eq3(subscriptions.id, id)
       });
       if (!subscription) {
         console.error("Subscription not found for verification:", id);
@@ -9277,7 +9377,7 @@ Please prepare this order.`;
         chefId,
         chefAssignedAt,
         updatedAt: /* @__PURE__ */ new Date()
-      }).where(eq2(subscriptions.id, id));
+      }).where(eq3(subscriptions.id, id));
       console.log("Subscription payment verified successfully:", id);
       res.json({
         message: "Payment verified and subscription activated"
@@ -10961,7 +11061,7 @@ Please prepare this order.`;
           expiryDays: expiryDays || 0,
           isActive,
           updatedAt: /* @__PURE__ */ new Date()
-        }).where(eq2(referralRewards2.id, existingRewards.id)).returning();
+        }).where(eq3(referralRewards2.id, existingRewards.id)).returning();
         console.log("[ADMIN WALLET SETTINGS] Successfully updated referralRewards:", updatedRewards);
         res.json({ ...newWalletSettings, ...updatedRewards });
       } else {
@@ -11424,7 +11524,7 @@ Please prepare this order.`;
           enableRoadDistanceMultiplier: settings.enableRoadDistanceMultiplier === void 0 ? true : !!settings.enableRoadDistanceMultiplier,
           roadDistanceMultiplier: settings.roadDistanceMultiplier || "1.50",
           updatedAt: /* @__PURE__ */ new Date()
-        }).where(eq2(paymentSettings2.id, existing.id)).returning();
+        }).where(eq3(paymentSettings2.id, existing.id)).returning();
         result = updated[0];
         console.log("[PAYMENT-SETTINGS-WRITE] \u2705 UPDATE successful, result:", {
           id: result?.id,
@@ -11942,7 +12042,7 @@ init_storage();
 init_websocket();
 init_whatsappService();
 init_db();
-import { eq as eq3 } from "drizzle-orm";
+import { eq as eq4 } from "drizzle-orm";
 function registerPartnerRoutes(app2) {
   function isDeliveryDay3(date, frequency, deliveryDays) {
     if (!deliveryDays || deliveryDays.length === 0) return false;
@@ -12091,7 +12191,7 @@ function registerPartnerRoutes(app2) {
         status: "accepted_by_chef",
         approvedBy: partnerId,
         approvedAt: /* @__PURE__ */ new Date()
-      }).where(eq3(orders2.id, orderId)).returning();
+      }).where(eq4(orders2.id, orderId)).returning();
       if (updatedOrder) {
         console.log(`\u2705 Chef accepted order ${orderId}, status: ${updatedOrder.status} (auto-preparing)`);
         broadcastOrderUpdate(updatedOrder);
@@ -12588,7 +12688,7 @@ init_websocket();
 init_whatsappService();
 init_emailService();
 init_db();
-import { eq as eq4, and as and2, sql as sql4 } from "drizzle-orm";
+import { eq as eq5, and as and3, sql as sql4 } from "drizzle-orm";
 function registerDeliveryRoutes(app2) {
   function isDeliveryDay3(date, frequency, deliveryDays) {
     if (!deliveryDays || deliveryDays.length === 0) return false;
@@ -12870,7 +12970,7 @@ function registerDeliveryRoutes(app2) {
         await db.update(orders2).set({
           deliveryPersonName: deliveryPerson.name,
           deliveryPersonPhone: deliveryPerson.phone
-        }).where(eq4(orders2.id, orderId));
+        }).where(eq5(orders2.id, orderId));
       }
       const updatedOrder = await storage.updateOrderStatus(orderId, "accepted_by_delivery");
       if (updatedOrder) {
@@ -12915,8 +13015,8 @@ function registerDeliveryRoutes(app2) {
           assignedAt: null,
           deliveryPersonName: null,
           deliveryPersonPhone: null
-        }).where(eq4(orders2.id, orderId)).returning();
-        await tx.update(deliveryPersonnel2).set({ status: "available" }).where(eq4(deliveryPersonnel2.id, deliveryPersonId));
+        }).where(eq5(orders2.id, orderId)).returning();
+        await tx.update(deliveryPersonnel2).set({ status: "available" }).where(eq5(deliveryPersonnel2.id, deliveryPersonId));
         return updatedOrder;
       });
       if (!result) {
@@ -13319,10 +13419,10 @@ function registerDeliveryRoutes(app2) {
         limit,
         offset
       });
-      const countResult = await db.select({ count: sql4`count(*)::int` }).from(pendingBroadcasts2).where(and2(
-        eq4(pendingBroadcasts2.recipientId, String(deliveryPersonId)),
-        eq4(pendingBroadcasts2.recipientType, "delivery"),
-        eq4(pendingBroadcasts2.isDelivered, false)
+      const countResult = await db.select({ count: sql4`count(*)::int` }).from(pendingBroadcasts2).where(and3(
+        eq5(pendingBroadcasts2.recipientId, String(deliveryPersonId)),
+        eq5(pendingBroadcasts2.recipientType, "delivery"),
+        eq5(pendingBroadcasts2.isDelivered, false)
       ));
       const total = countResult[0]?.count || 0;
       const totalPages = Math.ceil(total / limit);
@@ -13371,7 +13471,7 @@ init_db();
 init_schema();
 init_gpayVerificationService();
 import { Router } from "express";
-import { eq as eq6 } from "drizzle-orm";
+import { eq as eq7 } from "drizzle-orm";
 var router = Router();
 router.post("/verify-gpay", async (req, res) => {
   try {
@@ -13393,7 +13493,7 @@ router.post("/verify-gpay", async (req, res) => {
         paymentStatus: "confirmed",
         paymentVerifiedBy: "manual-check",
         gpayTransactionId: result.transactionId
-      }).where(eq6(orders.id, orderId));
+      }).where(eq7(orders.id, orderId));
       console.log(`\u2705 [GPAY-API] Order#${orderId} manually verified`);
       return res.json({
         success: true,
@@ -13420,7 +13520,7 @@ router.get("/verification-status/:orderId", async (req, res) => {
   try {
     const { orderId } = req.params;
     const order = await db.query.orders.findFirst({
-      where: eq6(orders.id, orderId)
+      where: eq7(orders.id, orderId)
     });
     if (!order) {
       return res.status(404).json({
@@ -13515,7 +13615,7 @@ router.post("/retry-verification/:orderId", async (req, res) => {
   try {
     const { orderId } = req.params;
     const order = await db.query.orders.findFirst({
-      where: eq6(orders.id, orderId)
+      where: eq7(orders.id, orderId)
     });
     if (!order) {
       return res.status(404).json({
@@ -13539,7 +13639,7 @@ router.post("/retry-verification/:orderId", async (req, res) => {
         paymentStatus: "confirmed",
         paymentVerifiedBy: "manual-retry",
         gpayTransactionId: result.transactionId
-      }).where(eq6(orders.id, orderId));
+      }).where(eq7(orders.id, orderId));
       return res.json({
         success: true,
         message: "Payment verified on retry",
@@ -13548,7 +13648,7 @@ router.post("/retry-verification/:orderId", async (req, res) => {
     }
     await db.update(orders).set({
       verificationAttempts: (order.verificationAttempts || 0) + 1
-    }).where(eq6(orders.id, orderId));
+    }).where(eq7(orders.id, orderId));
     return res.status(400).json({
       success: false,
       message: `Verification failed: ${result.reason}`,
@@ -18517,6 +18617,22 @@ Please accept and start preparation.`;
         message: "Failed to fetch VAPID key",
         error: error.message
       });
+    }
+  });
+  app2.get("/api/debug/vapid", async (req, res) => {
+    if (process.env.NODE_ENV === "production") {
+      return res.status(404).json({ message: "Not found" });
+    }
+    try {
+      const publicKey = process.env.VAPID_PUBLIC_KEY || null;
+      const privateKey = process.env.VAPID_PRIVATE_KEY || null;
+      res.json({
+        vapidPublicKeyExists: !!publicKey,
+        vapidPrivateKeyExists: !!privateKey,
+        vapidPublicKeySample: publicKey ? publicKey.slice(0, 10) + "..." : null
+      });
+    } catch (err) {
+      res.status(500).json({ message: "error", error: err.message });
     }
   });
   app2.post("/api/push/subscribe", async (req, res) => {

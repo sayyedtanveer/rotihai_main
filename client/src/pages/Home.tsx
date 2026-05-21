@@ -17,7 +17,7 @@ import Footer from "@/components/Footer";
 import PromotionalBannersSection from "@/components/PromotionalBannersSection";
 import ActiveOrderBanner from "@/components/ActiveOrderBanner";
 import { StreetRefinementSheet, getStoredStreetRefinement, saveStreetRefinement } from "@/components/StreetRefinementSheet";
-
+import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { DeliveryAddressSelector } from "@/components/DeliveryAddressSelector";
 import { getImageUrl, handleImageError } from "@/lib/imageUrl";
 import { Button } from "@/components/ui/button";
@@ -181,6 +181,21 @@ export default function Home() {
     distance: number;
   } | null>(null);
   const { user } = useAuth();
+
+  const { registerPush: registerCustomerPush } = usePushNotifications(user?.id || null, "customer");
+
+  // Register push for "out for delivery" notifications once per login session
+  useEffect(() => {
+    if (!user?.id) return;
+    if (localStorage.getItem("push_registered_customer")) return;
+    const timer = setTimeout(async () => {
+      try {
+        await registerCustomerPush();
+        localStorage.setItem("push_registered_customer", "1");
+      } catch {}
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, [user?.id]);
 
   // 🎁 Extract pending referral bonus amount for display
   const pendingBonusAmount = user?.pendingBonus?.amount || 0;

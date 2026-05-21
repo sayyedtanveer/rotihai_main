@@ -5,6 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { DollarSign, ShoppingCart, Users, Clock, TrendingUp, Package, UserCog, Truck, ShoppingBag, CheckCircle, Eye } from "lucide-react";
 import { useEffect } from "react";
 import { queryClient } from "@/lib/queryClient";
+import { useAdminAuth } from "@/hooks/useAdminAuth";
+import { usePushNotifications } from "@/hooks/usePushNotifications";
 
 interface DashboardMetrics {
   userCount: number;
@@ -23,22 +25,41 @@ interface VisitorReport {
 }
 
 export default function AdminDashboard() {
-  // Listen for reconnects / foregrounding to refetch dashboard metrics
+  const { admin } = useAdminAuth();
+  
+  // Register push notifications for admin
+  const { registerPush: registerAdminPush } = usePushNotifications(admin?.id || null, "admin");
+
+  // Register push for admin notifications once per session
   useEffect(() => {
-    const handleReactivate = () => {
-      if (document.visibilityState === "visible" && navigator.onLine) {
-        console.log("🔄 Admin Dashboard: App returned online/foreground, refetching metrics...");
-        queryClient.invalidateQueries({ queryKey: ["/api/admin/dashboard/metrics"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/admin/reports/visitors"] });
+    if (!admin?.id) return;
+    if (sessionStorage.getItem("push_registered_admin")) return;
+    
+    const timer = setTimeout(async () => {
+      try {
+        await registerAdminPush();
+        sessionStorage.setItem("push_registered_admin", "1");
+      } catch (err) {
+        console.error("[PUSH] Admin push registration failed:", err);
       }
+    }, 1000);
+    
+    return () => clearTimeout(timer);
+  }, [admin?.id, registerAdminPush]);
+
+  // Refetch dashboard metrics only on genuine network recovery (not tab focus —
+  // WebSocket and React Query's own refetchOnWindowFocus handle that already)
+  useEffect(() => {
+    const handleOnline = () => {
+      console.log("🔄 Admin Dashboard: Network restored, refetching metrics...");
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/dashboard/metrics"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/reports/visitors"] });
     };
 
-    document.addEventListener("visibilitychange", handleReactivate);
-    window.addEventListener("online", handleReactivate);
+    window.addEventListener("online", handleOnline);
 
     return () => {
-      document.removeEventListener("visibilitychange", handleReactivate);
-      window.removeEventListener("online", handleReactivate);
+      window.removeEventListener("online", handleOnline);
     };
   }, []);
 

@@ -30,17 +30,51 @@ export function usePushNotifications(userId: string | null, userType: "admin" | 
     const isSupported =
       "serviceWorker" in navigator &&
       "PushManager" in window &&
-      "Notification" in window;
+      "Notification" in window &&
+      window.isSecureContext; // ✅ CRITICAL: Must be HTTPS (or localhost)
+
+    console.log("[PUSH] Support check:", {
+      serviceWorker: "serviceWorker" in navigator,
+      PushManager: "PushManager" in window,
+      Notification: "Notification" in window,
+      isSecureContext: window.isSecureContext,
+      isSupported,
+    });
 
     setState((prev) => ({ ...prev, isSupported }));
 
     if (!isSupported) {
-      console.log("ℹ️ Push notifications not supported in this browser");
+      console.warn("⚠️ Push notifications not supported:", {
+        reason: window.isSecureContext ? "Browser API missing" : "HTTPS required (or localhost)",
+        hostname: window.location.hostname,
+        protocol: window.location.protocol,
+      });
     }
   }, []);
 
+  // ✅ NEW: Auto-register push on user login (request permission upfront)
+  // This is similar to how YouTube, Gmail, and Facebook do it
+  useEffect(() => {
+    if (!state.isSupported) {
+      return;
+    }
+
+    // Only auto-register if userId is present (user is logged in)
+    if (!userId || !userType) {
+      console.log("[PUSH] ℹ️ Not auto-registering - missing userId or userType");
+      return;
+    }
+
+    console.log(`[PUSH] 🔄 Auto-registering push notifications for ${userType} ${userId}...`);
+    
+    // Attempt registration (deduplication handled by checking isSubscribed state)
+    if (!state.isSubscribed) {
+      registerPushInternal();
+    }
+  }, [state.isSupported, userId, userType]);
+
   // Register service worker and set up push
-  const registerPush = async () => {
+  const registerPushInternal = async () => {
     if (!state.isSupported || !userId || !userType) {
       console.log("⚠️ Push registration not possible - missing requirements");
       return;
@@ -49,23 +83,31 @@ export function usePushNotifications(userId: string | null, userType: "admin" | 
     setState((prev) => ({ ...prev, isLoading: true, error: null }));
 
     try {
-      // Request notification permission
-      if (Notification.permission === "denied") {
-        throw new Error("Notification permission has been denied");
-      }
-
+      // ✅ REQUEST PERMISSION FIRST (show to user)
+      // Don't check denied status - always ask
       let permission: NotificationPermission = Notification.permission;
+      
+      console.log("[PUSH] Current permission:", permission);
+
       if (permission === "default") {
+        console.log("[PUSH] Requesting notification permission from user...");
         permission = await Notification.requestPermission();
+        console.log("[PUSH] User responded with:", permission);
       }
 
       if (permission !== "granted") {
-        throw new Error("Notification permission not granted");
+        // User denied or dismissed - just log, don't show error toast
+        console.log("[PUSH] ℹ️ Notification permission not granted (user choice)");
+        setState((prev) => ({ ...prev, isLoading: false }));
+        return;
       }
+
+      console.log("[PUSH] ✅ Permission granted, proceeding with registration...");
 
       // Register service worker
       let swReg: ServiceWorkerRegistration;
       try {
+        console.log("[PUSH] Registering service worker from /sw.js");
         swReg = await navigator.serviceWorker.register("/sw.js", {
           scope: "/",
         });
@@ -73,21 +115,24 @@ export function usePushNotifications(userId: string | null, userType: "admin" | 
       } catch (error: any) {
         console.log("ℹ️ Service Worker registration:", error.message);
         // Service Worker might already be registered
-        const reg = await navigator.serviceWorker.getRegistration();
+        const reg = await navigator.serviceWorker.getRegistration("/");
         if (!reg) throw error;
         swReg = reg;
       }
 
       // Get VAPID public key from server
+      console.log("[PUSH] Fetching VAPID public key from server...");
       const vapidResponse = await fetch(getApiUrl("/api/push/vapid-public-key"));
       if (!vapidResponse.ok) {
-        throw new Error("Failed to fetch VAPID public key");
+        throw new Error(`Failed to fetch VAPID key: ${vapidResponse.status}`);
       }
 
       const { vapidPublicKey } = await vapidResponse.json();
       if (!vapidPublicKey) {
         throw new Error("VAPID public key not available - push not configured on server");
       }
+
+      console.log("[PUSH] ✅ VAPID key fetched");
 
       // Convert base64 key to Uint8Array
       const vapidKey = new Uint8Array(
@@ -97,8 +142,9 @@ export function usePushNotifications(userId: string | null, userType: "admin" | 
       );
 
       // Subscribe to push notifications
+      console.log("[PUSH] Subscribing to push notifications...");
       const subscription = await swReg.pushManager.subscribe({
-        userVisibleOnly: true,
+        userVisibleOnly: true, // ✅ CRITICAL: Notifications must be visible to user
         applicationServerKey: vapidKey,
       });
 
@@ -118,7 +164,7 @@ export function usePushNotifications(userId: string | null, userType: "admin" | 
       });
 
       if (!response.ok) {
-        throw new Error("Failed to register push subscription on server");
+        throw new Error(`Failed to register subscription: ${response.status}`);
       }
 
       console.log("✅ Push notification registered successfully");
@@ -130,13 +176,14 @@ export function usePushNotifications(userId: string | null, userType: "admin" | 
         isLoading: false,
       }));
 
-      toast({
-        title: "Push Notifications Enabled",
-        description: "You will receive notifications even when the browser is closed",
-        duration: 5000,
-      });
+      // Optional: Show subtle toast (not required)
+      // toast({
+      //   title: "Notifications Enabled",
+      //   description: "You'll receive updates in your notification center",
+      //   duration: 3000,
+      // });
     } catch (error: any) {
-      console.error("Push registration error:", error);
+      console.error("[PUSH] Registration error:", error);
       const errorMessage = error.message || "Failed to register push notifications";
 
       setState((prev) => ({
@@ -145,16 +192,21 @@ export function usePushNotifications(userId: string | null, userType: "admin" | 
         error: errorMessage,
       }));
 
-      // Only show toast if it's a real error (not just unsupported)
-      if (state.isSupported) {
+      // Only show error toast for real errors (not permission denied)
+      if (state.isSupported && !errorMessage.includes("permission")) {
         toast({
-          title: "Push Notification Error",
+          title: "Notification Setup Issue",
           description: errorMessage,
           variant: "destructive",
           duration: 5000,
         });
       }
     }
+  };
+
+  // Manual registration function (for manual button click)
+  const registerPush = async () => {
+    await registerPushInternal();
   };
 
   // Unsubscribe from push notifications

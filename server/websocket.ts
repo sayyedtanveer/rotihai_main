@@ -232,6 +232,30 @@ export function broadcastNewOrder(order: Order) {
   if (order.chefId) {
     savePendingBroadcast(order.chefId, "chef", "new_order", { data: order });
   }
+
+  // Push notifications for offline admins and chef (non-blocking, fail-safe)
+  (async () => {
+    try {
+      const { sendPushToAllAdmins, sendPushToUser } = await import("./pushService");
+      const orderRef = `#${order.id.slice(0, 8).toUpperCase()}`;
+      await sendPushToAllAdmins({
+        title: "🛒 New Order Received",
+        body: `Order ${orderRef} — ₹${order.total}`,
+        tag: `new-order-${order.id}`,
+        data: { url: "/admin/orders" },
+      });
+      if (order.chefId) {
+        await sendPushToUser(String(order.chefId), "chef", {
+          title: "🍽️ New Order Available",
+          body: `Order ${orderRef} — ₹${order.total}`,
+          tag: `chef-order-${order.id}`,
+          data: { url: "/partner" },
+        });
+      }
+    } catch (err) {
+      console.warn("⚠️ Push notification error in broadcastNewOrder:", err);
+    }
+  })();
 }
 
 export function broadcastPaymentInitiated(chefId: string, orderId: string) {
@@ -568,6 +592,24 @@ export function broadcastOrderUpdate(order: Order) {
     savePendingBroadcast(order.assignedTo, "delivery", "order_update", { data: order });
   }
 
+  // Push notification to customer when out for delivery (non-blocking, fail-safe)
+  if (order.status === "out_for_delivery" && order.userId) {
+    (async () => {
+      try {
+        const { sendPushToUser } = await import("./pushService");
+        const orderRef = `#${order.id.slice(0, 8).toUpperCase()}`;
+        await sendPushToUser(String(order.userId), "customer", {
+          title: "🚴 Your Order is On the Way!",
+          body: `Order ${orderRef} is out for delivery`,
+          tag: `customer-delivery-${order.id}`,
+          data: { url: "/" },
+        });
+      } catch (err) {
+        console.warn("⚠️ Push notification error in broadcastOrderUpdate:", err);
+      }
+    })();
+  }
+
   console.log(`================================================\n`);
 }
 
@@ -595,6 +637,22 @@ export function notifyDeliveryAssignment(order: Order, deliveryPersonId: string)
       ? `Order #${order.id.slice(0, 8)} has been confirmed and is ready for pickup`
       : `New order #${order.id.slice(0, 8)} has been assigned to you`
   });
+
+  // Push notification for delivery partner (non-blocking, fail-safe)
+  (async () => {
+    try {
+      const { sendPushToUser } = await import("./pushService");
+      const orderRef = `#${order.id.slice(0, 8).toUpperCase()}`;
+      await sendPushToUser(deliveryPersonId, "delivery", {
+        title: "🚴 New Delivery Assigned",
+        body: `Order ${orderRef} is ready for pickup`,
+        tag: `delivery-${order.id}`,
+        data: { url: "/delivery" },
+      });
+    } catch (err) {
+      console.warn("⚠️ Push notification error in notifyDeliveryAssignment:", err);
+    }
+  })();
 }
 
 export async function broadcastPreparedOrderToAvailableDelivery(order: any) {

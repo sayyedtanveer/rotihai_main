@@ -392,12 +392,12 @@ export function usePartnerNotifications() {
       connect();
       fetchPendingBroadcasts();
 
-      // Step 2: Invalidate all cached partner queries to force fresh fetch
+      // Step 2: Invalidate only the critical operational queries immediately.
+      // income-report, subscriptions, subscription-deliveries are non-urgent —
+      // fetchPendingBroadcasts() above will deliver missed WS events, and those
+      // queries will refresh naturally via stale-time when the partner navigates to them.
       queryClient.invalidateQueries({ queryKey: ["/api/partner/orders"] });
       queryClient.invalidateQueries({ queryKey: ["/api/partner/dashboard/metrics"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/partner/income-report"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/partner/subscriptions"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/partner/subscription-deliveries"] });
 
       // Step 3: Fetch orders placed while offline and generate missed notifications
       try {
