@@ -10,10 +10,12 @@ import { DeliveryLocationProvider } from "@/contexts/DeliveryLocationContext";
 import { GlobalLoadingSpinner } from "@/components/GlobalLoadingSpinner";
 import { startKeepAlive } from "@/lib/keepAlive";
 import { useAuth } from "@/hooks/useAuth";
+import { useAdminAuth } from "@/hooks/useAdminAuth";
 import { useOrderNotifications } from "@/hooks/useOrderNotifications";
 import { useVersionCheck } from "@/hooks/useVersionCheck";
 import { useToast } from "@/hooks/use-toast";
 import { useCart } from "@/hooks/use-cart";
+import { usePushNotifications } from "@/hooks/usePushNotifications";
 import Home from "@/pages/Home";
 import MyOrders from "@/pages/MyOrders";
 import MySubscriptions from "@/pages/MySubscriptions";
@@ -92,6 +94,7 @@ function ProtectedRoute({ component: Component }: { component: any }) {
 function Router() {
   const { user } = useAuth();
   const hasJwtToken = !!localStorage.getItem("userToken");
+  const { admin } = useAdminAuth();
 
   return (
     <Switch>
@@ -176,6 +179,39 @@ function NotificationsWrapper() {
   return null; // This component just sets up notifications, doesn't render anything
 }
 
+// 🔔 Push Notifications Wrapper - registers push for all user types (customer, admin, chef, delivery)
+function PushNotificationsWrapper() {
+  const { user } = useAuth();
+  const { admin } = useAdminAuth();
+  const { registerPush } = usePushNotifications(
+    user?.id || admin?.id || null,
+    user ? "customer" : admin ? "admin" : null
+  );
+
+  useEffect(() => {
+    if (!user?.id && !admin?.id) return;
+    
+    // Check if already registered in this session
+    const regKey = user?.id ? `push_reg_customer_${user.id}` : `push_reg_admin_${admin?.id}`;
+    if (sessionStorage.getItem(regKey)) return;
+    
+    // Auto-register on first load
+    const timer = setTimeout(async () => {
+      try {
+        await registerPush();
+        sessionStorage.setItem(regKey, "1");
+        console.log("[PUSH] Global push registration completed for", user ? "customer" : "admin");
+      } catch (err) {
+        console.error("[PUSH] Global push registration failed:", err);
+      }
+    }, 500);
+    
+    return () => clearTimeout(timer);
+  }, [user?.id, admin?.id, registerPush]);
+
+  return null;
+}
+
 // 🎁 Referral Bonus Toast Listener - listens for referral bonuses and shows toast
 function ReferralBonusToastListener() {
   const { toast } = useToast();
@@ -219,8 +255,7 @@ function ReferralBonusToastListener() {
 // 🔔 Wrapper component for notifications (must be inside QueryClientProvider)
 function AppContent() {
   const [showLoadingSpinner, setShowLoadingSpinner] = useState(false);
-  
-  // ✅ Check for new app versions and prompt refresh
+   // ✅ Check for new app versions and prompt refresh
   useVersionCheck();
 
   // 🚀 Cache-busting: Preload build version on app startup

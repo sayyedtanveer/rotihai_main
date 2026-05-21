@@ -28,7 +28,7 @@ export function useAdminNotifications() {
         throw new Error("Failed to fetch orders");
       }
     },
-    refetchInterval: 10000,
+    refetchInterval: false, // WebSocket handles live updates — polling removed to reduce DB load
   });
 
   useEffect(() => {

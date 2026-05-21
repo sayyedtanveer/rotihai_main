@@ -9,25 +9,45 @@ import { pushSubscriptions } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
 
 // Dynamically import web-push (optional dependency)
+// ⚠️ Using top-level await for proper ESM/tsx initialization
 let webpush: any = null;
+let vapidConfigured = false;
+let vapidPublicKey = "";
+let vapidPrivateKey = "";
+
+// Initialize web-push synchronously with top-level await
+// This blocks module loading until initialization completes
 try {
-  webpush = require("web-push");
+  const imported = await import("web-push");
+  webpush = imported.default || imported;
+  console.log("[PUSH] webpush module imported successfully");
 } catch (error) {
   console.warn("⚠️ web-push module not installed. Push notifications disabled.");
+  webpush = null;
 }
 
-// Configure web-push with VAPID keys
-const vapidPublicKey = process.env.VAPID_PUBLIC_KEY || "";
-const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY || "";
-const vapidEmail = process.env.VAPID_EMAIL || "admin@rotihai.com";
+// Configure VAPID keys only if web-push loaded
+if (webpush) {
+  vapidPublicKey = process.env.VAPID_PUBLIC_KEY || "";
+  vapidPrivateKey = process.env.VAPID_PRIVATE_KEY || "";
+  const vapidEmail = process.env.VAPID_EMAIL || "admin@rotihai.com";
 
-if (webpush && vapidPublicKey && vapidPrivateKey) {
-  webpush.setVapidDetails(vapidEmail, vapidPublicKey, vapidPrivateKey);
-  console.log("✅ Web Push configured with VAPID keys");
-} else if (!webpush) {
-  console.warn("⚠️ web-push package not installed. Install with: npm install web-push");
-} else {
-  console.warn("⚠️ VAPID keys not configured in environment variables.");
+  console.log("[PUSH] VAPID_PUBLIC_KEY exists:", !!vapidPublicKey, "length:", vapidPublicKey.length);
+  console.log("[PUSH] VAPID_PRIVATE_KEY exists:", !!vapidPrivateKey, "length:", vapidPrivateKey.length);
+  console.log("[PUSH] VAPID PUBLIC:", vapidPublicKey?.slice(0, 15));
+  console.log("[PUSH] VAPID PRIVATE:", vapidPrivateKey?.slice(0, 15));
+
+  if (vapidPublicKey && vapidPrivateKey) {
+    try {
+      webpush.setVapidDetails(vapidEmail, vapidPublicKey, vapidPrivateKey);
+      console.log("✅ Web Push configured with VAPID keys");
+      vapidConfigured = true;
+    } catch (error: any) {
+      console.error("[PUSH] Failed to set VAPID details:", error.message);
+    }
+  } else {
+    console.warn("⚠️ VAPID keys not configured in environment variables.");
+  }
 }
 
 /**
@@ -195,5 +215,5 @@ export function getVapidPublicKey(): string {
  * Check if push is configured
  */
 export function isPushConfigured(): boolean {
-  return !!(webpush && vapidPublicKey && vapidPrivateKey);
+  return vapidConfigured && !!webpush;
 }

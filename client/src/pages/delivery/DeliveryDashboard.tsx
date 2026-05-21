@@ -12,7 +12,7 @@ import { useDeliveryNotifications } from "@/hooks/useDeliveryNotifications";
 import { formatTime12Hour, formatSlotRange } from "@shared/timeFormatter";
 import { useEffect, useState } from "react";
 import DeliveryNotificationBell from "@/components/DeliveryNotificationBell";
-
+import { usePushNotifications } from "@/hooks/usePushNotifications";
 // Helper function to calculate time until delivery
 const getTimeUntilDelivery = (deliveryTime: string): { display: string; minutes: number; isPrompt: boolean } | null => {
   if (!deliveryTime) return null;
@@ -67,6 +67,17 @@ export default function DeliveryDashboard() {
   const [, setLocation] = useLocation();
   const { wsConnected, newAssignmentsCount, requestNotificationPermission, clearNewAssignmentsCount } = useDeliveryNotifications();
   const [selectedTab, setSelectedTab] = useState("dashboard");
+
+  const [deliveryPersonId] = useState<string | null>(() => localStorage.getItem("deliveryPersonId"));
+  
+  const { registerPush: registerDeliveryPush } = usePushNotifications(deliveryPersonId, "delivery");
+
+  useEffect(() => {
+    if (deliveryPersonId) {
+      const timer = setTimeout(() => { registerDeliveryPush(); }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [deliveryPersonId]);
 
   // ✅ Check auth on mount only (SINGLE RUN)
   useEffect(() => {
@@ -136,12 +147,14 @@ export default function DeliveryDashboard() {
     queryKey: ["/api/delivery/earnings"],
     enabled: isAuthenticated,
     retry: 1,
+    staleTime: 60000, // Earnings summary — not live state; mutations invalidate when needed
   });
 
   const { data: stats } = useQuery<any>({
     queryKey: ["/api/delivery/stats"],
     enabled: isAuthenticated,
     retry: 1,
+    staleTime: 60000, // Delivery stats summary — not live; mutations invalidate on status changes
   });
 
   const claimOrderMutation = useMutation({

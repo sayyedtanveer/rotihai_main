@@ -157,8 +157,8 @@ export default function ActiveOrderBanner({
     enabled: true,
     refetchOnMount: true,
     refetchOnWindowFocus: true,
-    refetchInterval: 15_000, // polling fallback
-    staleTime: 0,
+    refetchInterval: 60_000, // reduced from 15s — WebSocket handles real-time updates
+    staleTime: 30_000,
   });
 
   // ── STEP 7: Real-time updates via WebSocket (order_update) ───────────────

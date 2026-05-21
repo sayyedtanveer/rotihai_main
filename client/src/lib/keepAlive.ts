@@ -1,4 +1,4 @@
-﻿/**
+﻿﻿/**
  * Keep-alive utility to prevent Render free tier app spindown
  * Pings the health endpoint periodically to keep the server warm
  */
@@ -24,6 +24,8 @@ export function startKeepAlive(intervalMinutes: number = 10): void {
 }
 
 async function pingServer(): Promise<void> {
+  // Skip ping when tab is hidden — no need to keep alive a backgrounded tab
+  if (document.visibilityState === 'hidden') return;
   try {
     const response = await fetch(getApiUrl("/api/health"));
     if (response.ok) {

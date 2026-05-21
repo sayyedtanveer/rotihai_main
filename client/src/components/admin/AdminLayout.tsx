@@ -33,6 +33,7 @@ import {
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useAdminNotifications } from "@/hooks/useAdminNotifications";
+import { usePushNotifications } from "@/hooks/usePushNotifications";
 
 import SubscriptionDrawer from "@/components/SubscriptionDrawer";
 import PromotionalBannersDrawer from "@/components/admin/PromotionalBannersDrawer";
@@ -52,8 +53,23 @@ export function AdminLayout({ children }: AdminLayoutProps) {
 
   const adminUser = JSON.parse(localStorage.getItem("adminUser") || "{}");
 
+  const [adminId] = useState<string | null>(() => {
+    try {
+      const token = localStorage.getItem("adminToken");
+      if (!token) return null;
+      return JSON.parse(atob(token.split('.')[1])).adminId || null;
+    } catch {
+      return null;
+    }
+  });
+  const { registerPush } = usePushNotifications(adminId, "admin");
+
   useEffect(() => {
     requestNotificationPermission();
+    if (adminId) {
+      const timer = setTimeout(() => { registerPush(); }, 2000);
+      return () => clearTimeout(timer);
+    }
   }, []);
 
   useEffect(() => {

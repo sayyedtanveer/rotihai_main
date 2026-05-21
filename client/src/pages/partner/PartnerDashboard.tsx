@@ -17,7 +17,7 @@ import { formatTime12Hour, formatDeliveryTime } from "@shared/timeFormatter";
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import type { Chef, Product, Order } from "@shared/schema"; // Assuming Order type is defined in schema
-
+import { usePushNotifications } from "@/hooks/usePushNotifications";
 // Helper function to get slot info
 const getSlotInfo = (slotId: string, slots: any[]): { label: string; startTime: string; endTime: string } | null => {
   if (!slotId) return null;
@@ -32,6 +32,24 @@ export default function PartnerDashboard() {
   const [, setLocation] = useLocation();
   const { wsConnected, newOrdersCount, paymentPreAlerts, requestNotificationPermission, clearNewOrdersCount, disconnect } = usePartnerNotifications();
   const [selectedTab, setSelectedTab] = useState("dashboard");
+  const [chefId] = useState<string | null>(() => {
+    try {
+      const token = localStorage.getItem("partnerToken");
+      if (!token) return null;
+      return JSON.parse(atob(token.split('.')[1])).chefId || null;
+    } catch {
+      return localStorage.getItem("partnerChefId");
+    }
+  });
+  const { registerPush: registerChefPush } = usePushNotifications(chefId, "chef");
+
+  useEffect(() => {
+    if (chefId) {
+      const timer = setTimeout(() => { registerChefPush(); }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [chefId]);
+  
   const [currentTime, setCurrentTime] = useState(new Date());
   const { isSupported: isWakeLockSupported, isAwake, toggleWakeLock } = useWakeLock();
 
@@ -106,6 +124,7 @@ export default function PartnerDashboard() {
       const response = await api.get("/api/partner/dashboard/metrics");
       return response.data;
     },
+    staleTime: 60000, // WS invalidates this on order events; 60s prevents redundant refetches
   });
 
   const { data: orders = [], isLoading: ordersLoading } = useQuery<Order[]>({
@@ -121,7 +140,7 @@ export default function PartnerDashboard() {
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
     },
-    refetchInterval: 30000, // Fallback polling every 30 seconds in case WebSocket misses an event
+    refetchInterval: 120000, // reduced from 30s to 2min — WebSocket is primary; this is a safety-net fallback
   });
 
   // Fetch subscription orders for the chef panel
@@ -133,6 +152,7 @@ export default function PartnerDashboard() {
       console.log(`📦 Partner - Received ${data.length} subscriptions:`, data);
       return data;
     },
+    staleTime: 60000, // Subscription list changes infrequently; WS invalidates on updates
   });
 
 
@@ -142,6 +162,7 @@ export default function PartnerDashboard() {
       const response = await api.get("/api/partner/income-report");
       return response.data;
     },
+    staleTime: 60000, // Summary report — not live state; invalidated by mutations when needed
   });
 
   const { data: deliverySlots = [] } = useQuery<any[]>({
@@ -179,6 +200,7 @@ export default function PartnerDashboard() {
       const response = await api.get("/api/partner/subscription-deliveries");
       return response.data;
     },
+    staleTime: 60000, // Delivery log changes are mutation-driven; WS invalidates on updates
   });
 
   // Update subscription delivery status mutation
