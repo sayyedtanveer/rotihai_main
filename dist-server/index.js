@@ -18785,7 +18785,7 @@ Please accept and start preparation.`;
         publicKey: publicKey.slice(0, 20) + "\u2026",
         subscriptions: activeSubs.length,
         sendResult: result,
-        message: result.sentCount > 0 ? "\u2705 Push delivered \u2014 check your browser notifications" : "\u274C Push send failed \u2014 check server logs for error details"
+        message: (result.sentCount ?? 0) > 0 ? "\u2705 Push delivered \u2014 check your browser notifications" : "\u274C Push send failed \u2014 check server logs for error details"
       });
     } catch (err) {
       return res.status(500).json({ error: err.message });
