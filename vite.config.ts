@@ -65,6 +65,9 @@ export default defineConfig({
   define: {
     // Inject build timestamp for cache-busting (available as import.meta.env.VITE_BUILD_TIME)
     'import.meta.env.VITE_BUILD_TIME': JSON.stringify(Date.now().toString()),
+    // Safety shim: some libraries reference process.env.NODE_ENV directly.
+    // Vite normally replaces process.env.NODE_ENV but this makes it explicit.
+    'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'development'),
   },
   resolve: {
     alias: {
@@ -88,15 +91,21 @@ export default defineConfig({
   },
   server: {
     host: "0.0.0.0",
+    port: 5173,
     fs: {
       strict: false,
     },
     allowedHosts: true,
-    // Disable caching in dev mode - always fresh
     middlewareMode: false,
-    hmr: {
-      host: process.env.VITE_HMR_HOST || 'localhost',
-      port: 5173,
-    },
+    hmr: process.env.REPLIT_DEV_DOMAIN
+      ? {
+          host: process.env.REPLIT_DEV_DOMAIN,
+          protocol: "wss",
+          clientPort: 443,
+        }
+      : {
+          host: process.env.VITE_HMR_HOST || "localhost",
+          port: 5173,
+        },
   },
 });

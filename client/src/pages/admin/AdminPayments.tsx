@@ -31,7 +31,7 @@ export default function AdminPayments() {
     const token = localStorage.getItem("adminToken");
     if (!token) return;
 
-    const wsUrl = getWebSocketURL(`?token=${encodeURIComponent(token)}&type=admin`);
+    const wsUrl = getWebSocketURL(`/ws?type=admin&token=${encodeURIComponent(token)}`);
     const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {

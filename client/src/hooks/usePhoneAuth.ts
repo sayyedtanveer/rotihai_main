@@ -22,7 +22,7 @@ interface LoginTelemetry {
 function logLoginAttempt(telemetry: LoginTelemetry) {
   // Send telemetry to monitoring endpoint (if configured)
   // For now, we'll just log to console in development
-  if (process.env.NODE_ENV === 'development') {
+  if (import.meta.env.DEV) {
     console.log('[Auth Telemetry]', telemetry);
   }
 

@@ -1,4 +1,4 @@
-﻿/**
+﻿﻿/**
  * usePushNotifications Hook
  * Manages push notification registration and subscription lifecycle
  * Optional feature - gracefully handles when push is not available
@@ -104,20 +104,31 @@ export function usePushNotifications(userId: string | null, userType: "admin" | 
 
       console.log("[PUSH] ✅ Permission granted, proceeding with registration...");
 
-      // Register service worker
+      // Register / retrieve the service worker
       let swReg: ServiceWorkerRegistration;
       try {
         console.log("[PUSH] Registering service worker from /sw.js");
-        swReg = await navigator.serviceWorker.register("/sw.js", {
-          scope: "/",
-        });
+        swReg = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
         console.log("✅ Service Worker registered for push");
       } catch (error: any) {
-        console.log("ℹ️ Service Worker registration:", error.message);
-        // Service Worker might already be registered
+        console.log("ℹ️ Service Worker registration error:", error.message);
         const reg = await navigator.serviceWorker.getRegistration("/");
         if (!reg) throw error;
         swReg = reg;
+      }
+
+      // Wait for the service worker to become active before subscribing.
+      // Without this the pushManager may not be ready yet.
+      if (swReg.installing || swReg.waiting) {
+        await new Promise<void>((resolve) => {
+          const sw = swReg.installing || swReg.waiting!;
+          sw.addEventListener("statechange", function handler() {
+            if (sw.state === "activated") {
+              sw.removeEventListener("statechange", handler);
+              resolve();
+            }
+          });
+        });
       }
 
       // Get VAPID public key from server
@@ -134,19 +145,40 @@ export function usePushNotifications(userId: string | null, userType: "admin" | 
 
       console.log("[PUSH] ✅ VAPID key fetched");
 
-      // Convert base64 key to Uint8Array
+      // Convert URL-safe base64 key to Uint8Array.
+      // VAPID keys use URL-safe base64 (- and _); atob() needs standard (+, /).
+      const base64Standard = vapidPublicKey
+        .replace(/-/g, "+")
+        .replace(/_/g, "/")
+        .padEnd(Math.ceil(vapidPublicKey.length / 4) * 4, "=");
       const vapidKey = new Uint8Array(
-        atob(vapidPublicKey)
+        atob(base64Standard)
           .split("")
           .map((char) => char.charCodeAt(0))
       );
 
-      // Subscribe to push notifications
+      // Get or create push subscription.
+      // If an existing subscription was created with a different VAPID key it
+      // will throw — in that case unsubscribe it and start fresh.
+      let subscription: PushSubscription;
       console.log("[PUSH] Subscribing to push notifications...");
-      const subscription = await swReg.pushManager.subscribe({
-        userVisibleOnly: true, // ✅ CRITICAL: Notifications must be visible to user
-        applicationServerKey: vapidKey,
-      });
+      try {
+        subscription = await swReg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: vapidKey,
+        });
+      } catch (subError: any) {
+        console.warn("[PUSH] subscribe() failed — clearing old subscription and retrying:", subError.message);
+        const existing = await swReg.pushManager.getSubscription();
+        if (existing) {
+          await existing.unsubscribe();
+          console.log("[PUSH] Old subscription unsubscribed");
+        }
+        subscription = await swReg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: vapidKey,
+        });
+      }
 
       console.log("✅ Push subscription created");
 

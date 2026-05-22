@@ -109,7 +109,7 @@ export default function MyOrders() {
       return;
     }
 
-    const wsUrl = getWebSocketURL(`?token=${encodeURIComponent(userToken)}&type=customer&userId=${encodeURIComponent(userId)}`);
+    const wsUrl = getWebSocketURL(`/ws?type=customer&userId=${encodeURIComponent(userId)}`);
     const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
