@@ -6479,16 +6479,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get VAPID public key for client subscription setup
       app.get("/api/push/vapid-public-key", async (req, res) => {
         try {
-          const { getVapidPublicKey, isPushConfigured } = await import("./pushService.js");
+          const { getVapidPublicKeyAsync, isPushConfiguredAsync } = await import("./pushService.js");
 
-          if (!isPushConfigured()) {
+          const configured = await isPushConfiguredAsync();
+          if (!configured) {
             return res.status(503).json({
               message: "Push notifications not configured",
               vapidPublicKey: null,
             });
           }
 
-          const publicKey = getVapidPublicKey();
+          const publicKey = await getVapidPublicKeyAsync();
           if (!publicKey) {
             return res.status(503).json({
               message: "VAPID public key not available",
@@ -6650,51 +6651,94 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       });
 
-      // Send push notification to users (triggered by admin actions)
-      app.post("/api/push/send", requireAdmin, async (req: any, res: any) => {
+      // ── Diagnostic: test push end-to-end synchronously ───────────────────────
+      // GET /api/push/test  (admin only)
+      // Returns: configuration status, subscription count, and the real send result.
+      // Use this to verify that the server can reach the push gateway.
+      app.get("/api/push/test", requireAdmin, async (_req: any, res: any) => {
         try {
-          const { userType, userId, notification } = req.body;
+          const { sendPushToAllAdmins, isPushConfiguredAsync, getVapidPublicKeyAsync } = await import("./pushService.js");
+          const { db } = await import("@shared/db");
+          const { pushSubscriptions } = await import("@shared/schema");
+          const { eq, and } = await import("drizzle-orm");
 
-          if (!notification || !notification.title || !notification.body) {
-            return res.status(400).json({
-              message: "Missing notification title or body",
-            });
+          const configured = await isPushConfiguredAsync();
+          const publicKey  = await getVapidPublicKeyAsync();
+
+          const activeSubs = await db
+            .select({ id: pushSubscriptions.id, userType: pushSubscriptions.userType,
+                      endpointPrefix: pushSubscriptions.subscription })
+            .from(pushSubscriptions)
+            .where(and(eq(pushSubscriptions.userType, "admin"), eq(pushSubscriptions.isActive, true)));
+
+          if (!configured) {
+            return res.json({ configured: false, subscriptions: activeSubs.length,
+                              message: "Push not configured — check VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY env vars" });
           }
 
-          const { sendPushToUser, sendPushToAllAdmins, isPushConfigured } = await import("./pushService.js");
-
-          if (!isPushConfigured()) {
-            return res.status(503).json({
-              success: false,
-              message: "Push notifications not configured",
-            });
+          if (activeSubs.length === 0) {
+            return res.json({ configured: true, publicKey: publicKey.slice(0, 20) + "…",
+                              subscriptions: 0,
+                              message: "No active admin subscriptions found. Open the admin panel in your browser and grant notification permission." });
           }
 
-          let result;
-          if (userType === "admin" && !userId) {
-            // Send to all admins
-            result = await sendPushToAllAdmins(notification);
-          } else if (userType && userId) {
-            // Send to specific user
-            result = await sendPushToUser(userId, userType, notification);
-          } else {
-            return res.status(400).json({
-              message: "Must provide either userType+userId or just admin userType",
-            });
-          }
-
-          res.json({
-            message: "Push notification send attempted",
-            ...result,
+          // Actually send a test notification — synchronous so the result is visible
+          const result = await sendPushToAllAdmins({
+            title: "🔔 RotiHai Push Test",
+            body:  "If you see this, server→browser push is working!",
+            tag:   "push-test",
+            data:  { url: "/admin" },
           });
-        } catch (error: any) {
-          console.error("Error sending push notification:", error);
-          res.status(500).json({
-            success: false,
-            message: "Failed to send push notification",
-            error: error.message,
+
+          return res.json({
+            configured: true,
+            publicKey:  publicKey.slice(0, 20) + "…",
+            subscriptions: activeSubs.length,
+            sendResult: result,
+            message: (result.sentCount ?? 0) > 0
+              ? "✅ Push delivered — check your browser notifications"
+              : "❌ Push send failed — check server logs for error details",
           });
+        } catch (err: any) {
+          return res.status(500).json({ error: err.message });
         }
+      });
+
+      // Send push notification to users (triggered by admin actions)
+      // Responds immediately with 202 — actual delivery happens in the background
+      // so the client never waits on a slow/failing push-gateway request.
+      app.post("/api/push/send", requireAdmin, async (req: any, res: any) => {
+        const { userType, userId, notification } = req.body;
+
+        if (!notification || !notification.title || !notification.body) {
+          return res.status(400).json({ message: "Missing notification title or body" });
+        }
+
+        if (!userType || (userType !== "admin" && !userId)) {
+          return res.status(400).json({ message: "Must provide userType and userId (or userType=admin for broadcast)" });
+        }
+
+        // Respond immediately so the client is never blocked by push-gateway latency
+        res.status(202).json({ success: true, message: "Push notification queued" });
+
+        // Fire-and-forget — errors are logged but never propagate to the client
+        setImmediate(async () => {
+          try {
+            const { sendPushToUser, sendPushToAllAdmins, isPushConfiguredAsync } = await import("./pushService.js");
+            const configured = await isPushConfiguredAsync();
+            if (!configured) {
+              console.log("[PUSH] /api/push/send: push not configured, skipping");
+              return;
+            }
+            if (userType === "admin" && !userId) {
+              await sendPushToAllAdmins(notification);
+            } else {
+              await sendPushToUser(userId, userType, notification);
+            }
+          } catch (err: any) {
+            console.warn("[PUSH] Background send failed:", err.message);
+          }
+        });
       });
 
 

@@ -4819,15 +4819,66 @@ var init_partnerAuth = __esm({
 var pushService_exports = {};
 __export(pushService_exports, {
   getVapidPublicKey: () => getVapidPublicKey,
+  getVapidPublicKeyAsync: () => getVapidPublicKeyAsync,
   isPushConfigured: () => isPushConfigured,
+  isPushConfiguredAsync: () => isPushConfiguredAsync,
   sendPushToAllAdmins: () => sendPushToAllAdmins,
   sendPushToUser: () => sendPushToUser
 });
 import { eq as eq2, and as and2 } from "drizzle-orm";
-async function sendPushToUser(userId, userType, notification) {
+async function ensureInitialized() {
+  if (vapidConfigured) return;
+  if (!webpush) {
+    try {
+      const imported = await import("web-push");
+      webpush = imported.default || imported;
+      console.log("[PUSH] webpush module loaded successfully");
+    } catch (err) {
+      console.warn("[PUSH] web-push module failed to load \u2014 push notifications disabled.", err);
+      return;
+    }
+  }
+  const publicKey = process.env.VAPID_PUBLIC_KEY || "";
+  const privateKey = process.env.VAPID_PRIVATE_KEY || "";
+  const email = process.env.VAPID_EMAIL || "admin@rotihai.com";
+  console.log("[PUSH] Startup diagnostics:");
+  console.log("  env file loaded         :", true);
+  console.log("  VAPID_PUBLIC_KEY present :", !!publicKey, `(length=${publicKey.length})`);
+  console.log("  VAPID_PRIVATE_KEY present:", !!privateKey, `(length=${privateKey.length})`);
+  console.log("  VAPID_EMAIL             :", email);
+  if (!publicKey || !privateKey) {
+    console.warn("[PUSH] VAPID keys missing from process.env. Push notifications disabled until keys are set and server restarts (or until next request re-tries).");
+    return;
+  }
   try {
-    if (!webpush || !vapidPublicKey || !vapidPrivateKey) {
-      console.log("\u26A0\uFE0F Push notifications not configured, skipping send");
+    webpush.setVapidDetails(`mailto:${email}`, publicKey, privateKey);
+    vapidPublicKey = publicKey;
+    vapidConfigured = true;
+    console.log("[PUSH] web-push initialized successfully :", true);
+  } catch (err) {
+    console.error("[PUSH] webpush.setVapidDetails() threw \u2014 check key format:", err.message);
+    console.log("[PUSH] web-push initialized successfully :", false);
+  }
+}
+async function getVapidPublicKeyAsync() {
+  await ensureInitialized();
+  return vapidPublicKey;
+}
+function getVapidPublicKey() {
+  return vapidPublicKey;
+}
+async function isPushConfiguredAsync() {
+  await ensureInitialized();
+  return vapidConfigured && !!webpush;
+}
+function isPushConfigured() {
+  return vapidConfigured && !!webpush;
+}
+async function sendPushToUser(userId, userType, notification) {
+  await ensureInitialized();
+  try {
+    if (!vapidConfigured || !webpush) {
+      console.log("[PUSH] Push notifications not configured, skipping send");
       return { success: false, reason: "VAPID keys not configured" };
     }
     const subscriptions4 = await db.select().from(pushSubscriptions).where(
@@ -4838,7 +4889,7 @@ async function sendPushToUser(userId, userType, notification) {
       )
     );
     if (subscriptions4.length === 0) {
-      console.log(`\u2139\uFE0F No push subscriptions found for ${userType} ${userId}`);
+      console.log(`[PUSH] No active subscriptions for ${userType} ${userId}`);
       return { success: true, sentCount: 0, reason: "No subscriptions" };
     }
     let sentCount = 0;
@@ -4855,37 +4906,35 @@ async function sendPushToUser(userId, userType, notification) {
           data: notification.data || {},
           timestamp: (/* @__PURE__ */ new Date()).toISOString()
         });
-        await webpush.sendNotification(subscription, payloadJson);
+        await Promise.race([
+          webpush.sendNotification(subscription, payloadJson),
+          new Promise(
+            (_, reject) => setTimeout(() => reject(new Error("sendNotification timed out after 10s")), 1e4)
+          )
+        ]);
         sentCount++;
-        console.log(`\u2705 Push sent to ${userType} ${userId}`);
+        console.log(`[PUSH] \u2705 Sent to ${userType} ${userId}`);
       } catch (error) {
         failedCount++;
         if (error.statusCode === 410) {
           await db.update(pushSubscriptions).set({ isActive: false }).where(eq2(pushSubscriptions.id, sub.id));
-          console.log(`\u{1F5D1}\uFE0F Removed invalid subscription for ${userType} ${userId}`);
+          console.log(`[PUSH] Removed expired subscription for ${userType} ${userId}`);
         } else {
-          console.error(
-            `\u26A0\uFE0F Failed to send push to ${userType} ${userId}:`,
-            error.message
-          );
+          console.error(`[PUSH] Failed to send to ${userType} ${userId}:`, error.message);
         }
       }
     }
-    return {
-      success: sentCount > 0,
-      sentCount,
-      failedCount,
-      totalSubscriptions: subscriptions4.length
-    };
+    return { success: sentCount > 0, sentCount, failedCount, totalSubscriptions: subscriptions4.length };
   } catch (error) {
-    console.error("Error sending push notification:", error);
-    return { success: false, reason: error.message };
+    console.error("[PUSH] Error in sendPushToUser:", error);
+    return { success: false, sentCount: 0, reason: error.message };
   }
 }
 async function sendPushToAllAdmins(notification) {
+  await ensureInitialized();
   try {
-    if (!webpush || !vapidPublicKey || !vapidPrivateKey) {
-      return { success: false, reason: "VAPID keys not configured" };
+    if (!vapidConfigured || !webpush) {
+      return { success: false, sentCount: 0, reason: "VAPID keys not configured" };
     }
     const subscriptions4 = await db.select().from(pushSubscriptions).where(
       and2(
@@ -4909,27 +4958,28 @@ async function sendPushToAllAdmins(notification) {
           data: notification.data || {},
           timestamp: (/* @__PURE__ */ new Date()).toISOString()
         });
-        await webpush.sendNotification(subscription, payloadJson);
+        await Promise.race([
+          webpush.sendNotification(subscription, payloadJson),
+          new Promise(
+            (_, reject) => setTimeout(() => reject(new Error("sendNotification timed out after 10s")), 1e4)
+          )
+        ]);
         sentCount++;
       } catch (error) {
         if (error.statusCode === 410) {
           await db.update(pushSubscriptions).set({ isActive: false }).where(eq2(pushSubscriptions.id, sub.id));
+        } else {
+          console.warn(`[PUSH] sendPushToAllAdmins send failed:`, error.message);
         }
       }
     }
     return { success: sentCount > 0, sentCount, totalSubscriptions: subscriptions4.length };
   } catch (error) {
-    console.error("Error sending push to admins:", error);
-    return { success: false, reason: error.message };
+    console.error("[PUSH] Error in sendPushToAllAdmins:", error);
+    return { success: false, sentCount: 0, reason: error.message };
   }
 }
-function getVapidPublicKey() {
-  return vapidPublicKey;
-}
-function isPushConfigured() {
-  return vapidConfigured && !!webpush;
-}
-var webpush, vapidConfigured, vapidPublicKey, vapidPrivateKey;
+var webpush, vapidConfigured, vapidPublicKey;
 var init_pushService = __esm({
   "server/pushService.ts"() {
     "use strict";
@@ -4938,27 +4988,6 @@ var init_pushService = __esm({
     webpush = null;
     vapidConfigured = false;
     vapidPublicKey = "";
-    vapidPrivateKey = "";
-    (async () => {
-      try {
-        webpush = await import("web-push");
-      } catch (error) {
-        console.warn("\u26A0\uFE0F web-push module not installed. Push notifications disabled.");
-        return;
-      }
-      vapidPublicKey = process.env.VAPID_PUBLIC_KEY || "";
-      vapidPrivateKey = process.env.VAPID_PRIVATE_KEY || "";
-      const vapidEmail = process.env.VAPID_EMAIL || "admin@rotihai.com";
-      if (webpush && vapidPublicKey && vapidPrivateKey) {
-        webpush.setVapidDetails(vapidEmail, vapidPublicKey, vapidPrivateKey);
-        console.log("\u2705 Web Push configured with VAPID keys");
-        vapidConfigured = true;
-      } else if (!webpush) {
-        console.warn("\u26A0\uFE0F web-push package not installed. Install with: npm install web-push");
-      } else {
-        console.warn("\u26A0\uFE0F VAPID keys not configured in environment variables.");
-      }
-    })();
   }
 });
 
@@ -7095,7 +7124,10 @@ var init_vite_config = __esm({
       ],
       define: {
         // Inject build timestamp for cache-busting (available as import.meta.env.VITE_BUILD_TIME)
-        "import.meta.env.VITE_BUILD_TIME": JSON.stringify(Date.now().toString())
+        "import.meta.env.VITE_BUILD_TIME": JSON.stringify(Date.now().toString()),
+        // Safety shim: some libraries reference process.env.NODE_ENV directly.
+        // Vite normally replaces process.env.NODE_ENV but this makes it explicit.
+        "process.env.NODE_ENV": JSON.stringify(process.env.NODE_ENV || "development")
       },
       resolve: {
         alias: {
@@ -7119,28 +7151,19 @@ var init_vite_config = __esm({
       },
       server: {
         host: "0.0.0.0",
+        port: 5173,
         fs: {
           strict: false
         },
         allowedHosts: true,
-        // Disable caching in dev mode - always fresh
         middlewareMode: false,
-        hmr: {
+        hmr: process.env.REPLIT_DEV_DOMAIN ? {
+          host: process.env.REPLIT_DEV_DOMAIN,
+          protocol: "wss",
+          clientPort: 443
+        } : {
           host: process.env.VITE_HMR_HOST || "localhost",
           port: 5173
-        },
-        // ✅ Proxy API requests to backend server
-        proxy: {
-          "/api": {
-            target: "http://localhost:5000",
-            changeOrigin: true,
-            rewrite: (path3) => path3
-          },
-          "/ws": {
-            target: "ws://localhost:5000",
-            ws: true,
-            rewrite: (path3) => path3
-          }
         }
       }
     });
@@ -18593,14 +18616,15 @@ Please accept and start preparation.`;
   });
   app2.get("/api/push/vapid-public-key", async (req, res) => {
     try {
-      const { getVapidPublicKey: getVapidPublicKey2, isPushConfigured: isPushConfigured2 } = await Promise.resolve().then(() => (init_pushService(), pushService_exports));
-      if (!isPushConfigured2()) {
+      const { getVapidPublicKeyAsync: getVapidPublicKeyAsync2, isPushConfiguredAsync: isPushConfiguredAsync2 } = await Promise.resolve().then(() => (init_pushService(), pushService_exports));
+      const configured = await isPushConfiguredAsync2();
+      if (!configured) {
         return res.status(503).json({
           message: "Push notifications not configured",
           vapidPublicKey: null
         });
       }
-      const publicKey = getVapidPublicKey2();
+      const publicKey = await getVapidPublicKeyAsync2();
       if (!publicKey) {
         return res.status(503).json({
           message: "VAPID public key not available",
@@ -18722,43 +18746,77 @@ Please accept and start preparation.`;
       });
     }
   });
-  app2.post("/api/push/send", requireAdmin, async (req, res) => {
+  app2.get("/api/push/test", requireAdmin, async (_req, res) => {
     try {
-      const { userType, userId, notification } = req.body;
-      if (!notification || !notification.title || !notification.body) {
-        return res.status(400).json({
-          message: "Missing notification title or body"
+      const { sendPushToAllAdmins: sendPushToAllAdmins2, isPushConfiguredAsync: isPushConfiguredAsync2, getVapidPublicKeyAsync: getVapidPublicKeyAsync2 } = await Promise.resolve().then(() => (init_pushService(), pushService_exports));
+      const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { pushSubscriptions: pushSubscriptions2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+      const { eq: eq10, and: and6 } = await import("drizzle-orm");
+      const configured = await isPushConfiguredAsync2();
+      const publicKey = await getVapidPublicKeyAsync2();
+      const activeSubs = await db2.select({
+        id: pushSubscriptions2.id,
+        userType: pushSubscriptions2.userType,
+        endpointPrefix: pushSubscriptions2.subscription
+      }).from(pushSubscriptions2).where(and6(eq10(pushSubscriptions2.userType, "admin"), eq10(pushSubscriptions2.isActive, true)));
+      if (!configured) {
+        return res.json({
+          configured: false,
+          subscriptions: activeSubs.length,
+          message: "Push not configured \u2014 check VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY env vars"
         });
       }
-      const { sendPushToUser: sendPushToUser2, sendPushToAllAdmins: sendPushToAllAdmins2, isPushConfigured: isPushConfigured2 } = await Promise.resolve().then(() => (init_pushService(), pushService_exports));
-      if (!isPushConfigured2()) {
-        return res.status(503).json({
-          success: false,
-          message: "Push notifications not configured"
+      if (activeSubs.length === 0) {
+        return res.json({
+          configured: true,
+          publicKey: publicKey.slice(0, 20) + "\u2026",
+          subscriptions: 0,
+          message: "No active admin subscriptions found. Open the admin panel in your browser and grant notification permission."
         });
       }
-      let result;
-      if (userType === "admin" && !userId) {
-        result = await sendPushToAllAdmins2(notification);
-      } else if (userType && userId) {
-        result = await sendPushToUser2(userId, userType, notification);
-      } else {
-        return res.status(400).json({
-          message: "Must provide either userType+userId or just admin userType"
-        });
-      }
-      res.json({
-        message: "Push notification send attempted",
-        ...result
+      const result = await sendPushToAllAdmins2({
+        title: "\u{1F514} RotiHai Push Test",
+        body: "If you see this, server\u2192browser push is working!",
+        tag: "push-test",
+        data: { url: "/admin" }
       });
-    } catch (error) {
-      console.error("Error sending push notification:", error);
-      res.status(500).json({
-        success: false,
-        message: "Failed to send push notification",
-        error: error.message
+      return res.json({
+        configured: true,
+        publicKey: publicKey.slice(0, 20) + "\u2026",
+        subscriptions: activeSubs.length,
+        sendResult: result,
+        message: result.sentCount > 0 ? "\u2705 Push delivered \u2014 check your browser notifications" : "\u274C Push send failed \u2014 check server logs for error details"
       });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
     }
+  });
+  app2.post("/api/push/send", requireAdmin, async (req, res) => {
+    const { userType, userId, notification } = req.body;
+    if (!notification || !notification.title || !notification.body) {
+      return res.status(400).json({ message: "Missing notification title or body" });
+    }
+    if (!userType || userType !== "admin" && !userId) {
+      return res.status(400).json({ message: "Must provide userType and userId (or userType=admin for broadcast)" });
+    }
+    res.status(202).json({ success: true, message: "Push notification queued" });
+    setImmediate(async () => {
+      try {
+        const { sendPushToUser: sendPushToUser2, sendPushToAllAdmins: sendPushToAllAdmins2, isPushConfiguredAsync: isPushConfiguredAsync2 } = await Promise.resolve().then(() => (init_pushService(), pushService_exports));
+        const configured = await isPushConfiguredAsync2();
+        if (!configured) {
+          console.log("[PUSH] /api/push/send: push not configured, skipping");
+          return;
+        }
+        if (userType === "admin" && !userId) {
+          await sendPushToAllAdmins2(notification);
+        } else {
+          await sendPushToUser2(userId, userType, notification);
+        }
+      } catch (err) {
+        console.warn("[PUSH] Background send failed:", err.message);
+      }
+    });
   });
   app2.post("/api/newsletter/subscribe", async (req, res) => {
     try {

@@ -148,7 +148,7 @@ export default function AdminOrders() {
   // Listen for WebSocket order updates
   useEffect(() => {
     const token = localStorage.getItem("adminToken");
-    const wsUrl = getWebSocketURL(`?token=${token}&type=admin`);
+    const wsUrl = getWebSocketURL(`/ws?type=admin&token=${encodeURIComponent(token || "")}`);
     const ws = new WebSocket(wsUrl);
 
     ws.onmessage = (event) => {
