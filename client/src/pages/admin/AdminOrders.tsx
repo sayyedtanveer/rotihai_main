@@ -17,8 +17,16 @@ import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 import { getWebSocketURL } from "@/lib/fetchClient";
 import { format } from "date-fns";
-import { Search, Filter, Truck, User } from "lucide-react";
+import { Search, Filter, Truck, User, ExternalLink } from "lucide-react";
 import { useState, useEffect } from "react";
+
+type OrderItem = {
+  id?: string;
+  name: string;
+  price?: number;
+  quantity: number;
+  specialInstructions?: string;
+};
 
 export default function AdminOrders() {
   const { toast } = useToast();
@@ -141,6 +149,45 @@ export default function AdminOrders() {
     return person ? person.name : "Unknown";
   };
 
+  const getCoordinatePair = (latitude: unknown, longitude: unknown) => {
+    const lat = typeof latitude === "number" ? latitude : Number(latitude);
+    const lon = typeof longitude === "number" ? longitude : Number(longitude);
+
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      return null;
+    }
+
+    if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+      return null;
+    }
+
+    return `${lat},${lon}`;
+  };
+
+  const getDirectionsUrl = (order: Order) => {
+    const chef = chefs?.find((item: any) => item.id === order.chefId);
+    const chefCoordinates = getCoordinatePair(chef?.latitude, chef?.longitude);
+    const origin = chefCoordinates || "";
+    const destination = getCoordinatePair((order as any).customerLatitude, (order as any).customerLongitude) || order.address || "";
+
+    if (!origin || !destination) {
+      return null;
+    }
+
+    return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&travelmode=driving`;
+  };
+
+  const formatDistance = (distance: Order["distance"]) => {
+    if (distance === null || distance === undefined || distance === "") {
+      return "-";
+    }
+    const parsed = Number(distance);
+    if (!Number.isFinite(parsed)) {
+      return "-";
+    }
+    return `${parsed.toFixed(2)} km`;
+  };
+
   const availableDeliveryPersonnel = deliveryPersonnel?.filter((dp) =>
     dp.isActive
   ) || [];
@@ -243,7 +290,7 @@ export default function AdminOrders() {
         </div>
 
         {/* Quick Tabs */}
-        <Tabs value={statusFilter === "cancelled" ? "cancelled" : "all"} onValueChange={(v) => { setStatusFilter(v); setCurrentPage(1); }}>
+        <Tabs value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setCurrentPage(1); }}>
           <TabsList>
             <TabsTrigger value="all">All Orders</TabsTrigger>
             <TabsTrigger value="cancelled">Cancelled</TabsTrigger>
@@ -319,6 +366,7 @@ export default function AdminOrders() {
                       <TableHead>Order ID</TableHead>
                       <TableHead>Customer</TableHead>
                       <TableHead>Address</TableHead>
+                      <TableHead>Distance / Map</TableHead>
                       <TableHead>Items</TableHead>
                       <TableHead>Total</TableHead>
                       <TableHead>Chef</TableHead>
@@ -329,7 +377,7 @@ export default function AdminOrders() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {paginatedOrders.map((order) => (
+                    {paginatedOrders.map((order: Order) => (
                       <TableRow key={order.id} data-testid={`row-order-${order.id}`}>
                         <TableCell className="font-medium">
                           #{order.id.slice(0, 8)}
@@ -372,8 +420,29 @@ export default function AdminOrders() {
                           </div>
                         </TableCell>
                         <TableCell>
+                          <div className="text-sm space-y-1">
+                            <div>{formatDistance(order.distance)}</div>
+                            {(() => {
+                              const directionsUrl = getDirectionsUrl(order);
+                              return directionsUrl ? (
+                                <a
+                                  href={directionsUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700 hover:underline"
+                                >
+                                  <ExternalLink className="h-3 w-3" />
+                                  Open map
+                                </a>
+                              ) : (
+                                <span className="text-xs text-slate-500">Map unavailable</span>
+                              );
+                            })()}
+                          </div>
+                        </TableCell>
+                        <TableCell>
                           <div className="max-w-xs">
-                            {(order.items as any[]).map((item, idx) => (
+                            {((order.items as OrderItem[]) || []).map((item: OrderItem, idx: number) => (
                               <div key={idx} className="mb-1">
                                 <p className="text-sm">
                                   {item.name} x{item.quantity}
@@ -543,7 +612,7 @@ export default function AdminOrders() {
                         <SelectValue placeholder="Choose a delivery person" />
                       </SelectTrigger>
                       <SelectContent>
-                        {deliveryPersonnel.map((person) => (
+                        {deliveryPersonnel.map((person: DeliveryPersonnel) => (
                           <SelectItem key={person.id} value={person.id}>
                             <div className="flex items-center gap-2">
                               <User className="h-4 w-4" />
