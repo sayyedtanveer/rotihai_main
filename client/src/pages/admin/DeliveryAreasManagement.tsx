@@ -89,12 +89,31 @@ export const DeliveryAreasManagement: React.FC<DeliveryAreasManagementProps> = (
       .map(p => p.trim())
       .filter(p => /^\d{5,6}$/.test(p));
 
+    // Validate and parse coordinates
+    const lat = parseFloat(newAreaLat);
+    const lon = parseFloat(newAreaLon);
+
+    if (isNaN(lat) || isNaN(lon)) {
+      setError('Coordinates must be valid numbers');
+      return;
+    }
+
+    if (lat < -90 || lat > 90) {
+      setError('Latitude must be between -90 and 90');
+      return;
+    }
+
+    if (lon < -180 || lon > 180) {
+      setError('Longitude must be between -180 and 180');
+      return;
+    }
+
     const newArea: DeliveryArea = {
       id: Date.now().toString(),
       name: trimmedName,
       pincodes,
-      latitude: parseFloat(newAreaLat) || 19.0728,
-      longitude: parseFloat(newAreaLon) || 72.8826,
+      latitude: lat,
+      longitude: lon,
       isActive: true,
     };
 
@@ -104,7 +123,7 @@ export const DeliveryAreasManagement: React.FC<DeliveryAreasManagementProps> = (
     setNewAreaLat(defaultLat);
     setNewAreaLon(defaultLon);
     setError(null);
-    setSuccess(`Added "${trimmedName}" with ${pincodes.length} pincodes`);
+    setSuccess(`Added "${trimmedName}" with ${pincodes.length} pincodes and coordinates (${lat.toFixed(4)}, ${lon.toFixed(4)})`);
     setTimeout(() => setSuccess(null), 2000);
   };
 
@@ -274,32 +293,66 @@ export const DeliveryAreasManagement: React.FC<DeliveryAreasManagementProps> = (
             )}
           </div>
 
-          {/* Add New Area */}
-          <div className="space-y-3 border-b pb-6">
-            <label className="text-sm font-medium">Add New Area</label>
-            <div className="space-y-2">
-              <Input
-                placeholder="Area name (e.g., Kurla West, Andheri, Dadar)"
-                value={newAreaName}
-                onChange={(e) => setNewAreaName(e.target.value)}
-                onKeyPress={handleKeyPress}
-              />
-              <Input
-                placeholder="Pincodes (comma-separated, e.g., 400070, 400086, 400025)"
-                value={newAreaPincodes}
-                onChange={(e) => setNewAreaPincodes(e.target.value)}
-                onKeyPress={handleKeyPress}
-              />
+          {/* Add New Area Form */}
+          <div className="border rounded-lg p-4 space-y-3">
+            <h3 className="font-medium">➕ Add New Delivery Area</h3>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">Area Name</label>
+                <Input
+                  placeholder="e.g., Kurla West, Andheri, Dadar"
+                  value={newAreaName}
+                  onChange={(e) => setNewAreaName(e.target.value)}
+                  onKeyPress={handleKeyPress}
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">Pincodes</label>
+                <Input
+                  placeholder="comma-separated, e.g., 400070, 400086, 400025"
+                  value={newAreaPincodes}
+                  onChange={(e) => setNewAreaPincodes(e.target.value)}
+                  onKeyPress={handleKeyPress}
+                  className="mt-1"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground">Latitude</label>
+                  <Input
+                    type="number"
+                    step="0.0001"
+                    placeholder="19.0728"
+                    value={newAreaLat}
+                    onChange={(e) => setNewAreaLat(e.target.value)}
+                    onKeyPress={handleKeyPress}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground">Longitude</label>
+                  <Input
+                    type="number"
+                    step="0.0001"
+                    placeholder="72.8826"
+                    value={newAreaLon}
+                    onChange={(e) => setNewAreaLon(e.target.value)}
+                    onKeyPress={handleKeyPress}
+                    className="mt-1"
+                  />
+                </div>
+              </div>
               <Button
                 onClick={handleAddArea}
                 className="w-full gap-2"
               >
                 <Plus className="h-4 w-4" />
-                Add Area
+                Add Area with Coordinates
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              💡 Pincodes must be 5-6 digits. You can add or edit them after creating the area.
+              💡 Pincodes must be 5-6 digits. Coordinates (lat/lon) will be used for chef distance sorting and service area mapping.
             </p>
           </div>
 
@@ -348,7 +401,8 @@ export const DeliveryAreasManagement: React.FC<DeliveryAreasManagementProps> = (
 
                     {/* Expanded Area Details */}
                     {expandedArea === area.id && (
-                      <div className="bg-white p-4 border-t space-y-3">
+                      <div className="bg-white p-4 border-t space-y-4">
+                        {/* Pincodes Edit */}
                         <div>
                           <label className="text-xs font-medium text-muted-foreground">
                             Edit Pincodes (comma-separated)
@@ -373,6 +427,24 @@ export const DeliveryAreasManagement: React.FC<DeliveryAreasManagementProps> = (
                           <p className="text-xs text-muted-foreground mt-1">
                             Current: {area.pincodes.length > 0 ? area.pincodes.join(', ') : 'None'}
                           </p>
+                        </div>
+
+                        {/* Coordinates Display */}
+                        <div>
+                          <label className="text-xs font-medium text-muted-foreground">
+                            📍 Area Center Coordinates
+                          </label>
+                          <div className="grid grid-cols-2 gap-2 mt-1">
+                            <div className="bg-gray-50 p-2 rounded border border-gray-200">
+                              <p className="text-xs text-gray-600">Latitude</p>
+                              <p className="text-sm font-medium text-gray-900">{area.latitude ? area.latitude.toFixed(4) : 'Not set'}</p>
+                            </div>
+                            <div className="bg-gray-50 p-2 rounded border border-gray-200">
+                              <p className="text-xs text-gray-600">Longitude</p>
+                              <p className="text-sm font-medium text-gray-900">{area.longitude ? area.longitude.toFixed(4) : 'Not set'}</p>
+                            </div>
+                          </div>
+                          <p className="text-xs text-gray-500 mt-1">💡 Set during area creation. Click "Save Changes" to update.</p>
                         </div>
                       </div>
                     )}

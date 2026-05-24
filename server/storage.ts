@@ -271,7 +271,7 @@ export interface IStorage {
   // Delivery Areas methods
   getDeliveryAreas(): Promise<string[]>;
   getAllDeliveryAreas(): Promise<DeliveryArea[]>;
-  addDeliveryArea(name: string): Promise<DeliveryArea | undefined>;
+  addDeliveryArea(name: string, pincodes?: string[], latitude?: number, longitude?: number): Promise<DeliveryArea | undefined>;
   updateDeliveryAreas(areas: string[]): Promise<boolean>;
   deleteDeliveryArea(id: string): Promise<boolean>;
   toggleDeliveryAreaStatus(id: string, isActive: boolean): Promise<DeliveryArea | undefined>;
@@ -4213,7 +4213,7 @@ export class MemStorage implements IStorage {
     }
   }
 
-  async addDeliveryArea(name: string, pincodes?: string[]): Promise<DeliveryArea | undefined> {
+  async addDeliveryArea(name: string, pincodes?: string[], latitude?: number, longitude?: number): Promise<DeliveryArea | undefined> {
     try {
       const trimmedName = name.trim();
       if (!trimmedName) return undefined;
@@ -4222,10 +4222,12 @@ export class MemStorage implements IStorage {
         .values({
           name: trimmedName,
           isActive: true,
-          pincodes: pincodes && pincodes.length > 0 ? pincodes : []
+          pincodes: pincodes && pincodes.length > 0 ? pincodes : [],
+          latitude: latitude !== undefined ? latitude : null,
+          longitude: longitude !== undefined ? longitude : null
         })
         .returning();
-      console.log("[STORAGE] Delivery area added:", trimmedName, "with pincodes:", pincodes);
+      console.log("[STORAGE] Delivery area added:", trimmedName, "with pincodes:", pincodes, "lat:", latitude, "lon:", longitude);
       return result[0];
     } catch (error) {
       console.error("[STORAGE] Error adding delivery area:", error);

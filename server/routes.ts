@@ -1,4 +1,4 @@
-import type { Express } from "express";
+import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { getCache, setCache, invalidateCache, invalidateCachePrefix } from "./cache";
@@ -515,12 +515,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       areas.forEach(area => {
         const areaLower = area.name.toLowerCase();
-        const lat = typeof area.latitude === 'number'
-          ? area.latitude
-          : parseFloat(String(area.latitude || 19.0728));
-        const lon = typeof area.longitude === 'number'
-          ? area.longitude
-          : parseFloat(String(area.longitude || 72.8826));
+        
+        // Validate latitude
+        let lat = 19.0728; // Default Mumbai lat
+        if (typeof area.latitude === 'number' && !isNaN(area.latitude)) {
+          lat = area.latitude;
+        } else if (area.latitude != null) {
+          const parsed = parseFloat(String(area.latitude));
+          if (!isNaN(parsed)) lat = parsed;
+        }
+        
+        // Validate longitude
+        let lon = 72.8826; // Default Mumbai lon
+        if (typeof area.longitude === 'number' && !isNaN(area.longitude)) {
+          lon = area.longitude;
+        } else if (area.longitude != null) {
+          const parsed = parseFloat(String(area.longitude));
+          if (!isNaN(parsed)) lon = parsed;
+        }
 
         coordinatesMap[areaLower] = {
           lat,
@@ -5932,7 +5944,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/validate-pincode - Validate if pincode is in delivery zone
   // PRIORITY 1: Check against admin-configured pincodes (direct lookup - no API call)
   // PRIORITY 2: Fallback to geocoding if admin hasn't configured pincodes
-  app.post("/api/validate-pincode", async (req, res) => {
+  app.post("/api/validate-pincode", async (req: Request, res: Response) => {
     try {
       const { pincode } = req.body;
 
@@ -5965,10 +5977,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(`✅ [PINCODE-VALIDATION] Pincode ${pincodeStr} found in delivery area: ${matchingArea.name}`);
 
         // Get coordinates from database (admin configured)
-        const areaCoords = {
-          lat: typeof matchingArea.latitude === 'number' ? matchingArea.latitude : parseFloat(String(matchingArea.latitude || 19.0728)),
-          lon: typeof matchingArea.longitude === 'number' ? matchingArea.longitude : parseFloat(String(matchingArea.longitude || 72.8826))
-        };
+        let lat = 19.0728; // Default Mumbai lat
+        let lon = 72.8826; // Default Mumbai lon
+        
+        if (typeof matchingArea.latitude === 'number' && !isNaN(matchingArea.latitude)) {
+          lat = matchingArea.latitude;
+        } else if (matchingArea.latitude != null) {
+          const parsed = parseFloat(String(matchingArea.latitude));
+          if (!isNaN(parsed)) lat = parsed;
+        }
+        
+        if (typeof matchingArea.longitude === 'number' && !isNaN(matchingArea.longitude)) {
+          lon = matchingArea.longitude;
+        } else if (matchingArea.longitude != null) {
+          const parsed = parseFloat(String(matchingArea.longitude));
+          if (!isNaN(parsed)) lon = parsed;
+        }
+        
+        // Validate coordinates are not NaN before returning
+        if (isNaN(lat) || isNaN(lon)) {
+          console.warn(`[PINCODE-VALIDATION] ⚠️ Invalid coordinates for area "${matchingArea.name}": lat=${lat}, lon=${lon}. Using defaults.`);
+          lat = 19.0728;
+          lon = 72.8826;
+        }
+        
+        const areaCoords = { lat, lon };
 
         console.log(`[PINCODE-VALIDATION] Using dynamic coordinates for area "${matchingArea.name}":`, areaCoords);
 
