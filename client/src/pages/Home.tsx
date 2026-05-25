@@ -282,8 +282,8 @@ export default function Home() {
 
 
           // Store pincode coordinates in localStorage for chef loading
-          localStorage.setItem('userLatitude', deliveryLocation.latitude.toString());
-          localStorage.setItem('userLongitude', deliveryLocation.longitude.toString());
+          localStorage.setItem('userLatitude', deliveryLocation.latitude != null ? String(deliveryLocation.latitude) : '');
+          localStorage.setItem('userLongitude', deliveryLocation.longitude != null ? String(deliveryLocation.longitude) : '');
 
           setUserLocation(deliveryLocation.latitude, deliveryLocation.longitude);
           setUserInDeliveryZone(true);
@@ -426,7 +426,7 @@ export default function Home() {
     const userPincode = deliveryLocation.pincode;
     console.log(`[HOME] Filtering ${chefs.length} chefs for pincode: ${userPincode}`);
 
-    const filtered = chefs.filter(chef => {
+    const filtered = chefs.filter((chef: Chef) => {
       // If chef has servicePincodes defined, check if pincode matches
       const servicePincodes = (chef as any).servicePincodes as string[] | null | undefined;
 
@@ -459,19 +459,19 @@ export default function Home() {
   // 🔴 FILTER CATEGORIES: Only show categories that have chefs available in selected area
   // Backend now returns categories sorted by display_order ASC — no frontend sort needed.
   const filteredCategories = selectedArea
-    ? categories.filter(category => {
-      const chefsInCategory = chefsFilteredByPincode.filter(chef => chef.categoryId === category.id);
+    ? categories.filter((category: Category) => {
+      const chefsInCategory = chefsFilteredByPincode.filter((chef: Chef) => chef.categoryId === category.id);
       return chefsInCategory.length > 0;
     })
     : categories;
 
 
   const handleAddToCart = (product: Product, specialInstructions?: string) => {
-    const category = categories.find(c => c.id === product.categoryId);
+    const category = categories.find((c: Category) => c.id === product.categoryId);
     const categoryName = category?.name || "Unknown";
 
     // Get chef location if available
-    const chef = product.chefId ? chefs.find(c => c.id === product.chefId) : null;
+    const chef = product.chefId ? chefs.find((c: Chef) => c.id === product.chefId) : null;
 
     // 🔴 NEW: Validate chef serves user's pincode
     if (deliveryLocation.pincode && chef) {
@@ -537,7 +537,7 @@ export default function Home() {
 
     // Get the cart with precomputed delivery values
     const cartsWithDelivery = getAllCartsWithDelivery();
-    const cart = cartsWithDelivery.find(c => c.categoryId === categoryId && (chefId ? c.chefId === chefId : true));
+    const cart = cartsWithDelivery.find((c: any) => c.categoryId === categoryId && (chefId ? c.chefId === chefId : true));
 
     console.log("[CHECKOUT] Cart selected for checkout:", {
       categoryId,
@@ -624,7 +624,7 @@ export default function Home() {
         items: snapshot.items,
       };
       const existingCarts = useCart.getState().carts.filter(
-        (c) => !(c.categoryId === restoredCart.categoryId && c.chefId === restoredCart.chefId)
+        (c: any) => !(c.categoryId === restoredCart.categoryId && c.chefId === restoredCart.chefId)
       );
       useCart.setState({ carts: [...existingCarts, restoredCart] });
       setSelectedCart(restoredCart as any);
@@ -666,7 +666,7 @@ export default function Home() {
       if (token) {
         setTimeout(() => {
           api.get("/api/pending-checkouts/latest")
-            .then((res) => { if (res.data) setPendingCheckout(res.data); })
+            .then((res: any) => { if (res.data) setPendingCheckout(res.data); })
             .catch(() => { });
         }, 500);
       }
@@ -683,7 +683,7 @@ export default function Home() {
   };
 
   const handleCategoryClick = (categoryId: string) => {
-    const category = categories.find(c => c.id === categoryId);
+    const category = categories.find((c: Category) => c.id === categoryId);
     if (category) {
       setSelectedCategoryTab(categoryId);
       setIsMenuOpen(false);
@@ -707,7 +707,7 @@ export default function Home() {
   };
 
   const handleBrowseCategory = (categoryId: string) => {
-    const category = categories.find(c => c.id === categoryId);
+    const category = categories.find((c: Category) => c.id === categoryId);
     if (category) {
       setSelectedCategoryForChefList(category);
       setSelectedCategoryTab(categoryId);
@@ -724,16 +724,16 @@ export default function Home() {
   const [showOffersOnly, setShowOffersOnly] = useState(false);
 
   // Compute chef data with best offers and menu info
-  const chefsWithOffers = chefsFilteredByPincode.map(chef => {
-    const chefProducts = products.filter(p => p.chefId === chef.id);
-    const bestOffer = chefProducts.reduce((max, p) => Math.max(max, p.offerPercentage || 0), 0);
-    const hasVegItems = chefProducts.some(p => p.isVeg);
-    const hasNonVegItems = chefProducts.some(p => !p.isVeg);
+  const chefsWithOffers = chefsFilteredByPincode.map((chef: Chef) => {
+    const chefProducts = products.filter((p: Product) => p.chefId === chef.id);
+    const bestOffer = chefProducts.reduce((max: number, p: Product) => Math.max(max, p.offerPercentage || 0), 0);
+    const hasVegItems = chefProducts.some((p: Product) => p.isVeg);
+    const hasNonVegItems = chefProducts.some((p: Product) => !p.isVeg);
     const isVegOnly = hasVegItems && !hasNonVegItems;
-    const lowestPrice = chefProducts.length > 0 ? Math.min(...chefProducts.map(p => p.price)) : 0;
+    const lowestPrice = chefProducts.length > 0 ? Math.min(...chefProducts.map((p: Product) => p.price)) : 0;
 
     // Sort products deterministically: by best offer first, then by lowest price
-    const sortedProducts = [...chefProducts].sort((a, b) => {
+    const sortedProducts = [...chefProducts].sort((a: Product, b: Product) => {
       const aOffer = a.offerPercentage || 0;
       const bOffer = b.offerPercentage || 0;
       if (bOffer !== aOffer) return bOffer - aOffer;
@@ -767,12 +767,12 @@ export default function Home() {
   });
 
   // Filter chefs when a category is selected (Zomato-style)
-  const filteredChefs = chefsWithOffers.filter(chef => {
+  const filteredChefs = chefsWithOffers.filter((chef: any) => {
     // Filter by search query first - show chefs that have matching products
     if (searchQuery.trim()) {
       const searchLower = searchQuery.trim().toLowerCase();
-      const chefProducts = products.filter(p => p.chefId === chef.id);
-      const hasMatchingProduct = chefProducts.some(p =>
+      const chefProducts = products.filter((p: Product) => p.chefId === chef.id);
+      const hasMatchingProduct = chefProducts.some((p: Product) =>
         p.name.toLowerCase().includes(searchLower) ||
         p.description.toLowerCase().includes(searchLower)
       );
@@ -830,7 +830,7 @@ export default function Home() {
     }
 
     return true;
-  }).sort((a, b) => {
+  }).sort((a: any, b: any) => {
     // ✅ SORTING: Distance-first after street refinement, then by displayOrder, then availability
 
     // 0. Sort nearest chefs first whenever we have coordinates (pincode or street-refined)
@@ -844,8 +844,8 @@ export default function Home() {
     }
 
     // 1. Sort by category displayOrder (lower value = higher priority)
-    const categoryA = categories.find(c => c.id === a.categoryId);
-    const categoryB = categories.find(c => c.id === b.categoryId);
+    const categoryA = categories.find((c: Category) => c.id === a.categoryId);
+    const categoryB = categories.find((c: Category) => c.id === b.categoryId);
     const orderA = categoryA?.displayOrder ?? 999;
     const orderB = categoryB?.displayOrder ?? 999;
 
@@ -865,10 +865,10 @@ export default function Home() {
   });
 
   // Filter products when showing "all" categories
-  const filteredProducts = products.filter((product, index) => {
+  const filteredProducts = products.filter((product: Product, index: number) => {
     // 🔴 CRITICAL: Only show products from chefs available in selected area
     if (selectedArea && product.chefId) {
-      const chefAvailable = chefs.find(c => c.id === product.chefId);
+      const chefAvailable = chefs.find((c: Chef) => c.id === product.chefId);
       if (!chefAvailable) {
         console.log(`[FILTER] Excluding product ${product.name} - chef not in ${selectedArea}`);
         return false; // Chef not available in selected area
@@ -898,7 +898,7 @@ export default function Home() {
 
     // Apply near & fast filter (within 5km)
     if (activeFilters.includes("near-fast")) {
-      const chef = product.chefId ? chefs.find(c => c.id === product.chefId) : null;
+      const chef = product.chefId ? chefs.find((c: Chef) => c.id === product.chefId) : null;
 
       if (chef && userLatitude && userLongitude && chef.latitude && chef.longitude) {
         const R = 6371;
@@ -1006,7 +1006,7 @@ export default function Home() {
         onLoginClick={() => setIsLoginOpen(true)}
         onOffersClick={() => setShowOffersOnly(!showOffersOnly)}
         searchQuery={searchQuery}
-        onSearchChange={(query) => {
+        onSearchChange={(query: string) => {
           setSearchQuery(query);
           if (query.trim() && selectedCategoryTab !== "all") {
             setSelectedCategoryTab("all");
@@ -1124,14 +1124,14 @@ export default function Home() {
 
               {/* Dynamic Categories */}
               {categoriesLoading ? (
-                [...Array(3)].map((_, i) => (
+                [...Array(3)].map((_: unknown, i: number) => (
                   <div key={i} className="flex flex-col items-center gap-2 min-w-[80px] sm:min-w-[88px]">
                     <div className="w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 rounded-full bg-muted animate-pulse" />
                     <div className="w-12 h-3 bg-muted rounded animate-pulse" />
                   </div>
                 ))
               ) : (
-                filteredCategories.map(category => (
+                filteredCategories.map((category: Category) => (
                   <button
                     key={category.id}
                     onClick={() => handleBrowseCategory(category.id)}
@@ -1325,7 +1325,7 @@ export default function Home() {
               {/* Partners/Restaurants Grid - Zomato Style Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {chefsLoading ? (
-                  [...Array(6)].map((_, i) => (
+                  [...Array(6)].map((_: unknown, i: number) => (
                     <Card key={i} className="overflow-hidden animate-pulse">
                       <div className="h-40 bg-muted" />
                       <div className="p-4 space-y-2">
@@ -1354,7 +1354,7 @@ export default function Home() {
                     </Button>
                   </div>
                 ) : (
-                  filteredChefs.map((chef, chefIdx) => {
+                  filteredChefs.map((chef: any, chefIdx: number) => {
                     const realtimeStatus = chefStatuses[chef.id];
                     const isChefActive = realtimeStatus !== undefined ? realtimeStatus : (chef.isActive !== false);
                     // Reuse pre-computed distance from chefsWithOffers map — no re-computation
@@ -1500,7 +1500,7 @@ export default function Home() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {chefsLoading ? (
-                  [...Array(6)].map((_, i) => (
+                  [...Array(6)].map((_: unknown, i: number) => (
                     <Card key={i} className="overflow-hidden animate-pulse">
                       <div className="h-40 bg-muted" />
                       <div className="p-4 space-y-2">
@@ -1511,7 +1511,7 @@ export default function Home() {
                   ))
                 ) : (
                   filteredChefs
-                    .map((chef, chefIdx) => {
+                    .map((chef: any, chefIdx: number) => {
                       let distance: number | null = null;
                       let deliveryFee: number | null = null;
                       const isChefActive = chef.isActive !== false;

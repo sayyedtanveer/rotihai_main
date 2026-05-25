@@ -88,8 +88,8 @@ export default function Hero() {
       // Save to localStorage (raw keys for Hero restore)
       localStorage.setItem('userPincode', data.pincode);
       localStorage.setItem('pincodeArea', data.area);
-      localStorage.setItem('userLatitude', data.latitude.toString());
-      localStorage.setItem('userLongitude', data.longitude.toString());
+      localStorage.setItem('userLatitude', data.latitude != null ? String(data.latitude) : '');
+      localStorage.setItem('userLongitude', data.longitude != null ? String(data.longitude) : '');
 
       // Also save via pincodeUtils (used by CheckoutDialog auto-fill)
       storePincodeValidation({

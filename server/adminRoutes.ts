@@ -4965,8 +4965,13 @@ export function registerAdminRoutes(app: Express) {
               failures.push(`Update failed for: ${area.name} (id: ${area.id})`);
             }
           } else {
-            // Add new area
-            const added = await storage.addDeliveryArea(area.name.trim(), pincodes);
+            // Add new area with coordinates
+            const added = await storage.addDeliveryArea(
+              area.name.trim(),
+              pincodes,
+              area.latitude !== undefined ? parseFloat(String(area.latitude)) : undefined,
+              area.longitude !== undefined ? parseFloat(String(area.longitude)) : undefined
+            );
             if (!added) {
               console.warn(`[ADMIN] ⚠️ addDeliveryArea returned undefined for: ${area.name}`);
               failures.push(`Add failed for: ${area.name}`);
