@@ -604,6 +604,19 @@ app.use((req, res, next) => {
     console.error("Failed to start cron jobs:", error);
   }
 
+  // ✅ Warm up push notification service at startup (not lazily on first request)
+  try {
+    const { isPushConfiguredAsync } = await import("./pushService");
+    const pushReady = await isPushConfiguredAsync();
+    if (pushReady) {
+      log("Push notifications: READY ✅ (VAPID configured)");
+    } else {
+      log("Push notifications: DISABLED ⚠️ (VAPID keys missing — set VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_EMAIL)");
+    }
+  } catch (error) {
+    console.error("Failed to initialize push service:", error);
+  }
+
 
 
   // ALWAYS serve the app on the port specified in the environment variable PORT

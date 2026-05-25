@@ -11,7 +11,7 @@ import { setupWebSocket, broadcastNewOrder, broadcastOrderUpdate, broadcastSubsc
 import { hashPassword, verifyPassword, generateAccessToken, generateRefreshToken, requireUser, type AuthenticatedUserRequest } from "./userAuth";
 import { verifyToken as verifyUserToken } from "./userAuth";
 import { requireAdmin } from "./adminAuth";
-import { sendEmail, createWelcomeEmail, createPasswordResetEmail, createPasswordChangeConfirmationEmail, sendOrderConfirmationEmail } from "./emailService";
+import { sendEmail, createWelcomeEmail, createPasswordResetEmail, createPasswordChangeConfirmationEmail, sendOrderConfirmationEmail, sendAdminOrderNotification, type AdminOrderNotificationParams } from "./emailService";
 import { sendOrderPlacedAdminNotification, sendPaymentInitiatedAdminNotification } from "./whatsappService";
 import { db, subscriptions, orders, walletSettings, referralRewards, newsletterSubscribers, users, deliveryPersonnel, paymentSettings } from "@shared/db";
 import { eq } from "drizzle-orm";
@@ -2998,6 +2998,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
           await broadcastPreparedOrderToAvailableDelivery(updatedOrder);
 
           console.log(`✅ BROADCAST COMPLETE - Chef and delivery personnel notified on payment confirmation\n`);
+
+          // === Send admin email notification on payment confirmation ===
+          try {
+            console.log(`📧 [ORDER-CONFIRMED] Preparing admin email notifications for order ${updatedOrder.id}`);
+            const adminUsers = await storage.getAllAdmins();
+            const adminEmails = adminUsers
+              .filter(a => a.email && a.email.trim().length > 0)
+              .map(a => a.email.trim());
+
+            console.log(`📧 [ORDER-CONFIRMED] Admin emails: [${adminEmails.join(', ')}]`);
+
+            if (adminEmails.length > 0) {
+              const orderItems = ((updatedOrder.items as any) || []).map((it: any) => ({
+                name: it.name,
+                quantity: it.quantity,
+                price: it.price || 0,
+              }));
+
+              let chefName: string | undefined;
+              if (updatedOrder.chefId) {
+                const chef = await storage.getChefById(updatedOrder.chefId);
+                chefName = chef?.name;
+              }
+
+              const adminEmailParams: AdminOrderNotificationParams = {
+                orderId: updatedOrder.id,
+                customerName: updatedOrder.customerName,
+                customerPhone: updatedOrder.phone,
+                customerEmail: (updatedOrder as any).email || null,
+                chefName,
+                items: orderItems,
+                subtotal: updatedOrder.subtotal || 0,
+                deliveryFee: updatedOrder.deliveryFee || 0,
+                platformFee: updatedOrder.platformFee || 0,
+                total: updatedOrder.total || 0,
+                deliveryAddress: updatedOrder.address || "Not provided",
+                addressPincode: (updatedOrder as any).addressPincode || null,
+                deliveryTime: (updatedOrder as any).deliveryTime || null,
+                distance: updatedOrder.distance ? Number(updatedOrder.distance) : undefined,
+                paymentStatus: updatedOrder.paymentStatus,
+              };
+
+              await sendAdminOrderNotification(adminEmails, adminEmailParams);
+              console.log(`📧 [ORDER-CONFIRMED] Admin notification attempted for order ${updatedOrder.id}`);
+            } else {
+              console.warn(`⚠️ [ORDER-CONFIRMED] No admin emails found, skipping admin email`);
+            }
+          } catch (emailErr: any) {
+            console.error(`❌ [ORDER-CONFIRMED] Failed to send admin emails:`, emailErr?.message || emailErr);
+          }
         }
 
       } catch (paymentError: any) {
@@ -6560,20 +6610,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const { pushSubscriptions } = await import("@shared/schema");
           const { eq, and } = await import("drizzle-orm");
 
-          // Check if subscription already exists (same user + endpoint)
+          // Upsert: key on userId + userType + endpoint so each device gets its own row
+          const endpoint = subscription.endpoint as string;
           const existing = await db
             .select()
             .from(pushSubscriptions)
             .where(
               and(
                 eq(pushSubscriptions.userId, userId),
-                eq(pushSubscriptions.userType, userType)
+                eq(pushSubscriptions.userType, userType),
+                eq(pushSubscriptions.endpoint, endpoint)
               )
             )
             .limit(1);
 
           if (existing.length > 0) {
-            // Update existing subscription
+            // Update existing subscription for this specific device/endpoint
             await db
               .update(pushSubscriptions)
               .set({
@@ -6585,10 +6637,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
             console.log(`✅ Push subscription updated for ${userType} ${userId}`);
           } else {
-            // Create new subscription
+            // New device — insert a new row so all devices get notifications
             await db.insert(pushSubscriptions).values({
               userId,
               userType: userType as any,
+              endpoint,
               subscription: subscription as any,
               isActive: true,
             } as any);

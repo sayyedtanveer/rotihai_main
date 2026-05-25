@@ -270,11 +270,11 @@ self.addEventListener('push', event => {
         icon: notificationData.icon,
         badge: notificationData.badge,
         tag: notificationData.tag,
-        requireInteraction: notificationData.requireInteraction,
+        requireInteraction: true, // Keep visible until user interacts (critical for mobile)
         data: notificationData.data || {},
-        // ✅ IMPORTANT: These options help notifications show reliably
+        vibrate: [200, 100, 200], // Vibration pattern for Android
         actions: [],
-        silent: false, // Allow system sound/vibration
+        silent: false,
       })
         .then(() => {
           console.log('✅ Notification displayed successfully');
