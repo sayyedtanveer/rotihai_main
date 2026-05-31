@@ -1013,11 +1013,11 @@ var init_schema = __esm({
       {
         id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
         userId: varchar("user_id").notNull(),
-        // Can be admin_id, chef_id, delivery_id, or user_id
         userType: varchar("user_type", { length: 50 }).notNull(),
         // 'admin' | 'chef' | 'delivery' | 'customer'
         deviceType: varchar("device_type", { length: 50 }).default("web"),
-        // Always 'web' for now
+        endpoint: text("endpoint"),
+        // Push endpoint URL — unique per browser/device
         subscription: jsonb("subscription").notNull(),
         // Contains: { endpoint, keys: { p256dh, auth } }
         isActive: boolean("is_active").notNull().default(true),
@@ -1026,7 +1026,8 @@ var init_schema = __esm({
       },
       (table) => [
         index("idx_push_subscriptions_user").on(table.userId, table.userType),
-        index("idx_push_subscriptions_active").on(table.isActive)
+        index("idx_push_subscriptions_active").on(table.isActive),
+        index("idx_push_subscriptions_endpoint").on(table.endpoint)
       ]
     );
     insertPushSubscriptionSchema = createInsertSchema(pushSubscriptions).omit({
@@ -1770,12 +1771,13 @@ var init_storage = __esm({
         console.log("[STORAGE-DEBUG] getAllAdmins() result:", {
           count: result.length,
           fields: result.length > 0 ? Object.keys(result[0]) : [],
-          firstAdmin: result.length > 0 ? {
-            id: result[0].id,
-            username: result[0].username,
-            phone: result[0].phone,
-            role: result[0].role
-          } : null
+          admins: result.map((admin) => ({
+            id: admin.id,
+            username: admin.username,
+            email: admin.email,
+            phone: admin.phone,
+            role: admin.role
+          }))
         });
         return result;
       }
@@ -4277,16 +4279,18 @@ var init_storage = __esm({
           return [];
         }
       }
-      async addDeliveryArea(name, pincodes) {
+      async addDeliveryArea(name, pincodes, latitude, longitude) {
         try {
           const trimmedName = name.trim();
           if (!trimmedName) return void 0;
           const result = await db.insert(deliveryAreas2).values({
             name: trimmedName,
             isActive: true,
-            pincodes: pincodes && pincodes.length > 0 ? pincodes : []
+            pincodes: pincodes && pincodes.length > 0 ? pincodes : [],
+            latitude: latitude !== void 0 ? latitude : null,
+            longitude: longitude !== void 0 ? longitude : null
           }).returning();
-          console.log("[STORAGE] Delivery area added:", trimmedName, "with pincodes:", pincodes);
+          console.log("[STORAGE] Delivery area added:", trimmedName, "with pincodes:", pincodes, "lat:", latitude, "lon:", longitude);
           return result[0];
         } catch (error) {
           console.error("[STORAGE] Error adding delivery area:", error);
@@ -6320,6 +6324,150 @@ async function sendMissedDeliveryEmail(email, name, deliveryDate, deliveryTime, 
     html: createMissedDeliveryEmail(name, deliveryDate, deliveryTime, subscriptionId)
   });
 }
+function createAdminOrderConfirmationEmail(params) {
+  const itemsHtml = params.items.map(
+    (item) => `<tr style="border-bottom: 1px solid #eee;">
+          <td style="padding: 8px;">${item.name}</td>
+          <td style="text-align: center; padding: 8px;">x${item.quantity}</td>
+          <td style="text-align: right; padding: 8px;">\u20B9${(item.price * item.quantity).toFixed(2)}</td>
+        </tr>`
+  ).join("");
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        body { font-family: Arial; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%); color: white; padding: 20px; border-radius: 8px 8px 0 0; text-align: center; }
+        .section { background: #f9f9f9; padding: 15px; margin: 15px 0; border-radius: 6px; border-left: 4px solid #ff6b35; }
+        .customer-info { background: #e3f2fd; padding: 15px; border-radius: 6px; margin: 15px 0; }
+        .order-items { background: white; padding: 15px; border-radius: 6px; margin: 15px 0; }
+        table { width: 100%; border-collapse: collapse; }
+        .total-row { font-weight: bold; font-size: 16px; border-top: 2px solid #ff6b35; padding: 10px 0; color: #ff6b35; }
+        .badge { display: inline-block; background: #ff6b35; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; }
+        .delivery-info { background: #fff3e0; padding: 15px; border-radius: 6px; margin: 15px 0; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <!-- HEADER -->
+        <div class="header">
+          <h1 style="margin: 0;">\u{1F4E6} New Order Confirmed</h1>
+          <p style="margin: 5px 0;">Order ID: <span class="badge">${params.orderId}</span></p>
+        </div>
+
+        <!-- CUSTOMER DETAILS -->
+        <div class="customer-info">
+          <h3 style="margin-top: 0;">\u{1F464} Customer Details</h3>
+          <p><strong>Name:</strong> ${params.customerName}</p>
+          <p><strong>Phone:</strong> <a href="tel:${params.customerPhone}">${params.customerPhone}</a></p>
+          ${params.customerEmail ? `<p><strong>Email:</strong> <a href="mailto:${params.customerEmail}">${params.customerEmail}</a></p>` : ""}
+        </div>
+
+        <!-- ORDER ITEMS -->
+        <div class="section">
+          <h3 style="margin-top: 0;">\u{1F4CB} Order Items</h3>
+          <div class="order-items">
+            <table>
+              <thead>
+                <tr style="background: #f0f0f0; border-bottom: 2px solid #ff6b35;">
+                  <th style="text-align: left; padding: 10px;">Item</th>
+                  <th style="text-align: center; padding: 10px;">Qty</th>
+                  <th style="text-align: right; padding: 10px;">Price</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${itemsHtml}
+              </tbody>
+            </table>
+
+            <table style="margin-top: 15px;">
+              <tr>
+                <td style="text-align: right; padding: 8px;">Subtotal:</td>
+                <td style="text-align: right; padding: 8px; width: 100px;">\u20B9${params.subtotal.toFixed(2)}</td>
+              </tr>
+              ${params.deliveryFee ? `<tr>
+                <td style="text-align: right; padding: 8px;">Delivery Fee:</td>
+                <td style="text-align: right; padding: 8px;">\u20B9${params.deliveryFee.toFixed(2)}</td>
+              </tr>` : ""}
+              ${params.platformFee ? `<tr>
+                <td style="text-align: right; padding: 8px;">Platform Fee:</td>
+                <td style="text-align: right; padding: 8px;">\u20B9${params.platformFee.toFixed(2)}</td>
+              </tr>` : ""}
+              <tr class="total-row">
+                <td style="text-align: right; padding: 10px;">Total Amount:</td>
+                <td style="text-align: right; padding: 10px;">\u20B9${params.total.toFixed(2)}</td>
+              </tr>
+            </table>
+          </div>
+        </div>
+
+        <!-- DELIVERY DETAILS -->
+        <div class="delivery-info">
+          <h3 style="margin-top: 0;">\u{1F3E0} Delivery Details</h3>
+          <p><strong>Address:</strong> ${params.deliveryAddress}</p>
+          ${params.addressPincode ? `<p><strong>Pincode:</strong> ${params.addressPincode}</p>` : ""}
+          ${params.deliveryTime ? `<p><strong>\u23F1\uFE0F Delivery Time:</strong> ${params.deliveryTime}</p>` : ""}
+          ${params.distance ? `<p><strong>\u{1F4CD} Distance:</strong> ${params.distance.toFixed(2)} km</p>` : ""}
+        </div>
+
+        <!-- CHEF ASSIGNMENT -->
+        ${params.chefName ? `<div class="section">
+          <h3 style="margin-top: 0;">\u{1F468}\u200D\u{1F373} Assigned Chef</h3>
+          <p><strong>Chef Name:</strong> ${params.chefName}</p>
+        </div>` : ""}
+
+        <!-- PAYMENT STATUS -->
+        ${params.paymentStatus ? `<div class="section">
+          <h3 style="margin-top: 0;">\u{1F4B3} Payment Status</h3>
+          <p><strong>Status:</strong> <span class="badge">${params.paymentStatus.toUpperCase()}</span></p>
+        </div>` : ""}
+
+        <!-- FOOTER -->
+        <div style="text-align: center; padding: 20px; color: #666; font-size: 12px; border-top: 1px solid #ddd; margin-top: 20px;">
+          <p style="margin: 5px 0;">\u26A1 This is an automated notification from RotiHai Admin System</p>
+          <p style="margin: 5px 0;">Action Required: Review order and prepare for processing</p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+}
+async function sendAdminOrderNotification(adminEmails, params) {
+  console.log(`
+\u{1F4E7} [ADMIN-EMAIL] === ADMIN ORDER NOTIFICATION START ===`);
+  console.log(`\u{1F4E7} [ADMIN-EMAIL] Order ID: ${params.orderId}`);
+  console.log(`\u{1F4E7} [ADMIN-EMAIL] Total admin emails to notify: ${adminEmails.length}`);
+  console.log(`\u{1F4E7} [ADMIN-EMAIL] Email list: [${adminEmails.join(", ")}]`);
+  if (adminEmails.length === 0) {
+    console.warn(`\u26A0\uFE0F [ADMIN-EMAIL] No admin emails provided! Skipping notification.`);
+    return false;
+  }
+  const emailSubject = `\u{1F4E6} New Order Confirmed - Order #${params.orderId}`;
+  const emailHtml = createAdminOrderConfirmationEmail(params);
+  console.log(`\u{1F4E7} [ADMIN-EMAIL] Email subject: ${emailSubject}`);
+  console.log(`\u{1F4E7} [ADMIN-EMAIL] Email HTML size: ${emailHtml.length} chars`);
+  try {
+    const emailPromises = adminEmails.map((email, index2) => {
+      console.log(`\u{1F4E7} [ADMIN-EMAIL] Sending to admin #${index2 + 1}: ${email}`);
+      return sendEmail({
+        to: email,
+        subject: emailSubject,
+        html: emailHtml
+      });
+    });
+    const results = await Promise.all(emailPromises);
+    const successCount = results.filter((r) => r === true).length;
+    console.log(`\u{1F4E7} [ADMIN-EMAIL] === RESULT: ${successCount}/${adminEmails.length} emails sent successfully ===
+`);
+    return successCount > 0;
+  } catch (error) {
+    console.error(`\u274C [ADMIN-EMAIL] Exception in sendAdminOrderNotification:`, error);
+    console.error(`\u274C [ADMIN-EMAIL] Error: ${error.message}`);
+    return false;
+  }
+}
 var resend;
 var init_emailService = __esm({
   "server/emailService.ts"() {
@@ -8306,6 +8454,65 @@ function registerAdminRoutes(app2) {
       }
       if (status === "confirmed" && updatedOrder.assignedTo) {
         notifyDeliveryAssignment(updatedOrder, updatedOrder.assignedTo);
+      }
+      if (status === "confirmed") {
+        try {
+          console.log(`
+\u{1F4E7} [ORDER-CONFIRMED] ========== ADMIN EMAIL NOTIFICATION START ==========`);
+          console.log(`\u{1F4E7} [ORDER-CONFIRMED] Order ID: ${id}`);
+          console.log(`\u{1F4E7} [ORDER-CONFIRMED] Customer: ${updatedOrder.customerName}`);
+          const adminUsers4 = await storage.getAllAdmins();
+          console.log(`\u{1F4E7} [ORDER-CONFIRMED] Total admins fetched from DB: ${adminUsers4.length}`);
+          if (adminUsers4.length === 0) {
+            console.warn(`\u26A0\uFE0F [ORDER-CONFIRMED] NO ADMINS FOUND IN DATABASE!`);
+          }
+          const adminEmails = adminUsers4.filter((admin) => {
+            const hasEmail = admin.email && admin.email.trim().length > 0;
+            if (!hasEmail) {
+              console.warn(`\u26A0\uFE0F [ORDER-CONFIRMED] Admin ${admin.username} (${admin.id}) has no email: "${admin.email}"`);
+            } else {
+              console.log(`\u2705 [ORDER-CONFIRMED] Admin ${admin.username} has email: ${admin.email}`);
+            }
+            return hasEmail;
+          }).map((admin) => admin.email.trim());
+          console.log(`\u{1F4E7} [ORDER-CONFIRMED] Valid admin emails collected: [${adminEmails.join(", ")}]`);
+          if (adminEmails.length > 0) {
+            console.log(`\u{1F4E7} [ORDER-CONFIRMED] Found ${adminEmails.length} admin(s) with valid emails to notify`);
+            const orderItems = (updatedOrder.items || []).map((item) => ({
+              name: item.name,
+              quantity: item.quantity,
+              price: item.price || 0
+            }));
+            let chefName;
+            if (updatedOrder.chefId) {
+              const chef = await storage.getChefById(updatedOrder.chefId);
+              chefName = chef?.name;
+            }
+            const adminEmailParams = {
+              orderId: updatedOrder.id,
+              customerName: updatedOrder.customerName,
+              customerPhone: updatedOrder.phone,
+              customerEmail: updatedOrder.email,
+              chefName,
+              items: orderItems,
+              subtotal: updatedOrder.subtotal || 0,
+              deliveryFee: updatedOrder.deliveryFee || 0,
+              platformFee: updatedOrder.platformFee || 0,
+              total: updatedOrder.total || 0,
+              deliveryAddress: updatedOrder.address || "Not provided",
+              addressPincode: updatedOrder.addressPincode,
+              deliveryTime: updatedOrder.deliveryTime,
+              distance: updatedOrder.distance ? Number(updatedOrder.distance) : void 0,
+              paymentStatus: updatedOrder.paymentStatus
+            };
+            await sendAdminOrderNotification(adminEmails, adminEmailParams);
+            console.log(`\u2705 [ORDER-CONFIRMED] Order confirmation emails sent to ${adminEmails.length} admin(s)`);
+          } else {
+            console.warn(`\u26A0\uFE0F [ORDER-CONFIRMED] No admin emails found to send order confirmation`);
+          }
+        } catch (emailError) {
+          console.warn(`\u26A0\uFE0F [ORDER-CONFIRMED] Error sending admin order confirmation email: ${emailError.message}`);
+        }
       }
       if (status === "delivered" && updatedOrder.userId) {
         try {
@@ -11795,7 +12002,12 @@ Please prepare this order.`;
               failures.push(`Update failed for: ${area.name} (id: ${area.id})`);
             }
           } else {
-            const added = await storage.addDeliveryArea(area.name.trim(), pincodes);
+            const added = await storage.addDeliveryArea(
+              area.name.trim(),
+              pincodes,
+              area.latitude !== void 0 ? parseFloat(String(area.latitude)) : void 0,
+              area.longitude !== void 0 ? parseFloat(String(area.longitude)) : void 0
+            );
             if (!added) {
               console.warn(`[ADMIN] \u26A0\uFE0F addDeliveryArea returned undefined for: ${area.name}`);
               failures.push(`Add failed for: ${area.name}`);
@@ -14041,8 +14253,20 @@ async function registerRoutes(app2) {
       const coordinatesMap = {};
       areas.forEach((area) => {
         const areaLower = area.name.toLowerCase();
-        const lat = typeof area.latitude === "number" ? area.latitude : parseFloat(String(area.latitude || 19.0728));
-        const lon = typeof area.longitude === "number" ? area.longitude : parseFloat(String(area.longitude || 72.8826));
+        let lat = 19.0728;
+        if (typeof area.latitude === "number" && !isNaN(area.latitude)) {
+          lat = area.latitude;
+        } else if (area.latitude != null) {
+          const parsed = parseFloat(String(area.latitude));
+          if (!isNaN(parsed)) lat = parsed;
+        }
+        let lon = 72.8826;
+        if (typeof area.longitude === "number" && !isNaN(area.longitude)) {
+          lon = area.longitude;
+        } else if (area.longitude != null) {
+          const parsed = parseFloat(String(area.longitude));
+          if (!isNaN(parsed)) lon = parsed;
+        }
         coordinatesMap[areaLower] = {
           lat,
           lon,
@@ -15937,6 +16161,47 @@ ${"=".repeat(80)}`);
           await broadcastPreparedOrderToAvailableDelivery(updatedOrder);
           console.log(`\u2705 BROADCAST COMPLETE - Chef and delivery personnel notified on payment confirmation
 `);
+          try {
+            console.log(`\u{1F4E7} [ORDER-CONFIRMED] Preparing admin email notifications for order ${updatedOrder.id}`);
+            const adminUsers4 = await storage.getAllAdmins();
+            const adminEmails = adminUsers4.filter((a) => a.email && a.email.trim().length > 0).map((a) => a.email.trim());
+            console.log(`\u{1F4E7} [ORDER-CONFIRMED] Admin emails: [${adminEmails.join(", ")}]`);
+            if (adminEmails.length > 0) {
+              const orderItems = (updatedOrder.items || []).map((it) => ({
+                name: it.name,
+                quantity: it.quantity,
+                price: it.price || 0
+              }));
+              let chefName;
+              if (updatedOrder.chefId) {
+                const chef = await storage.getChefById(updatedOrder.chefId);
+                chefName = chef?.name;
+              }
+              const adminEmailParams = {
+                orderId: updatedOrder.id,
+                customerName: updatedOrder.customerName,
+                customerPhone: updatedOrder.phone,
+                customerEmail: updatedOrder.email || null,
+                chefName,
+                items: orderItems,
+                subtotal: updatedOrder.subtotal || 0,
+                deliveryFee: updatedOrder.deliveryFee || 0,
+                platformFee: updatedOrder.platformFee || 0,
+                total: updatedOrder.total || 0,
+                deliveryAddress: updatedOrder.address || "Not provided",
+                addressPincode: updatedOrder.addressPincode || null,
+                deliveryTime: updatedOrder.deliveryTime || null,
+                distance: updatedOrder.distance ? Number(updatedOrder.distance) : void 0,
+                paymentStatus: updatedOrder.paymentStatus
+              };
+              await sendAdminOrderNotification(adminEmails, adminEmailParams);
+              console.log(`\u{1F4E7} [ORDER-CONFIRMED] Admin notification attempted for order ${updatedOrder.id}`);
+            } else {
+              console.warn(`\u26A0\uFE0F [ORDER-CONFIRMED] No admin emails found, skipping admin email`);
+            }
+          } catch (emailErr) {
+            console.error(`\u274C [ORDER-CONFIRMED] Failed to send admin emails:`, emailErr?.message || emailErr);
+          }
         }
       } catch (paymentError) {
         console.error("\u274C [ATOMIC] PAYMENT FAILED - Wallet deduction error:", paymentError.message);
@@ -18212,10 +18477,26 @@ Please accept and start preparation.`;
       });
       if (matchingArea) {
         console.log(`\u2705 [PINCODE-VALIDATION] Pincode ${pincodeStr} found in delivery area: ${matchingArea.name}`);
-        const areaCoords = {
-          lat: typeof matchingArea.latitude === "number" ? matchingArea.latitude : parseFloat(String(matchingArea.latitude || 19.0728)),
-          lon: typeof matchingArea.longitude === "number" ? matchingArea.longitude : parseFloat(String(matchingArea.longitude || 72.8826))
-        };
+        let lat = 19.0728;
+        let lon = 72.8826;
+        if (typeof matchingArea.latitude === "number" && !isNaN(matchingArea.latitude)) {
+          lat = matchingArea.latitude;
+        } else if (matchingArea.latitude != null) {
+          const parsed = parseFloat(String(matchingArea.latitude));
+          if (!isNaN(parsed)) lat = parsed;
+        }
+        if (typeof matchingArea.longitude === "number" && !isNaN(matchingArea.longitude)) {
+          lon = matchingArea.longitude;
+        } else if (matchingArea.longitude != null) {
+          const parsed = parseFloat(String(matchingArea.longitude));
+          if (!isNaN(parsed)) lon = parsed;
+        }
+        if (isNaN(lat) || isNaN(lon)) {
+          console.warn(`[PINCODE-VALIDATION] \u26A0\uFE0F Invalid coordinates for area "${matchingArea.name}": lat=${lat}, lon=${lon}. Using defaults.`);
+          lat = 19.0728;
+          lon = 72.8826;
+        }
+        const areaCoords = { lat, lon };
         console.log(`[PINCODE-VALIDATION] Using dynamic coordinates for area "${matchingArea.name}":`, areaCoords);
         return res.json({
           success: true,
@@ -18681,10 +18962,12 @@ Please accept and start preparation.`;
       const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { pushSubscriptions: pushSubscriptions2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
       const { eq: eq10, and: and6 } = await import("drizzle-orm");
+      const endpoint = subscription.endpoint;
       const existing = await db2.select().from(pushSubscriptions2).where(
         and6(
           eq10(pushSubscriptions2.userId, userId),
-          eq10(pushSubscriptions2.userType, userType)
+          eq10(pushSubscriptions2.userType, userType),
+          eq10(pushSubscriptions2.endpoint, endpoint)
         )
       ).limit(1);
       if (existing.length > 0) {
@@ -18698,6 +18981,7 @@ Please accept and start preparation.`;
         await db2.insert(pushSubscriptions2).values({
           userId,
           userType,
+          endpoint,
           subscription,
           isActive: true
         });
@@ -19063,7 +19347,6 @@ var log2 = (message, source = "express") => {
 };
 var app = express2();
 console.log("\u{1F680} Server is starting...");
-debugger;
 app.use(express2.json({
   verify: (req, _res, buf) => {
     req.rawBody = buf;
@@ -19472,6 +19755,17 @@ app.use((req, res, next) => {
     startCronJobs2();
   } catch (error) {
     console.error("Failed to start cron jobs:", error);
+  }
+  try {
+    const { isPushConfiguredAsync: isPushConfiguredAsync2 } = await Promise.resolve().then(() => (init_pushService(), pushService_exports));
+    const pushReady = await isPushConfiguredAsync2();
+    if (pushReady) {
+      log2("Push notifications: READY \u2705 (VAPID configured)");
+    } else {
+      log2("Push notifications: DISABLED \u26A0\uFE0F (VAPID keys missing \u2014 set VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_EMAIL)");
+    }
+  } catch (error) {
+    console.error("Failed to initialize push service:", error);
   }
   const port = parseInt(process.env.PORT || "5000", 10);
   server.listen({

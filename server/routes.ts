@@ -11,7 +11,7 @@ import { setupWebSocket, broadcastNewOrder, broadcastOrderUpdate, broadcastSubsc
 import { hashPassword, verifyPassword, generateAccessToken, generateRefreshToken, requireUser, type AuthenticatedUserRequest } from "./userAuth";
 import { verifyToken as verifyUserToken } from "./userAuth";
 import { requireAdmin } from "./adminAuth";
-import { sendEmail, createWelcomeEmail, createPasswordResetEmail, createPasswordChangeConfirmationEmail, sendOrderConfirmationEmail } from "./emailService";
+import { sendEmail, createWelcomeEmail, createPasswordResetEmail, createPasswordChangeConfirmationEmail, sendOrderConfirmationEmail, sendAdminOrderNotification, type AdminOrderNotificationParams } from "./emailService";
 import { sendOrderPlacedAdminNotification, sendPaymentInitiatedAdminNotification } from "./whatsappService";
 import { db, subscriptions, orders, walletSettings, referralRewards, newsletterSubscribers, users, deliveryPersonnel, paymentSettings } from "@shared/db";
 import { eq } from "drizzle-orm";
@@ -2010,7 +2010,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         // Use the shared calculateDelivery utility that the frontend uses
         const { calculateDelivery } = await import("@shared/deliveryUtils");
-        const feeResult = calculateDelivery(addressDistance, sanitized.subtotal || 0, deliverySettings);
+        const chefThreshold = chef?.freeDeliveryThreshold ?? 0;
+        const feeResult = calculateDelivery(addressDistance, sanitized.subtotal || 0, deliverySettings, undefined, chefThreshold);
 
         const minOrderAmount = feeResult.minOrderAmount || 0;
         const meetsMinimum = minOrderAmount > 0 && (sanitized.subtotal || 0) >= minOrderAmount;
@@ -3100,6 +3101,82 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.error("[WHATSAPP ERROR]", waErr?.message || waErr);
       }
 
+      // ✅ SEND ADMIN EMAIL NOTIFICATION on payment confirmation (background)
+      (async () => {
+        try {
+          console.log(`\n📧 [ADMIN-EMAIL] Sending admin email notification for payment confirmation`);
+          
+          const adminUsers = await storage.getAllAdmins();
+          const adminEmails = adminUsers
+            .filter(a => a.email && a.email.trim().length > 0)
+            .map(a => a.email.trim());
+
+          if (adminEmails.length === 0) {
+            console.warn(`⚠️ [ADMIN-EMAIL] No admin emails found - skipping email notification`);
+          } else {
+            console.log(`📧 [ADMIN-EMAIL] Found ${adminEmails.length} admin(s) to notify: [${adminEmails.join(", ")}]`);
+
+            // Parse items array
+            let itemsArray: Array<{ name: string; quantity: number; price: number }> | undefined;
+            if (typeof updatedOrder?.items === 'string') {
+              try {
+                itemsArray = JSON.parse(updatedOrder.items);
+              } catch (e) {
+                itemsArray = [];
+              }
+            } else if (Array.isArray(updatedOrder?.items)) {
+              itemsArray = updatedOrder.items;
+            } else {
+              itemsArray = undefined;
+            }
+
+            // Build complete address
+            const completeAddress = [
+              updatedOrder?.addressBuilding,
+              updatedOrder?.addressStreet,
+              updatedOrder?.addressArea,
+              updatedOrder?.addressCity,
+              updatedOrder?.addressPincode
+            ].filter(Boolean).join(", ");
+
+            // Get chef name if assigned
+            let chefName: string | null = null;
+            if (updatedOrder?.chefId) {
+              const chef = await storage.getChefById(updatedOrder.chefId);
+              if (chef) chefName = chef.name;
+            }
+
+            const adminEmailParams: AdminOrderNotificationParams = {
+              orderId: updatedOrder?.id || "",
+              customerName: updatedOrder?.customerName || "",
+              customerPhone: updatedOrder?.phone || "",
+              customerEmail: updatedOrder?.email || null,
+              chefName: chefName,
+              items: itemsArray || [],
+              subtotal: updatedOrder?.subtotal || 0,
+              deliveryFee: updatedOrder?.deliveryFee || 0,
+              platformFee: 0,
+              total: updatedOrder?.total || 0,
+              deliveryAddress: completeAddress,
+              addressPincode: updatedOrder?.addressPincode || null,
+              deliveryTime: updatedOrder?.deliveryTime || null,
+              paymentStatus: "CONFIRMED",
+            };
+
+            const emailSent = await sendAdminOrderNotification(adminEmails, adminEmailParams);
+            
+            if (emailSent) {
+              console.log(`✅ [ADMIN-EMAIL] Admin notification email sent successfully`);
+            } else {
+              console.warn(`⚠️ [ADMIN-EMAIL] Failed to send admin notification email`);
+            }
+          }
+        } catch (err: any) {
+          console.error("❌ [ADMIN-EMAIL] Error sending admin email notification:", err.message);
+          // Don't fail payment confirmation if email fails
+        }
+      })();
+
       res.json(response);
     } catch (error: any) {
       console.error("Error confirming payment:", error);
@@ -3774,13 +3851,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get chef location or default to Kurla West, Mumbai
       let chefLat: number = 19.0728;
       let chefLon: number = 72.8826;
+      let chefForCalc: any = null;
 
       if (chefId) {
-        const chef = await storage.getChefById(chefId);
-        if (chef && chef.latitude !== null && chef.longitude !== null &&
-          chef.latitude !== undefined && chef.longitude !== undefined) {
-          chefLat = chef.latitude;
-          chefLon = chef.longitude;
+        const fetchedChef = await storage.getChefById(chefId);
+        chefForCalc = fetchedChef;
+        if (fetchedChef && fetchedChef.latitude !== null && fetchedChef.longitude !== null &&
+          fetchedChef.latitude !== undefined && fetchedChef.longitude !== undefined) {
+          chefLat = fetchedChef.latitude;
+          chefLon = fetchedChef.longitude;
         }
       }
 
@@ -3799,8 +3878,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         minOrderAmount: setting.minOrderAmount ?? undefined
       }));
 
-      // Calculate delivery fee using admin settings
-      const deliveryCalc = calculateDelivery(distance, subtotal, deliverySettings);
+      // Calculate delivery fee using admin settings, applying chef-specific threshold
+      const deliveryCalc = calculateDelivery(distance, subtotal, deliverySettings, undefined, chefForCalc?.freeDeliveryThreshold ?? 0);
 
       res.json({
         distance,
@@ -6444,7 +6523,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const feeCalcResult = calculateDelivery(
         distance || 0,
         orderAmount,
-        deliverySettings
+        deliverySettings,
+        undefined,
+        (chef as any)?.freeDeliveryThreshold ?? 0
       );
 
       const feeResult = {

@@ -26,7 +26,7 @@ import { broadcastOrderUpdate, broadcastNewOrder, notifyDeliveryAssignment, canc
 import { hashPassword as hashDeliveryPassword } from "./deliveryAuth";
 import { eq } from "drizzle-orm";
 import { subscriptions } from "@shared/schema";
-import { sendEmail, createAdminPasswordResetEmail, sendMissedDeliveryEmail } from "./emailService";
+import { sendEmail, createAdminPasswordResetEmail, sendMissedDeliveryEmail, sendAdminOrderNotification, type AdminOrderNotificationParams } from "./emailService";
 import { sendChefAssignmentNotification, sendDeliveryCompletedNotification, sendMissedDeliveryNotification, sendDeliveryAvailableNotification } from "./whatsappService";
 
 import { invalidateCache, invalidateCachePrefix } from "./cache";
@@ -534,6 +534,82 @@ export function registerAdminRoutes(app: Express) {
       // Notify assigned delivery person when order is confirmed
       if (status === "confirmed" && updatedOrder.assignedTo) {
         notifyDeliveryAssignment(updatedOrder, updatedOrder.assignedTo);
+      }
+
+      // Send email to all admins when order is confirmed
+      if (status === "confirmed") {
+        try {
+          console.log(`\n📧 [ORDER-CONFIRMED] ========== ADMIN EMAIL NOTIFICATION START ==========`);
+          console.log(`📧 [ORDER-CONFIRMED] Order ID: ${id}`);
+          console.log(`📧 [ORDER-CONFIRMED] Customer: ${updatedOrder.customerName}`);
+          
+          // Fetch all admin emails
+          const adminUsers = await storage.getAllAdmins();
+          console.log(`📧 [ORDER-CONFIRMED] Total admins fetched from DB: ${adminUsers.length}`);
+          
+          if (adminUsers.length === 0) {
+            console.warn(`⚠️ [ORDER-CONFIRMED] NO ADMINS FOUND IN DATABASE!`);
+          }
+          
+          const adminEmails = adminUsers
+            .filter(admin => {
+              const hasEmail = admin.email && admin.email.trim().length > 0;
+              if (!hasEmail) {
+                console.warn(`⚠️ [ORDER-CONFIRMED] Admin ${admin.username} (${admin.id}) has no email: "${admin.email}"`);
+              } else {
+                console.log(`✅ [ORDER-CONFIRMED] Admin ${admin.username} has email: ${admin.email}`);
+              }
+              return hasEmail;
+            })
+            .map(admin => admin.email.trim());
+          
+          console.log(`📧 [ORDER-CONFIRMED] Valid admin emails collected: [${adminEmails.join(", ")}]`);
+          
+          if (adminEmails.length > 0) {
+            console.log(`📧 [ORDER-CONFIRMED] Found ${adminEmails.length} admin(s) with valid emails to notify`);
+            
+            // Prepare order items for email
+            const orderItems = ((updatedOrder.items as any) || []).map((item: any) => ({
+              name: item.name,
+              quantity: item.quantity,
+              price: item.price || 0
+            }));
+
+            // Get chef name if assigned
+            let chefName: string | undefined;
+            if (updatedOrder.chefId) {
+              const chef = await storage.getChefById(updatedOrder.chefId);
+              chefName = chef?.name;
+            }
+
+            const adminEmailParams: AdminOrderNotificationParams = {
+              orderId: updatedOrder.id,
+              customerName: updatedOrder.customerName,
+              customerPhone: updatedOrder.phone,
+              customerEmail: updatedOrder.email,
+              chefName,
+              items: orderItems,
+              subtotal: updatedOrder.subtotal || 0,
+              deliveryFee: updatedOrder.deliveryFee || 0,
+              platformFee: updatedOrder.platformFee || 0,
+              total: updatedOrder.total || 0,
+              deliveryAddress: updatedOrder.address || "Not provided",
+              addressPincode: updatedOrder.addressPincode,
+              deliveryTime: updatedOrder.deliveryTime,
+              distance: updatedOrder.distance ? Number(updatedOrder.distance) : undefined,
+              paymentStatus: updatedOrder.paymentStatus
+            };
+
+            // Send emails to all admins
+            await sendAdminOrderNotification(adminEmails, adminEmailParams);
+            console.log(`✅ [ORDER-CONFIRMED] Order confirmation emails sent to ${adminEmails.length} admin(s)`);
+          } else {
+            console.warn(`⚠️ [ORDER-CONFIRMED] No admin emails found to send order confirmation`);
+          }
+        } catch (emailError: any) {
+          console.warn(`⚠️ [ORDER-CONFIRMED] Error sending admin order confirmation email: ${emailError.message}`);
+          // Don't fail the order status update if email sending fails
+        }
       }
 
       // Send delivery completed notification to user
@@ -4889,8 +4965,13 @@ export function registerAdminRoutes(app: Express) {
               failures.push(`Update failed for: ${area.name} (id: ${area.id})`);
             }
           } else {
-            // Add new area
-            const added = await storage.addDeliveryArea(area.name.trim(), pincodes);
+            // Add new area with coordinates
+            const added = await storage.addDeliveryArea(
+              area.name.trim(),
+              pincodes,
+              area.latitude !== undefined ? parseFloat(String(area.latitude)) : undefined,
+              area.longitude !== undefined ? parseFloat(String(area.longitude)) : undefined
+            );
             if (!added) {
               console.warn(`[ADMIN] ⚠️ addDeliveryArea returned undefined for: ${area.name}`);
               failures.push(`Add failed for: ${area.name}`);

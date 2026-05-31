@@ -973,9 +973,10 @@ export const pushSubscriptions = pgTable(
   "push_subscriptions",
   {
     id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-    userId: varchar("user_id").notNull(), // Can be admin_id, chef_id, delivery_id, or user_id
+    userId: varchar("user_id").notNull(),
     userType: varchar("user_type", { length: 50 }).notNull(), // 'admin' | 'chef' | 'delivery' | 'customer'
-    deviceType: varchar("device_type", { length: 50 }).default("web"), // Always 'web' for now
+    deviceType: varchar("device_type", { length: 50 }).default("web"),
+    endpoint: text("endpoint"), // Push endpoint URL — unique per browser/device
     subscription: jsonb("subscription").notNull(), // Contains: { endpoint, keys: { p256dh, auth } }
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -984,6 +985,7 @@ export const pushSubscriptions = pgTable(
   (table) => [
     index("idx_push_subscriptions_user").on(table.userId, table.userType),
     index("idx_push_subscriptions_active").on(table.isActive),
+    index("idx_push_subscriptions_endpoint").on(table.endpoint),
   ]
 );
 

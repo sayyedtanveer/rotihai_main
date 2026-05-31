@@ -65,7 +65,8 @@ export function calculateDelivery(
   distance: number,
   subtotal: number,
   deliverySettings?: DeliverySetting[],
-  customMultiplier?: number
+  customMultiplier?: number,
+  chefFreeDeliveryThreshold?: number
 ): Omit<DeliveryCalculation, 'distance'> {
   let deliveryFee: number = 0;
   let freeDeliveryEligible = false;
@@ -122,14 +123,18 @@ export function calculateDelivery(
     // Get minimum order amount for this distance range
     const minOrderForRange = matchingSetting.minOrderAmount || 0;
 
-    // Free delivery logic: if fee is 0 in settings, or if subtotal meets the minimum order amount for this range, it's free
-    if (deliveryFee === 0 || (minOrderForRange > 0 && subtotal >= minOrderForRange)) {
+    // Effective threshold = MAX(slab minimum, chef-specific free delivery threshold)
+    // Chef threshold of 0/undefined means chef has no override → slab value wins
+    const effectiveThreshold = Math.max(minOrderForRange, chefFreeDeliveryThreshold ?? 0);
+
+    // Free delivery logic: fee is 0 in settings, OR subtotal meets the effective threshold
+    if (deliveryFee === 0 || (effectiveThreshold > 0 && subtotal >= effectiveThreshold)) {
       freeDeliveryEligible = true;
-      deliveryFee = 0; // Ensure fee is 0 if eligible for free delivery
+      deliveryFee = 0;
     } else {
       // Calculate how much more is needed for free delivery
-      if (minOrderForRange > 0) {
-        amountForFreeDelivery = minOrderForRange - subtotal;
+      if (effectiveThreshold > 0) {
+        amountForFreeDelivery = effectiveThreshold - subtotal;
       }
       freeDeliveryEligible = false;
     }
@@ -139,7 +144,7 @@ export function calculateDelivery(
       freeDeliveryEligible,
       amountForFreeDelivery,
       deliveryRangeName,
-      minOrderAmount: minOrderForRange, // Return min order for this range
+      minOrderAmount: effectiveThreshold,
     };
 
     console.log(`[Delivery Calc] Final result:`, result);
