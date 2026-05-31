@@ -1,4 +1,4 @@
-import type { Express, Request, Response } from "express";
+import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { getCache, setCache, invalidateCache, invalidateCachePrefix } from "./cache";
@@ -515,24 +515,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       areas.forEach(area => {
         const areaLower = area.name.toLowerCase();
-        
-        // Validate latitude
-        let lat = 19.0728; // Default Mumbai lat
-        if (typeof area.latitude === 'number' && !isNaN(area.latitude)) {
-          lat = area.latitude;
-        } else if (area.latitude != null) {
-          const parsed = parseFloat(String(area.latitude));
-          if (!isNaN(parsed)) lat = parsed;
-        }
-        
-        // Validate longitude
-        let lon = 72.8826; // Default Mumbai lon
-        if (typeof area.longitude === 'number' && !isNaN(area.longitude)) {
-          lon = area.longitude;
-        } else if (area.longitude != null) {
-          const parsed = parseFloat(String(area.longitude));
-          if (!isNaN(parsed)) lon = parsed;
-        }
+        const lat = typeof area.latitude === 'number'
+          ? area.latitude
+          : parseFloat(String(area.latitude || 19.0728));
+        const lon = typeof area.longitude === 'number'
+          ? area.longitude
+          : parseFloat(String(area.longitude || 72.8826));
 
         coordinatesMap[areaLower] = {
           lat,
@@ -2022,7 +2010,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         // Use the shared calculateDelivery utility that the frontend uses
         const { calculateDelivery } = await import("@shared/deliveryUtils");
-        const feeResult = calculateDelivery(addressDistance, sanitized.subtotal || 0, deliverySettings);
+        const chefThreshold = chef?.freeDeliveryThreshold ?? 0;
+        const feeResult = calculateDelivery(addressDistance, sanitized.subtotal || 0, deliverySettings, undefined, chefThreshold);
 
         const minOrderAmount = feeResult.minOrderAmount || 0;
         const meetsMinimum = minOrderAmount > 0 && (sanitized.subtotal || 0) >= minOrderAmount;
@@ -3010,56 +2999,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           await broadcastPreparedOrderToAvailableDelivery(updatedOrder);
 
           console.log(`✅ BROADCAST COMPLETE - Chef and delivery personnel notified on payment confirmation\n`);
-
-          // === Send admin email notification on payment confirmation ===
-          try {
-            console.log(`📧 [ORDER-CONFIRMED] Preparing admin email notifications for order ${updatedOrder.id}`);
-            const adminUsers = await storage.getAllAdmins();
-            const adminEmails = adminUsers
-              .filter(a => a.email && a.email.trim().length > 0)
-              .map(a => a.email.trim());
-
-            console.log(`📧 [ORDER-CONFIRMED] Admin emails: [${adminEmails.join(', ')}]`);
-
-            if (adminEmails.length > 0) {
-              const orderItems = ((updatedOrder.items as any) || []).map((it: any) => ({
-                name: it.name,
-                quantity: it.quantity,
-                price: it.price || 0,
-              }));
-
-              let chefName: string | undefined;
-              if (updatedOrder.chefId) {
-                const chef = await storage.getChefById(updatedOrder.chefId);
-                chefName = chef?.name;
-              }
-
-              const adminEmailParams: AdminOrderNotificationParams = {
-                orderId: updatedOrder.id,
-                customerName: updatedOrder.customerName,
-                customerPhone: updatedOrder.phone,
-                customerEmail: (updatedOrder as any).email || null,
-                chefName,
-                items: orderItems,
-                subtotal: updatedOrder.subtotal || 0,
-                deliveryFee: updatedOrder.deliveryFee || 0,
-                platformFee: updatedOrder.platformFee || 0,
-                total: updatedOrder.total || 0,
-                deliveryAddress: updatedOrder.address || "Not provided",
-                addressPincode: (updatedOrder as any).addressPincode || null,
-                deliveryTime: (updatedOrder as any).deliveryTime || null,
-                distance: updatedOrder.distance ? Number(updatedOrder.distance) : undefined,
-                paymentStatus: updatedOrder.paymentStatus,
-              };
-
-              await sendAdminOrderNotification(adminEmails, adminEmailParams);
-              console.log(`📧 [ORDER-CONFIRMED] Admin notification attempted for order ${updatedOrder.id}`);
-            } else {
-              console.warn(`⚠️ [ORDER-CONFIRMED] No admin emails found, skipping admin email`);
-            }
-          } catch (emailErr: any) {
-            console.error(`❌ [ORDER-CONFIRMED] Failed to send admin emails:`, emailErr?.message || emailErr);
-          }
         }
 
       } catch (paymentError: any) {
@@ -3161,6 +3100,82 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } catch (waErr: any) {
         console.error("[WHATSAPP ERROR]", waErr?.message || waErr);
       }
+
+      // ✅ SEND ADMIN EMAIL NOTIFICATION on payment confirmation (background)
+      (async () => {
+        try {
+          console.log(`\n📧 [ADMIN-EMAIL] Sending admin email notification for payment confirmation`);
+          
+          const adminUsers = await storage.getAllAdmins();
+          const adminEmails = adminUsers
+            .filter(a => a.email && a.email.trim().length > 0)
+            .map(a => a.email.trim());
+
+          if (adminEmails.length === 0) {
+            console.warn(`⚠️ [ADMIN-EMAIL] No admin emails found - skipping email notification`);
+          } else {
+            console.log(`📧 [ADMIN-EMAIL] Found ${adminEmails.length} admin(s) to notify: [${adminEmails.join(", ")}]`);
+
+            // Parse items array
+            let itemsArray: Array<{ name: string; quantity: number; price: number }> | undefined;
+            if (typeof updatedOrder?.items === 'string') {
+              try {
+                itemsArray = JSON.parse(updatedOrder.items);
+              } catch (e) {
+                itemsArray = [];
+              }
+            } else if (Array.isArray(updatedOrder?.items)) {
+              itemsArray = updatedOrder.items;
+            } else {
+              itemsArray = undefined;
+            }
+
+            // Build complete address
+            const completeAddress = [
+              updatedOrder?.addressBuilding,
+              updatedOrder?.addressStreet,
+              updatedOrder?.addressArea,
+              updatedOrder?.addressCity,
+              updatedOrder?.addressPincode
+            ].filter(Boolean).join(", ");
+
+            // Get chef name if assigned
+            let chefName: string | null = null;
+            if (updatedOrder?.chefId) {
+              const chef = await storage.getChefById(updatedOrder.chefId);
+              if (chef) chefName = chef.name;
+            }
+
+            const adminEmailParams: AdminOrderNotificationParams = {
+              orderId: updatedOrder?.id || "",
+              customerName: updatedOrder?.customerName || "",
+              customerPhone: updatedOrder?.phone || "",
+              customerEmail: updatedOrder?.email || null,
+              chefName: chefName,
+              items: itemsArray || [],
+              subtotal: updatedOrder?.subtotal || 0,
+              deliveryFee: updatedOrder?.deliveryFee || 0,
+              platformFee: 0,
+              total: updatedOrder?.total || 0,
+              deliveryAddress: completeAddress,
+              addressPincode: updatedOrder?.addressPincode || null,
+              deliveryTime: updatedOrder?.deliveryTime || null,
+              paymentStatus: "CONFIRMED",
+            };
+
+            const emailSent = await sendAdminOrderNotification(adminEmails, adminEmailParams);
+            
+            if (emailSent) {
+              console.log(`✅ [ADMIN-EMAIL] Admin notification email sent successfully`);
+            } else {
+              console.warn(`⚠️ [ADMIN-EMAIL] Failed to send admin notification email`);
+            }
+          }
+        } catch (err: any) {
+          console.error("❌ [ADMIN-EMAIL] Error sending admin email notification:", err.message);
+          // Don't fail payment confirmation if email fails
+        }
+      })();
 
       res.json(response);
     } catch (error: any) {
@@ -3836,13 +3851,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get chef location or default to Kurla West, Mumbai
       let chefLat: number = 19.0728;
       let chefLon: number = 72.8826;
+      let chefForCalc: any = null;
 
       if (chefId) {
-        const chef = await storage.getChefById(chefId);
-        if (chef && chef.latitude !== null && chef.longitude !== null &&
-          chef.latitude !== undefined && chef.longitude !== undefined) {
-          chefLat = chef.latitude;
-          chefLon = chef.longitude;
+        const fetchedChef = await storage.getChefById(chefId);
+        chefForCalc = fetchedChef;
+        if (fetchedChef && fetchedChef.latitude !== null && fetchedChef.longitude !== null &&
+          fetchedChef.latitude !== undefined && fetchedChef.longitude !== undefined) {
+          chefLat = fetchedChef.latitude;
+          chefLon = fetchedChef.longitude;
         }
       }
 
@@ -3861,8 +3878,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         minOrderAmount: setting.minOrderAmount ?? undefined
       }));
 
-      // Calculate delivery fee using admin settings
-      const deliveryCalc = calculateDelivery(distance, subtotal, deliverySettings);
+      // Calculate delivery fee using admin settings, applying chef-specific threshold
+      const deliveryCalc = calculateDelivery(distance, subtotal, deliverySettings, undefined, chefForCalc?.freeDeliveryThreshold ?? 0);
 
       res.json({
         distance,
@@ -5994,7 +6011,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/validate-pincode - Validate if pincode is in delivery zone
   // PRIORITY 1: Check against admin-configured pincodes (direct lookup - no API call)
   // PRIORITY 2: Fallback to geocoding if admin hasn't configured pincodes
-  app.post("/api/validate-pincode", async (req: Request, res: Response) => {
+  app.post("/api/validate-pincode", async (req, res) => {
     try {
       const { pincode } = req.body;
 
@@ -6027,31 +6044,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(`✅ [PINCODE-VALIDATION] Pincode ${pincodeStr} found in delivery area: ${matchingArea.name}`);
 
         // Get coordinates from database (admin configured)
-        let lat = 19.0728; // Default Mumbai lat
-        let lon = 72.8826; // Default Mumbai lon
-        
-        if (typeof matchingArea.latitude === 'number' && !isNaN(matchingArea.latitude)) {
-          lat = matchingArea.latitude;
-        } else if (matchingArea.latitude != null) {
-          const parsed = parseFloat(String(matchingArea.latitude));
-          if (!isNaN(parsed)) lat = parsed;
-        }
-        
-        if (typeof matchingArea.longitude === 'number' && !isNaN(matchingArea.longitude)) {
-          lon = matchingArea.longitude;
-        } else if (matchingArea.longitude != null) {
-          const parsed = parseFloat(String(matchingArea.longitude));
-          if (!isNaN(parsed)) lon = parsed;
-        }
-        
-        // Validate coordinates are not NaN before returning
-        if (isNaN(lat) || isNaN(lon)) {
-          console.warn(`[PINCODE-VALIDATION] ⚠️ Invalid coordinates for area "${matchingArea.name}": lat=${lat}, lon=${lon}. Using defaults.`);
-          lat = 19.0728;
-          lon = 72.8826;
-        }
-        
-        const areaCoords = { lat, lon };
+        const areaCoords = {
+          lat: typeof matchingArea.latitude === 'number' ? matchingArea.latitude : parseFloat(String(matchingArea.latitude || 19.0728)),
+          lon: typeof matchingArea.longitude === 'number' ? matchingArea.longitude : parseFloat(String(matchingArea.longitude || 72.8826))
+        };
 
         console.log(`[PINCODE-VALIDATION] Using dynamic coordinates for area "${matchingArea.name}":`, areaCoords);
 
@@ -6527,7 +6523,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const feeCalcResult = calculateDelivery(
         distance || 0,
         orderAmount,
-        deliverySettings
+        deliverySettings,
+        undefined,
+        (chef as any)?.freeDeliveryThreshold ?? 0
       );
 
       const feeResult = {
@@ -6643,22 +6641,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const { pushSubscriptions } = await import("@shared/schema");
           const { eq, and } = await import("drizzle-orm");
 
-          // Upsert: key on userId + userType + endpoint so each device gets its own row
-          const endpoint = subscription.endpoint as string;
+          // Check if subscription already exists (same user + endpoint)
           const existing = await db
             .select()
             .from(pushSubscriptions)
             .where(
               and(
                 eq(pushSubscriptions.userId, userId),
-                eq(pushSubscriptions.userType, userType),
-                eq(pushSubscriptions.endpoint, endpoint)
+                eq(pushSubscriptions.userType, userType)
               )
             )
             .limit(1);
 
           if (existing.length > 0) {
-            // Update existing subscription for this specific device/endpoint
+            // Update existing subscription
             await db
               .update(pushSubscriptions)
               .set({
@@ -6670,11 +6666,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
             console.log(`✅ Push subscription updated for ${userType} ${userId}`);
           } else {
-            // New device — insert a new row so all devices get notifications
+            // Create new subscription
             await db.insert(pushSubscriptions).values({
               userId,
               userType: userType as any,
-              endpoint,
               subscription: subscription as any,
               isActive: true,
             } as any);

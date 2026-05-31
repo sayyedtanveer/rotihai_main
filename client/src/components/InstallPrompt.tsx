@@ -13,11 +13,18 @@ declare global {
   }
 }
 
-export function InstallPrompt() {
+interface InstallPromptProps {
+  streetRefinementDone?: boolean;
+}
+
+export function InstallPrompt({ streetRefinementDone = false }: InstallPromptProps) {
   const [showPrompt, setShowPrompt] = useState(false);
   const [isIOS, setIsIOS] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [hasPromptAvailable, setHasPromptAvailable] = useState(false);
 
+  // PHASE 1: Detect device type and register event listeners
+  // Do NOT schedule Install Prompt display here — only detect and store events
   useEffect(() => {
     const isStandalone =
       window.matchMedia("(display-mode: standalone)").matches ||
@@ -34,24 +41,36 @@ export function InstallPrompt() {
 
     const ua = navigator.userAgent;
     const isIOSDevice = /iPad|iPhone|iPod/.test(ua) && !(window as any).MSStream;
-    const isSafariOnIOS = isIOSDevice && /Safari/.test(ua) && !/CriOS|FxiOS|OPiOS/.test(ua);
     const isAnyBrowserOnIOS = isIOSDevice;
 
     if (isAnyBrowserOnIOS) {
       setIsIOS(true);
-      setTimeout(() => setShowPrompt(true), 2000);
+      setHasPromptAvailable(true); // Mark that iOS is ready for Install Prompt
       return;
     }
 
+    // Android: Listen for beforeinstallprompt event
     const handler = (e: BeforeInstallPromptEvent) => {
       e.preventDefault();
       setDeferredPrompt(e);
-      setTimeout(() => setShowPrompt(true), 2000);
+      setHasPromptAvailable(true); // Mark that Android prompt is available
     };
 
     window.addEventListener("beforeinstallprompt", handler);
     return () => window.removeEventListener("beforeinstallprompt", handler);
   }, []);
+
+  // PHASE 2: Show Install Prompt ONLY AFTER Street Refinement completes
+  // 🔒 This ensures Install Prompt can NEVER appear before Street Refinement finishes
+  useEffect(() => {
+    if (!streetRefinementDone || !hasPromptAvailable) {
+      return; // Block: Street Refinement not done, or prompt not available yet
+    }
+
+    // Only schedule timeout AFTER refinement is complete
+    const t = setTimeout(() => setShowPrompt(true), 2000);
+    return () => clearTimeout(t);
+  }, [streetRefinementDone, hasPromptAvailable]);
 
   const handleInstallClick = async () => {
     if (!deferredPrompt) return;

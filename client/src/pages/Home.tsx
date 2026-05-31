@@ -1012,6 +1012,7 @@ export default function Home() {
             setSelectedCategoryTab("all");
           }
         }}
+        streetRefinementDone={streetRefinementDone}
       />
 
 

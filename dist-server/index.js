@@ -1771,12 +1771,13 @@ var init_storage = __esm({
         console.log("[STORAGE-DEBUG] getAllAdmins() result:", {
           count: result.length,
           fields: result.length > 0 ? Object.keys(result[0]) : [],
-          firstAdmin: result.length > 0 ? {
-            id: result[0].id,
-            username: result[0].username,
-            phone: result[0].phone,
-            role: result[0].role
-          } : null
+          admins: result.map((admin) => ({
+            id: admin.id,
+            username: admin.username,
+            email: admin.email,
+            phone: admin.phone,
+            role: admin.role
+          }))
         });
         return result;
       }
@@ -4278,16 +4279,18 @@ var init_storage = __esm({
           return [];
         }
       }
-      async addDeliveryArea(name, pincodes) {
+      async addDeliveryArea(name, pincodes, latitude, longitude) {
         try {
           const trimmedName = name.trim();
           if (!trimmedName) return void 0;
           const result = await db.insert(deliveryAreas2).values({
             name: trimmedName,
             isActive: true,
-            pincodes: pincodes && pincodes.length > 0 ? pincodes : []
+            pincodes: pincodes && pincodes.length > 0 ? pincodes : [],
+            latitude: latitude !== void 0 ? latitude : null,
+            longitude: longitude !== void 0 ? longitude : null
           }).returning();
-          console.log("[STORAGE] Delivery area added:", trimmedName, "with pincodes:", pincodes);
+          console.log("[STORAGE] Delivery area added:", trimmedName, "with pincodes:", pincodes, "lat:", latitude, "lon:", longitude);
           return result[0];
         } catch (error) {
           console.error("[STORAGE] Error adding delivery area:", error);
@@ -6432,19 +6435,38 @@ function createAdminOrderConfirmationEmail(params) {
   `;
 }
 async function sendAdminOrderNotification(adminEmails, params) {
+  console.log(`
+\u{1F4E7} [ADMIN-EMAIL] === ADMIN ORDER NOTIFICATION START ===`);
+  console.log(`\u{1F4E7} [ADMIN-EMAIL] Order ID: ${params.orderId}`);
+  console.log(`\u{1F4E7} [ADMIN-EMAIL] Total admin emails to notify: ${adminEmails.length}`);
+  console.log(`\u{1F4E7} [ADMIN-EMAIL] Email list: [${adminEmails.join(", ")}]`);
+  if (adminEmails.length === 0) {
+    console.warn(`\u26A0\uFE0F [ADMIN-EMAIL] No admin emails provided! Skipping notification.`);
+    return false;
+  }
   const emailSubject = `\u{1F4E6} New Order Confirmed - Order #${params.orderId}`;
   const emailHtml = createAdminOrderConfirmationEmail(params);
-  const emailPromises = adminEmails.map(
-    (email) => sendEmail({
-      to: email,
-      subject: emailSubject,
-      html: emailHtml
-    })
-  );
-  const results = await Promise.all(emailPromises);
-  const successCount = results.filter((r) => r === true).length;
-  console.log(`\u{1F4E7} [ADMIN-EMAIL] Sent order confirmation email to ${successCount}/${adminEmails.length} admins`);
-  return successCount > 0;
+  console.log(`\u{1F4E7} [ADMIN-EMAIL] Email subject: ${emailSubject}`);
+  console.log(`\u{1F4E7} [ADMIN-EMAIL] Email HTML size: ${emailHtml.length} chars`);
+  try {
+    const emailPromises = adminEmails.map((email, index2) => {
+      console.log(`\u{1F4E7} [ADMIN-EMAIL] Sending to admin #${index2 + 1}: ${email}`);
+      return sendEmail({
+        to: email,
+        subject: emailSubject,
+        html: emailHtml
+      });
+    });
+    const results = await Promise.all(emailPromises);
+    const successCount = results.filter((r) => r === true).length;
+    console.log(`\u{1F4E7} [ADMIN-EMAIL] === RESULT: ${successCount}/${adminEmails.length} emails sent successfully ===
+`);
+    return successCount > 0;
+  } catch (error) {
+    console.error(`\u274C [ADMIN-EMAIL] Exception in sendAdminOrderNotification:`, error);
+    console.error(`\u274C [ADMIN-EMAIL] Error: ${error.message}`);
+    return false;
+  }
 }
 var resend;
 var init_emailService = __esm({
@@ -8435,11 +8457,27 @@ function registerAdminRoutes(app2) {
       }
       if (status === "confirmed") {
         try {
-          console.log(`\u{1F4E7} [ORDER-CONFIRMED] Preparing to send order confirmation email to admins for order ${id}`);
+          console.log(`
+\u{1F4E7} [ORDER-CONFIRMED] ========== ADMIN EMAIL NOTIFICATION START ==========`);
+          console.log(`\u{1F4E7} [ORDER-CONFIRMED] Order ID: ${id}`);
+          console.log(`\u{1F4E7} [ORDER-CONFIRMED] Customer: ${updatedOrder.customerName}`);
           const adminUsers4 = await storage.getAllAdmins();
-          const adminEmails = adminUsers4.filter((admin) => admin.email).map((admin) => admin.email);
+          console.log(`\u{1F4E7} [ORDER-CONFIRMED] Total admins fetched from DB: ${adminUsers4.length}`);
+          if (adminUsers4.length === 0) {
+            console.warn(`\u26A0\uFE0F [ORDER-CONFIRMED] NO ADMINS FOUND IN DATABASE!`);
+          }
+          const adminEmails = adminUsers4.filter((admin) => {
+            const hasEmail = admin.email && admin.email.trim().length > 0;
+            if (!hasEmail) {
+              console.warn(`\u26A0\uFE0F [ORDER-CONFIRMED] Admin ${admin.username} (${admin.id}) has no email: "${admin.email}"`);
+            } else {
+              console.log(`\u2705 [ORDER-CONFIRMED] Admin ${admin.username} has email: ${admin.email}`);
+            }
+            return hasEmail;
+          }).map((admin) => admin.email.trim());
+          console.log(`\u{1F4E7} [ORDER-CONFIRMED] Valid admin emails collected: [${adminEmails.join(", ")}]`);
           if (adminEmails.length > 0) {
-            console.log(`\u{1F4E7} [ORDER-CONFIRMED] Found ${adminEmails.length} admin(s) to notify`);
+            console.log(`\u{1F4E7} [ORDER-CONFIRMED] Found ${adminEmails.length} admin(s) with valid emails to notify`);
             const orderItems = (updatedOrder.items || []).map((item) => ({
               name: item.name,
               quantity: item.quantity,
@@ -11964,7 +12002,12 @@ Please prepare this order.`;
               failures.push(`Update failed for: ${area.name} (id: ${area.id})`);
             }
           } else {
-            const added = await storage.addDeliveryArea(area.name.trim(), pincodes);
+            const added = await storage.addDeliveryArea(
+              area.name.trim(),
+              pincodes,
+              area.latitude !== void 0 ? parseFloat(String(area.latitude)) : void 0,
+              area.longitude !== void 0 ? parseFloat(String(area.longitude)) : void 0
+            );
             if (!added) {
               console.warn(`[ADMIN] \u26A0\uFE0F addDeliveryArea returned undefined for: ${area.name}`);
               failures.push(`Add failed for: ${area.name}`);
@@ -14210,8 +14253,20 @@ async function registerRoutes(app2) {
       const coordinatesMap = {};
       areas.forEach((area) => {
         const areaLower = area.name.toLowerCase();
-        const lat = typeof area.latitude === "number" ? area.latitude : parseFloat(String(area.latitude || 19.0728));
-        const lon = typeof area.longitude === "number" ? area.longitude : parseFloat(String(area.longitude || 72.8826));
+        let lat = 19.0728;
+        if (typeof area.latitude === "number" && !isNaN(area.latitude)) {
+          lat = area.latitude;
+        } else if (area.latitude != null) {
+          const parsed = parseFloat(String(area.latitude));
+          if (!isNaN(parsed)) lat = parsed;
+        }
+        let lon = 72.8826;
+        if (typeof area.longitude === "number" && !isNaN(area.longitude)) {
+          lon = area.longitude;
+        } else if (area.longitude != null) {
+          const parsed = parseFloat(String(area.longitude));
+          if (!isNaN(parsed)) lon = parsed;
+        }
         coordinatesMap[areaLower] = {
           lat,
           lon,
@@ -16106,6 +16161,47 @@ ${"=".repeat(80)}`);
           await broadcastPreparedOrderToAvailableDelivery(updatedOrder);
           console.log(`\u2705 BROADCAST COMPLETE - Chef and delivery personnel notified on payment confirmation
 `);
+          try {
+            console.log(`\u{1F4E7} [ORDER-CONFIRMED] Preparing admin email notifications for order ${updatedOrder.id}`);
+            const adminUsers4 = await storage.getAllAdmins();
+            const adminEmails = adminUsers4.filter((a) => a.email && a.email.trim().length > 0).map((a) => a.email.trim());
+            console.log(`\u{1F4E7} [ORDER-CONFIRMED] Admin emails: [${adminEmails.join(", ")}]`);
+            if (adminEmails.length > 0) {
+              const orderItems = (updatedOrder.items || []).map((it) => ({
+                name: it.name,
+                quantity: it.quantity,
+                price: it.price || 0
+              }));
+              let chefName;
+              if (updatedOrder.chefId) {
+                const chef = await storage.getChefById(updatedOrder.chefId);
+                chefName = chef?.name;
+              }
+              const adminEmailParams = {
+                orderId: updatedOrder.id,
+                customerName: updatedOrder.customerName,
+                customerPhone: updatedOrder.phone,
+                customerEmail: updatedOrder.email || null,
+                chefName,
+                items: orderItems,
+                subtotal: updatedOrder.subtotal || 0,
+                deliveryFee: updatedOrder.deliveryFee || 0,
+                platformFee: updatedOrder.platformFee || 0,
+                total: updatedOrder.total || 0,
+                deliveryAddress: updatedOrder.address || "Not provided",
+                addressPincode: updatedOrder.addressPincode || null,
+                deliveryTime: updatedOrder.deliveryTime || null,
+                distance: updatedOrder.distance ? Number(updatedOrder.distance) : void 0,
+                paymentStatus: updatedOrder.paymentStatus
+              };
+              await sendAdminOrderNotification(adminEmails, adminEmailParams);
+              console.log(`\u{1F4E7} [ORDER-CONFIRMED] Admin notification attempted for order ${updatedOrder.id}`);
+            } else {
+              console.warn(`\u26A0\uFE0F [ORDER-CONFIRMED] No admin emails found, skipping admin email`);
+            }
+          } catch (emailErr) {
+            console.error(`\u274C [ORDER-CONFIRMED] Failed to send admin emails:`, emailErr?.message || emailErr);
+          }
         }
       } catch (paymentError) {
         console.error("\u274C [ATOMIC] PAYMENT FAILED - Wallet deduction error:", paymentError.message);
@@ -18381,10 +18477,26 @@ Please accept and start preparation.`;
       });
       if (matchingArea) {
         console.log(`\u2705 [PINCODE-VALIDATION] Pincode ${pincodeStr} found in delivery area: ${matchingArea.name}`);
-        const areaCoords = {
-          lat: typeof matchingArea.latitude === "number" ? matchingArea.latitude : parseFloat(String(matchingArea.latitude || 19.0728)),
-          lon: typeof matchingArea.longitude === "number" ? matchingArea.longitude : parseFloat(String(matchingArea.longitude || 72.8826))
-        };
+        let lat = 19.0728;
+        let lon = 72.8826;
+        if (typeof matchingArea.latitude === "number" && !isNaN(matchingArea.latitude)) {
+          lat = matchingArea.latitude;
+        } else if (matchingArea.latitude != null) {
+          const parsed = parseFloat(String(matchingArea.latitude));
+          if (!isNaN(parsed)) lat = parsed;
+        }
+        if (typeof matchingArea.longitude === "number" && !isNaN(matchingArea.longitude)) {
+          lon = matchingArea.longitude;
+        } else if (matchingArea.longitude != null) {
+          const parsed = parseFloat(String(matchingArea.longitude));
+          if (!isNaN(parsed)) lon = parsed;
+        }
+        if (isNaN(lat) || isNaN(lon)) {
+          console.warn(`[PINCODE-VALIDATION] \u26A0\uFE0F Invalid coordinates for area "${matchingArea.name}": lat=${lat}, lon=${lon}. Using defaults.`);
+          lat = 19.0728;
+          lon = 72.8826;
+        }
+        const areaCoords = { lat, lon };
         console.log(`[PINCODE-VALIDATION] Using dynamic coordinates for area "${matchingArea.name}":`, areaCoords);
         return res.json({
           success: true,
@@ -19235,7 +19347,6 @@ var log2 = (message, source = "express") => {
 };
 var app = express2();
 console.log("\u{1F680} Server is starting...");
-debugger;
 app.use(express2.json({
   verify: (req, _res, buf) => {
     req.rawBody = buf;
