@@ -1645,9 +1645,9 @@ export default function CheckoutDialog({
     const fetchPlatformFeeConfig = async () => {
       try {
         console.log("[CHECKOUT] Fetching platform fee config from /api/payment-settings...");
-        const response = await fetch(getApiUrl("/api/payment-settings"));
-        if (response.ok) {
-          const config = await response.json();
+        const response = await api.get("/api/payment-settings");
+        if (response.status === 200 && response.data) {
+          const config = response.data;
           setPlatformFeeConfig(config);
           console.log("[CHECKOUT] ✅ Platform fee config fetched successfully:", {
             platformFeeEnabled: config?.platformFeeEnabled,

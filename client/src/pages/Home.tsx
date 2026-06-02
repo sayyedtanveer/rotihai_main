@@ -517,7 +517,10 @@ export default function Home() {
     // Allow creating multiple carts per category scoped by chef. Previously we
     // prompted to replace an existing cart — now we silently create a new
     // cart for this (category, chef) pair so users can maintain multiple carts.
-    cartAddToCart(cartItem, categoryName, chef?.latitude, chef?.longitude);
+    
+    cartAddToCart(cartItem, categoryName, chef?.latitude, chef?.longitude, 
+      (chef as any)?.freeDeliveryThreshold ?? 0);
+
   };
 
   const totalItems = getTotalItems();
@@ -1018,15 +1021,18 @@ export default function Home() {
 
 
       <main className="flex-1">
-        <ActiveOrderBanner
-          isPaymentOpen={isPaymentQROpen}
-          isCheckoutOpen={isCheckoutOpen}
-          isReturningToCheckout={isReturningToCheckout}
-        />
+        {!isSubscriptionOpen && (
+          <ActiveOrderBanner
+            isPaymentOpen={isPaymentQROpen}
+            isCheckoutOpen={isCheckoutOpen}
+            isReturningToCheckout={isReturningToCheckout}
+          />
+        )}
 
         {/* ── STEP 4: Resume pending order banner ────────────────────────── */}
-        {pendingCheckout && !isPaymentQROpen && !isCheckoutOpen && (
+        {pendingCheckout && !isPaymentQROpen && !isCheckoutOpen && !isSubscriptionOpen && (
           <div className="fixed bottom-16 left-0 right-0 z-[55] px-4 pointer-events-none">
+
             <div className="max-w-2xl mx-auto pointer-events-auto">
               <div className="bg-amber-50 border border-amber-400 rounded-xl shadow-lg p-3 flex justify-between items-center gap-3">
                 <div className="min-w-0">

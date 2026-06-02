@@ -23,6 +23,7 @@ import { insertSubscriptionPlanSchema } from "@shared/schema";
 import { format } from "date-fns";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Loader2 } from "lucide-react";
+import AdminCustomSubscriptions from "./AdminCustomSubscriptions";
 
 const DAYS_OF_WEEK = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 
@@ -724,11 +725,12 @@ export default function AdminSubscriptions() {
         </div>
 
         <Tabs defaultValue="plans" className="space-y-4">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="plans">Subscription Plans</TabsTrigger>
             <TabsTrigger value="active">Active Subscriptions</TabsTrigger>
             <TabsTrigger value="today">Today Overview</TabsTrigger>
             <TabsTrigger value="missed">Missed Deliveries</TabsTrigger>
+            <TabsTrigger value="custom-requests">Custom Requests</TabsTrigger>
           </TabsList>
 
           <TabsContent value="plans">
@@ -757,7 +759,7 @@ export default function AdminSubscriptions() {
                     g.minOrder = Math.min(g.minOrder, (plan as any).sectionOrder ?? 0);
                     g.plans.push(plan);
                   });
-                  const sorted = [...groupsMap.values()].sort((a, b) => a.minOrder - b.minOrder || a.sectionName.localeCompare(b.sectionName));
+                  const sorted = Array.from(groupsMap.values()).sort((a, b) => a.minOrder - b.minOrder || a.sectionName.localeCompare(b.sectionName));
 
                   return sorted.map((group, idx) => {
                     const isOpen = expandedAdminSection === null ? idx === 0 : expandedAdminSection === group.sectionName;
@@ -788,7 +790,7 @@ export default function AdminSubscriptions() {
                         {/* Collapsible plan cards */}
                         <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isOpen ? "max-h-[8000px] opacity-100" : "max-h-0 opacity-0"}`}>
                           <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {group.plans.map((plan) => (
+                            {group.plans.map((plan: SubscriptionPlan) => (
                               <Card key={plan.id} data-testid={`card-plan-${plan.id}`} className="flex flex-col">
                                 <CardHeader className="pb-2">
                                   <CardTitle className="text-sm flex items-center justify-between gap-2">
@@ -1571,6 +1573,10 @@ export default function AdminSubscriptions() {
                 )}
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="custom-requests" className="space-y-4">
+            <AdminCustomSubscriptions />
           </TabsContent>
         </Tabs>
       </div>

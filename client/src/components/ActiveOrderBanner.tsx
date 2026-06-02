@@ -154,7 +154,7 @@ export default function ActiveOrderBanner({
     },
     // ✅ CRITICAL: use hasToken (sync) NOT isAuthenticated (async)
     // This makes the query fire immediately on mount for dropout users
-    enabled: true,
+    enabled: hasToken,
     refetchOnMount: true,
     refetchOnWindowFocus: true,
     refetchInterval: 60_000, // reduced from 15s — WebSocket handles real-time updates
@@ -168,7 +168,7 @@ export default function ActiveOrderBanner({
     if (!hasToken) return;
 
     const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-    const wsUrl = `${protocol}://${window.location.host}/ws`;
+    const wsUrl = `${protocol}://${window.location.host}/ws?type=browser`;
 
     let ws: WebSocket;
     try {

@@ -79,7 +79,7 @@ export default function CategoryCard({
           </h3>
           
           <p 
-            className="text-xs sm:text-sm text-muted-foreground line-clamp-2 px-2 transition-all duration-300 group-hover:text-foreground/80" 
+            className="text-xs sm:text-sm text-muted-foreground px-2 transition-all duration-300 group-hover:text-foreground/80" 
             data-testid="text-category-description"
           >
             {description}

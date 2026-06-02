@@ -19,6 +19,7 @@ import { usePushNotifications } from "@/hooks/usePushNotifications";
 import Home from "@/pages/Home";
 import MyOrders from "@/pages/MyOrders";
 import MySubscriptions from "@/pages/MySubscriptions";
+import CustomSubscriptionRequest from "@/pages/CustomSubscriptionRequest";
 import Profile from "@/pages/Profile";
 import NotFound from "@/pages/not-found";
 import Landing from "@/pages/Landing";
@@ -154,6 +155,10 @@ function Router() {
       <Route
         path="/my-subscriptions"
         component={() => <ProtectedRoute component={MySubscriptions} />}
+      />
+      <Route
+        path="/custom-subscription"
+        component={CustomSubscriptionRequest}
       />
 
       {/* Alias for /orders → same as /my-orders */}

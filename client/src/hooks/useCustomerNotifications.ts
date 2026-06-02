@@ -2,6 +2,9 @@ import { useEffect, useState, useCallback } from "react";
 import { getWebSocketURL } from "@/lib/fetchClient";
 import { queryClient } from "@/lib/queryClient";
 import { toast } from "@/hooks/use-toast";
+import { useNotificationStore } from "@/store/notificationStore";
+import { playNotificationSoundTwoTone } from "@/lib/notificationSound";
+import { useAuth } from "@/hooks/useAuth";
 
 interface ChefStatusUpdate {
   id: string;
@@ -29,6 +32,7 @@ class CustomerNotificationsManager {
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 10;
   private baseReconnectDelay = 1000; // Start with 1 second
+  private currentUserId: string | null = null;
 
   public wsConnected = false;
   public chefStatuses: Record<string, boolean> = {};
@@ -60,7 +64,24 @@ class CustomerNotificationsManager {
     if (this.ws || this.connecting) return;
     this.connecting = true;
 
-    const wsUrl = getWebSocketURL('/ws?type=browser');
+    // Retrieve userId from local storage if not already set
+    let userId = this.currentUserId;
+    if (!userId) {
+      try {
+        const userDataStr = localStorage.getItem("userData");
+        if (userDataStr) {
+          const userData = JSON.parse(userDataStr);
+          if (userData && userData.id) {
+            userId = userData.id;
+            this.currentUserId = userId;
+          }
+        }
+      } catch (e) {
+        console.warn("Failed to parse userData in CustomerNotificationsManager:", e);
+      }
+    }
+
+    const wsUrl = getWebSocketURL(userId ? `/ws?type=browser&userId=${userId}` : '/ws?type=browser');
 
     console.log("Customer WebSocket connecting to:", wsUrl);
     this.ws = new WebSocket(wsUrl);
@@ -146,6 +167,53 @@ class CustomerNotificationsManager {
             });
           }
         }
+
+        // Handle custom_request_update messages (isolated updates)
+        if (data.type === "custom_request_update") {
+          const request = data.data;
+          console.log("Custom request updated:", request.id, request.status);
+          queryClient.invalidateQueries({ queryKey: ["/api/custom-subscription/requests"] });
+
+          let title = "Custom Request Update";
+          let message = "";
+
+          if (request.status === "awaiting_payment") {
+            title = "Custom Request Approved! 🎉";
+            message = `Your custom request for ${request.rotiPerDay} rotis has been approved. Please complete payment.`;
+          } else if (request.status === "paid") {
+            title = "Payment Submitted! 💳";
+            message = `Your payment for custom subscription has been submitted. Awaiting verification.`;
+          } else if (request.status === "converted") {
+            title = "Custom Subscription Active! 🚀";
+            message = `Your custom subscription is now active! First delivery scheduled.`;
+            queryClient.invalidateQueries({ queryKey: ["/api/subscriptions"] });
+          } else if (request.status === "rejected") {
+            title = "Custom Request Rejected ❌";
+            message = `Your custom request was rejected: ${request.rejectionReason || "Reason not provided"}`;
+          }
+
+          if (message) {
+            toast({
+              title,
+              description: message,
+              duration: 6000,
+            });
+
+            // Add notification to bell store
+            useNotificationStore.getState().addNotification({
+              id: `custom_request_${request.id}-${request.status}`,
+              orderId: `custom_${request.id}`,
+              status: request.status,
+              message,
+            });
+
+            try {
+              playNotificationSoundTwoTone();
+            } catch (err) {
+              console.warn("Could not play notification sound:", err);
+            }
+          }
+        }
       } catch (error) {
         console.error("Error parsing WebSocket message:", error);
       }
@@ -210,12 +278,42 @@ class CustomerNotificationsManager {
       productAvailability: this.productAvailability,
     };
   }
+
+  public disconnect() {
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+    if (this.ws) {
+      this.ws.onclose = null;
+      this.ws.close();
+      this.ws = null;
+    }
+    this.wsConnected = false;
+    this.connecting = false;
+    this.notify();
+  }
+
+  public updateUserId(userId: string | null) {
+    if (this.currentUserId !== userId) {
+      console.log(`👤 User ID changed in CustomerNotificationsManager from ${this.currentUserId} to ${userId}. Reconnecting WebSocket...`);
+      this.currentUserId = userId;
+      this.disconnect();
+      this.connect();
+    }
+  }
 }
 
 const manager = CustomerNotificationsManager.getInstance();
 
 export function useCustomerNotifications() {
   const [, forceUpdate] = useState({});
+  const { user } = useAuth();
+  const userId = user?.id || null;
+
+  useEffect(() => {
+    manager.updateUserId(userId);
+  }, [userId]);
 
   useEffect(() => {
     return manager.subscribe(() => forceUpdate({}));

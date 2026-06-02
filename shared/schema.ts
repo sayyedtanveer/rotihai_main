@@ -1093,3 +1093,60 @@ export const insertPendingCheckoutSchema = createInsertSchema(pendingCheckouts).
 
 export type InsertPendingCheckout = z.infer<typeof insertPendingCheckoutSchema>;
 export type PendingCheckout = typeof pendingCheckouts.$inferSelect;
+
+// Custom Subscription Requests table
+export const customSubscriptionRequests = pgTable("custom_subscription_requests", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  customerName: text("customer_name").notNull(),
+  phone: text("phone").notNull(),
+  email: text("email"),
+  address: text("address").notNull(),
+  addressBuilding: text("address_building"),
+  addressStreet: text("address_street"),
+  addressArea: text("address_area"),
+  addressCity: text("address_city").default("Mumbai"),
+  addressPincode: text("address_pincode"),
+  rotiPerDay: integer("roti_per_day").notNull(),
+  daysPerWeek: integer("days_per_week").notNull().default(7),
+  deliveryDays: jsonb("delivery_days").notNull(), // Array of days: ["monday", "tuesday", etc]
+  duration: text("duration").notNull(), // "weekly" | "monthly"
+  deliverySlotId: varchar("delivery_slot_id"),
+  pricePerRoti: integer("price_per_roti").notNull(),
+  calculatedPrice: integer("calculated_price").notNull(),
+  assignedChefId: varchar("assigned_chef_id"),
+  status: text("status").notNull().default("pending_chef_assignment"), // pending_chef_assignment, approved, rejected, awaiting_payment, paid, converted
+  rejectionReason: text("rejection_reason"),
+  approvedBy: text("approved_by"),
+  approvedAt: timestamp("approved_at"),
+  subscriptionId: varchar("subscription_id"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertCustomSubscriptionRequestSchema = createInsertSchema(customSubscriptionRequests, {
+  userId: z.string().min(1),
+  customerName: z.string().min(1),
+  phone: z.string().min(10),
+  address: z.string().min(1),
+  rotiPerDay: z.number().int().min(1),
+  daysPerWeek: z.number().int().min(1).max(7).default(7),
+  deliveryDays: z.array(z.string()),
+  duration: z.string(),
+  deliverySlotId: z.string().optional(),
+  pricePerRoti: z.number().int().min(1),
+  calculatedPrice: z.number().int().min(1),
+}).omit({
+  id: true,
+  status: true,
+  createdAt: true,
+  updatedAt: true,
+  subscriptionId: true,
+  approvedBy: true,
+  approvedAt: true,
+  rejectionReason: true,
+});
+
+export type CustomSubscriptionRequest = typeof customSubscriptionRequests.$inferSelect;
+export type InsertCustomSubscriptionRequest = z.infer<typeof insertCustomSubscriptionRequestSchema>;
+

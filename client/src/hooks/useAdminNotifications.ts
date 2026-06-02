@@ -79,6 +79,69 @@ export function useAdminNotifications() {
         }
       }
 
+      // Handle new custom subscription request
+      if (data.type === "new_custom_subscription_request") {
+        const request = data.data;
+
+        // Invalidate custom subscription queries
+        queryClient.invalidateQueries({ queryKey: ["/api/admin/custom-subscription-requests"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/custom-subscription/requests"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/admin/dashboard/metrics"] });
+
+        setLastNotificationType("subscription");
+        setUnreadCount((prev) => prev + 1);
+
+        toast({
+          title: "New Custom Request 🍽️",
+          description: `${request.customerName} requested ${request.rotiPerDay} rotis/day.`,
+          duration: 7000,
+        });
+
+        if (Notification.permission === "granted") {
+          new Notification("New Custom Subscription Request", {
+            body: `${request.customerName} requested ${request.rotiPerDay} rotis/day`,
+            icon: "/favicon.ico",
+          });
+
+          // Play notification sound
+          const audio = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBTGH0fPTgjMGHm7A7+OZURE=");
+          audio.play().catch(() => { });
+        }
+      }
+
+      // Handle custom request status updates (e.g. user submitted payment)
+      if (data.type === "custom_request_update") {
+        const request = data.data;
+
+        // Invalidate queries
+        queryClient.invalidateQueries({ queryKey: ["/api/admin/custom-subscription-requests"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/custom-subscription/requests"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/admin/subscriptions"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/admin/dashboard/metrics"] });
+
+        if (request.status === "paid") {
+          setLastNotificationType("subscription");
+          setUnreadCount((prev) => prev + 1);
+
+          toast({
+            title: "Custom Request Payment 💳",
+            description: `${request.customerName} submitted payment (TxnID: ${request.paymentTransactionId || 'N/A'})`,
+            duration: 8000,
+          });
+
+          if (Notification.permission === "granted") {
+            new Notification("Custom Request Payment Received", {
+              body: `${request.customerName} submitted payment. Verify to activate subscription.`,
+              icon: "/favicon.ico",
+            });
+
+            // Play notification sound
+            const audio = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBTGH0fPTgjMGHm7A7+OZURE=");
+            audio.play().catch(() => { });
+          }
+        }
+      }
+
       // Handle new subscription created notification
       if (data.type === "new_subscription_created") {
         const subscriptionData = data.data;

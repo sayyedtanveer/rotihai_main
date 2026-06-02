@@ -1,10 +1,10 @@
-import { type Category, type InsertCategory, type Product, type InsertProduct, type Order, type InsertOrder, type User, type UpsertUser, type Chef, type AdminUser, type InsertAdminUser, type PartnerUser, type Subscription, type SubscriptionPlan, type DeliverySetting, type InsertDeliverySetting, type DeliveryPartnerPayout, type InsertDeliveryPartnerPayout, type CartSetting, type InsertCartSetting, type DeliveryPersonnel, type InsertDeliveryPersonnel, type WalletTransaction, type ReferralReward, type PromotionalBanner, type InsertPromotionalBanner, type SubscriptionDeliveryLog, type InsertSubscriptionDeliveryLog, type DeliveryTimeSlot, type InsertDeliveryTimeSlot, type Coupon, type RotiSettings, type InsertRotiSettings, type Visitor, type DeliveryArea, type InsertDeliveryArea, type AdminSettings, type PendingCheckout, type InsertPendingCheckout } from "@shared/schema";
+import { type Category, type InsertCategory, type Product, type InsertProduct, type Order, type InsertOrder, type User, type UpsertUser, type Chef, type AdminUser, type InsertAdminUser, type PartnerUser, type Subscription, type SubscriptionPlan, type DeliverySetting, type InsertDeliverySetting, type DeliveryPartnerPayout, type InsertDeliveryPartnerPayout, type CartSetting, type InsertCartSetting, type DeliveryPersonnel, type InsertDeliveryPersonnel, type WalletTransaction, type ReferralReward, type PromotionalBanner, type InsertPromotionalBanner, type SubscriptionDeliveryLog, type InsertSubscriptionDeliveryLog, type DeliveryTimeSlot, type InsertDeliveryTimeSlot, type Coupon, type RotiSettings, type InsertRotiSettings, type Visitor, type DeliveryArea, type InsertDeliveryArea, type AdminSettings, type PendingCheckout, type InsertPendingCheckout, type CustomSubscriptionRequest, type InsertCustomSubscriptionRequest } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { nanoid } from "nanoid";
 import { eq, and, gte, lte, desc, asc, or, isNull, sql, count, lt, inArray } from "drizzle-orm";
 import {
   db, users, categories, products, orders, chefs, adminUsers, partnerUsers, subscriptions,
-  subscriptionPlans, subscriptionDeliveryLogs, deliverySettings, deliveryPartnerPayouts, cartSettings, deliveryPersonnel, coupons, couponUsages, referrals, walletTransactions, referralRewards, promotionalBanners, deliveryTimeSlots, rotiSettings, visitors, deliveryAreas, adminSettings, payoutTransactions, pendingCheckouts
+  subscriptionPlans, subscriptionDeliveryLogs, deliverySettings, deliveryPartnerPayouts, cartSettings, deliveryPersonnel, coupons, couponUsages, referrals, walletTransactions, referralRewards, promotionalBanners, deliveryTimeSlots, rotiSettings, visitors, deliveryAreas, adminSettings, payoutTransactions, pendingCheckouts, customSubscriptionRequests
 } from "@shared/db";
 import { getRoadAdjustedDistance } from "@shared/deliveryUtils";
 
@@ -99,6 +99,14 @@ export interface IStorage {
   updateSubscriptionDeliveryLog(id: string, data: Partial<SubscriptionDeliveryLog>): Promise<SubscriptionDeliveryLog | undefined>;
   deleteSubscriptionDeliveryLog(id: string): Promise<void>;
   getDeliveryLogBySubscriptionAndDate(subscriptionId: string, date: Date): Promise<SubscriptionDeliveryLog | undefined>;
+
+  // Custom Subscription Request methods
+  createCustomSubscriptionRequest(data: InsertCustomSubscriptionRequest): Promise<CustomSubscriptionRequest>;
+  getCustomSubscriptionRequest(id: string): Promise<CustomSubscriptionRequest | undefined>;
+  getCustomSubscriptionRequestsByUserId(userId: string): Promise<CustomSubscriptionRequest[]>;
+  getAllCustomSubscriptionRequests(): Promise<CustomSubscriptionRequest[]>;
+  updateCustomSubscriptionRequest(id: string, data: Partial<CustomSubscriptionRequest>): Promise<CustomSubscriptionRequest | undefined>;
+  getCustomSubscriptionRequestBySubscriptionId(subscriptionId: string): Promise<CustomSubscriptionRequest | undefined>;
 
   // Delivery settings methods
   getDeliverySettings(): Promise<DeliverySetting[]>;
@@ -1476,6 +1484,80 @@ export class MemStorage implements IStorage {
         gte(log.date, startOfDay),
         lte(log.date, endOfDay)
       ),
+    });
+  }
+
+  // Custom Subscription Requests implementation
+  async createCustomSubscriptionRequest(data: InsertCustomSubscriptionRequest): Promise<CustomSubscriptionRequest> {
+    const id = randomUUID();
+    const now = new Date();
+    const requestData: CustomSubscriptionRequest = {
+      ...data,
+      id,
+      email: data.email || null,
+      addressBuilding: (data as any).addressBuilding || null,
+      addressStreet: (data as any).addressStreet || null,
+      addressArea: (data as any).addressArea || null,
+      addressCity: (data as any).addressCity || "Mumbai",
+      addressPincode: (data as any).addressPincode || null,
+      deliverySlotId: data.deliverySlotId || null,
+      assignedChefId: null,
+      status: "pending_chef_assignment",
+      rejectionReason: null,
+      approvedBy: null,
+      approvedAt: null,
+      subscriptionId: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const insertData = {
+      ...requestData,
+      createdAt: convertDateForDB(requestData.createdAt) as Date,
+      updatedAt: convertDateForDB(requestData.updatedAt) as Date,
+    };
+
+    await db.insert(customSubscriptionRequests).values(insertData);
+    return requestData;
+  }
+
+  async getCustomSubscriptionRequest(id: string): Promise<CustomSubscriptionRequest | undefined> {
+    return db.query.customSubscriptionRequests.findFirst({
+      where: (r, { eq }) => eq(r.id, id),
+    });
+  }
+
+  async getCustomSubscriptionRequestsByUserId(userId: string): Promise<CustomSubscriptionRequest[]> {
+    return db.query.customSubscriptionRequests.findMany({
+      where: (r, { eq }) => eq(r.userId, userId),
+      orderBy: (r, { desc }) => [desc(r.createdAt)],
+    });
+  }
+
+  async getAllCustomSubscriptionRequests(): Promise<CustomSubscriptionRequest[]> {
+    return db.query.customSubscriptionRequests.findMany({
+      orderBy: (r, { desc }) => [desc(r.createdAt)],
+    });
+  }
+
+  async updateCustomSubscriptionRequest(id: string, data: Partial<CustomSubscriptionRequest>): Promise<CustomSubscriptionRequest | undefined> {
+    const updateData: any = {
+      ...data,
+      updatedAt: new Date(),
+    };
+
+    if (updateData.approvedAt !== undefined) {
+      updateData.approvedAt = convertDateForDB(updateData.approvedAt);
+    }
+    updateData.updatedAt = convertDateForDB(updateData.updatedAt);
+
+    await db.update(customSubscriptionRequests).set(updateData).where(eq(customSubscriptionRequests.id, id));
+    return this.getCustomSubscriptionRequest(id);
+  }
+
+  async getCustomSubscriptionRequestBySubscriptionId(subscriptionId: string): Promise<CustomSubscriptionRequest | undefined> {
+    return db.query.customSubscriptionRequests.findFirst({
+      where: (r, { eq }) => eq(r.subscriptionId, subscriptionId),
     });
   }
 

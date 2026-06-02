@@ -122,7 +122,7 @@ export default function ProductCard({
           )}
         </div>
 
-        <p className="text-sm text-muted-foreground mb-3 line-clamp-2" data-testid={`text-description-${id}`}>
+        <p className="text-sm text-muted-foreground mb-3" data-testid={`text-description-${id}`}>
           {description}
         </p>
 

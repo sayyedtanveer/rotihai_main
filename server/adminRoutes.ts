@@ -1772,6 +1772,228 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  // GET all custom subscription requests
+  app.get("/api/admin/custom-subscription-requests", requireAdmin(), async (req, res) => {
+    try {
+      const requests = await storage.getAllCustomSubscriptionRequests();
+      const requestsWithTxn = await Promise.all(requests.map(async (r) => {
+        if (r.subscriptionId) {
+          const sub = await storage.getSubscription(r.subscriptionId);
+          return {
+            ...r,
+            paymentTransactionId: sub?.paymentTransactionId || null,
+          };
+        }
+        return {
+          ...r,
+          paymentTransactionId: null,
+        };
+      }));
+      res.json(requestsWithTxn);
+    } catch (error: any) {
+      console.error("Error fetching custom subscription requests:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch custom subscription requests" });
+    }
+  });
+
+  // Approve custom subscription request
+  app.patch("/api/admin/custom-subscription-requests/:id/approve", requireAdmin(), async (req: AuthenticatedAdminRequest, res) => {
+    try {
+      const { id } = req.params;
+      const { chefId } = req.body;
+
+      if (!chefId) {
+        res.status(400).json({ message: "Chef ID is required" });
+        return;
+      }
+
+      const request = await storage.getCustomSubscriptionRequest(id);
+      if (!request) {
+        res.status(404).json({ message: "Custom subscription request not found" });
+        return;
+      }
+
+      if (request.status !== "pending_chef_assignment" && request.status !== "awaiting_payment") {
+        res.status(400).json({ message: `Request is already in status: ${request.status}` });
+        return;
+      }
+
+      const chef = await storage.getChefById(chefId);
+      if (!chef) {
+        res.status(404).json({ message: "Chef not found" });
+        return;
+      }
+
+      // Find Roti category ID
+      const categories = await storage.getAllCategories();
+      const rotiCategory = categories.find(c => c.name.toLowerCase().includes('roti'));
+      if (!rotiCategory) {
+        res.status(400).json({ message: "Roti category not found in system" });
+        return;
+      }
+
+      // Create a private custom plan for this subscription request
+      const customPlan = await storage.createSubscriptionPlan({
+        name: `Custom Roti Plan (${request.customerName} - ${request.rotiPerDay} Rotis)`,
+        description: `Custom subscription for ${request.customerName} (${request.rotiPerDay} Rotis/day, ${request.daysPerWeek} days/week)`,
+        categoryId: rotiCategory.id,
+        frequency: request.duration === "weekly" ? "weekly" : "monthly",
+        price: request.calculatedPrice,
+        deliveryDays: request.deliveryDays as string[],
+        items: [{ id: "roti", name: "Roti", quantity: request.rotiPerDay }],
+        isActive: false, // Hidden from public
+        sectionName: "Custom Subscriptions",
+        sectionOrder: 99,
+      });
+
+      // Calculate start, end date and total deliveries
+      const durationDays = request.duration === "weekly" ? 7 : 30;
+      const startDate = new Date();
+      startDate.setHours(0, 0, 0, 0);
+      const endDate = new Date(startDate);
+      endDate.setDate(endDate.getDate() + durationDays - 1);
+
+      // Calculate total deliveries mathematically from the calculated price to match exactly what they paid for
+      const pricePerRoti = request.pricePerRoti;
+      const rotiPerDay = request.rotiPerDay;
+      let totalDeliveries = 0;
+      if (pricePerRoti && rotiPerDay) {
+        totalDeliveries = Math.round(request.calculatedPrice / (rotiPerDay * pricePerRoti));
+      }
+      
+      // Fallback in case division is not possible
+      if (!totalDeliveries || isNaN(totalDeliveries)) {
+        // Count actual weekday occurrences as fallback
+        totalDeliveries = 0;
+        const checkDate = new Date(startDate);
+        const endCheckDate = new Date(endDate);
+        endCheckDate.setHours(23, 59, 59, 999);
+        const requestedDays = (request.deliveryDays as string[]).map(d => d.toLowerCase());
+        while (checkDate <= endCheckDate) {
+          const dayName = checkDate.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+          if (requestedDays.includes(dayName)) {
+            totalDeliveries++;
+          }
+          checkDate.setDate(checkDate.getDate() + 1);
+        }
+      }
+
+      // Create the subscription record
+      const subscription = await storage.createSubscription({
+        userId: request.userId,
+        planId: customPlan.id,
+        chefId: chef.id,
+        chefAssignedAt: new Date(),
+        deliverySlotId: request.deliverySlotId || null,
+        customerName: request.customerName,
+        phone: request.phone,
+        email: request.email || null,
+        address: request.address,
+        status: "pending", // awaiting payment
+        startDate,
+        endDate,
+        nextDeliveryDate: startDate,
+        nextDeliveryTime: "09:00", // default
+        customItems: [{ id: "roti", name: "Roti", quantity: request.rotiPerDay }],
+        remainingDeliveries: totalDeliveries,
+        totalDeliveries: totalDeliveries,
+        isPaid: false,
+        paymentTransactionId: null,
+        originalPrice: request.calculatedPrice,
+        finalAmount: request.calculatedPrice,
+        discountAmount: 0,
+        walletAmountUsed: 0,
+        couponCode: null,
+        couponDiscount: 0,
+        paymentNotes: null,
+        lastDeliveryDate: null,
+        deliveryHistory: [],
+        pauseStartDate: null,
+        pauseResumeDate: null,
+      });
+
+      // Update the custom request status
+      const updatedRequest = await storage.updateCustomSubscriptionRequest(id, {
+        status: "awaiting_payment",
+        assignedChefId: chefId,
+        approvedBy: req.admin!.username,
+        approvedAt: new Date(),
+        subscriptionId: subscription.id,
+      });
+
+      // Broadcast custom request status update (isolated from standard subscriptions)
+      const { broadcastCustomRequestUpdate } = await import("./websocket");
+      if (updatedRequest) {
+        broadcastCustomRequestUpdate(updatedRequest);
+      }
+
+      res.json({
+        message: "Custom subscription request approved and converted to pending subscription",
+        request: updatedRequest,
+        subscription,
+      });
+    } catch (error: any) {
+      console.error("Error approving custom subscription request:", error);
+      res.status(500).json({ message: error.message || "Failed to approve request" });
+    }
+  });
+
+  // Reject custom subscription request
+  app.patch("/api/admin/custom-subscription-requests/:id/reject", requireAdmin(), async (req: AuthenticatedAdminRequest, res) => {
+    try {
+      const { id } = req.params;
+      const { reason } = req.body;
+
+      if (!reason) {
+        res.status(400).json({ message: "Rejection reason is required" });
+        return;
+      }
+
+      const request = await storage.getCustomSubscriptionRequest(id);
+      if (!request) {
+        res.status(404).json({ message: "Custom subscription request not found" });
+        return;
+      }
+
+      if (request.status !== "pending_chef_assignment") {
+        res.status(400).json({ message: `Request is already in status: ${request.status}` });
+        return;
+      }
+
+      const updated = await storage.updateCustomSubscriptionRequest(id, {
+        status: "rejected",
+        rejectionReason: reason,
+        approvedBy: req.admin!.username,
+        approvedAt: new Date(),
+      });
+
+      res.json({
+        message: "Custom subscription request rejected",
+        request: updated,
+      });
+    } catch (error: any) {
+      console.error("Error rejecting custom subscription request:", error);
+      res.status(500).json({ message: error.message || "Failed to reject request" });
+    }
+  });
+
+  // Admin: Update price per roti setting
+  app.patch("/api/admin/settings/price-per-roti", requireAdmin(), async (req: AuthenticatedAdminRequest, res) => {
+    try {
+      const { pricePerRoti } = req.body;
+      if (pricePerRoti === undefined || isNaN(parseInt(pricePerRoti, 10)) || parseInt(pricePerRoti, 10) <= 0) {
+        res.status(400).json({ message: "Valid price per roti is required" });
+        return;
+      }
+
+      await storage.setAdminSetting("price_per_roti", String(pricePerRoti), "Configured price per roti for custom subscriptions");
+      res.json({ message: "Price per roti updated successfully", pricePerRoti });
+    } catch (error: any) {
+      console.error("Error updating price per roti setting:", error);
+      res.status(500).json({ message: error.message || "Failed to update setting" });
+    }
+  });
+
   // Get all subscriptions
   app.get("/api/admin/subscriptions", requireAdmin(), async (req, res) => {
     try {
@@ -1837,33 +2059,94 @@ export function registerAdminRoutes(app: Express) {
         }
       }
 
-      // IMPORTANT: Always use the existing nextDeliveryDate from subscription.
-      // If somehow it's still not set at this point, calculate from startDate.
-      // However, normally the subscription already has nextDeliveryDate set during creation.
-      if (!nextDeliveryDate || isNaN(new Date(nextDeliveryDate).getTime())) {
-        if (subscription.startDate) {
-          nextDeliveryDate = new Date(subscription.startDate);
-          console.log(`📅 Recalculated nextDeliveryDate as startDate: ${nextDeliveryDate.toISOString()}`);
-        } else {
-          console.warn(`⚠️ Cannot calculate nextDeliveryDate: startDate missing, using today`);
-          nextDeliveryDate = new Date();
-        }
-      } else {
-        console.log(`📅 Using existing nextDeliveryDate: ${new Date(nextDeliveryDate).toISOString()}`);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const plan = await storage.getSubscriptionPlan(subscription.planId);
+      if (!plan) {
+        res.status(404).json({ message: "Subscription plan not found" });
+        return;
       }
 
-      // Update subscription - mark as paid, activate, and assign chef
+      // Calculate nextDeliveryDate starting from tomorrow
+      let nextDelivery = new Date(today);
+      nextDelivery.setDate(nextDelivery.getDate() + 1); // Start checking from tomorrow
+      nextDelivery.setHours(0, 0, 0, 0);
+
+      const deliveryDays = plan.deliveryDays as string[];
+      let foundNextDelivery = false;
+
+      if (deliveryDays && deliveryDays.length > 0) {
+        const requestedDays = deliveryDays.map(d => d.toLowerCase());
+        // Max 30 days check to find next delivery day
+        for (let i = 0; i < 30; i++) {
+          const dayName = nextDelivery.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+          const isMatch = requestedDays.includes(dayName) || plan.frequency === "daily";
+          if (isMatch) {
+            foundNextDelivery = true;
+            break;
+          }
+          nextDelivery.setDate(nextDelivery.getDate() + 1);
+        }
+      }
+
+      if (!foundNextDelivery) {
+        nextDelivery = new Date(today);
+        nextDelivery.setDate(nextDelivery.getDate() + 1);
+      }
+
+      const durationDays = plan.frequency === "weekly" ? 7 : 30;
+      const startDate = new Date(today);
+      const endDate = new Date(nextDelivery);
+      endDate.setDate(endDate.getDate() + durationDays - 1);
+
+      // Update subscription - mark as paid, activate, assign chef, and shift dates starting tomorrow
       const updated = await storage.updateSubscription(subscriptionId, {
         isPaid: true,
         status: "active",
         chefId,
         chefAssignedAt,
-        nextDeliveryDate,
+        startDate,
+        endDate,
+        nextDeliveryDate: nextDelivery,
       });
 
       if (!updated) {
         res.status(500).json({ message: "Failed to update subscription" });
         return;
+      }
+
+      // Clean up any existing scheduled logs for this subscription to avoid duplicates/mismatch
+      const existingLogs = await storage.getSubscriptionDeliveryLogs(subscriptionId);
+      for (const log of existingLogs) {
+        if (log.status === "scheduled") {
+          await storage.deleteSubscriptionDeliveryLog(log.id);
+        }
+      }
+
+      // Generate new delivery logs starting tomorrow
+      const { generateSubscriptionDeliveryLogs } = await import("./routes");
+      await generateSubscriptionDeliveryLogs(
+        updated,
+        plan,
+        nextDelivery,
+        endDate,
+        updated.nextDeliveryTime || "09:00"
+      );
+
+      // If this subscription is associated with a custom request, update its status to "converted"
+      const customRequest = await storage.getCustomSubscriptionRequestBySubscriptionId(subscriptionId);
+      if (customRequest) {
+        await storage.updateCustomSubscriptionRequest(customRequest.id, {
+          status: "converted",
+        });
+        
+        // Broadcast custom request status update
+        const { broadcastCustomRequestUpdate } = await import("./websocket");
+        const updatedRequest = await storage.getCustomSubscriptionRequest(customRequest.id);
+        if (updatedRequest) {
+          broadcastCustomRequestUpdate(updatedRequest);
+        }
       }
 
       console.log(`✅ Admin confirmed payment for subscription ${subscriptionId} (TxnID: ${subscription.paymentTransactionId}) - Subscription activated`);
@@ -1887,8 +2170,8 @@ export function registerAdminRoutes(app: Express) {
       }
 
       // Create today's delivery log if the subscription starts today and notify chef
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      const checkToday = new Date();
+      checkToday.setHours(0, 0, 0, 0);
 
       // Convert nextDeliveryDate from database (could be string or Date) to Date object for comparison
       let nextDeliveryDateObj = updated.nextDeliveryDate;
@@ -1896,15 +2179,15 @@ export function registerAdminRoutes(app: Express) {
         nextDeliveryDateObj = new Date(nextDeliveryDateObj);
       }
 
-      const nextDelivery = new Date(nextDeliveryDateObj);
-      nextDelivery.setHours(0, 0, 0, 0);
+      const checkNextDelivery = new Date(nextDeliveryDateObj);
+      checkNextDelivery.setHours(0, 0, 0, 0);
 
-      if (nextDelivery.getTime() === today.getTime() && chefId) {
-        const existingLog = await storage.getDeliveryLogBySubscriptionAndDate(subscriptionId, today);
+      if (checkNextDelivery.getTime() === checkToday.getTime() && chefId) {
+        const existingLog = await storage.getDeliveryLogBySubscriptionAndDate(subscriptionId, checkToday);
         if (!existingLog) {
           await storage.createSubscriptionDeliveryLog({
             subscriptionId,
-            date: today,
+            date: checkToday,
             time: updated.nextDeliveryTime || "09:00",
             status: "scheduled",
             deliveryPersonId: null,

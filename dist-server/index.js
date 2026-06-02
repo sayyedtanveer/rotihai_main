@@ -26,6 +26,7 @@ __export(schema_exports, {
   chefs: () => chefs,
   couponUsages: () => couponUsages,
   coupons: () => coupons,
+  customSubscriptionRequests: () => customSubscriptionRequests,
   deliveryAreas: () => deliveryAreas,
   deliveryLogStatusEnum: () => deliveryLogStatusEnum,
   deliveryPartnerPayouts: () => deliveryPartnerPayouts,
@@ -41,6 +42,7 @@ __export(schema_exports, {
   insertCategorySchema: () => insertCategorySchema,
   insertChefSchema: () => insertChefSchema,
   insertCouponSchema: () => insertCouponSchema,
+  insertCustomSubscriptionRequestSchema: () => insertCustomSubscriptionRequestSchema,
   insertDeliveryAreasSchema: () => insertDeliveryAreasSchema,
   insertDeliveryPartnerPayoutSchema: () => insertDeliveryPartnerPayoutSchema,
   insertDeliveryPersonnelSchema: () => insertDeliveryPersonnelSchema,
@@ -96,7 +98,7 @@ import { pgTable, text, varchar, integer, decimal, boolean, timestamp, jsonb, in
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import * as crypto from "crypto";
-var adminRoleEnum, sessions, users, adminUsers, partnerUsers, categories, chefs, products, paymentStatusEnum, deliveryPersonnelStatusEnum, deliveryPersonnel, orders, paymentVerificationLog, deliverySettings, deliveryPartnerPayouts, cartSettings, discountTypeEnum, coupons, couponUsages, referrals, transactionTypeEnum, walletTransactions, walletSettings, paymentSettings, payoutTransactions, referralRewards, subscriptionStatusEnum, subscriptionFrequencyEnum, deliveryLogStatusEnum, subscriptionPlans, subscriptions, subscriptionDeliveryLogs, insertCategorySchema, insertProductSchema, insertChefSchema, orderItemSchema, insertOrderSchema, insertUserSchema, userLoginSchema, insertAdminUserSchema, adminLoginSchema, insertPartnerUserSchema, partnerLoginSchema, insertSubscriptionPlanSchema, promotionalBanners, insertPromotionalBannerSchema, insertSubscriptionSchema, insertDeliverySettingSchema, insertSubscriptionDeliveryLogSchema, insertDeliveryPartnerPayoutSchema, insertCartSettingSchema, insertDeliveryPersonnelSchema, deliveryPersonnelLoginSchema, insertCouponSchema, insertReferralSchema, insertWalletTransactionSchema, insertReferralRewardSchema, deliveryTimeSlots, insertDeliveryTimeSlotsSchema, rotiSettings, insertRotiSettingsSchema, visitors, insertVisitorSchema, deliveryAreas, insertDeliveryAreasSchema, adminSettings, insertAdminSettingsSchema, pushSubscriptions, insertPushSubscriptionSchema, newsletterSubscribers, pendingBroadcasts, insertPendingBroadcastSchema, pendingCheckouts, insertPendingCheckoutSchema;
+var adminRoleEnum, sessions, users, adminUsers, partnerUsers, categories, chefs, products, paymentStatusEnum, deliveryPersonnelStatusEnum, deliveryPersonnel, orders, paymentVerificationLog, deliverySettings, deliveryPartnerPayouts, cartSettings, discountTypeEnum, coupons, couponUsages, referrals, transactionTypeEnum, walletTransactions, walletSettings, paymentSettings, payoutTransactions, referralRewards, subscriptionStatusEnum, subscriptionFrequencyEnum, deliveryLogStatusEnum, subscriptionPlans, subscriptions, subscriptionDeliveryLogs, insertCategorySchema, insertProductSchema, insertChefSchema, orderItemSchema, insertOrderSchema, insertUserSchema, userLoginSchema, insertAdminUserSchema, adminLoginSchema, insertPartnerUserSchema, partnerLoginSchema, insertSubscriptionPlanSchema, promotionalBanners, insertPromotionalBannerSchema, insertSubscriptionSchema, insertDeliverySettingSchema, insertSubscriptionDeliveryLogSchema, insertDeliveryPartnerPayoutSchema, insertCartSettingSchema, insertDeliveryPersonnelSchema, deliveryPersonnelLoginSchema, insertCouponSchema, insertReferralSchema, insertWalletTransactionSchema, insertReferralRewardSchema, deliveryTimeSlots, insertDeliveryTimeSlotsSchema, rotiSettings, insertRotiSettingsSchema, visitors, insertVisitorSchema, deliveryAreas, insertDeliveryAreasSchema, adminSettings, insertAdminSettingsSchema, pushSubscriptions, insertPushSubscriptionSchema, newsletterSubscribers, pendingBroadcasts, insertPendingBroadcastSchema, pendingCheckouts, insertPendingCheckoutSchema, customSubscriptionRequests, insertCustomSubscriptionRequestSchema;
 var init_schema = __esm({
   "shared/schema.ts"() {
     "use strict";
@@ -1127,6 +1129,59 @@ var init_schema = __esm({
       status: true,
       expiresAt: true
     });
+    customSubscriptionRequests = pgTable("custom_subscription_requests", {
+      id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+      userId: varchar("user_id").notNull(),
+      customerName: text("customer_name").notNull(),
+      phone: text("phone").notNull(),
+      email: text("email"),
+      address: text("address").notNull(),
+      addressBuilding: text("address_building"),
+      addressStreet: text("address_street"),
+      addressArea: text("address_area"),
+      addressCity: text("address_city").default("Mumbai"),
+      addressPincode: text("address_pincode"),
+      rotiPerDay: integer("roti_per_day").notNull(),
+      daysPerWeek: integer("days_per_week").notNull().default(7),
+      deliveryDays: jsonb("delivery_days").notNull(),
+      // Array of days: ["monday", "tuesday", etc]
+      duration: text("duration").notNull(),
+      // "weekly" | "monthly"
+      deliverySlotId: varchar("delivery_slot_id"),
+      pricePerRoti: integer("price_per_roti").notNull(),
+      calculatedPrice: integer("calculated_price").notNull(),
+      assignedChefId: varchar("assigned_chef_id"),
+      status: text("status").notNull().default("pending_chef_assignment"),
+      // pending_chef_assignment, approved, rejected, awaiting_payment, paid, converted
+      rejectionReason: text("rejection_reason"),
+      approvedBy: text("approved_by"),
+      approvedAt: timestamp("approved_at"),
+      subscriptionId: varchar("subscription_id"),
+      createdAt: timestamp("created_at").notNull().defaultNow(),
+      updatedAt: timestamp("updated_at").notNull().defaultNow()
+    });
+    insertCustomSubscriptionRequestSchema = createInsertSchema(customSubscriptionRequests, {
+      userId: z.string().min(1),
+      customerName: z.string().min(1),
+      phone: z.string().min(10),
+      address: z.string().min(1),
+      rotiPerDay: z.number().int().min(1),
+      daysPerWeek: z.number().int().min(1).max(7).default(7),
+      deliveryDays: z.array(z.string()),
+      duration: z.string(),
+      deliverySlotId: z.string().optional(),
+      pricePerRoti: z.number().int().min(1),
+      calculatedPrice: z.number().int().min(1)
+    }).omit({
+      id: true,
+      status: true,
+      createdAt: true,
+      updatedAt: true,
+      subscriptionId: true,
+      approvedBy: true,
+      approvedAt: true,
+      rejectionReason: true
+    });
   }
 });
 
@@ -1140,6 +1195,7 @@ __export(db_exports, {
   chefs: () => chefs2,
   couponUsages: () => couponUsages2,
   coupons: () => coupons2,
+  customSubscriptionRequests: () => customSubscriptionRequests2,
   db: () => db,
   dbType: () => dbType,
   deliveryAreas: () => deliveryAreas2,
@@ -1173,7 +1229,7 @@ __export(db_exports, {
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { sql as sql2 } from "drizzle-orm";
-var dbType, connectionString, pool, db, users2, sessions2, categories2, products2, orders2, chefs2, adminUsers2, partnerUsers2, subscriptions2, subscriptionPlans2, subscriptionDeliveryLogs2, deliverySettings2, deliveryPartnerPayouts2, cartSettings2, deliveryPersonnel2, coupons2, couponUsages2, referrals2, walletTransactions2, walletSettings2, referralRewards2, promotionalBanners2, deliveryTimeSlots2, rotiSettings2, visitors2, deliveryAreas2, adminSettings2, newsletterSubscribers2, pendingBroadcasts2, pendingCheckouts2, payoutTransactions2, paymentVerificationLog2, paymentSettings2;
+var dbType, connectionString, pool, db, users2, sessions2, categories2, products2, orders2, chefs2, adminUsers2, partnerUsers2, subscriptions2, subscriptionPlans2, subscriptionDeliveryLogs2, deliverySettings2, deliveryPartnerPayouts2, cartSettings2, deliveryPersonnel2, coupons2, couponUsages2, referrals2, walletTransactions2, walletSettings2, referralRewards2, promotionalBanners2, deliveryTimeSlots2, rotiSettings2, visitors2, deliveryAreas2, adminSettings2, newsletterSubscribers2, pendingBroadcasts2, pendingCheckouts2, payoutTransactions2, paymentVerificationLog2, paymentSettings2, customSubscriptionRequests2;
 var init_db = __esm({
   "shared/db.ts"() {
     "use strict";
@@ -1225,7 +1281,8 @@ var init_db = __esm({
       pendingCheckouts: pendingCheckouts2,
       payoutTransactions: payoutTransactions2,
       paymentVerificationLog: paymentVerificationLog2,
-      paymentSettings: paymentSettings2
+      paymentSettings: paymentSettings2,
+      customSubscriptionRequests: customSubscriptionRequests2
     } = schema_exports);
   }
 });
@@ -1254,7 +1311,7 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
   const distance = R * c;
   return parseFloat(distance.toFixed(2));
 }
-function calculateDelivery(distance, subtotal, deliverySettings3, customMultiplier) {
+function calculateDelivery(distance, subtotal, deliverySettings3, customMultiplier, chefFreeDeliveryThreshold) {
   let deliveryFee = 0;
   let freeDeliveryEligible = false;
   let amountForFreeDelivery;
@@ -1296,12 +1353,13 @@ function calculateDelivery(distance, subtotal, deliverySettings3, customMultipli
     deliveryFee = matchingSetting.price;
     deliveryRangeName = matchingSetting.name;
     const minOrderForRange = matchingSetting.minOrderAmount || 0;
-    if (deliveryFee === 0 || minOrderForRange > 0 && subtotal >= minOrderForRange) {
+    const effectiveThreshold = Math.max(minOrderForRange, chefFreeDeliveryThreshold ?? 0);
+    if (deliveryFee === 0 || effectiveThreshold > 0 && subtotal >= effectiveThreshold) {
       freeDeliveryEligible = true;
       deliveryFee = 0;
     } else {
-      if (minOrderForRange > 0) {
-        amountForFreeDelivery = minOrderForRange - subtotal;
+      if (effectiveThreshold > 0) {
+        amountForFreeDelivery = effectiveThreshold - subtotal;
       }
       freeDeliveryEligible = false;
     }
@@ -1310,8 +1368,7 @@ function calculateDelivery(distance, subtotal, deliverySettings3, customMultipli
       freeDeliveryEligible,
       amountForFreeDelivery,
       deliveryRangeName,
-      minOrderAmount: minOrderForRange
-      // Return min order for this range
+      minOrderAmount: effectiveThreshold
     };
     console.log(`[Delivery Calc] Final result:`, result);
     return result;
@@ -2264,6 +2321,70 @@ var init_storage = __esm({
             gte3(log3.date, startOfDay),
             lte2(log3.date, endOfDay)
           )
+        });
+      }
+      // Custom Subscription Requests implementation
+      async createCustomSubscriptionRequest(data) {
+        const id = randomUUID2();
+        const now = /* @__PURE__ */ new Date();
+        const requestData = {
+          ...data,
+          id,
+          email: data.email || null,
+          addressBuilding: data.addressBuilding || null,
+          addressStreet: data.addressStreet || null,
+          addressArea: data.addressArea || null,
+          addressCity: data.addressCity || "Mumbai",
+          addressPincode: data.addressPincode || null,
+          deliverySlotId: data.deliverySlotId || null,
+          assignedChefId: null,
+          status: "pending_chef_assignment",
+          rejectionReason: null,
+          approvedBy: null,
+          approvedAt: null,
+          subscriptionId: null,
+          createdAt: now,
+          updatedAt: now
+        };
+        const insertData = {
+          ...requestData,
+          createdAt: convertDateForDB(requestData.createdAt),
+          updatedAt: convertDateForDB(requestData.updatedAt)
+        };
+        await db.insert(customSubscriptionRequests2).values(insertData);
+        return requestData;
+      }
+      async getCustomSubscriptionRequest(id) {
+        return db.query.customSubscriptionRequests.findFirst({
+          where: (r, { eq: eq10 }) => eq10(r.id, id)
+        });
+      }
+      async getCustomSubscriptionRequestsByUserId(userId) {
+        return db.query.customSubscriptionRequests.findMany({
+          where: (r, { eq: eq10 }) => eq10(r.userId, userId),
+          orderBy: (r, { desc: desc3 }) => [desc3(r.createdAt)]
+        });
+      }
+      async getAllCustomSubscriptionRequests() {
+        return db.query.customSubscriptionRequests.findMany({
+          orderBy: (r, { desc: desc3 }) => [desc3(r.createdAt)]
+        });
+      }
+      async updateCustomSubscriptionRequest(id, data) {
+        const updateData = {
+          ...data,
+          updatedAt: /* @__PURE__ */ new Date()
+        };
+        if (updateData.approvedAt !== void 0) {
+          updateData.approvedAt = convertDateForDB(updateData.approvedAt);
+        }
+        updateData.updatedAt = convertDateForDB(updateData.updatedAt);
+        await db.update(customSubscriptionRequests2).set(updateData).where(eq(customSubscriptionRequests2.id, id));
+        return this.getCustomSubscriptionRequest(id);
+      }
+      async getCustomSubscriptionRequestBySubscriptionId(subscriptionId) {
+        return db.query.customSubscriptionRequests.findFirst({
+          where: (r, { eq: eq10 }) => eq10(r.subscriptionId, subscriptionId)
         });
       }
       async getSalesReport(from, to) {
@@ -4487,6 +4608,50 @@ var init_storage = __esm({
   }
 });
 
+// server/cache.ts
+function getCache(key) {
+  return cache.get(key)?.value;
+}
+function setCache(key, value, ttl) {
+  if (cache.has(key)) {
+    clearTimeout(cache.get(key).timeout);
+  }
+  if (cache.size >= MAX_CACHE_SIZE) {
+    const firstKey = cache.keys().next().value;
+    if (firstKey) {
+      invalidateCache(firstKey);
+    }
+  }
+  const timeout = setTimeout(() => {
+    cache.delete(key);
+  }, ttl);
+  cache.set(key, { value, timeout });
+}
+function invalidateCache(key) {
+  const entry = cache.get(key);
+  if (entry) {
+    clearTimeout(entry.timeout);
+    cache.delete(key);
+  }
+}
+function invalidateCachePrefix(prefix) {
+  const keysToDelete = [];
+  cache.forEach((_, key) => {
+    if (key.startsWith(prefix)) {
+      keysToDelete.push(key);
+    }
+  });
+  keysToDelete.forEach((key) => invalidateCache(key));
+}
+var MAX_CACHE_SIZE, cache;
+var init_cache = __esm({
+  "server/cache.ts"() {
+    "use strict";
+    MAX_CACHE_SIZE = 500;
+    cache = /* @__PURE__ */ new Map();
+  }
+});
+
 // server/adminAuth.ts
 var adminAuth_exports = {};
 __export(adminAuth_exports, {
@@ -5000,6 +5165,8 @@ var websocket_exports = {};
 __export(websocket_exports, {
   broadcastChefStatusUpdate: () => broadcastChefStatusUpdate,
   broadcastChefUnavailableNotification: () => broadcastChefUnavailableNotification,
+  broadcastCustomRequestUpdate: () => broadcastCustomRequestUpdate,
+  broadcastNewCustomRequest: () => broadcastNewCustomRequest,
   broadcastNewOrder: () => broadcastNewOrder,
   broadcastNewSubscriptionToAdmin: () => broadcastNewSubscriptionToAdmin,
   broadcastOrderCancelledToDelivery: () => broadcastOrderCancelledToDelivery,
@@ -5084,6 +5251,7 @@ function setupWebSocket(server) {
     try {
       if (type === "browser") {
         clientId = `browser_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        customerUserId = userId || void 0;
       } else if (type === "customer") {
         if (!orderId && !userId) {
           ws.close(1008, "Order ID or User ID required for customer connection");
@@ -5995,6 +6163,52 @@ async function broadcastOrderCancelledToDelivery(deliveryPersonId, orderId, reas
   } catch (error) {
     console.error(`\u26A0\uFE0F Error saving pending order_cancelled broadcast for ${deliveryPersonId}:`, error);
   }
+}
+function broadcastNewCustomRequest(request) {
+  const message = JSON.stringify({
+    type: "new_custom_subscription_request",
+    data: request,
+    message: `New custom subscription request from ${request.customerName} for ${request.rotiPerDay} rotis/day.`
+  });
+  console.log(`\u{1F4E1} BROADCASTING NEW CUSTOM SUBSCRIPTION REQUEST: ${request.id}`);
+  let adminCount = 0;
+  clients.forEach((client, clientId) => {
+    if (client.type === "admin" && client.ws.readyState === WebSocket.OPEN) {
+      client.ws.send(message);
+      adminCount++;
+    }
+  });
+  console.log(`  Admins notified: ${adminCount}`);
+}
+function broadcastCustomRequestUpdate(request) {
+  const safeRequest = { ...request };
+  const dateFields = ["createdAt", "updatedAt", "approvedAt"];
+  for (const field of dateFields) {
+    if (safeRequest[field]) {
+      if (safeRequest[field] instanceof Date) {
+        safeRequest[field] = safeRequest[field].toISOString();
+      } else if (typeof safeRequest[field] !== "string") {
+        safeRequest[field] = String(safeRequest[field]);
+      }
+    }
+  }
+  const message = JSON.stringify({
+    type: "custom_request_update",
+    data: safeRequest
+  });
+  console.log(`\u{1F4E1} BROADCASTING CUSTOM REQUEST UPDATE: ${safeRequest.id} for user ${safeRequest.userId}`);
+  let adminNotified = 0;
+  let customerNotified = 0;
+  clients.forEach((client, clientId) => {
+    if (client.type === "admin" && client.ws.readyState === WebSocket.OPEN) {
+      client.ws.send(message);
+      adminNotified++;
+    } else if ((client.type === "customer" || client.type === "browser") && client.userId === safeRequest.userId && client.ws.readyState === WebSocket.OPEN) {
+      client.ws.send(message);
+      customerNotified++;
+    }
+  });
+  console.log(`  Admins notified: ${adminNotified} | Customer notified: ${customerNotified}`);
 }
 var clients, preparedOrderTimeouts, PREPARED_ORDER_TIMEOUT_MS;
 var init_websocket = __esm({
@@ -6933,1119 +7147,7 @@ var init_whatsappService = __esm({
   }
 });
 
-// server/services/gpayVerificationService.ts
-import { eq as eq6, desc as desc2 } from "drizzle-orm";
-var GPayVerificationService, gpayVerificationService;
-var init_gpayVerificationService = __esm({
-  "server/services/gpayVerificationService.ts"() {
-    "use strict";
-    init_db();
-    init_schema();
-    GPayVerificationService = class {
-      MAX_VERIFICATION_ATTEMPTS = 15;
-      // 15 minutes max polling (60-second intervals)
-      AMOUNT_TOLERANCE = 0.5;
-      // ₹0.50 tolerance for amount matching
-      REFERENCE_TOLERANCE_MINUTES = 15;
-      // Payment must be within 15 minutes of order
-      /**
-       * Main verification method - checks if payment matches user
-       */
-      async verifyPaymentForUser(orderId, expectedPhone, expectedAmount) {
-        try {
-          console.log(`[GPAY-VERIFY] Starting verification for Order#${orderId}, Phone: ${expectedPhone}, Amount: \u20B9${expectedAmount}`);
-          const order = await db.query.orders.findFirst({
-            where: eq6(orders.id, orderId)
-          });
-          if (!order) {
-            console.warn(`[GPAY-VERIFY] \u274C Order not found: ${orderId}`);
-            return { verified: false, reason: "order_not_found" };
-          }
-          if (order.paymentVerifiedBy && order.paymentStatus === "confirmed") {
-            console.log(`[GPAY-VERIFY] \u23ED\uFE0F Order already verified: ${orderId}`);
-            return {
-              verified: false,
-              reason: "already_verified",
-              transactionId: order.gpayTransactionId || void 0
-            };
-          }
-          const payment = await this.queryUPITransaction(orderId, expectedAmount);
-          if (!payment) {
-            console.log(`[GPAY-VERIFY] \u23F3 Payment not yet received for Order#${orderId}`);
-            await this.logVerificationAttempt({
-              orderId,
-              checkAttemptNumber: order.verificationAttempts || 0,
-              expectedPhone,
-              actualPhone: "NOT_FOUND",
-              phoneMatch: false,
-              expectedAmount,
-              actualAmount: 0,
-              amountMatch: false,
-              expectedReference: `Order#${orderId}`,
-              actualReference: "NOT_FOUND",
-              referenceMatch: false,
-              verificationStatus: "failed",
-              failureReason: "payment_not_received",
-              checkedAt: /* @__PURE__ */ new Date()
-            });
-            return { verified: false, reason: "payment_not_received" };
-          }
-          console.log(`[GPAY-VERIFY] \u{1F4B0} Payment found for Order#${orderId}:`, {
-            from: payment.senderPhone,
-            amount: payment.amount,
-            reference: payment.reference
-          });
-          const phoneMatch = this.phonesMatch(payment.senderPhone, expectedPhone);
-          if (!phoneMatch) {
-            console.warn(`[GPAY-VERIFY] \u274C PHONE MISMATCH`);
-            console.warn(`   Expected: ${expectedPhone}`);
-            console.warn(`   Got: ${payment.senderPhone}`);
-            await this.logVerificationAttempt({
-              orderId,
-              checkAttemptNumber: (order.verificationAttempts || 0) + 1,
-              expectedPhone,
-              actualPhone: payment.senderPhone,
-              phoneMatch: false,
-              expectedAmount,
-              actualAmount: payment.amount,
-              amountMatch: false,
-              expectedReference: `Order#${orderId}`,
-              actualReference: payment.reference,
-              referenceMatch: false,
-              verificationStatus: "failed",
-              failureReason: "phone_mismatch",
-              gpayTransactionId: payment.transactionId,
-              checkedAt: /* @__PURE__ */ new Date()
-            });
-            return { verified: false, reason: "phone_mismatch" };
-          }
-          console.log(`[GPAY-VERIFY] \u2705 Phone verified`);
-          const amountDiff = Math.abs(payment.amount - expectedAmount);
-          const amountMatch = amountDiff <= this.AMOUNT_TOLERANCE;
-          if (!amountMatch) {
-            console.warn(`[GPAY-VERIFY] \u274C AMOUNT MISMATCH`);
-            console.warn(`   Expected: \u20B9${expectedAmount}`);
-            console.warn(`   Got: \u20B9${payment.amount}`);
-            console.warn(`   Diff: \u20B9${amountDiff.toFixed(2)} (tolerance: \u20B9${this.AMOUNT_TOLERANCE})`);
-            await this.logVerificationAttempt({
-              orderId,
-              checkAttemptNumber: (order.verificationAttempts || 0) + 1,
-              expectedPhone,
-              actualPhone: payment.senderPhone,
-              phoneMatch: true,
-              expectedAmount,
-              actualAmount: payment.amount,
-              amountMatch: false,
-              expectedReference: `Order#${orderId}`,
-              actualReference: payment.reference,
-              referenceMatch: false,
-              verificationStatus: "failed",
-              failureReason: "amount_mismatch",
-              gpayTransactionId: payment.transactionId,
-              checkedAt: /* @__PURE__ */ new Date()
-            });
-            return { verified: false, reason: "amount_mismatch" };
-          }
-          console.log(`[GPAY-VERIFY] \u2705 Amount verified: \u20B9${payment.amount}`);
-          const referenceMatch = payment.reference.includes(`Order#${orderId}`) || payment.reference.includes(orderId);
-          if (!referenceMatch) {
-            console.warn(`[GPAY-VERIFY] \u274C REFERENCE MISMATCH`);
-            console.warn(`   Expected to contain: Order#${orderId}`);
-            console.warn(`   Got: ${payment.reference}`);
-            await this.logVerificationAttempt({
-              orderId,
-              checkAttemptNumber: (order.verificationAttempts || 0) + 1,
-              expectedPhone,
-              actualPhone: payment.senderPhone,
-              phoneMatch: true,
-              expectedAmount,
-              actualAmount: payment.amount,
-              amountMatch: true,
-              expectedReference: `Order#${orderId}`,
-              actualReference: payment.reference,
-              referenceMatch: false,
-              verificationStatus: "failed",
-              failureReason: "reference_mismatch",
-              gpayTransactionId: payment.transactionId,
-              checkedAt: /* @__PURE__ */ new Date()
-            });
-            return { verified: false, reason: "reference_mismatch" };
-          }
-          console.log(`[GPAY-VERIFY] \u2705 Reference verified: ${payment.reference}`);
-          const paymentAge = Math.abs(Date.now() - payment.timestamp.getTime());
-          const maxAge = this.REFERENCE_TOLERANCE_MINUTES * 60 * 1e3;
-          if (paymentAge > maxAge) {
-            console.warn(`[GPAY-VERIFY] \u26A0\uFE0F PAYMENT IS OLD`);
-            console.warn(`   Age: ${Math.floor(paymentAge / 1e3)} seconds`);
-            console.warn(`   Max: ${this.REFERENCE_TOLERANCE_MINUTES} minutes`);
-          }
-          console.log(`[GPAY-VERIFY] \u2705 Timestamp verified (age: ${Math.floor(paymentAge / 1e3)}s)`);
-          console.log(`[GPAY-VERIFY] \u2705\u2705\u2705 PAYMENT VERIFIED for Order#${orderId}`);
-          await this.logVerificationAttempt({
-            orderId,
-            checkAttemptNumber: (order.verificationAttempts || 0) + 1,
-            expectedPhone,
-            actualPhone: payment.senderPhone,
-            phoneMatch: true,
-            expectedAmount,
-            actualAmount: payment.amount,
-            amountMatch: true,
-            expectedReference: `Order#${orderId}`,
-            actualReference: payment.reference,
-            referenceMatch: true,
-            verificationStatus: "success",
-            gpayTransactionId: payment.transactionId,
-            checkedAt: /* @__PURE__ */ new Date()
-          });
-          return {
-            verified: true,
-            transactionId: payment.transactionId,
-            payerPhone: payment.senderPhone,
-            paymentAmount: payment.amount,
-            verificationTime: /* @__PURE__ */ new Date()
-          };
-        } catch (error) {
-          console.error(`[GPAY-VERIFY] Error during verification:`, error);
-          return {
-            verified: false,
-            reason: "verification_error",
-            error: error instanceof Error ? error.message : "Unknown error"
-          };
-        }
-      }
-      /**
-       * Query UPI provider for payment (PhonePe API)
-       */
-      async queryUPITransaction(orderId, expectedAmount) {
-        try {
-          console.log(`[GPAY-QUERY] Checking UPI for Order#${orderId} with amount \u20B9${expectedAmount}`);
-          const simulatedPayment = global.simulatedGPayPayments?.[orderId];
-          if (simulatedPayment) {
-            console.log(`[GPAY-QUERY] Found simulated payment:`, simulatedPayment);
-            return {
-              transactionId: simulatedPayment.transactionId,
-              senderPhone: simulatedPayment.senderPhone,
-              amount: simulatedPayment.amount,
-              reference: simulatedPayment.reference,
-              timestamp: new Date(simulatedPayment.timestamp)
-            };
-          }
-          return null;
-        } catch (error) {
-          console.error(`[GPAY-QUERY] Error querying UPI:`, error);
-          return null;
-        }
-      }
-      /**
-       * Phone number matching with normalization
-       */
-      phonesMatch(phone1, phone2) {
-        const normalize = (p) => p.replace(/[\D]/g, "").slice(-10);
-        const normalized1 = normalize(phone1);
-        const normalized2 = normalize(phone2);
-        const match = normalized1 === normalized2;
-        console.log(`[PHONE-MATCH] Comparing phones:`);
-        console.log(`   Phone1: ${phone1} \u2192 ${normalized1}`);
-        console.log(`   Phone2: ${phone2} \u2192 ${normalized2}`);
-        console.log(`   Match: ${match}`);
-        return match;
-      }
-      /**
-       * Log verification attempt to audit trail
-       */
-      async logVerificationAttempt(log3) {
-        try {
-          await db.insert(paymentVerificationLog).values({
-            id: `${log3.orderId}-${Date.now()}`,
-            orderId: log3.orderId,
-            checkAttemptNumber: log3.checkAttemptNumber,
-            expectedPhone: log3.expectedPhone,
-            actualPhone: log3.actualPhone,
-            phoneMatch: log3.phoneMatch,
-            expectedAmount: log3.expectedAmount,
-            actualAmount: log3.actualAmount,
-            amountMatch: log3.amountMatch,
-            expectedReference: log3.expectedReference,
-            actualReference: log3.actualReference,
-            referenceMatch: log3.referenceMatch,
-            verificationStatus: log3.verificationStatus,
-            failureReason: log3.failureReason || null,
-            gpayTransactionId: log3.gpayTransactionId || null,
-            checkedAt: log3.checkedAt
-          });
-        } catch (error) {
-          console.warn(`[GPAY-LOG] Failed to log verification attempt:`, error);
-        }
-      }
-      /**
-       * Check if verification should be retried
-       */
-      shouldRetryVerification(order) {
-        if (!order) return false;
-        if (order.paymentStatus === "confirmed") return false;
-        if (!order.verificationAttempts) return true;
-        return order.verificationAttempts < this.MAX_VERIFICATION_ATTEMPTS;
-      }
-      /**
-       * Get verification attempt count
-       */
-      getVerificationAttemptCount(order) {
-        return order?.verificationAttempts || 0;
-      }
-      /**
-       * Get last verification log for order
-       */
-      async getLastVerificationLog(orderId) {
-        try {
-          const log3 = await db.query.paymentVerificationLog.findFirst({
-            where: eq6(paymentVerificationLog.orderId, orderId),
-            orderBy: desc2(paymentVerificationLog.checkedAt)
-          });
-          return log3;
-        } catch (error) {
-          console.error(`[GPAY-LOG] Error fetching verification log:`, error);
-          return null;
-        }
-      }
-    };
-    gpayVerificationService = new GPayVerificationService();
-  }
-});
-
-// vite.config.ts
-var vite_config_exports = {};
-__export(vite_config_exports, {
-  default: () => vite_config_default
-});
-import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
-import path from "path";
-import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
-import fs from "fs";
-var versionPlugin, vite_config_default;
-var init_vite_config = __esm({
-  "vite.config.ts"() {
-    "use strict";
-    versionPlugin = {
-      name: "version-plugin",
-      apply: "build",
-      enforce: "post",
-      generateBundle() {
-        const now = /* @__PURE__ */ new Date();
-        const version = now.toISOString();
-        const timestamp2 = Date.now();
-        const buildId = `${timestamp2}-${Math.random().toString(36).substr(2, 9)}`;
-        const versionJson = JSON.stringify({
-          version,
-          timestamp: timestamp2,
-          buildId,
-          buildDate: now.toLocaleString()
-        }, null, 2);
-        console.log(`\u{1F4E6} Version plugin: Generated version ${buildId}`);
-        this.emitFile({
-          type: "asset",
-          fileName: "version.json",
-          source: versionJson
-        });
-        try {
-          const swSource = fs.readFileSync(
-            path.resolve(import.meta.dirname, "client", "public", "sw.js"),
-            "utf-8"
-          );
-          const swWithBuildId = swSource.replace("__SW_BUILD_ID__", `v-${buildId}`);
-          this.emitFile({
-            type: "asset",
-            fileName: "sw.js",
-            source: swWithBuildId
-          });
-          console.log(`\u{1F4E6} Version plugin: Injected build ID into sw.js \u2192 v-${buildId}`);
-        } catch (err) {
-          console.warn("\u26A0\uFE0F Version plugin: Could not inject build ID into sw.js:", err);
-        }
-      }
-    };
-    vite_config_default = defineConfig({
-      plugins: [
-        react(),
-        runtimeErrorOverlay(),
-        versionPlugin
-      ],
-      define: {
-        // Inject build timestamp for cache-busting (available as import.meta.env.VITE_BUILD_TIME)
-        "import.meta.env.VITE_BUILD_TIME": JSON.stringify(Date.now().toString()),
-        // Safety shim: some libraries reference process.env.NODE_ENV directly.
-        // Vite normally replaces process.env.NODE_ENV but this makes it explicit.
-        "process.env.NODE_ENV": JSON.stringify(process.env.NODE_ENV || "development")
-      },
-      resolve: {
-        alias: {
-          "@": path.resolve(import.meta.dirname, "client", "src"),
-          "@shared": path.resolve(import.meta.dirname, "shared"),
-          "@assets": path.resolve(import.meta.dirname, "attached_assets")
-        }
-      },
-      root: path.resolve(import.meta.dirname, "client"),
-      build: {
-        outDir: path.resolve(import.meta.dirname, "dist/public"),
-        emptyOutDir: true,
-        rollupOptions: {
-          output: {
-            // Disable aggressive caching - add timestamp to output files
-            entryFileNames: "[name].[hash].js",
-            chunkFileNames: "[name].[hash].js",
-            assetFileNames: "[name].[hash][extname]"
-          }
-        }
-      },
-      server: {
-        host: "0.0.0.0",
-        port: 5173,
-        fs: {
-          strict: false
-        },
-        allowedHosts: true,
-        middlewareMode: false,
-        hmr: process.env.REPLIT_DEV_DOMAIN ? {
-          host: process.env.REPLIT_DEV_DOMAIN,
-          protocol: "wss",
-          clientPort: 443
-        } : {
-          host: process.env.VITE_HMR_HOST || "localhost",
-          port: 5173
-        }
-      }
-    });
-  }
-});
-
-// server/vite.ts
-var vite_exports = {};
-__export(vite_exports, {
-  log: () => log,
-  serveStatic: () => serveStatic,
-  setupVite: () => setupVite
-});
-import express from "express";
-import fs2 from "fs";
-import path2 from "path";
-import { nanoid as nanoid2 } from "nanoid";
-function log(message, source = "express") {
-  const formattedTime = (/* @__PURE__ */ new Date()).toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: true
-  });
-  console.log(`${formattedTime} [${source}] ${message}`);
-}
-async function setupVite(app2, server) {
-  if (!enableVite) {
-    return;
-  }
-  try {
-    await loadVite();
-    const viteLogger = await getViteLogger();
-    const serverOptions = {
-      middlewareMode: true,
-      hmr: { server },
-      allowedHosts: true
-    };
-    if (!createViteServer) {
-      throw new Error("Vite server was not loaded correctly");
-    }
-    const vite = await createViteServer({
-      ...viteConfig,
-      configFile: false,
-      customLogger: {
-        ...viteLogger,
-        error: (msg, options) => {
-          viteLogger.error(msg, options);
-          process.exit(1);
-        }
-      },
-      server: serverOptions,
-      appType: "custom"
-    });
-    app2.use(vite.middlewares);
-    app2.use("*", async (req, res, next) => {
-      const url = req.originalUrl;
-      try {
-        const clientTemplate = path2.resolve(
-          import.meta.dirname,
-          "..",
-          "client",
-          "index.html"
-        );
-        let template = await fs2.promises.readFile(clientTemplate, "utf-8");
-        template = template.replace(
-          `src="/src/main.tsx"`,
-          `src="/src/main.tsx?v=${nanoid2()}"`
-        );
-        const page = await vite.transformIndexHtml(url, template);
-        res.status(200).set({ "Content-Type": "text/html" }).end(page);
-      } catch (e) {
-        vite.ssrFixStacktrace(e);
-        next(e);
-      }
-    });
-  } catch (error) {
-    console.error("\u274C Failed to setup Vite:", error);
-    throw error;
-  }
-}
-function serveStatic(app2) {
-  const distPath = path2.resolve(import.meta.dirname, "..", "dist", "public");
-  if (!fs2.existsSync(distPath)) {
-    const errorMsg = `\u274C CRITICAL: Frontend build not found: ${distPath}
-    
-    Cause: 'npm run build:client' was not run before deployment
-    
-    Fix in local environment:
-      1. npm run build:client
-      2. npm run build:server
-      3. Redeploy
-    
-    For deployed environments (Render, Vercel, etc):
-      Ensure build step is configured in your deployment config`;
-    console.error(errorMsg);
-    if (enableVite) {
-      console.warn("\u26A0\uFE0F  Continuing without frontend build (Vite enabled)");
-      return;
-    }
-    throw new Error(errorMsg);
-  }
-  console.log("\u2705 Serving static frontend from:", distPath);
-  app2.use(express.static(distPath, {
-    maxAge: "1d",
-    etag: true,
-    lastModified: true,
-    immutable: false,
-    setHeaders: (res, filePath) => {
-      if (filePath.match(/\.[a-f0-9]{8}\./i)) {
-        res.set("Cache-Control", "public, max-age=31536000, immutable");
-      }
-    }
-  }));
-  app2.use("*", (req, res) => {
-    if (req.path.startsWith("/api/")) {
-      res.status(404).json({ message: "API endpoint not found" });
-      return;
-    }
-    res.sendFile(path2.resolve(distPath, "index.html"));
-  });
-}
-var enableVite, createViteServer, createLogger, viteConfig, loadVite, getViteLogger;
-var init_vite = __esm({
-  "server/vite.ts"() {
-    "use strict";
-    enableVite = process.env.ENABLE_VITE === "true";
-    createViteServer = null;
-    createLogger = null;
-    viteConfig = null;
-    loadVite = async () => {
-      if (!enableVite) {
-        return;
-      }
-      if (!createViteServer) {
-        try {
-          const viteModule = await import("vite");
-          createViteServer = viteModule.createServer;
-          createLogger = viteModule.createLogger;
-        } catch (error) {
-          console.error("\u274C Failed to load vite module:", error);
-          throw new Error("Vite must be installed when ENABLE_VITE=true");
-        }
-      }
-      if (!viteConfig) {
-        try {
-          const config = await Promise.resolve().then(() => (init_vite_config(), vite_config_exports));
-          viteConfig = config.default;
-        } catch (error) {
-          console.error("\u274C Failed to load vite.config:", error);
-          throw new Error("vite.config must exist and be valid when ENABLE_VITE=true");
-        }
-      }
-    };
-    getViteLogger = async () => {
-      await loadVite();
-      return createLogger ? createLogger() : {
-        error: console.error,
-        info: console.log,
-        warn: console.warn
-      };
-    };
-  }
-});
-
-// server/cronJobs.ts
-var cronJobs_exports = {};
-__export(cronJobs_exports, {
-  autoResumeSubscriptions: () => autoResumeSubscriptions,
-  expirePendingPaymentOrders: () => expirePendingPaymentOrders,
-  generateDailyDeliveryLogs: () => generateDailyDeliveryLogs,
-  markStaleDeliveriesAsMissed: () => markStaleDeliveriesAsMissed,
-  runScheduledTasks: () => runScheduledTasks,
-  sendScheduledOrder2HourNotifications: () => sendScheduledOrder2HourNotifications,
-  startCronJobs: () => startCronJobs,
-  updateNextDeliveryDates: () => updateNextDeliveryDates,
-  verifyPendingGPayPayments: () => verifyPendingGPayPayments
-});
-import { eq as eq9 } from "drizzle-orm";
-async function verifyPendingGPayPayments() {
-  try {
-    console.log("[GPAY-POLLING] Starting Google Pay payment verification...");
-    const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1e3);
-    const pendingOrders = await db.query.orders.findMany({
-      where: (o, { and: and6, eq: eq10, gte: gte3, isNull: isNull3, lte: lte2, lt: lt2 }) => and6(
-        eq10(o.paymentStatus, "pending"),
-        eq10(o.paymentSource, "google-pay"),
-        gte3(o.createdAt, fifteenMinutesAgo),
-        isNull3(o.paymentVerifiedBy)
-      )
-    });
-    console.log(`[GPAY-POLLING] Found ${pendingOrders.length} pending Google Pay order(s)`);
-    let verifiedCount = 0;
-    let failedCount = 0;
-    for (const order of pendingOrders) {
-      try {
-        if (!gpayVerificationService.shouldRetryVerification(order)) {
-          console.log(`[GPAY-POLLING] \u23ED\uFE0F Skipping Order#${order.id} - max verification attempts reached`);
-          continue;
-        }
-        const result = await gpayVerificationService.verifyPaymentForUser(
-          order.id,
-          order.expectedPayerPhone || order.phone,
-          order.total
-        );
-        if (result.verified) {
-          console.log(`\u2705 [GPAY-POLLING] Payment verified for Order#${order.id}`);
-          await db.update(orders).set({
-            paymentStatus: "confirmed",
-            paymentVerifiedBy: "gpay-polling",
-            gpayTransactionId: result.transactionId,
-            phoneMatch: true,
-            amountMatch: true,
-            referenceMatch: true
-          }).where(eq9(orders.id, order.id));
-          try {
-            const existingUser = await db.query.users.findFirst({
-              where: (u, { eq: eq10 }) => eq10(u.phone, order.phone)
-            });
-            if (!existingUser) {
-              console.log(`[GPAY-POLLING] \u{1F464} Creating account for new user: ${order.phone}`);
-              const tempPassword = Math.random().toString(36).slice(-8);
-              const hashedPassword = await __require("bcrypt").hash(tempPassword, 10);
-              const newUser = await db.insert(users).values({
-                phone: order.phone,
-                name: order.customerName || "User",
-                email: order.email || null,
-                passwordHash: hashedPassword
-              }).returning();
-              console.log(`[GPAY-POLLING] \u2705 Account created: ${newUser[0]?.id}`);
-            }
-            try {
-              const wsModule = await Promise.resolve().then(() => (init_websocket(), websocket_exports));
-              if (wsModule && typeof wsModule === "object" && "broadcast" in wsModule) {
-                wsModule.broadcast("order-confirmed", { orderId: order.id, order });
-              }
-              console.log(`[GPAY-POLLING] \u{1F4E2} Order broadcast to chef: ${order.id}`);
-            } catch (wsErr) {
-              console.log(`[GPAY-POLLING] Note: WebSocket broadcast not available`);
-            }
-            verifiedCount++;
-          } catch (error) {
-            console.error(`[GPAY-POLLING] Error post-verification for Order#${order.id}:`, error);
-            failedCount++;
-          }
-        } else {
-          console.log(`[GPAY-POLLING] \u274C Verification failed: ${result.reason}`);
-          await db.update(orders).set({
-            verificationAttempts: (order.verificationAttempts || 0) + 1
-          }).where(eq9(orders.id, order.id));
-          failedCount++;
-        }
-      } catch (error) {
-        console.error(`[GPAY-POLLING] Error processing Order#${order.id}:`, error);
-        failedCount++;
-      }
-    }
-    if (verifiedCount > 0 || failedCount > 0) {
-      console.log(`[GPAY-POLLING] \u2705 Verified: ${verifiedCount}, Failed/Pending: ${failedCount}`);
-    }
-  } catch (error) {
-    console.error("[GPAY-POLLING] Error:", error);
-  }
-}
-function isDeliveryDay2(date, frequency, deliveryDays) {
-  if (!deliveryDays || deliveryDays.length === 0) return false;
-  if (frequency === "monthly") {
-    const dayOfMonth = date.getDate().toString();
-    return deliveryDays.includes(dayOfMonth);
-  } else if (frequency === "weekly" || frequency === "daily") {
-    const dayName = date.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
-    return deliveryDays.includes(dayName);
-  }
-  return false;
-}
-function getNextDeliveryDate(fromDate, frequency, deliveryDays) {
-  const nextDate = new Date(fromDate);
-  nextDate.setDate(nextDate.getDate() + 1);
-  let attempts = 0;
-  const maxAttempts = frequency === "monthly" ? 31 : 7;
-  while (attempts < maxAttempts) {
-    if (isDeliveryDay2(nextDate, frequency, deliveryDays)) {
-      return nextDate;
-    }
-    nextDate.setDate(nextDate.getDate() + 1);
-    attempts++;
-  }
-  return nextDate;
-}
-async function autoResumeSubscriptions() {
-  try {
-    const now = /* @__PURE__ */ new Date();
-    const pausedSubscriptions = await db.query.subscriptions.findMany({
-      where: (s, { and: and6, eq: eq10, lte: lte2, isNotNull }) => and6(
-        eq10(s.status, "paused"),
-        isNotNull(s.pauseResumeDate),
-        lte2(s.pauseResumeDate, now)
-      )
-    });
-    for (const subscription of pausedSubscriptions) {
-      await db.update(subscriptions).set({
-        status: "active",
-        pauseStartDate: null,
-        pauseResumeDate: null,
-        updatedAt: now
-      }).where(eq9(subscriptions.id, subscription.id));
-      console.log(`\u25B6\uFE0F Auto-resumed subscription ${subscription.id} (scheduled for ${subscription.pauseResumeDate})`);
-      try {
-        const { broadcastSubscriptionUpdate: broadcastSubscriptionUpdate3 } = await Promise.resolve().then(() => (init_websocket(), websocket_exports));
-        const updated = await storage.getSubscription(subscription.id);
-        if (updated) {
-          broadcastSubscriptionUpdate3(updated);
-        }
-      } catch (err) {
-        console.log(`Note: WebSocket broadcast attempted for auto-resume of subscription ${subscription.id}`);
-      }
-    }
-    if (pausedSubscriptions.length > 0) {
-      console.log(`\u2705 Auto-resumed ${pausedSubscriptions.length} subscription(s)`);
-    }
-  } catch (error) {
-    console.error("Error in autoResumeSubscriptions:", error);
-  }
-}
-async function generateDailyDeliveryLogs() {
-  try {
-    const today = /* @__PURE__ */ new Date();
-    today.setHours(0, 0, 0, 0);
-    const allSubscriptions = await db.query.subscriptions.findMany({
-      where: (s, { and: and6, eq: eq10 }) => and6(
-        eq10(s.status, "active"),
-        eq10(s.isPaid, true)
-      )
-    });
-    let logsCreated = 0;
-    for (const subscription of allSubscriptions) {
-      const nextDeliveryDate = new Date(subscription.nextDeliveryDate);
-      nextDeliveryDate.setHours(0, 0, 0, 0);
-      if (nextDeliveryDate.getTime() !== today.getTime()) {
-        continue;
-      }
-      const plan = await storage.getSubscriptionPlan(subscription.planId);
-      if (!plan) continue;
-      const deliveryDays = plan.deliveryDays;
-      if (!isDeliveryDay2(today, plan.frequency, deliveryDays)) {
-        continue;
-      }
-      const existingLog = await storage.getDeliveryLogBySubscriptionAndDate(subscription.id, today);
-      if (existingLog) {
-        continue;
-      }
-      await storage.createSubscriptionDeliveryLog({
-        subscriptionId: subscription.id,
-        date: today,
-        time: subscription.nextDeliveryTime || "09:00",
-        status: "scheduled",
-        deliveryPersonId: null,
-        notes: null
-      });
-      logsCreated++;
-    }
-    if (logsCreated > 0) {
-      console.log(`\u{1F4CB} Generated ${logsCreated} delivery log(s) for today`);
-    }
-  } catch (error) {
-    console.error("Error in generateDailyDeliveryLogs:", error);
-  }
-}
-async function updateNextDeliveryDates() {
-  try {
-    const today = /* @__PURE__ */ new Date();
-    today.setHours(0, 0, 0, 0);
-    const subscriptionsToUpdate = await db.query.subscriptions.findMany({
-      where: (s, { and: and6, eq: eq10, lte: lte2 }) => and6(
-        eq10(s.status, "active"),
-        eq10(s.isPaid, true),
-        lte2(s.nextDeliveryDate, today)
-      )
-    });
-    for (const subscription of subscriptionsToUpdate) {
-      const plan = await storage.getSubscriptionPlan(subscription.planId);
-      if (!plan) continue;
-      const deliveryDays = plan.deliveryDays;
-      const nextDate = getNextDeliveryDate(today, plan.frequency, deliveryDays);
-      await db.update(subscriptions).set({
-        nextDeliveryDate: nextDate,
-        lastDeliveryDate: today,
-        updatedAt: /* @__PURE__ */ new Date()
-      }).where(eq9(subscriptions.id, subscription.id));
-    }
-    if (subscriptionsToUpdate.length > 0) {
-      console.log(`\u{1F4C5} Updated next delivery date for ${subscriptionsToUpdate.length} subscription(s)`);
-    }
-  } catch (error) {
-    console.error("Error in updateNextDeliveryDates:", error);
-  }
-}
-async function sendScheduledOrder2HourNotifications() {
-  try {
-    const now = /* @__PURE__ */ new Date();
-    const allScheduledOrders = await db.query.orders.findMany({
-      where: (o, { and: and6, eq: eq10, isNotNull }) => and6(
-        eq10(o.status, "approved"),
-        isNotNull(o.deliveryTime),
-        isNotNull(o.deliveryDate)
-      )
-    });
-    let notificationsSent = 0;
-    for (const order of allScheduledOrders) {
-      if (!order.deliveryTime || !order.deliveryDate) continue;
-      const [delHours, delMins] = order.deliveryTime.split(":").map(Number);
-      const deliveryDateTime = new Date(order.deliveryDate);
-      deliveryDateTime.setHours(delHours, delMins, 0, 0);
-      const timeUntilDelivery = deliveryDateTime.getTime() - now.getTime();
-      const hoursUntilDelivery = timeUntilDelivery / (1e3 * 60 * 60);
-      if (hoursUntilDelivery > 1.83 && hoursUntilDelivery <= 2.17) {
-        const items = Array.isArray(order.items) ? order.items.map((item) => item.name || item.title || "Item").join(", ") : "Order items";
-        if (order.chefId) {
-          const chef = await db.query.chefs.findFirst({
-            where: eq9(chefs.id, order.chefId)
-          });
-          if (chef && chef.phone) {
-            const success = await sendScheduledOrder2HourReminder(
-              chef.name,
-              chef.phone,
-              order.id,
-              order.deliveryTime,
-              order.deliveryDate,
-              order.customerName,
-              items.split(", ")
-            );
-            if (success) notificationsSent++;
-          }
-        }
-        const admins = await db.query.adminUsers.findMany();
-        for (const admin of admins) {
-          if (admin.phone) {
-            const success = await sendScheduledOrder2HourReminder(
-              admin.username,
-              admin.phone,
-              order.id,
-              order.deliveryTime,
-              order.deliveryDate,
-              order.customerName,
-              items.split(", ")
-            );
-            if (success) notificationsSent++;
-          }
-        }
-      }
-    }
-    if (notificationsSent > 0) {
-      console.log(`\u{1F4F1} Sent ${notificationsSent} 2-hour reminder notification(s)`);
-    }
-  } catch (error) {
-    console.error("Error in sendScheduledOrder2HourNotifications:", error);
-  }
-}
-async function markStaleDeliveriesAsMissed() {
-  try {
-    const now = /* @__PURE__ */ new Date();
-    const today = /* @__PURE__ */ new Date();
-    today.setHours(0, 0, 0, 0);
-    const DELIVERY_CUTOFF_HOUR = 18;
-    const cutoffTime = /* @__PURE__ */ new Date();
-    cutoffTime.setHours(DELIVERY_CUTOFF_HOUR, 0, 0, 0);
-    if (now < cutoffTime) {
-      console.log(`[MISSED-DELIVERY-CHECK] Cutoff time not reached yet (${now.toLocaleTimeString()}, cutoff is ${cutoffTime.toLocaleTimeString()})`);
-      return;
-    }
-    console.log(`[MISSED-DELIVERY-CHECK] Running stale delivery detection at ${now.toLocaleTimeString()}`);
-    const todaysLogs = await storage.getSubscriptionDeliveryLogsByDate(today);
-    const scheduledLogs = todaysLogs.filter((log3) => log3.status === "scheduled");
-    if (scheduledLogs.length === 0) {
-      console.log(`[MISSED-DELIVERY-CHECK] No stale deliveries found for today`);
-      return;
-    }
-    console.log(`[MISSED-DELIVERY-CHECK] Found ${scheduledLogs.length} scheduled deliveries past cutoff time`);
-    let markedCount = 0;
-    let notifiedCount = 0;
-    for (const log3 of scheduledLogs) {
-      try {
-        await storage.updateSubscriptionDeliveryLog(log3.id, {
-          status: "missed",
-          notes: "Auto-marked as missed (past delivery cutoff time)",
-          updatedAt: /* @__PURE__ */ new Date()
-        });
-        await storage.syncDeliveryHistory(
-          log3.subscriptionId,
-          "missed",
-          log3.date,
-          "Auto-marked as missed (past delivery cutoff time)"
-        );
-        markedCount++;
-        console.log(`  \u2705 Marked delivery log ${log3.id} (subscription ${log3.subscriptionId}) as MISSED`);
-        try {
-          const subscription = await db.query.subscriptions.findFirst({
-            where: (s, { eq: eq10 }) => eq10(s.id, log3.subscriptionId)
-          });
-          if (subscription) {
-            const user = await db.query.users.findFirst({
-              where: (u, { eq: eq10 }) => eq10(u.id, subscription.userId)
-            });
-            if (user) {
-              const deliveryDate = log3.date.toLocaleDateString("en-IN");
-              const deliveryTime = log3.date.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
-              await sendMissedDeliveryNotification(
-                user.id,
-                user.phone,
-                deliveryDate,
-                deliveryTime,
-                log3.subscriptionId
-              );
-              if (user.email) {
-                await sendMissedDeliveryEmail(
-                  user.email,
-                  user.name || "Valued Customer",
-                  deliveryDate,
-                  deliveryTime,
-                  log3.subscriptionId
-                );
-              }
-              notifiedCount++;
-              console.log(`  \u{1F4E7} Sent notifications for subscription ${log3.subscriptionId}`);
-            }
-          }
-        } catch (notifyError) {
-          console.warn(`  \u26A0\uFE0F Failed to send notifications for delivery ${log3.id}:`, notifyError);
-        }
-      } catch (error) {
-        console.error(`  \u274C Error marking delivery ${log3.id} as missed:`, error);
-      }
-    }
-    if (markedCount > 0) {
-      console.log(`\u2705 [MISSED-DELIVERY-CHECK] Auto-marked ${markedCount} stale deliveries as MISSED, notified ${notifiedCount} users`);
-    }
-  } catch (error) {
-    console.error("Error in markStaleDeliveriesAsMissed:", error);
-  }
-}
-async function expirePendingPaymentOrders() {
-  try {
-    const now = /* @__PURE__ */ new Date();
-    console.log(`[EXPIRY-CHECK] Checking for pending payment orders with expiresAt <= ${now.toISOString()}...`);
-    const expiredOrders = await db.query.orders.findMany({
-      where: (o, { and: and6, eq: eq10, lt: lt2, isNull: isNull3 }) => and6(
-        eq10(o.paymentStatus, "pending"),
-        lt2(o.expiresAt, now),
-        // ✅ Using expiresAt column (not createdAt calculation)
-        isNull3(o.paymentVerifiedBy)
-        // Not yet confirmed
-      )
-    });
-    if (expiredOrders.length === 0) {
-      console.log(`[EXPIRY-CHECK] No expired pending payment orders found`);
-      return;
-    }
-    console.log(`[EXPIRY-CHECK] Found ${expiredOrders.length} expired pending payment order(s)`);
-    let expiredCount = 0;
-    for (const order of expiredOrders) {
-      try {
-        await storage.updateOrderStatus(order.id, "cancelled");
-        console.log(`[EXPIRY-CHECK] \u23F1\uFE0F Order ${order.id} marked as CANCELLED (expiresAt: ${order.expiresAt})`);
-        expiredCount++;
-      } catch (error) {
-        console.error(`[EXPIRY-CHECK] Error expiring order ${order.id}:`, error);
-      }
-    }
-    if (expiredCount > 0) {
-      console.log(`\u2705 [EXPIRY-CHECK] Marked ${expiredCount} order(s) as expired`);
-    }
-  } catch (error) {
-    console.error("[EXPIRY-CHECK] Error in expirePendingPaymentOrders:", error);
-  }
-}
-async function runScheduledTasks() {
-  if (isRunning) return;
-  isRunning = true;
-  try {
-    await verifyPendingGPayPayments();
-    await expirePendingPaymentOrders();
-    await autoResumeSubscriptions();
-    await generateDailyDeliveryLogs();
-    await updateNextDeliveryDates();
-    await markStaleDeliveriesAsMissed();
-    await sendScheduledOrder2HourNotifications();
-  } finally {
-    isRunning = false;
-  }
-}
-function startCronJobs() {
-  console.log("\u{1F550} Starting scheduled jobs...");
-  runScheduledTasks();
-  const GPAY_ACTIVE_INTERVAL = 60 * 1e3;
-  const GPAY_IDLE_INTERVAL = 5 * 60 * 1e3;
-  let consecutiveEmptyRuns = 0;
-  let paymentPollingTimeout;
-  const scheduleNextGPayPoll = (delay) => {
-    paymentPollingTimeout = setTimeout(async () => {
-      try {
-        const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1e3);
-        const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-        const { orders: ordersTable } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-        const { and: and6, eq: eq10, gte: gte3, isNull: isNull3 } = await import("drizzle-orm");
-        const pending = await db2.select({ id: ordersTable.id }).from(ordersTable).where(
-          and6(
-            eq10(ordersTable.paymentStatus, "pending"),
-            eq10(ordersTable.paymentSource, "google-pay"),
-            gte3(ordersTable.createdAt, fifteenMinutesAgo),
-            isNull3(ordersTable.paymentVerifiedBy)
-          )
-        ).limit(1);
-        if (pending.length > 0) {
-          consecutiveEmptyRuns = 0;
-          await verifyPendingGPayPayments();
-          scheduleNextGPayPoll(GPAY_ACTIVE_INTERVAL);
-        } else {
-          consecutiveEmptyRuns++;
-          console.log(`[GPAY-POLLING] No pending orders \u2014 next check in 5 min (idle run #${consecutiveEmptyRuns})`);
-          scheduleNextGPayPoll(GPAY_IDLE_INTERVAL);
-        }
-      } catch (error) {
-        console.error("[GPAY-POLLING] Interval error:", error);
-        scheduleNextGPayPoll(GPAY_ACTIVE_INTERVAL);
-      }
-    }, delay);
-  };
-  scheduleNextGPayPoll(GPAY_ACTIVE_INTERVAL);
-  let subscriptionInterval = setInterval(() => {
-    try {
-      (async () => {
-        if (isRunning) return;
-        isRunning = true;
-        try {
-          await autoResumeSubscriptions();
-          await generateDailyDeliveryLogs();
-          await updateNextDeliveryDates();
-          await markStaleDeliveriesAsMissed();
-          await sendScheduledOrder2HourNotifications();
-        } finally {
-          isRunning = false;
-        }
-      })();
-    } catch (error) {
-      console.error("[CRON] Error in subscription tasks:", error);
-    }
-  }, 5 * 60 * 1e3);
-  console.log("\u2705 Payment polling started (every 60 seconds)");
-  console.log("\u2705 Subscription tasks started (every 5 minutes)");
-  process.on("exit", () => {
-    clearTimeout(paymentPollingTimeout);
-    clearInterval(subscriptionInterval);
-  });
-}
-var isRunning;
-var init_cronJobs = __esm({
-  "server/cronJobs.ts"() {
-    "use strict";
-    init_db();
-    init_schema();
-    init_storage();
-    init_whatsappService();
-    init_emailService();
-    init_gpayVerificationService();
-    isRunning = false;
-  }
-});
-
-// server/env.ts
-import dotenv from "dotenv";
-dotenv.config();
-
-// server/index.ts
-import express2 from "express";
-import { sql as sql5 } from "drizzle-orm";
-import cookieParser from "cookie-parser";
-import multer from "multer";
-
-// server/routes.ts
-init_storage();
-import { createServer } from "http";
-
-// server/cache.ts
-var MAX_CACHE_SIZE = 500;
-var cache = /* @__PURE__ */ new Map();
-function getCache(key) {
-  return cache.get(key)?.value;
-}
-function setCache(key, value, ttl) {
-  if (cache.has(key)) {
-    clearTimeout(cache.get(key).timeout);
-  }
-  if (cache.size >= MAX_CACHE_SIZE) {
-    const firstKey = cache.keys().next().value;
-    if (firstKey) {
-      invalidateCache(firstKey);
-    }
-  }
-  const timeout = setTimeout(() => {
-    cache.delete(key);
-  }, ttl);
-  cache.set(key, { value, timeout });
-}
-function invalidateCache(key) {
-  const entry = cache.get(key);
-  if (entry) {
-    clearTimeout(entry.timeout);
-    cache.delete(key);
-  }
-}
-function invalidateCachePrefix(prefix) {
-  const keysToDelete = [];
-  cache.forEach((_, key) => {
-    if (key.startsWith(prefix)) {
-      keysToDelete.push(key);
-    }
-  });
-  keysToDelete.forEach((key) => invalidateCache(key));
-}
-
-// server/routes.ts
-init_schema();
-
 // server/adminRoutes.ts
-init_storage();
-init_adminAuth();
-init_userAuth();
-init_db();
-init_schema();
-init_websocket();
-init_deliveryAuth();
-init_schema();
-init_emailService();
-init_whatsappService();
 import jwt5 from "jsonwebtoken";
 import { fromZodError } from "zod-validation-error";
 import { eq as eq3 } from "drizzle-orm";
@@ -9452,6 +8554,195 @@ Please prepare this order.`;
       res.status(500).json({ message: "Failed to delete subscription plan" });
     }
   });
+  app2.get("/api/admin/custom-subscription-requests", requireAdmin(), async (req, res) => {
+    try {
+      const requests = await storage.getAllCustomSubscriptionRequests();
+      const requestsWithTxn = await Promise.all(requests.map(async (r) => {
+        if (r.subscriptionId) {
+          const sub = await storage.getSubscription(r.subscriptionId);
+          return {
+            ...r,
+            paymentTransactionId: sub?.paymentTransactionId || null
+          };
+        }
+        return {
+          ...r,
+          paymentTransactionId: null
+        };
+      }));
+      res.json(requestsWithTxn);
+    } catch (error) {
+      console.error("Error fetching custom subscription requests:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch custom subscription requests" });
+    }
+  });
+  app2.patch("/api/admin/custom-subscription-requests/:id/approve", requireAdmin(), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { chefId } = req.body;
+      if (!chefId) {
+        res.status(400).json({ message: "Chef ID is required" });
+        return;
+      }
+      const request = await storage.getCustomSubscriptionRequest(id);
+      if (!request) {
+        res.status(404).json({ message: "Custom subscription request not found" });
+        return;
+      }
+      if (request.status !== "pending_chef_assignment" && request.status !== "awaiting_payment") {
+        res.status(400).json({ message: `Request is already in status: ${request.status}` });
+        return;
+      }
+      const chef = await storage.getChefById(chefId);
+      if (!chef) {
+        res.status(404).json({ message: "Chef not found" });
+        return;
+      }
+      const categories3 = await storage.getAllCategories();
+      const rotiCategory = categories3.find((c) => c.name.toLowerCase().includes("roti"));
+      if (!rotiCategory) {
+        res.status(400).json({ message: "Roti category not found in system" });
+        return;
+      }
+      const customPlan = await storage.createSubscriptionPlan({
+        name: `Custom Roti Plan (${request.customerName} - ${request.rotiPerDay} Rotis)`,
+        description: `Custom subscription for ${request.customerName} (${request.rotiPerDay} Rotis/day, ${request.daysPerWeek} days/week)`,
+        categoryId: rotiCategory.id,
+        frequency: request.duration === "weekly" ? "weekly" : "monthly",
+        price: request.calculatedPrice,
+        deliveryDays: request.deliveryDays,
+        items: [{ id: "roti", name: "Roti", quantity: request.rotiPerDay }],
+        isActive: false,
+        // Hidden from public
+        sectionName: "Custom Subscriptions",
+        sectionOrder: 99
+      });
+      const durationDays = request.duration === "weekly" ? 7 : 30;
+      const startDate = /* @__PURE__ */ new Date();
+      startDate.setHours(0, 0, 0, 0);
+      const endDate = new Date(startDate);
+      endDate.setDate(endDate.getDate() + durationDays - 1);
+      const pricePerRoti = request.pricePerRoti;
+      const rotiPerDay = request.rotiPerDay;
+      let totalDeliveries = 0;
+      if (pricePerRoti && rotiPerDay) {
+        totalDeliveries = Math.round(request.calculatedPrice / (rotiPerDay * pricePerRoti));
+      }
+      if (!totalDeliveries || isNaN(totalDeliveries)) {
+        totalDeliveries = 0;
+        const checkDate = new Date(startDate);
+        const endCheckDate = new Date(endDate);
+        endCheckDate.setHours(23, 59, 59, 999);
+        const requestedDays = request.deliveryDays.map((d) => d.toLowerCase());
+        while (checkDate <= endCheckDate) {
+          const dayName = checkDate.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
+          if (requestedDays.includes(dayName)) {
+            totalDeliveries++;
+          }
+          checkDate.setDate(checkDate.getDate() + 1);
+        }
+      }
+      const subscription = await storage.createSubscription({
+        userId: request.userId,
+        planId: customPlan.id,
+        chefId: chef.id,
+        chefAssignedAt: /* @__PURE__ */ new Date(),
+        deliverySlotId: request.deliverySlotId || null,
+        customerName: request.customerName,
+        phone: request.phone,
+        email: request.email || null,
+        address: request.address,
+        status: "pending",
+        // awaiting payment
+        startDate,
+        endDate,
+        nextDeliveryDate: startDate,
+        nextDeliveryTime: "09:00",
+        // default
+        customItems: [{ id: "roti", name: "Roti", quantity: request.rotiPerDay }],
+        remainingDeliveries: totalDeliveries,
+        totalDeliveries,
+        isPaid: false,
+        paymentTransactionId: null,
+        originalPrice: request.calculatedPrice,
+        finalAmount: request.calculatedPrice,
+        discountAmount: 0,
+        walletAmountUsed: 0,
+        couponCode: null,
+        couponDiscount: 0,
+        paymentNotes: null,
+        lastDeliveryDate: null,
+        deliveryHistory: [],
+        pauseStartDate: null,
+        pauseResumeDate: null
+      });
+      const updatedRequest = await storage.updateCustomSubscriptionRequest(id, {
+        status: "awaiting_payment",
+        assignedChefId: chefId,
+        approvedBy: req.admin.username,
+        approvedAt: /* @__PURE__ */ new Date(),
+        subscriptionId: subscription.id
+      });
+      const { broadcastCustomRequestUpdate: broadcastCustomRequestUpdate2 } = await Promise.resolve().then(() => (init_websocket(), websocket_exports));
+      if (updatedRequest) {
+        broadcastCustomRequestUpdate2(updatedRequest);
+      }
+      res.json({
+        message: "Custom subscription request approved and converted to pending subscription",
+        request: updatedRequest,
+        subscription
+      });
+    } catch (error) {
+      console.error("Error approving custom subscription request:", error);
+      res.status(500).json({ message: error.message || "Failed to approve request" });
+    }
+  });
+  app2.patch("/api/admin/custom-subscription-requests/:id/reject", requireAdmin(), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { reason } = req.body;
+      if (!reason) {
+        res.status(400).json({ message: "Rejection reason is required" });
+        return;
+      }
+      const request = await storage.getCustomSubscriptionRequest(id);
+      if (!request) {
+        res.status(404).json({ message: "Custom subscription request not found" });
+        return;
+      }
+      if (request.status !== "pending_chef_assignment") {
+        res.status(400).json({ message: `Request is already in status: ${request.status}` });
+        return;
+      }
+      const updated = await storage.updateCustomSubscriptionRequest(id, {
+        status: "rejected",
+        rejectionReason: reason,
+        approvedBy: req.admin.username,
+        approvedAt: /* @__PURE__ */ new Date()
+      });
+      res.json({
+        message: "Custom subscription request rejected",
+        request: updated
+      });
+    } catch (error) {
+      console.error("Error rejecting custom subscription request:", error);
+      res.status(500).json({ message: error.message || "Failed to reject request" });
+    }
+  });
+  app2.patch("/api/admin/settings/price-per-roti", requireAdmin(), async (req, res) => {
+    try {
+      const { pricePerRoti } = req.body;
+      if (pricePerRoti === void 0 || isNaN(parseInt(pricePerRoti, 10)) || parseInt(pricePerRoti, 10) <= 0) {
+        res.status(400).json({ message: "Valid price per roti is required" });
+        return;
+      }
+      await storage.setAdminSetting("price_per_roti", String(pricePerRoti), "Configured price per roti for custom subscriptions");
+      res.json({ message: "Price per roti updated successfully", pricePerRoti });
+    } catch (error) {
+      console.error("Error updating price per roti setting:", error);
+      res.status(500).json({ message: error.message || "Failed to update setting" });
+    }
+  });
   app2.get("/api/admin/subscriptions", requireAdmin(), async (req, res) => {
     try {
       const subscriptions4 = await storage.getSubscriptions();
@@ -9490,68 +8781,116 @@ Please prepare this order.`;
       let chefAssignedAt = subscription.chefAssignedAt;
       let nextDeliveryDate = subscription.nextDeliveryDate;
       if (!chefId) {
-        const plan = await storage.getSubscriptionPlan(subscription.planId);
-        if (!plan) {
+        const plan2 = await storage.getSubscriptionPlan(subscription.planId);
+        if (!plan2) {
           res.status(404).json({ message: "Subscription plan not found" });
           return;
         }
-        const bestChef = await storage.findBestChefForCategory(plan.categoryId);
+        const bestChef = await storage.findBestChefForCategory(plan2.categoryId);
         if (bestChef) {
           chefId = bestChef.id;
           chefAssignedAt = /* @__PURE__ */ new Date();
           console.log(`\u{1F468}\u200D\u{1F373} Auto-assigned chef ${bestChef.name} (${bestChef.id}) to subscription ${subscriptionId}`);
         } else {
-          console.warn(`\u26A0\uFE0F No available chef found for category ${plan.categoryId}`);
+          console.warn(`\u26A0\uFE0F No available chef found for category ${plan2.categoryId}`);
         }
       }
-      if (!nextDeliveryDate || isNaN(new Date(nextDeliveryDate).getTime())) {
-        if (subscription.startDate) {
-          nextDeliveryDate = new Date(subscription.startDate);
-          console.log(`\u{1F4C5} Recalculated nextDeliveryDate as startDate: ${nextDeliveryDate.toISOString()}`);
-        } else {
-          console.warn(`\u26A0\uFE0F Cannot calculate nextDeliveryDate: startDate missing, using today`);
-          nextDeliveryDate = /* @__PURE__ */ new Date();
-        }
-      } else {
-        console.log(`\u{1F4C5} Using existing nextDeliveryDate: ${new Date(nextDeliveryDate).toISOString()}`);
+      const today = /* @__PURE__ */ new Date();
+      today.setHours(0, 0, 0, 0);
+      const plan = await storage.getSubscriptionPlan(subscription.planId);
+      if (!plan) {
+        res.status(404).json({ message: "Subscription plan not found" });
+        return;
       }
+      let nextDelivery = new Date(today);
+      nextDelivery.setDate(nextDelivery.getDate() + 1);
+      nextDelivery.setHours(0, 0, 0, 0);
+      const deliveryDays = plan.deliveryDays;
+      let foundNextDelivery = false;
+      if (deliveryDays && deliveryDays.length > 0) {
+        const requestedDays = deliveryDays.map((d) => d.toLowerCase());
+        for (let i = 0; i < 30; i++) {
+          const dayName = nextDelivery.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
+          const isMatch = requestedDays.includes(dayName) || plan.frequency === "daily";
+          if (isMatch) {
+            foundNextDelivery = true;
+            break;
+          }
+          nextDelivery.setDate(nextDelivery.getDate() + 1);
+        }
+      }
+      if (!foundNextDelivery) {
+        nextDelivery = new Date(today);
+        nextDelivery.setDate(nextDelivery.getDate() + 1);
+      }
+      const durationDays = plan.frequency === "weekly" ? 7 : 30;
+      const startDate = new Date(today);
+      const endDate = new Date(nextDelivery);
+      endDate.setDate(endDate.getDate() + durationDays - 1);
       const updated = await storage.updateSubscription(subscriptionId, {
         isPaid: true,
         status: "active",
         chefId,
         chefAssignedAt,
-        nextDeliveryDate
+        startDate,
+        endDate,
+        nextDeliveryDate: nextDelivery
       });
       if (!updated) {
         res.status(500).json({ message: "Failed to update subscription" });
         return;
       }
+      const existingLogs = await storage.getSubscriptionDeliveryLogs(subscriptionId);
+      for (const log3 of existingLogs) {
+        if (log3.status === "scheduled") {
+          await storage.deleteSubscriptionDeliveryLog(log3.id);
+        }
+      }
+      const { generateSubscriptionDeliveryLogs: generateSubscriptionDeliveryLogs2 } = await Promise.resolve().then(() => (init_routes(), routes_exports));
+      await generateSubscriptionDeliveryLogs2(
+        updated,
+        plan,
+        nextDelivery,
+        endDate,
+        updated.nextDeliveryTime || "09:00"
+      );
+      const customRequest = await storage.getCustomSubscriptionRequestBySubscriptionId(subscriptionId);
+      if (customRequest) {
+        await storage.updateCustomSubscriptionRequest(customRequest.id, {
+          status: "converted"
+        });
+        const { broadcastCustomRequestUpdate: broadcastCustomRequestUpdate2 } = await Promise.resolve().then(() => (init_websocket(), websocket_exports));
+        const updatedRequest = await storage.getCustomSubscriptionRequest(customRequest.id);
+        if (updatedRequest) {
+          broadcastCustomRequestUpdate2(updatedRequest);
+        }
+      }
       console.log(`\u2705 Admin confirmed payment for subscription ${subscriptionId} (TxnID: ${subscription.paymentTransactionId}) - Subscription activated`);
       const { broadcastSubscriptionUpdate: broadcastSubscriptionUpdate3, broadcastSubscriptionAssignmentToPartner: broadcastSubscriptionAssignmentToPartner3 } = await Promise.resolve().then(() => (init_websocket(), websocket_exports));
       if (updated) {
-        const plan = await storage.getSubscriptionPlan(updated.planId);
+        const plan2 = await storage.getSubscriptionPlan(updated.planId);
         broadcastSubscriptionUpdate3(updated);
         console.log(`\u{1F4E3} Broadcasted subscription activation to all connected clients`);
         if (chefId) {
           const chef = await storage.getChefById(chefId);
-          broadcastSubscriptionAssignmentToPartner3(updated, chef?.name, plan?.name);
+          broadcastSubscriptionAssignmentToPartner3(updated, chef?.name, plan2?.name);
           console.log(`\u{1F4E3} Broadcasted assignment notification to partner (Chef: ${chef?.name})`);
         }
       }
-      const today = /* @__PURE__ */ new Date();
-      today.setHours(0, 0, 0, 0);
+      const checkToday = /* @__PURE__ */ new Date();
+      checkToday.setHours(0, 0, 0, 0);
       let nextDeliveryDateObj = updated.nextDeliveryDate;
       if (typeof nextDeliveryDateObj === "string") {
         nextDeliveryDateObj = new Date(nextDeliveryDateObj);
       }
-      const nextDelivery = new Date(nextDeliveryDateObj);
-      nextDelivery.setHours(0, 0, 0, 0);
-      if (nextDelivery.getTime() === today.getTime() && chefId) {
-        const existingLog = await storage.getDeliveryLogBySubscriptionAndDate(subscriptionId, today);
+      const checkNextDelivery = new Date(nextDeliveryDateObj);
+      checkNextDelivery.setHours(0, 0, 0, 0);
+      if (checkNextDelivery.getTime() === checkToday.getTime() && chefId) {
+        const existingLog = await storage.getDeliveryLogBySubscriptionAndDate(subscriptionId, checkToday);
         if (!existingLog) {
           await storage.createSubscriptionDeliveryLog({
             subscriptionId,
-            date: today,
+            date: checkToday,
             time: updated.nextDeliveryTime || "09:00",
             status: "scheduled",
             deliveryPersonId: null,
@@ -12270,13 +11609,24 @@ Please prepare this order.`;
     }
   });
 }
+var init_adminRoutes = __esm({
+  "server/adminRoutes.ts"() {
+    "use strict";
+    init_storage();
+    init_adminAuth();
+    init_userAuth();
+    init_db();
+    init_schema();
+    init_websocket();
+    init_deliveryAuth();
+    init_schema();
+    init_emailService();
+    init_whatsappService();
+    init_cache();
+  }
+});
 
 // server/partnerRoutes.ts
-init_partnerAuth();
-init_storage();
-init_websocket();
-init_whatsappService();
-init_db();
 import { eq as eq4 } from "drizzle-orm";
 function registerPartnerRoutes(app2) {
   function isDeliveryDay3(date, frequency, deliveryDays) {
@@ -12914,15 +12264,18 @@ function registerPartnerRoutes(app2) {
     }
   });
 }
+var init_partnerRoutes = __esm({
+  "server/partnerRoutes.ts"() {
+    "use strict";
+    init_partnerAuth();
+    init_storage();
+    init_websocket();
+    init_whatsappService();
+    init_db();
+  }
+});
 
 // server/deliveryRoutes.ts
-init_storage();
-init_deliveryAuth();
-init_schema();
-init_websocket();
-init_whatsappService();
-init_emailService();
-init_db();
 import { eq as eq5, and as and3, sql as sql4 } from "drizzle-orm";
 function registerDeliveryRoutes(app2) {
   function isDeliveryDay3(date, frequency, deliveryDays) {
@@ -13700,220 +13053,512 @@ function registerDeliveryRoutes(app2) {
     }
   });
 }
+var init_deliveryRoutes = __esm({
+  "server/deliveryRoutes.ts"() {
+    "use strict";
+    init_storage();
+    init_deliveryAuth();
+    init_schema();
+    init_websocket();
+    init_whatsappService();
+    init_emailService();
+    init_db();
+  }
+});
+
+// server/services/gpayVerificationService.ts
+import { eq as eq6, desc as desc2 } from "drizzle-orm";
+var GPayVerificationService, gpayVerificationService;
+var init_gpayVerificationService = __esm({
+  "server/services/gpayVerificationService.ts"() {
+    "use strict";
+    init_db();
+    init_schema();
+    GPayVerificationService = class {
+      MAX_VERIFICATION_ATTEMPTS = 15;
+      // 15 minutes max polling (60-second intervals)
+      AMOUNT_TOLERANCE = 0.5;
+      // ₹0.50 tolerance for amount matching
+      REFERENCE_TOLERANCE_MINUTES = 15;
+      // Payment must be within 15 minutes of order
+      /**
+       * Main verification method - checks if payment matches user
+       */
+      async verifyPaymentForUser(orderId, expectedPhone, expectedAmount) {
+        try {
+          console.log(`[GPAY-VERIFY] Starting verification for Order#${orderId}, Phone: ${expectedPhone}, Amount: \u20B9${expectedAmount}`);
+          const order = await db.query.orders.findFirst({
+            where: eq6(orders.id, orderId)
+          });
+          if (!order) {
+            console.warn(`[GPAY-VERIFY] \u274C Order not found: ${orderId}`);
+            return { verified: false, reason: "order_not_found" };
+          }
+          if (order.paymentVerifiedBy && order.paymentStatus === "confirmed") {
+            console.log(`[GPAY-VERIFY] \u23ED\uFE0F Order already verified: ${orderId}`);
+            return {
+              verified: false,
+              reason: "already_verified",
+              transactionId: order.gpayTransactionId || void 0
+            };
+          }
+          const payment = await this.queryUPITransaction(orderId, expectedAmount);
+          if (!payment) {
+            console.log(`[GPAY-VERIFY] \u23F3 Payment not yet received for Order#${orderId}`);
+            await this.logVerificationAttempt({
+              orderId,
+              checkAttemptNumber: order.verificationAttempts || 0,
+              expectedPhone,
+              actualPhone: "NOT_FOUND",
+              phoneMatch: false,
+              expectedAmount,
+              actualAmount: 0,
+              amountMatch: false,
+              expectedReference: `Order#${orderId}`,
+              actualReference: "NOT_FOUND",
+              referenceMatch: false,
+              verificationStatus: "failed",
+              failureReason: "payment_not_received",
+              checkedAt: /* @__PURE__ */ new Date()
+            });
+            return { verified: false, reason: "payment_not_received" };
+          }
+          console.log(`[GPAY-VERIFY] \u{1F4B0} Payment found for Order#${orderId}:`, {
+            from: payment.senderPhone,
+            amount: payment.amount,
+            reference: payment.reference
+          });
+          const phoneMatch = this.phonesMatch(payment.senderPhone, expectedPhone);
+          if (!phoneMatch) {
+            console.warn(`[GPAY-VERIFY] \u274C PHONE MISMATCH`);
+            console.warn(`   Expected: ${expectedPhone}`);
+            console.warn(`   Got: ${payment.senderPhone}`);
+            await this.logVerificationAttempt({
+              orderId,
+              checkAttemptNumber: (order.verificationAttempts || 0) + 1,
+              expectedPhone,
+              actualPhone: payment.senderPhone,
+              phoneMatch: false,
+              expectedAmount,
+              actualAmount: payment.amount,
+              amountMatch: false,
+              expectedReference: `Order#${orderId}`,
+              actualReference: payment.reference,
+              referenceMatch: false,
+              verificationStatus: "failed",
+              failureReason: "phone_mismatch",
+              gpayTransactionId: payment.transactionId,
+              checkedAt: /* @__PURE__ */ new Date()
+            });
+            return { verified: false, reason: "phone_mismatch" };
+          }
+          console.log(`[GPAY-VERIFY] \u2705 Phone verified`);
+          const amountDiff = Math.abs(payment.amount - expectedAmount);
+          const amountMatch = amountDiff <= this.AMOUNT_TOLERANCE;
+          if (!amountMatch) {
+            console.warn(`[GPAY-VERIFY] \u274C AMOUNT MISMATCH`);
+            console.warn(`   Expected: \u20B9${expectedAmount}`);
+            console.warn(`   Got: \u20B9${payment.amount}`);
+            console.warn(`   Diff: \u20B9${amountDiff.toFixed(2)} (tolerance: \u20B9${this.AMOUNT_TOLERANCE})`);
+            await this.logVerificationAttempt({
+              orderId,
+              checkAttemptNumber: (order.verificationAttempts || 0) + 1,
+              expectedPhone,
+              actualPhone: payment.senderPhone,
+              phoneMatch: true,
+              expectedAmount,
+              actualAmount: payment.amount,
+              amountMatch: false,
+              expectedReference: `Order#${orderId}`,
+              actualReference: payment.reference,
+              referenceMatch: false,
+              verificationStatus: "failed",
+              failureReason: "amount_mismatch",
+              gpayTransactionId: payment.transactionId,
+              checkedAt: /* @__PURE__ */ new Date()
+            });
+            return { verified: false, reason: "amount_mismatch" };
+          }
+          console.log(`[GPAY-VERIFY] \u2705 Amount verified: \u20B9${payment.amount}`);
+          const referenceMatch = payment.reference.includes(`Order#${orderId}`) || payment.reference.includes(orderId);
+          if (!referenceMatch) {
+            console.warn(`[GPAY-VERIFY] \u274C REFERENCE MISMATCH`);
+            console.warn(`   Expected to contain: Order#${orderId}`);
+            console.warn(`   Got: ${payment.reference}`);
+            await this.logVerificationAttempt({
+              orderId,
+              checkAttemptNumber: (order.verificationAttempts || 0) + 1,
+              expectedPhone,
+              actualPhone: payment.senderPhone,
+              phoneMatch: true,
+              expectedAmount,
+              actualAmount: payment.amount,
+              amountMatch: true,
+              expectedReference: `Order#${orderId}`,
+              actualReference: payment.reference,
+              referenceMatch: false,
+              verificationStatus: "failed",
+              failureReason: "reference_mismatch",
+              gpayTransactionId: payment.transactionId,
+              checkedAt: /* @__PURE__ */ new Date()
+            });
+            return { verified: false, reason: "reference_mismatch" };
+          }
+          console.log(`[GPAY-VERIFY] \u2705 Reference verified: ${payment.reference}`);
+          const paymentAge = Math.abs(Date.now() - payment.timestamp.getTime());
+          const maxAge = this.REFERENCE_TOLERANCE_MINUTES * 60 * 1e3;
+          if (paymentAge > maxAge) {
+            console.warn(`[GPAY-VERIFY] \u26A0\uFE0F PAYMENT IS OLD`);
+            console.warn(`   Age: ${Math.floor(paymentAge / 1e3)} seconds`);
+            console.warn(`   Max: ${this.REFERENCE_TOLERANCE_MINUTES} minutes`);
+          }
+          console.log(`[GPAY-VERIFY] \u2705 Timestamp verified (age: ${Math.floor(paymentAge / 1e3)}s)`);
+          console.log(`[GPAY-VERIFY] \u2705\u2705\u2705 PAYMENT VERIFIED for Order#${orderId}`);
+          await this.logVerificationAttempt({
+            orderId,
+            checkAttemptNumber: (order.verificationAttempts || 0) + 1,
+            expectedPhone,
+            actualPhone: payment.senderPhone,
+            phoneMatch: true,
+            expectedAmount,
+            actualAmount: payment.amount,
+            amountMatch: true,
+            expectedReference: `Order#${orderId}`,
+            actualReference: payment.reference,
+            referenceMatch: true,
+            verificationStatus: "success",
+            gpayTransactionId: payment.transactionId,
+            checkedAt: /* @__PURE__ */ new Date()
+          });
+          return {
+            verified: true,
+            transactionId: payment.transactionId,
+            payerPhone: payment.senderPhone,
+            paymentAmount: payment.amount,
+            verificationTime: /* @__PURE__ */ new Date()
+          };
+        } catch (error) {
+          console.error(`[GPAY-VERIFY] Error during verification:`, error);
+          return {
+            verified: false,
+            reason: "verification_error",
+            error: error instanceof Error ? error.message : "Unknown error"
+          };
+        }
+      }
+      /**
+       * Query UPI provider for payment (PhonePe API)
+       */
+      async queryUPITransaction(orderId, expectedAmount) {
+        try {
+          console.log(`[GPAY-QUERY] Checking UPI for Order#${orderId} with amount \u20B9${expectedAmount}`);
+          const simulatedPayment = global.simulatedGPayPayments?.[orderId];
+          if (simulatedPayment) {
+            console.log(`[GPAY-QUERY] Found simulated payment:`, simulatedPayment);
+            return {
+              transactionId: simulatedPayment.transactionId,
+              senderPhone: simulatedPayment.senderPhone,
+              amount: simulatedPayment.amount,
+              reference: simulatedPayment.reference,
+              timestamp: new Date(simulatedPayment.timestamp)
+            };
+          }
+          return null;
+        } catch (error) {
+          console.error(`[GPAY-QUERY] Error querying UPI:`, error);
+          return null;
+        }
+      }
+      /**
+       * Phone number matching with normalization
+       */
+      phonesMatch(phone1, phone2) {
+        const normalize = (p) => p.replace(/[\D]/g, "").slice(-10);
+        const normalized1 = normalize(phone1);
+        const normalized2 = normalize(phone2);
+        const match = normalized1 === normalized2;
+        console.log(`[PHONE-MATCH] Comparing phones:`);
+        console.log(`   Phone1: ${phone1} \u2192 ${normalized1}`);
+        console.log(`   Phone2: ${phone2} \u2192 ${normalized2}`);
+        console.log(`   Match: ${match}`);
+        return match;
+      }
+      /**
+       * Log verification attempt to audit trail
+       */
+      async logVerificationAttempt(log3) {
+        try {
+          await db.insert(paymentVerificationLog).values({
+            id: `${log3.orderId}-${Date.now()}`,
+            orderId: log3.orderId,
+            checkAttemptNumber: log3.checkAttemptNumber,
+            expectedPhone: log3.expectedPhone,
+            actualPhone: log3.actualPhone,
+            phoneMatch: log3.phoneMatch,
+            expectedAmount: log3.expectedAmount,
+            actualAmount: log3.actualAmount,
+            amountMatch: log3.amountMatch,
+            expectedReference: log3.expectedReference,
+            actualReference: log3.actualReference,
+            referenceMatch: log3.referenceMatch,
+            verificationStatus: log3.verificationStatus,
+            failureReason: log3.failureReason || null,
+            gpayTransactionId: log3.gpayTransactionId || null,
+            checkedAt: log3.checkedAt
+          });
+        } catch (error) {
+          console.warn(`[GPAY-LOG] Failed to log verification attempt:`, error);
+        }
+      }
+      /**
+       * Check if verification should be retried
+       */
+      shouldRetryVerification(order) {
+        if (!order) return false;
+        if (order.paymentStatus === "confirmed") return false;
+        if (!order.verificationAttempts) return true;
+        return order.verificationAttempts < this.MAX_VERIFICATION_ATTEMPTS;
+      }
+      /**
+       * Get verification attempt count
+       */
+      getVerificationAttemptCount(order) {
+        return order?.verificationAttempts || 0;
+      }
+      /**
+       * Get last verification log for order
+       */
+      async getLastVerificationLog(orderId) {
+        try {
+          const log3 = await db.query.paymentVerificationLog.findFirst({
+            where: eq6(paymentVerificationLog.orderId, orderId),
+            orderBy: desc2(paymentVerificationLog.checkedAt)
+          });
+          return log3;
+        } catch (error) {
+          console.error(`[GPAY-LOG] Error fetching verification log:`, error);
+          return null;
+        }
+      }
+    };
+    gpayVerificationService = new GPayVerificationService();
+  }
+});
 
 // server/routes/gpay-verification.ts
-init_db();
-init_schema();
-init_gpayVerificationService();
 import { Router } from "express";
 import { eq as eq7 } from "drizzle-orm";
-var router = Router();
-router.post("/verify-gpay", async (req, res) => {
-  try {
-    const { orderId, phone, amount } = req.body;
-    if (!orderId || !phone || !amount) {
-      return res.status(400).json({
-        error: "missing_fields",
-        message: "orderId, phone, and amount required"
-      });
-    }
-    console.log(`[GPAY-API] Manual verification request for Order#${orderId}`);
-    const result = await gpayVerificationService.verifyPaymentForUser(
-      orderId,
-      phone,
-      amount
-    );
-    if (result.verified) {
-      await db.update(orders).set({
-        paymentStatus: "confirmed",
-        paymentVerifiedBy: "manual-check",
-        gpayTransactionId: result.transactionId
-      }).where(eq7(orders.id, orderId));
-      console.log(`\u2705 [GPAY-API] Order#${orderId} manually verified`);
-      return res.json({
-        success: true,
-        message: "Payment verified successfully",
-        transactionId: result.transactionId,
-        payerPhone: result.payerPhone,
-        paymentAmount: result.paymentAmount
-      });
-    }
-    return res.status(400).json({
-      success: false,
-      message: `Payment verification failed: ${result.reason}`,
-      reason: result.reason
+var router, gpay_verification_default;
+var init_gpay_verification = __esm({
+  "server/routes/gpay-verification.ts"() {
+    "use strict";
+    init_db();
+    init_schema();
+    init_gpayVerificationService();
+    router = Router();
+    router.post("/verify-gpay", async (req, res) => {
+      try {
+        const { orderId, phone, amount } = req.body;
+        if (!orderId || !phone || !amount) {
+          return res.status(400).json({
+            error: "missing_fields",
+            message: "orderId, phone, and amount required"
+          });
+        }
+        console.log(`[GPAY-API] Manual verification request for Order#${orderId}`);
+        const result = await gpayVerificationService.verifyPaymentForUser(
+          orderId,
+          phone,
+          amount
+        );
+        if (result.verified) {
+          await db.update(orders).set({
+            paymentStatus: "confirmed",
+            paymentVerifiedBy: "manual-check",
+            gpayTransactionId: result.transactionId
+          }).where(eq7(orders.id, orderId));
+          console.log(`\u2705 [GPAY-API] Order#${orderId} manually verified`);
+          return res.json({
+            success: true,
+            message: "Payment verified successfully",
+            transactionId: result.transactionId,
+            payerPhone: result.payerPhone,
+            paymentAmount: result.paymentAmount
+          });
+        }
+        return res.status(400).json({
+          success: false,
+          message: `Payment verification failed: ${result.reason}`,
+          reason: result.reason
+        });
+      } catch (error) {
+        console.error("[GPAY-API] Error:", error);
+        return res.status(500).json({
+          error: "verification_error",
+          message: error instanceof Error ? error.message : "Unknown error"
+        });
+      }
     });
-  } catch (error) {
-    console.error("[GPAY-API] Error:", error);
-    return res.status(500).json({
-      error: "verification_error",
-      message: error instanceof Error ? error.message : "Unknown error"
+    router.get("/verification-status/:orderId", async (req, res) => {
+      try {
+        const { orderId } = req.params;
+        const order = await db.query.orders.findFirst({
+          where: eq7(orders.id, orderId)
+        });
+        if (!order) {
+          return res.status(404).json({
+            error: "order_not_found",
+            message: `Order#${orderId} not found`
+          });
+        }
+        const lastLog = await gpayVerificationService.getLastVerificationLog(orderId);
+        return res.json({
+          orderId,
+          paymentStatus: order.paymentStatus,
+          verified: order.paymentStatus === "confirmed",
+          verifiedBy: order.paymentVerifiedBy,
+          attemptCount: order.verificationAttempts || 0,
+          lastVerificationLog: lastLog,
+          gpayTransactionId: order.gpayTransactionId
+        });
+      } catch (error) {
+        console.error("[GPAY-API] Error:", error);
+        return res.status(500).json({
+          error: "status_check_error",
+          message: error instanceof Error ? error.message : "Unknown error"
+        });
+      }
     });
+    router.post("/simulate-gpay-payment", async (req, res) => {
+      if (process.env.NODE_ENV !== "development") {
+        return res.status(403).json({
+          error: "forbidden",
+          message: "This endpoint is only available in development mode"
+        });
+      }
+      try {
+        const { orderId, senderPhone, amount, reference } = req.body;
+        if (!orderId || !senderPhone || !amount) {
+          return res.status(400).json({
+            error: "missing_fields",
+            message: "orderId, senderPhone, and amount required"
+          });
+        }
+        if (!global.simulatedGPayPayments) {
+          global.simulatedGPayPayments = {};
+        }
+        global.simulatedGPayPayments[orderId] = {
+          orderId,
+          transactionId: `GPY-SIM-${Date.now()}`,
+          senderPhone,
+          amount: parseFloat(amount),
+          reference: reference || `Order#${orderId}`,
+          timestamp: /* @__PURE__ */ new Date()
+        };
+        console.log(
+          `[GPAY-SIMULATE] Simulated payment for Order#${orderId} from ${senderPhone} for \u20B9${amount}`
+        );
+        return res.json({
+          success: true,
+          message: "Payment simulated successfully",
+          orderId,
+          transactionId: global.simulatedGPayPayments[orderId].transactionId,
+          note: "Run verification to confirm this payment"
+        });
+      } catch (error) {
+        console.error("[GPAY-SIMULATE] Error:", error);
+        return res.status(500).json({
+          error: "simulation_error",
+          message: error instanceof Error ? error.message : "Unknown error"
+        });
+      }
+    });
+    router.get("/verification-logs/:orderId", async (req, res) => {
+      try {
+        const { orderId } = req.params;
+        const logs = await db.query.paymentVerificationLog.findMany({
+          where: (pvl, { eq: eqOp }) => eqOp(pvl.orderId, orderId)
+        });
+        return res.json({
+          orderId,
+          totalAttempts: logs.length,
+          logs: logs.sort(
+            (a, b) => new Date(b.checkedAt).getTime() - new Date(a.checkedAt).getTime()
+          )
+        });
+      } catch (error) {
+        console.error("[GPAY-API] Error:", error);
+        return res.status(500).json({
+          error: "logs_error",
+          message: error instanceof Error ? error.message : "Unknown error"
+        });
+      }
+    });
+    router.post("/retry-verification/:orderId", async (req, res) => {
+      try {
+        const { orderId } = req.params;
+        const order = await db.query.orders.findFirst({
+          where: eq7(orders.id, orderId)
+        });
+        if (!order) {
+          return res.status(404).json({
+            error: "order_not_found",
+            message: `Order#${orderId} not found`
+          });
+        }
+        if (order.paymentStatus === "confirmed") {
+          return res.status(400).json({
+            error: "already_confirmed",
+            message: "Order is already confirmed"
+          });
+        }
+        const result = await gpayVerificationService.verifyPaymentForUser(
+          orderId,
+          order.expectedPayerPhone || order.phone,
+          order.total
+        );
+        if (result.verified) {
+          await db.update(orders).set({
+            paymentStatus: "confirmed",
+            paymentVerifiedBy: "manual-retry",
+            gpayTransactionId: result.transactionId
+          }).where(eq7(orders.id, orderId));
+          return res.json({
+            success: true,
+            message: "Payment verified on retry",
+            transactionId: result.transactionId
+          });
+        }
+        await db.update(orders).set({
+          verificationAttempts: (order.verificationAttempts || 0) + 1
+        }).where(eq7(orders.id, orderId));
+        return res.status(400).json({
+          success: false,
+          message: `Verification failed: ${result.reason}`,
+          reason: result.reason,
+          attemptNumber: (order.verificationAttempts || 0) + 1
+        });
+      } catch (error) {
+        console.error("[GPAY-API] Error:", error);
+        return res.status(500).json({
+          error: "retry_error",
+          message: error instanceof Error ? error.message : "Unknown error"
+        });
+      }
+    });
+    gpay_verification_default = router;
   }
 });
-router.get("/verification-status/:orderId", async (req, res) => {
-  try {
-    const { orderId } = req.params;
-    const order = await db.query.orders.findFirst({
-      where: eq7(orders.id, orderId)
-    });
-    if (!order) {
-      return res.status(404).json({
-        error: "order_not_found",
-        message: `Order#${orderId} not found`
-      });
-    }
-    const lastLog = await gpayVerificationService.getLastVerificationLog(orderId);
-    return res.json({
-      orderId,
-      paymentStatus: order.paymentStatus,
-      verified: order.paymentStatus === "confirmed",
-      verifiedBy: order.paymentVerifiedBy,
-      attemptCount: order.verificationAttempts || 0,
-      lastVerificationLog: lastLog,
-      gpayTransactionId: order.gpayTransactionId
-    });
-  } catch (error) {
-    console.error("[GPAY-API] Error:", error);
-    return res.status(500).json({
-      error: "status_check_error",
-      message: error instanceof Error ? error.message : "Unknown error"
-    });
-  }
-});
-router.post("/simulate-gpay-payment", async (req, res) => {
-  if (process.env.NODE_ENV !== "development") {
-    return res.status(403).json({
-      error: "forbidden",
-      message: "This endpoint is only available in development mode"
-    });
-  }
-  try {
-    const { orderId, senderPhone, amount, reference } = req.body;
-    if (!orderId || !senderPhone || !amount) {
-      return res.status(400).json({
-        error: "missing_fields",
-        message: "orderId, senderPhone, and amount required"
-      });
-    }
-    if (!global.simulatedGPayPayments) {
-      global.simulatedGPayPayments = {};
-    }
-    global.simulatedGPayPayments[orderId] = {
-      orderId,
-      transactionId: `GPY-SIM-${Date.now()}`,
-      senderPhone,
-      amount: parseFloat(amount),
-      reference: reference || `Order#${orderId}`,
-      timestamp: /* @__PURE__ */ new Date()
-    };
-    console.log(
-      `[GPAY-SIMULATE] Simulated payment for Order#${orderId} from ${senderPhone} for \u20B9${amount}`
-    );
-    return res.json({
-      success: true,
-      message: "Payment simulated successfully",
-      orderId,
-      transactionId: global.simulatedGPayPayments[orderId].transactionId,
-      note: "Run verification to confirm this payment"
-    });
-  } catch (error) {
-    console.error("[GPAY-SIMULATE] Error:", error);
-    return res.status(500).json({
-      error: "simulation_error",
-      message: error instanceof Error ? error.message : "Unknown error"
-    });
-  }
-});
-router.get("/verification-logs/:orderId", async (req, res) => {
-  try {
-    const { orderId } = req.params;
-    const logs = await db.query.paymentVerificationLog.findMany({
-      where: (pvl, { eq: eqOp }) => eqOp(pvl.orderId, orderId)
-    });
-    return res.json({
-      orderId,
-      totalAttempts: logs.length,
-      logs: logs.sort(
-        (a, b) => new Date(b.checkedAt).getTime() - new Date(a.checkedAt).getTime()
-      )
-    });
-  } catch (error) {
-    console.error("[GPAY-API] Error:", error);
-    return res.status(500).json({
-      error: "logs_error",
-      message: error instanceof Error ? error.message : "Unknown error"
-    });
-  }
-});
-router.post("/retry-verification/:orderId", async (req, res) => {
-  try {
-    const { orderId } = req.params;
-    const order = await db.query.orders.findFirst({
-      where: eq7(orders.id, orderId)
-    });
-    if (!order) {
-      return res.status(404).json({
-        error: "order_not_found",
-        message: `Order#${orderId} not found`
-      });
-    }
-    if (order.paymentStatus === "confirmed") {
-      return res.status(400).json({
-        error: "already_confirmed",
-        message: "Order is already confirmed"
-      });
-    }
-    const result = await gpayVerificationService.verifyPaymentForUser(
-      orderId,
-      order.expectedPayerPhone || order.phone,
-      order.total
-    );
-    if (result.verified) {
-      await db.update(orders).set({
-        paymentStatus: "confirmed",
-        paymentVerifiedBy: "manual-retry",
-        gpayTransactionId: result.transactionId
-      }).where(eq7(orders.id, orderId));
-      return res.json({
-        success: true,
-        message: "Payment verified on retry",
-        transactionId: result.transactionId
-      });
-    }
-    await db.update(orders).set({
-      verificationAttempts: (order.verificationAttempts || 0) + 1
-    }).where(eq7(orders.id, orderId));
-    return res.status(400).json({
-      success: false,
-      message: `Verification failed: ${result.reason}`,
-      reason: result.reason,
-      attemptNumber: (order.verificationAttempts || 0) + 1
-    });
-  } catch (error) {
-    console.error("[GPAY-API] Error:", error);
-    return res.status(500).json({
-      error: "retry_error",
-      message: error instanceof Error ? error.message : "Unknown error"
-    });
-  }
-});
-var gpay_verification_default = router;
 
 // server/routes.ts
-init_websocket();
-init_userAuth();
-init_userAuth();
-init_adminAuth();
-init_emailService();
-init_whatsappService();
-init_db();
+var routes_exports = {};
+__export(routes_exports, {
+  generateSubscriptionDeliveryLogs: () => generateSubscriptionDeliveryLogs,
+  registerRoutes: () => registerRoutes
+});
+import { createServer } from "http";
 import { eq as eq8 } from "drizzle-orm";
 import axios2 from "axios";
-var DEFAULT_DELIVERY_TIME = "09:00";
-var WEEKDAY_NAMES = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
-var PAYMENT_INITIATED_ADMIN_NOTIFY_TTL_MS = 5 * 60 * 1e3;
-var paymentInitiatedAdminNotifications = /* @__PURE__ */ new Map();
 function shouldSendPaymentInitiatedAdminNotification(id) {
   const now = Date.now();
   const previousSentAt = paymentInitiatedAdminNotifications.get(id);
@@ -13921,7 +13566,7 @@ function shouldSendPaymentInitiatedAdminNotification(id) {
     return false;
   }
   paymentInitiatedAdminNotifications.set(id, now);
-  for (const [key, sentAt] of paymentInitiatedAdminNotifications) {
+  for (const [key, sentAt] of Array.from(paymentInitiatedAdminNotifications.entries())) {
     if (now - sentAt > PAYMENT_INITIATED_ADMIN_NOTIFY_TTL_MS) {
       paymentInitiatedAdminNotifications.delete(key);
     }
@@ -13962,13 +13607,6 @@ async function getPrimaryAdminPhoneNumber() {
     return null;
   }
 }
-var rateLimitStore = /* @__PURE__ */ new Map();
-var REFERRAL_RATE_LIMIT = {
-  windowMs: 60 * 1e3,
-  // 1 minute window
-  maxRequests: 10
-  // Maximum 10 requests per minute per IP
-};
 function checkRateLimitReferralValidation(ip) {
   const now = Date.now();
   const entry = rateLimitStore.get(ip);
@@ -13985,22 +13623,6 @@ function checkRateLimitReferralValidation(ip) {
   }
   return false;
 }
-var SEND_SUBSCRIPTION_EMAILS = true;
-var SUBSCRIPTION_STATUS = {
-  PENDING: "pending",
-  ACTIVE: "active",
-  PAUSED: "paused",
-  CANCELLED: "cancelled",
-  EXPIRED: "expired"
-};
-var DELIVERY_LOG_STATUS = {
-  SCHEDULED: "scheduled",
-  PREPARING: "preparing",
-  OUT_FOR_DELIVERY: "out_for_delivery",
-  DELIVERED: "delivered",
-  MISSED: "missed",
-  SKIPPED: "skipped"
-};
 function isDeliveryDay(date, frequency, deliveryDays) {
   if (!deliveryDays || deliveryDays.length === 0) return false;
   const hasWeekdayNames = isWeekdayNameFormat(deliveryDays);
@@ -14253,20 +13875,8 @@ async function registerRoutes(app2) {
       const coordinatesMap = {};
       areas.forEach((area) => {
         const areaLower = area.name.toLowerCase();
-        let lat = 19.0728;
-        if (typeof area.latitude === "number" && !isNaN(area.latitude)) {
-          lat = area.latitude;
-        } else if (area.latitude != null) {
-          const parsed = parseFloat(String(area.latitude));
-          if (!isNaN(parsed)) lat = parsed;
-        }
-        let lon = 72.8826;
-        if (typeof area.longitude === "number" && !isNaN(area.longitude)) {
-          lon = area.longitude;
-        } else if (area.longitude != null) {
-          const parsed = parseFloat(String(area.longitude));
-          if (!isNaN(parsed)) lon = parsed;
-        }
+        const lat = typeof area.latitude === "number" ? area.latitude : parseFloat(String(area.latitude || 19.0728));
+        const lon = typeof area.longitude === "number" ? area.longitude : parseFloat(String(area.longitude || 72.8826));
         coordinatesMap[areaLower] = {
           lat,
           lon,
@@ -15429,21 +15039,6 @@ async function registerRoutes(app2) {
           ...s,
           minOrderAmount: s.minOrderAmount === null ? void 0 : s.minOrderAmount
         }));
-        const { calculateDelivery: calculateDelivery2 } = await Promise.resolve().then(() => (init_deliveryUtils(), deliveryUtils_exports));
-        const feeResult = calculateDelivery2(addressDistance, sanitized.subtotal || 0, deliverySettings3);
-        const minOrderAmount = feeResult.minOrderAmount || 0;
-        const meetsMinimum = minOrderAmount > 0 && (sanitized.subtotal || 0) >= minOrderAmount;
-        const expectedDeliveryFee = feeResult.freeDeliveryEligible || meetsMinimum ? 0 : feeResult.deliveryFee;
-        console.log("[SERVER] Recomputed delivery fee using Admin settings:", {
-          baseFee: feeResult.deliveryFee,
-          expectedDeliveryFee,
-          isFreeDelivery: feeResult.freeDeliveryEligible || meetsMinimum,
-          meetsMinimumThreshold: meetsMinimum,
-          minOrderAmount,
-          subtotal: sanitized.subtotal,
-          addressDistance
-        });
-        sanitized.deliveryFee = expectedDeliveryFee;
         let roadDistanceMultiplier = 1.5;
         try {
           const paymentSettingsData = await db.query.paymentSettings.findFirst();
@@ -15461,6 +15056,23 @@ async function registerRoutes(app2) {
         } catch (err) {
           console.warn(`[DISTANCE-MULTIPLIER] Could not fetch admin settings, using default 1.5x:`, err);
         }
+        const { calculateDelivery: calculateDelivery2 } = await Promise.resolve().then(() => (init_deliveryUtils(), deliveryUtils_exports));
+        const chefThreshold = chef?.freeDeliveryThreshold ?? 0;
+        const feeResult = calculateDelivery2(addressDistance, sanitized.subtotal || 0, deliverySettings3, roadDistanceMultiplier, chefThreshold);
+        const minOrderAmount = feeResult.minOrderAmount || 0;
+        const meetsMinimum = minOrderAmount > 0 && (sanitized.subtotal || 0) >= minOrderAmount;
+        const expectedDeliveryFee = feeResult.freeDeliveryEligible || meetsMinimum ? 0 : feeResult.deliveryFee;
+        console.log("[SERVER] Recomputed delivery fee using Admin settings:", {
+          baseFee: feeResult.deliveryFee,
+          expectedDeliveryFee,
+          isFreeDelivery: feeResult.freeDeliveryEligible || meetsMinimum,
+          meetsMinimumThreshold: meetsMinimum,
+          minOrderAmount,
+          subtotal: sanitized.subtotal,
+          addressDistance,
+          appliedMultiplier: roadDistanceMultiplier
+        });
+        sanitized.deliveryFee = expectedDeliveryFee;
         const { getRoadAdjustedDistance: getAdjustedDist } = await Promise.resolve().then(() => (init_deliveryUtils(), deliveryUtils_exports));
         const adjustedDistance = getAdjustedDist(addressDistance, roadDistanceMultiplier);
         sanitized.distance = adjustedDistance.toFixed(2);
@@ -15478,11 +15090,13 @@ async function registerRoutes(app2) {
         });
         let platformFee = 0;
         try {
-          const paymentSettingsResponse = await fetch(`http://localhost:${process.env.PORT || 5e3}/api/payment-settings`);
-          const paymentSettings4 = paymentSettingsResponse.ok ? await paymentSettingsResponse.json() : {};
-          if (paymentSettings4?.platformFeeEnabled) {
+          const paymentSettings4 = await db.query.paymentSettings.findFirst();
+          if (paymentSettings4 && paymentSettings4.platformFeeEnabled) {
             const subtotalAmount = sanitized.subtotal || 0;
-            if (subtotalAmount < 100) {
+            const threshold = paymentSettings4.platformFeeWaiverThreshold || 200;
+            if (subtotalAmount >= threshold) {
+              platformFee = 0;
+            } else if (subtotalAmount < 100) {
               platformFee = paymentSettings4.platformFeeBelow100 || 0;
             } else if (subtotalAmount < 200) {
               platformFee = paymentSettings4.platformFeeBelow200 || 0;
@@ -15494,7 +15108,8 @@ async function registerRoutes(app2) {
           console.log("[PLATFORM-FEE] Calculated fee from payment settings:", {
             subtotal: sanitized.subtotal,
             fee: platformFee,
-            platformFeeEnabled: paymentSettings4?.platformFeeEnabled
+            platformFeeEnabled: paymentSettings4?.platformFeeEnabled,
+            threshold: paymentSettings4?.platformFeeWaiverThreshold
           });
         } catch (pfErr) {
           console.error("[PLATFORM-FEE] Error calculating fee:", pfErr);
@@ -15864,7 +15479,16 @@ ${"=".repeat(80)}`);
       }
       const allOrders = await storage.getAllOrders();
       const activeStatuses = ["pending", "confirmed", "accepted_by_chef", "preparing", "prepared", "accepted_by_delivery", "out_for_delivery"];
-      const activeOrders = allOrders.filter((order) => order.userId === userId || order.phone === user.phone || order.email === user.email).filter((order) => activeStatuses.includes(order.status)).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      const activeOrders = allOrders.filter((order) => order.userId === userId).filter((order) => {
+        if (!activeStatuses.includes(order.status)) return false;
+        if (order.status === "pending" && order.paymentStatus === "pending") {
+          const expiresAt = order.expiresAt ? new Date(order.expiresAt) : null;
+          if (expiresAt && /* @__PURE__ */ new Date() > expiresAt) {
+            return false;
+          }
+        }
+        return true;
+      }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       if (activeOrders.length === 0) {
         res.json(null);
         return;
@@ -16161,47 +15785,6 @@ ${"=".repeat(80)}`);
           await broadcastPreparedOrderToAvailableDelivery(updatedOrder);
           console.log(`\u2705 BROADCAST COMPLETE - Chef and delivery personnel notified on payment confirmation
 `);
-          try {
-            console.log(`\u{1F4E7} [ORDER-CONFIRMED] Preparing admin email notifications for order ${updatedOrder.id}`);
-            const adminUsers4 = await storage.getAllAdmins();
-            const adminEmails = adminUsers4.filter((a) => a.email && a.email.trim().length > 0).map((a) => a.email.trim());
-            console.log(`\u{1F4E7} [ORDER-CONFIRMED] Admin emails: [${adminEmails.join(", ")}]`);
-            if (adminEmails.length > 0) {
-              const orderItems = (updatedOrder.items || []).map((it) => ({
-                name: it.name,
-                quantity: it.quantity,
-                price: it.price || 0
-              }));
-              let chefName;
-              if (updatedOrder.chefId) {
-                const chef = await storage.getChefById(updatedOrder.chefId);
-                chefName = chef?.name;
-              }
-              const adminEmailParams = {
-                orderId: updatedOrder.id,
-                customerName: updatedOrder.customerName,
-                customerPhone: updatedOrder.phone,
-                customerEmail: updatedOrder.email || null,
-                chefName,
-                items: orderItems,
-                subtotal: updatedOrder.subtotal || 0,
-                deliveryFee: updatedOrder.deliveryFee || 0,
-                platformFee: updatedOrder.platformFee || 0,
-                total: updatedOrder.total || 0,
-                deliveryAddress: updatedOrder.address || "Not provided",
-                addressPincode: updatedOrder.addressPincode || null,
-                deliveryTime: updatedOrder.deliveryTime || null,
-                distance: updatedOrder.distance ? Number(updatedOrder.distance) : void 0,
-                paymentStatus: updatedOrder.paymentStatus
-              };
-              await sendAdminOrderNotification(adminEmails, adminEmailParams);
-              console.log(`\u{1F4E7} [ORDER-CONFIRMED] Admin notification attempted for order ${updatedOrder.id}`);
-            } else {
-              console.warn(`\u26A0\uFE0F [ORDER-CONFIRMED] No admin emails found, skipping admin email`);
-            }
-          } catch (emailErr) {
-            console.error(`\u274C [ORDER-CONFIRMED] Failed to send admin emails:`, emailErr?.message || emailErr);
-          }
         }
       } catch (paymentError) {
         console.error("\u274C [ATOMIC] PAYMENT FAILED - Wallet deduction error:", paymentError.message);
@@ -16275,6 +15858,67 @@ Please accept and start preparation.`;
       } catch (waErr) {
         console.error("[WHATSAPP ERROR]", waErr?.message || waErr);
       }
+      (async () => {
+        try {
+          console.log(`
+\u{1F4E7} [ADMIN-EMAIL] Sending admin email notification for payment confirmation`);
+          const adminUsers4 = await storage.getAllAdmins();
+          const adminEmails = adminUsers4.filter((a) => a.email && a.email.trim().length > 0).map((a) => a.email.trim());
+          if (adminEmails.length === 0) {
+            console.warn(`\u26A0\uFE0F [ADMIN-EMAIL] No admin emails found - skipping email notification`);
+          } else {
+            console.log(`\u{1F4E7} [ADMIN-EMAIL] Found ${adminEmails.length} admin(s) to notify: [${adminEmails.join(", ")}]`);
+            let itemsArray;
+            if (typeof updatedOrder?.items === "string") {
+              try {
+                itemsArray = JSON.parse(updatedOrder.items);
+              } catch (e) {
+                itemsArray = [];
+              }
+            } else if (Array.isArray(updatedOrder?.items)) {
+              itemsArray = updatedOrder.items;
+            } else {
+              itemsArray = void 0;
+            }
+            const completeAddress = [
+              updatedOrder?.addressBuilding,
+              updatedOrder?.addressStreet,
+              updatedOrder?.addressArea,
+              updatedOrder?.addressCity,
+              updatedOrder?.addressPincode
+            ].filter(Boolean).join(", ");
+            let chefName = null;
+            if (updatedOrder?.chefId) {
+              const chef = await storage.getChefById(updatedOrder.chefId);
+              if (chef) chefName = chef.name;
+            }
+            const adminEmailParams = {
+              orderId: updatedOrder?.id || "",
+              customerName: updatedOrder?.customerName || "",
+              customerPhone: updatedOrder?.phone || "",
+              customerEmail: updatedOrder?.email || null,
+              chefName,
+              items: itemsArray || [],
+              subtotal: updatedOrder?.subtotal || 0,
+              deliveryFee: updatedOrder?.deliveryFee || 0,
+              platformFee: 0,
+              total: updatedOrder?.total || 0,
+              deliveryAddress: completeAddress,
+              addressPincode: updatedOrder?.addressPincode || null,
+              deliveryTime: updatedOrder?.deliveryTime || null,
+              paymentStatus: "CONFIRMED"
+            };
+            const emailSent = await sendAdminOrderNotification(adminEmails, adminEmailParams);
+            if (emailSent) {
+              console.log(`\u2705 [ADMIN-EMAIL] Admin notification email sent successfully`);
+            } else {
+              console.warn(`\u26A0\uFE0F [ADMIN-EMAIL] Failed to send admin notification email`);
+            }
+          }
+        } catch (err) {
+          console.error("\u274C [ADMIN-EMAIL] Error sending admin email notification:", err.message);
+        }
+      })();
       res.json(response);
     } catch (error) {
       console.error("Error confirming payment:", error);
@@ -16765,11 +16409,13 @@ Please accept and start preparation.`;
       }
       let chefLat = 19.0728;
       let chefLon = 72.8826;
+      let chefForCalc = null;
       if (chefId) {
-        const chef = await storage.getChefById(chefId);
-        if (chef && chef.latitude !== null && chef.longitude !== null && chef.latitude !== void 0 && chef.longitude !== void 0) {
-          chefLat = chef.latitude;
-          chefLon = chef.longitude;
+        const fetchedChef = await storage.getChefById(chefId);
+        chefForCalc = fetchedChef;
+        if (fetchedChef && fetchedChef.latitude !== null && fetchedChef.longitude !== null && fetchedChef.latitude !== void 0 && fetchedChef.longitude !== void 0) {
+          chefLat = fetchedChef.latitude;
+          chefLon = fetchedChef.longitude;
         }
       }
       const { calculateDistance: calculateDistance2, calculateDelivery: calculateDelivery2 } = await Promise.resolve().then(() => (init_deliveryUtils(), deliveryUtils_exports));
@@ -16779,7 +16425,22 @@ Please accept and start preparation.`;
         ...setting,
         minOrderAmount: setting.minOrderAmount ?? void 0
       }));
-      const deliveryCalc = calculateDelivery2(distance, subtotal, deliverySettings3);
+      let roadDistanceMultiplier = 1.5;
+      try {
+        const paymentSettingsData = await db.query.paymentSettings.findFirst();
+        if (paymentSettingsData) {
+          const enabled = paymentSettingsData.enableRoadDistanceMultiplier;
+          const dbMultiplier = paymentSettingsData.roadDistanceMultiplier;
+          if (enabled === false) {
+            roadDistanceMultiplier = 1;
+          } else if (dbMultiplier) {
+            roadDistanceMultiplier = parseFloat(dbMultiplier);
+          }
+        }
+      } catch (err) {
+        console.warn(`[DISTANCE-MULTIPLIER] Could not fetch admin settings:`, err);
+      }
+      const deliveryCalc = calculateDelivery2(distance, subtotal, deliverySettings3, roadDistanceMultiplier, chefForCalc?.freeDeliveryThreshold ?? 0);
       res.json({
         distance,
         deliveryFee: deliveryCalc.deliveryFee,
@@ -17107,7 +16768,16 @@ Please accept and start preparation.`;
     try {
       const userId = req.authenticatedUser.userId;
       const allSubscriptions = await storage.getSubscriptions();
-      const userSubscriptions = allSubscriptions.filter((s) => s.userId === userId);
+      const filteredByUserId = allSubscriptions.filter((s) => s.userId === userId);
+      const userSubscriptions = [];
+      for (const s of filteredByUserId) {
+        const plan = await storage.getSubscriptionPlan(s.planId);
+        const isCustom = plan?.sectionName === "Custom Subscriptions";
+        if (isCustom && !s.isPaid && s.status !== "active") {
+          continue;
+        }
+        userSubscriptions.push(s);
+      }
       const serialized = userSubscriptions.map((s) => {
         try {
           console.log(`
@@ -17162,6 +16832,156 @@ Please accept and start preparation.`;
     } catch (error) {
       console.error("Error fetching user subscriptions:", error);
       res.status(500).json({ message: "Failed to fetch subscriptions" });
+    }
+  });
+  app2.get("/api/custom-subscription/price-per-roti", async (req, res) => {
+    try {
+      const priceStr = await storage.getAdminSetting("price_per_roti");
+      const price = priceStr ? parseInt(priceStr, 10) : 8;
+      res.json({ pricePerRoti: price });
+    } catch (error) {
+      console.error("Error fetching price per roti:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch price per roti" });
+    }
+  });
+  app2.post("/api/custom-subscription/request", requireUser(), async (req, res) => {
+    try {
+      const userId = req.authenticatedUser.userId;
+      const user = await storage.getUser(userId);
+      if (!user) {
+        res.status(404).json({ message: "User not found" });
+        return;
+      }
+      const body = req.body;
+      const parsed = insertCustomSubscriptionRequestSchema.safeParse({
+        ...body,
+        userId,
+        customerName: user.name,
+        phone: user.phone,
+        email: user.email || null
+      });
+      if (!parsed.success) {
+        res.status(400).json({ message: parsed.error.errors[0]?.message || "Invalid input" });
+        return;
+      }
+      if (parsed.data.deliverySlotId) {
+        const slot = await storage.getDeliveryTimeSlot(parsed.data.deliverySlotId);
+        if (!slot) {
+          res.status(404).json({ message: "Delivery time slot not found" });
+          return;
+        }
+      }
+      const created = await storage.createCustomSubscriptionRequest(parsed.data);
+      const { broadcastNewCustomRequest: broadcastNewCustomRequest2 } = await Promise.resolve().then(() => (init_websocket(), websocket_exports));
+      broadcastNewCustomRequest2(created);
+      res.status(201).json(created);
+    } catch (error) {
+      console.error("Error creating custom subscription request:", error);
+      res.status(500).json({ message: error.message || "Failed to create custom subscription request" });
+    }
+  });
+  app2.post("/api/custom-subscription/request/public", async (req, res) => {
+    try {
+      const {
+        customerName,
+        phone,
+        email,
+        latitude,
+        longitude,
+        ...requestPayload
+      } = req.body;
+      if (!customerName || !phone) {
+        res.status(400).json({ message: "Customer name and phone are required" });
+        return;
+      }
+      const sanitizedPhone = phone.trim().replace(/\s+/g, "");
+      if (!/^\d{10}$/.test(sanitizedPhone)) {
+        res.status(400).json({ message: "Valid 10-digit phone number is required" });
+        return;
+      }
+      let user = await storage.getUserByPhone(sanitizedPhone);
+      let isNewUser = false;
+      let generatedPassword;
+      if (!user) {
+        isNewUser = true;
+        const newPassword = sanitizedPhone.slice(-6);
+        generatedPassword = newPassword;
+        const passwordHash = await hashPassword2(newPassword);
+        try {
+          user = await storage.createUser({
+            name: customerName.trim(),
+            phone: sanitizedPhone,
+            email: email ? email.trim().toLowerCase() : null,
+            address: requestPayload.address ? requestPayload.address.trim() : null,
+            passwordHash,
+            referralCode: null,
+            walletBalance: 0,
+            latitude: latitude || null,
+            longitude: longitude || null
+          });
+          try {
+            const referralCode = await storage.generateReferralCode(user.id);
+            user.referralCode = referralCode;
+          } catch (e) {
+            console.warn(`Failed to generate referral code: ${e.message}`);
+          }
+        } catch (createUserError) {
+          console.error("Error creating user during custom subscription request:", createUserError);
+          throw createUserError;
+        }
+      } else {
+        await storage.updateUserLastLogin(user.id);
+      }
+      const accessToken = generateAccessToken2(user);
+      const refreshToken = generateRefreshToken2(user);
+      const parsed = insertCustomSubscriptionRequestSchema.safeParse({
+        ...requestPayload,
+        userId: user.id,
+        customerName: user.name,
+        phone: user.phone,
+        email: user.email || null
+      });
+      if (!parsed.success) {
+        res.status(400).json({ message: parsed.error.errors[0]?.message || "Invalid input" });
+        return;
+      }
+      if (parsed.data.deliverySlotId) {
+        const slot = await storage.getDeliveryTimeSlot(parsed.data.deliverySlotId);
+        if (!slot) {
+          res.status(404).json({ message: "Delivery time slot not found" });
+          return;
+        }
+      }
+      const created = await storage.createCustomSubscriptionRequest(parsed.data);
+      const { broadcastNewCustomRequest: broadcastNewCustomRequest2 } = await Promise.resolve().then(() => (init_websocket(), websocket_exports));
+      broadcastNewCustomRequest2(created);
+      res.status(201).json({
+        request: created,
+        user: {
+          id: user.id,
+          name: user.name,
+          phone: user.phone,
+          email: user.email,
+          address: user.address
+        },
+        accessToken,
+        refreshToken,
+        isNewUser,
+        defaultPassword: isNewUser ? generatedPassword : void 0
+      });
+    } catch (error) {
+      console.error("Error creating public custom subscription request:", error);
+      res.status(500).json({ message: error.message || "Failed to submit request" });
+    }
+  });
+  app2.get("/api/custom-subscription/requests", requireUser(), async (req, res) => {
+    try {
+      const userId = req.authenticatedUser.userId;
+      const requests = await storage.getCustomSubscriptionRequestsByUserId(userId);
+      res.json(requests);
+    } catch (error) {
+      console.error("Error fetching custom subscription requests:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch custom subscription requests" });
     }
   });
   app2.post("/api/subscriptions", requireUser(), async (req, res) => {
@@ -17576,9 +17396,21 @@ Please accept and start preparation.`;
         paymentTransactionId: paymentTransactionId.trim()
       });
       console.log(`\u{1F4B3} Subscription ${req.params.id} payment confirmed - TxnID: ${paymentTransactionId.trim()}`);
-      const { broadcastSubscriptionUpdate: broadcastSubscriptionUpdate3 } = await Promise.resolve().then(() => (init_websocket(), websocket_exports));
       if (updated) {
-        broadcastSubscriptionUpdate3(updated);
+        const customRequest = await storage.getCustomSubscriptionRequestBySubscriptionId(req.params.id);
+        if (customRequest) {
+          await storage.updateCustomSubscriptionRequest(customRequest.id, {
+            status: "paid"
+          });
+          const { broadcastCustomRequestUpdate: broadcastCustomRequestUpdate2 } = await Promise.resolve().then(() => (init_websocket(), websocket_exports));
+          const updatedRequest = await storage.getCustomSubscriptionRequest(customRequest.id);
+          if (updatedRequest) {
+            broadcastCustomRequestUpdate2(updatedRequest);
+          }
+        } else {
+          const { broadcastSubscriptionUpdate: broadcastSubscriptionUpdate3 } = await Promise.resolve().then(() => (init_websocket(), websocket_exports));
+          broadcastSubscriptionUpdate3(updated);
+        }
         if (SEND_SUBSCRIPTION_EMAILS) {
           try {
             const customerEmail = updated.email || null;
@@ -18477,26 +18309,10 @@ Please accept and start preparation.`;
       });
       if (matchingArea) {
         console.log(`\u2705 [PINCODE-VALIDATION] Pincode ${pincodeStr} found in delivery area: ${matchingArea.name}`);
-        let lat = 19.0728;
-        let lon = 72.8826;
-        if (typeof matchingArea.latitude === "number" && !isNaN(matchingArea.latitude)) {
-          lat = matchingArea.latitude;
-        } else if (matchingArea.latitude != null) {
-          const parsed = parseFloat(String(matchingArea.latitude));
-          if (!isNaN(parsed)) lat = parsed;
-        }
-        if (typeof matchingArea.longitude === "number" && !isNaN(matchingArea.longitude)) {
-          lon = matchingArea.longitude;
-        } else if (matchingArea.longitude != null) {
-          const parsed = parseFloat(String(matchingArea.longitude));
-          if (!isNaN(parsed)) lon = parsed;
-        }
-        if (isNaN(lat) || isNaN(lon)) {
-          console.warn(`[PINCODE-VALIDATION] \u26A0\uFE0F Invalid coordinates for area "${matchingArea.name}": lat=${lat}, lon=${lon}. Using defaults.`);
-          lat = 19.0728;
-          lon = 72.8826;
-        }
-        const areaCoords = { lat, lon };
+        const areaCoords = {
+          lat: typeof matchingArea.latitude === "number" ? matchingArea.latitude : parseFloat(String(matchingArea.latitude || 19.0728)),
+          lon: typeof matchingArea.longitude === "number" ? matchingArea.longitude : parseFloat(String(matchingArea.longitude || 72.8826))
+        };
         console.log(`[PINCODE-VALIDATION] Using dynamic coordinates for area "${matchingArea.name}":`, areaCoords);
         return res.json({
           success: true,
@@ -18613,15 +18429,31 @@ Please accept and start preparation.`;
           const addressParts = [building, street, area, pincode, "Mumbai", "India"].filter(Boolean);
           const fullAddress = addressParts.join(", ");
           console.log(`[GEOCODE-FULL] 1. Requesting Google API: "${fullAddress}"`);
-          const response = await axios2.get("https://maps.googleapis.com/maps/api/geocode/json", {
+          let response = await axios2.get("https://maps.googleapis.com/maps/api/geocode/json", {
             params: {
               address: fullAddress,
               key: apiKey
             },
             timeout: 1e4
           });
-          if (response.data.status === "OK" && response.data.results && response.data.results.length > 0) {
-            const result = response.data.results[0];
+          let results = response.data.results;
+          let status = response.data.status;
+          if ((status !== "OK" || !results || results.length === 0) && building && building.trim().length > 0) {
+            const fallbackParts = [street, area, pincode, "Mumbai", "India"].filter(Boolean);
+            const fallbackAddress = fallbackParts.join(", ");
+            console.log(`\u26A0\uFE0F [GEOCODE-FULL] Google API returned ${status} for full address. Trying fallback without building detail: "${fallbackAddress}"`);
+            response = await axios2.get("https://maps.googleapis.com/maps/api/geocode/json", {
+              params: {
+                address: fallbackAddress,
+                key: apiKey
+              },
+              timeout: 1e4
+            });
+            results = response.data.results;
+            status = response.data.status;
+          }
+          if (status === "OK" && results && results.length > 0) {
+            const result = results[0];
             const location = result.geometry.location;
             const locationType = result.geometry.location_type;
             let accuracy2 = "area";
@@ -18646,7 +18478,7 @@ Please accept and start preparation.`;
               accuracy: accuracy2
             };
           } else {
-            console.warn(`\u274C [GEOCODE-FULL] Google Failed. Payload:`, response.data);
+            console.warn(`\u274C [GEOCODE-FULL] Google Failed. Status: ${status}`);
             return null;
           }
         } catch (error) {
@@ -18661,7 +18493,7 @@ Please accept and start preparation.`;
           const addressParts = [building, street, area, pincode, "Mumbai", "India"].filter(Boolean);
           const textQuery = addressParts.join(", ");
           console.log(`[GEOCODE-FULL] 2. Trying Google Places New API Fallback: "${textQuery}"`);
-          const response = await axios2.post(
+          let response = await axios2.post(
             "https://places.googleapis.com/v1/places:searchText",
             { textQuery },
             {
@@ -18673,8 +18505,27 @@ Please accept and start preparation.`;
               timeout: 1e4
             }
           );
-          if (response.data.places && response.data.places.length > 0) {
-            const place = response.data.places[0];
+          let places = response.data.places;
+          if ((!places || places.length === 0) && building && building.trim().length > 0) {
+            const fallbackParts = [street, area, pincode, "Mumbai", "India"].filter(Boolean);
+            const fallbackQuery = fallbackParts.join(", ");
+            console.log(`\u26A0\uFE0F [GEOCODE-FULL] Google Places returned no results for textQuery. Trying fallback query without building detail: "${fallbackQuery}"`);
+            response = await axios2.post(
+              "https://places.googleapis.com/v1/places:searchText",
+              { textQuery: fallbackQuery },
+              {
+                headers: {
+                  "Content-Type": "application/json",
+                  "X-Goog-Api-Key": apiKey,
+                  "X-Goog-FieldMask": "places.formattedAddress,places.location"
+                },
+                timeout: 1e4
+              }
+            );
+            places = response.data.places;
+          }
+          if (places && places.length > 0) {
+            const place = places[0];
             const location = place.location;
             console.log(`\u2705 [GEOCODE-FULL] Google Places New API Success:`, {
               formatted: place.formattedAddress,
@@ -18865,10 +18716,27 @@ Please accept and start preparation.`;
         minOrderAmount: s.minOrderAmount === null ? void 0 : s.minOrderAmount
       }));
       const { calculateDelivery: calculateDelivery2 } = await Promise.resolve().then(() => (init_deliveryUtils(), deliveryUtils_exports));
+      let roadDistanceMultiplier = 1.5;
+      try {
+        const paymentSettingsData = await db.query.paymentSettings.findFirst();
+        if (paymentSettingsData) {
+          const enabled = paymentSettingsData.enableRoadDistanceMultiplier;
+          const dbMultiplier = paymentSettingsData.roadDistanceMultiplier;
+          if (enabled === false) {
+            roadDistanceMultiplier = 1;
+          } else if (dbMultiplier) {
+            roadDistanceMultiplier = parseFloat(dbMultiplier);
+          }
+        }
+      } catch (err) {
+        console.warn(`[DISTANCE-MULTIPLIER] Could not fetch admin settings:`, err);
+      }
       const feeCalcResult = calculateDelivery2(
         distance || 0,
         orderAmount,
-        deliverySettings3
+        deliverySettings3,
+        roadDistanceMultiplier,
+        chef?.freeDeliveryThreshold ?? 0
       );
       const feeResult = {
         deliveryFee: feeCalcResult.freeDeliveryEligible ? 0 : feeCalcResult.deliveryFee,
@@ -18962,12 +18830,10 @@ Please accept and start preparation.`;
       const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { pushSubscriptions: pushSubscriptions2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
       const { eq: eq10, and: and6 } = await import("drizzle-orm");
-      const endpoint = subscription.endpoint;
       const existing = await db2.select().from(pushSubscriptions2).where(
         and6(
           eq10(pushSubscriptions2.userId, userId),
-          eq10(pushSubscriptions2.userType, userType),
-          eq10(pushSubscriptions2.endpoint, endpoint)
+          eq10(pushSubscriptions2.userType, userType)
         )
       ).limit(1);
       if (existing.length > 0) {
@@ -18981,7 +18847,6 @@ Please accept and start preparation.`;
         await db2.insert(pushSubscriptions2).values({
           userId,
           userType,
-          endpoint,
           subscription,
           isActive: true
         });
@@ -19207,9 +19072,830 @@ If you received this, WhatsApp integration is working! \u2705
   }, 60 * 1e3);
   return httpServer;
 }
+var DEFAULT_DELIVERY_TIME, WEEKDAY_NAMES, PAYMENT_INITIATED_ADMIN_NOTIFY_TTL_MS, paymentInitiatedAdminNotifications, rateLimitStore, REFERRAL_RATE_LIMIT, SEND_SUBSCRIPTION_EMAILS, SUBSCRIPTION_STATUS, DELIVERY_LOG_STATUS;
+var init_routes = __esm({
+  "server/routes.ts"() {
+    "use strict";
+    init_storage();
+    init_cache();
+    init_schema();
+    init_adminRoutes();
+    init_partnerRoutes();
+    init_deliveryRoutes();
+    init_gpay_verification();
+    init_websocket();
+    init_userAuth();
+    init_userAuth();
+    init_adminAuth();
+    init_emailService();
+    init_whatsappService();
+    init_db();
+    DEFAULT_DELIVERY_TIME = "09:00";
+    WEEKDAY_NAMES = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+    PAYMENT_INITIATED_ADMIN_NOTIFY_TTL_MS = 5 * 60 * 1e3;
+    paymentInitiatedAdminNotifications = /* @__PURE__ */ new Map();
+    rateLimitStore = /* @__PURE__ */ new Map();
+    REFERRAL_RATE_LIMIT = {
+      windowMs: 60 * 1e3,
+      // 1 minute window
+      maxRequests: 10
+      // Maximum 10 requests per minute per IP
+    };
+    SEND_SUBSCRIPTION_EMAILS = true;
+    SUBSCRIPTION_STATUS = {
+      PENDING: "pending",
+      ACTIVE: "active",
+      PAUSED: "paused",
+      CANCELLED: "cancelled",
+      EXPIRED: "expired"
+    };
+    DELIVERY_LOG_STATUS = {
+      SCHEDULED: "scheduled",
+      PREPARING: "preparing",
+      OUT_FOR_DELIVERY: "out_for_delivery",
+      DELIVERED: "delivered",
+      MISSED: "missed",
+      SKIPPED: "skipped"
+    };
+  }
+});
+
+// vite.config.ts
+var vite_config_exports = {};
+__export(vite_config_exports, {
+  default: () => vite_config_default
+});
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import path from "path";
+import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
+import fs from "fs";
+var versionPlugin, vite_config_default;
+var init_vite_config = __esm({
+  "vite.config.ts"() {
+    "use strict";
+    versionPlugin = {
+      name: "version-plugin",
+      apply: "build",
+      enforce: "post",
+      generateBundle() {
+        const now = /* @__PURE__ */ new Date();
+        const version = now.toISOString();
+        const timestamp2 = Date.now();
+        const buildId = `${timestamp2}-${Math.random().toString(36).substr(2, 9)}`;
+        const versionJson = JSON.stringify({
+          version,
+          timestamp: timestamp2,
+          buildId,
+          buildDate: now.toLocaleString()
+        }, null, 2);
+        console.log(`\u{1F4E6} Version plugin: Generated version ${buildId}`);
+        this.emitFile({
+          type: "asset",
+          fileName: "version.json",
+          source: versionJson
+        });
+        try {
+          const swSource = fs.readFileSync(
+            path.resolve(import.meta.dirname, "client", "public", "sw.js"),
+            "utf-8"
+          );
+          const swWithBuildId = swSource.replace("__SW_BUILD_ID__", `v-${buildId}`);
+          this.emitFile({
+            type: "asset",
+            fileName: "sw.js",
+            source: swWithBuildId
+          });
+          console.log(`\u{1F4E6} Version plugin: Injected build ID into sw.js \u2192 v-${buildId}`);
+        } catch (err) {
+          console.warn("\u26A0\uFE0F Version plugin: Could not inject build ID into sw.js:", err);
+        }
+      }
+    };
+    vite_config_default = defineConfig({
+      plugins: [
+        react(),
+        runtimeErrorOverlay(),
+        versionPlugin
+      ],
+      define: {
+        // Inject build timestamp for cache-busting (available as import.meta.env.VITE_BUILD_TIME)
+        "import.meta.env.VITE_BUILD_TIME": JSON.stringify(Date.now().toString()),
+        // Safety shim: some libraries reference process.env.NODE_ENV directly.
+        // Vite normally replaces process.env.NODE_ENV but this makes it explicit.
+        "process.env.NODE_ENV": JSON.stringify(process.env.NODE_ENV || "development")
+      },
+      resolve: {
+        alias: {
+          "@": path.resolve(import.meta.dirname, "client", "src"),
+          "@shared": path.resolve(import.meta.dirname, "shared"),
+          "@assets": path.resolve(import.meta.dirname, "attached_assets")
+        }
+      },
+      root: path.resolve(import.meta.dirname, "client"),
+      build: {
+        outDir: path.resolve(import.meta.dirname, "dist/public"),
+        emptyOutDir: true,
+        rollupOptions: {
+          output: {
+            // Disable aggressive caching - add timestamp to output files
+            entryFileNames: "[name].[hash].js",
+            chunkFileNames: "[name].[hash].js",
+            assetFileNames: "[name].[hash][extname]"
+          }
+        }
+      },
+      server: {
+        host: "0.0.0.0",
+        port: 5173,
+        fs: {
+          strict: false
+        },
+        allowedHosts: true,
+        middlewareMode: false,
+        hmr: process.env.REPLIT_DEV_DOMAIN ? {
+          host: process.env.REPLIT_DEV_DOMAIN,
+          protocol: "wss",
+          clientPort: 443
+        } : true
+      }
+    });
+  }
+});
+
+// server/vite.ts
+var vite_exports = {};
+__export(vite_exports, {
+  log: () => log,
+  serveStatic: () => serveStatic,
+  setupVite: () => setupVite
+});
+import express from "express";
+import fs2 from "fs";
+import path2 from "path";
+import { nanoid as nanoid2 } from "nanoid";
+function log(message, source = "express") {
+  const formattedTime = (/* @__PURE__ */ new Date()).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true
+  });
+  console.log(`${formattedTime} [${source}] ${message}`);
+}
+async function setupVite(app2, server) {
+  if (!enableVite) {
+    return;
+  }
+  try {
+    await loadVite();
+    const viteLogger = await getViteLogger();
+    const serverOptions = {
+      middlewareMode: true,
+      hmr: { server },
+      allowedHosts: true
+    };
+    if (!createViteServer) {
+      throw new Error("Vite server was not loaded correctly");
+    }
+    const vite = await createViteServer({
+      ...viteConfig,
+      configFile: false,
+      customLogger: {
+        ...viteLogger,
+        error: (msg, options) => {
+          viteLogger.error(msg, options);
+          process.exit(1);
+        }
+      },
+      server: serverOptions,
+      appType: "custom"
+    });
+    app2.use(vite.middlewares);
+    app2.use("*", async (req, res, next) => {
+      const url = req.originalUrl;
+      try {
+        const clientTemplate = path2.resolve(
+          import.meta.dirname,
+          "..",
+          "client",
+          "index.html"
+        );
+        let template = await fs2.promises.readFile(clientTemplate, "utf-8");
+        template = template.replace(
+          `src="/src/main.tsx"`,
+          `src="/src/main.tsx?v=${nanoid2()}"`
+        );
+        const page = await vite.transformIndexHtml(url, template);
+        res.status(200).set({ "Content-Type": "text/html" }).end(page);
+      } catch (e) {
+        vite.ssrFixStacktrace(e);
+        next(e);
+      }
+    });
+  } catch (error) {
+    console.error("\u274C Failed to setup Vite:", error);
+    throw error;
+  }
+}
+function serveStatic(app2) {
+  const distPath = path2.resolve(import.meta.dirname, "..", "dist", "public");
+  if (!fs2.existsSync(distPath)) {
+    const errorMsg = `\u274C CRITICAL: Frontend build not found: ${distPath}
+    
+    Cause: 'npm run build:client' was not run before deployment
+    
+    Fix in local environment:
+      1. npm run build:client
+      2. npm run build:server
+      3. Redeploy
+    
+    For deployed environments (Render, Vercel, etc):
+      Ensure build step is configured in your deployment config`;
+    console.error(errorMsg);
+    if (enableVite) {
+      console.warn("\u26A0\uFE0F  Continuing without frontend build (Vite enabled)");
+      return;
+    }
+    throw new Error(errorMsg);
+  }
+  console.log("\u2705 Serving static frontend from:", distPath);
+  app2.use(express.static(distPath, {
+    maxAge: "1d",
+    etag: true,
+    lastModified: true,
+    immutable: false,
+    setHeaders: (res, filePath) => {
+      if (filePath.match(/\.[a-f0-9]{8}\./i)) {
+        res.set("Cache-Control", "public, max-age=31536000, immutable");
+      }
+    }
+  }));
+  app2.use("*", (req, res) => {
+    if (req.path.startsWith("/api/")) {
+      res.status(404).json({ message: "API endpoint not found" });
+      return;
+    }
+    res.sendFile(path2.resolve(distPath, "index.html"));
+  });
+}
+var enableVite, createViteServer, createLogger, viteConfig, loadVite, getViteLogger;
+var init_vite = __esm({
+  "server/vite.ts"() {
+    "use strict";
+    enableVite = process.env.ENABLE_VITE === "true";
+    createViteServer = null;
+    createLogger = null;
+    viteConfig = null;
+    loadVite = async () => {
+      if (!enableVite) {
+        return;
+      }
+      if (!createViteServer) {
+        try {
+          const viteModule = await import("vite");
+          createViteServer = viteModule.createServer;
+          createLogger = viteModule.createLogger;
+        } catch (error) {
+          console.error("\u274C Failed to load vite module:", error);
+          throw new Error("Vite must be installed when ENABLE_VITE=true");
+        }
+      }
+      if (!viteConfig) {
+        try {
+          const config = await Promise.resolve().then(() => (init_vite_config(), vite_config_exports));
+          viteConfig = config.default;
+        } catch (error) {
+          console.error("\u274C Failed to load vite.config:", error);
+          throw new Error("vite.config must exist and be valid when ENABLE_VITE=true");
+        }
+      }
+    };
+    getViteLogger = async () => {
+      await loadVite();
+      return createLogger ? createLogger() : {
+        error: console.error,
+        info: console.log,
+        warn: console.warn
+      };
+    };
+  }
+});
+
+// server/cronJobs.ts
+var cronJobs_exports = {};
+__export(cronJobs_exports, {
+  autoResumeSubscriptions: () => autoResumeSubscriptions,
+  expirePendingPaymentOrders: () => expirePendingPaymentOrders,
+  generateDailyDeliveryLogs: () => generateDailyDeliveryLogs,
+  markStaleDeliveriesAsMissed: () => markStaleDeliveriesAsMissed,
+  runScheduledTasks: () => runScheduledTasks,
+  sendScheduledOrder2HourNotifications: () => sendScheduledOrder2HourNotifications,
+  startCronJobs: () => startCronJobs,
+  updateNextDeliveryDates: () => updateNextDeliveryDates,
+  verifyPendingGPayPayments: () => verifyPendingGPayPayments
+});
+import { eq as eq9 } from "drizzle-orm";
+async function verifyPendingGPayPayments() {
+  try {
+    console.log("[GPAY-POLLING] Starting Google Pay payment verification...");
+    const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1e3);
+    const pendingOrders = await db.query.orders.findMany({
+      where: (o, { and: and6, eq: eq10, gte: gte3, isNull: isNull3, lte: lte2, lt: lt2 }) => and6(
+        eq10(o.paymentStatus, "pending"),
+        eq10(o.paymentSource, "google-pay"),
+        gte3(o.createdAt, fifteenMinutesAgo),
+        isNull3(o.paymentVerifiedBy)
+      )
+    });
+    console.log(`[GPAY-POLLING] Found ${pendingOrders.length} pending Google Pay order(s)`);
+    let verifiedCount = 0;
+    let failedCount = 0;
+    for (const order of pendingOrders) {
+      try {
+        if (!gpayVerificationService.shouldRetryVerification(order)) {
+          console.log(`[GPAY-POLLING] \u23ED\uFE0F Skipping Order#${order.id} - max verification attempts reached`);
+          continue;
+        }
+        const result = await gpayVerificationService.verifyPaymentForUser(
+          order.id,
+          order.expectedPayerPhone || order.phone,
+          order.total
+        );
+        if (result.verified) {
+          console.log(`\u2705 [GPAY-POLLING] Payment verified for Order#${order.id}`);
+          await db.update(orders).set({
+            paymentStatus: "confirmed",
+            paymentVerifiedBy: "gpay-polling",
+            gpayTransactionId: result.transactionId,
+            phoneMatch: true,
+            amountMatch: true,
+            referenceMatch: true
+          }).where(eq9(orders.id, order.id));
+          try {
+            const existingUser = await db.query.users.findFirst({
+              where: (u, { eq: eq10 }) => eq10(u.phone, order.phone)
+            });
+            if (!existingUser) {
+              console.log(`[GPAY-POLLING] \u{1F464} Creating account for new user: ${order.phone}`);
+              const tempPassword = Math.random().toString(36).slice(-8);
+              const hashedPassword = await __require("bcrypt").hash(tempPassword, 10);
+              const newUser = await db.insert(users).values({
+                phone: order.phone,
+                name: order.customerName || "User",
+                email: order.email || null,
+                passwordHash: hashedPassword
+              }).returning();
+              console.log(`[GPAY-POLLING] \u2705 Account created: ${newUser[0]?.id}`);
+            }
+            try {
+              const wsModule = await Promise.resolve().then(() => (init_websocket(), websocket_exports));
+              if (wsModule && typeof wsModule === "object" && "broadcast" in wsModule) {
+                wsModule.broadcast("order-confirmed", { orderId: order.id, order });
+              }
+              console.log(`[GPAY-POLLING] \u{1F4E2} Order broadcast to chef: ${order.id}`);
+            } catch (wsErr) {
+              console.log(`[GPAY-POLLING] Note: WebSocket broadcast not available`);
+            }
+            verifiedCount++;
+          } catch (error) {
+            console.error(`[GPAY-POLLING] Error post-verification for Order#${order.id}:`, error);
+            failedCount++;
+          }
+        } else {
+          console.log(`[GPAY-POLLING] \u274C Verification failed: ${result.reason}`);
+          await db.update(orders).set({
+            verificationAttempts: (order.verificationAttempts || 0) + 1
+          }).where(eq9(orders.id, order.id));
+          failedCount++;
+        }
+      } catch (error) {
+        console.error(`[GPAY-POLLING] Error processing Order#${order.id}:`, error);
+        failedCount++;
+      }
+    }
+    if (verifiedCount > 0 || failedCount > 0) {
+      console.log(`[GPAY-POLLING] \u2705 Verified: ${verifiedCount}, Failed/Pending: ${failedCount}`);
+    }
+  } catch (error) {
+    console.error("[GPAY-POLLING] Error:", error);
+  }
+}
+function isDeliveryDay2(date, frequency, deliveryDays) {
+  if (!deliveryDays || deliveryDays.length === 0) return false;
+  if (frequency === "monthly") {
+    const dayOfMonth = date.getDate().toString();
+    return deliveryDays.includes(dayOfMonth);
+  } else if (frequency === "weekly" || frequency === "daily") {
+    const dayName = date.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
+    return deliveryDays.includes(dayName);
+  }
+  return false;
+}
+function getNextDeliveryDate(fromDate, frequency, deliveryDays) {
+  const nextDate = new Date(fromDate);
+  nextDate.setDate(nextDate.getDate() + 1);
+  let attempts = 0;
+  const maxAttempts = frequency === "monthly" ? 31 : 7;
+  while (attempts < maxAttempts) {
+    if (isDeliveryDay2(nextDate, frequency, deliveryDays)) {
+      return nextDate;
+    }
+    nextDate.setDate(nextDate.getDate() + 1);
+    attempts++;
+  }
+  return nextDate;
+}
+async function autoResumeSubscriptions() {
+  try {
+    const now = /* @__PURE__ */ new Date();
+    const pausedSubscriptions = await db.query.subscriptions.findMany({
+      where: (s, { and: and6, eq: eq10, lte: lte2, isNotNull }) => and6(
+        eq10(s.status, "paused"),
+        isNotNull(s.pauseResumeDate),
+        lte2(s.pauseResumeDate, now)
+      )
+    });
+    for (const subscription of pausedSubscriptions) {
+      await db.update(subscriptions).set({
+        status: "active",
+        pauseStartDate: null,
+        pauseResumeDate: null,
+        updatedAt: now
+      }).where(eq9(subscriptions.id, subscription.id));
+      console.log(`\u25B6\uFE0F Auto-resumed subscription ${subscription.id} (scheduled for ${subscription.pauseResumeDate})`);
+      try {
+        const { broadcastSubscriptionUpdate: broadcastSubscriptionUpdate3 } = await Promise.resolve().then(() => (init_websocket(), websocket_exports));
+        const updated = await storage.getSubscription(subscription.id);
+        if (updated) {
+          broadcastSubscriptionUpdate3(updated);
+        }
+      } catch (err) {
+        console.log(`Note: WebSocket broadcast attempted for auto-resume of subscription ${subscription.id}`);
+      }
+    }
+    if (pausedSubscriptions.length > 0) {
+      console.log(`\u2705 Auto-resumed ${pausedSubscriptions.length} subscription(s)`);
+    }
+  } catch (error) {
+    console.error("Error in autoResumeSubscriptions:", error);
+  }
+}
+async function generateDailyDeliveryLogs() {
+  try {
+    const today = /* @__PURE__ */ new Date();
+    today.setHours(0, 0, 0, 0);
+    const allSubscriptions = await db.query.subscriptions.findMany({
+      where: (s, { and: and6, eq: eq10 }) => and6(
+        eq10(s.status, "active"),
+        eq10(s.isPaid, true)
+      )
+    });
+    let logsCreated = 0;
+    for (const subscription of allSubscriptions) {
+      const nextDeliveryDate = new Date(subscription.nextDeliveryDate);
+      nextDeliveryDate.setHours(0, 0, 0, 0);
+      if (nextDeliveryDate.getTime() !== today.getTime()) {
+        continue;
+      }
+      const plan = await storage.getSubscriptionPlan(subscription.planId);
+      if (!plan) continue;
+      const deliveryDays = plan.deliveryDays;
+      if (!isDeliveryDay2(today, plan.frequency, deliveryDays)) {
+        continue;
+      }
+      const existingLog = await storage.getDeliveryLogBySubscriptionAndDate(subscription.id, today);
+      if (existingLog) {
+        continue;
+      }
+      await storage.createSubscriptionDeliveryLog({
+        subscriptionId: subscription.id,
+        date: today,
+        time: subscription.nextDeliveryTime || "09:00",
+        status: "scheduled",
+        deliveryPersonId: null,
+        notes: null
+      });
+      logsCreated++;
+    }
+    if (logsCreated > 0) {
+      console.log(`\u{1F4CB} Generated ${logsCreated} delivery log(s) for today`);
+    }
+  } catch (error) {
+    console.error("Error in generateDailyDeliveryLogs:", error);
+  }
+}
+async function updateNextDeliveryDates() {
+  try {
+    const today = /* @__PURE__ */ new Date();
+    today.setHours(0, 0, 0, 0);
+    const subscriptionsToUpdate = await db.query.subscriptions.findMany({
+      where: (s, { and: and6, eq: eq10, lte: lte2 }) => and6(
+        eq10(s.status, "active"),
+        eq10(s.isPaid, true),
+        lte2(s.nextDeliveryDate, today)
+      )
+    });
+    for (const subscription of subscriptionsToUpdate) {
+      const plan = await storage.getSubscriptionPlan(subscription.planId);
+      if (!plan) continue;
+      const deliveryDays = plan.deliveryDays;
+      const nextDate = getNextDeliveryDate(today, plan.frequency, deliveryDays);
+      await db.update(subscriptions).set({
+        nextDeliveryDate: nextDate,
+        lastDeliveryDate: today,
+        updatedAt: /* @__PURE__ */ new Date()
+      }).where(eq9(subscriptions.id, subscription.id));
+    }
+    if (subscriptionsToUpdate.length > 0) {
+      console.log(`\u{1F4C5} Updated next delivery date for ${subscriptionsToUpdate.length} subscription(s)`);
+    }
+  } catch (error) {
+    console.error("Error in updateNextDeliveryDates:", error);
+  }
+}
+async function sendScheduledOrder2HourNotifications() {
+  try {
+    const now = /* @__PURE__ */ new Date();
+    const allScheduledOrders = await db.query.orders.findMany({
+      where: (o, { and: and6, eq: eq10, isNotNull }) => and6(
+        eq10(o.status, "approved"),
+        isNotNull(o.deliveryTime),
+        isNotNull(o.deliveryDate)
+      )
+    });
+    let notificationsSent = 0;
+    for (const order of allScheduledOrders) {
+      if (!order.deliveryTime || !order.deliveryDate) continue;
+      const [delHours, delMins] = order.deliveryTime.split(":").map(Number);
+      const deliveryDateTime = new Date(order.deliveryDate);
+      deliveryDateTime.setHours(delHours, delMins, 0, 0);
+      const timeUntilDelivery = deliveryDateTime.getTime() - now.getTime();
+      const hoursUntilDelivery = timeUntilDelivery / (1e3 * 60 * 60);
+      if (hoursUntilDelivery > 1.83 && hoursUntilDelivery <= 2.17) {
+        const items = Array.isArray(order.items) ? order.items.map((item) => item.name || item.title || "Item").join(", ") : "Order items";
+        if (order.chefId) {
+          const chef = await db.query.chefs.findFirst({
+            where: eq9(chefs.id, order.chefId)
+          });
+          if (chef && chef.phone) {
+            const success = await sendScheduledOrder2HourReminder(
+              chef.name,
+              chef.phone,
+              order.id,
+              order.deliveryTime,
+              order.deliveryDate,
+              order.customerName,
+              items.split(", ")
+            );
+            if (success) notificationsSent++;
+          }
+        }
+        const admins = await db.query.adminUsers.findMany();
+        for (const admin of admins) {
+          if (admin.phone) {
+            const success = await sendScheduledOrder2HourReminder(
+              admin.username,
+              admin.phone,
+              order.id,
+              order.deliveryTime,
+              order.deliveryDate,
+              order.customerName,
+              items.split(", ")
+            );
+            if (success) notificationsSent++;
+          }
+        }
+      }
+    }
+    if (notificationsSent > 0) {
+      console.log(`\u{1F4F1} Sent ${notificationsSent} 2-hour reminder notification(s)`);
+    }
+  } catch (error) {
+    console.error("Error in sendScheduledOrder2HourNotifications:", error);
+  }
+}
+async function markStaleDeliveriesAsMissed() {
+  try {
+    const now = /* @__PURE__ */ new Date();
+    const today = /* @__PURE__ */ new Date();
+    today.setHours(0, 0, 0, 0);
+    const DELIVERY_CUTOFF_HOUR = 18;
+    const cutoffTime = /* @__PURE__ */ new Date();
+    cutoffTime.setHours(DELIVERY_CUTOFF_HOUR, 0, 0, 0);
+    if (now < cutoffTime) {
+      console.log(`[MISSED-DELIVERY-CHECK] Cutoff time not reached yet (${now.toLocaleTimeString()}, cutoff is ${cutoffTime.toLocaleTimeString()})`);
+      return;
+    }
+    console.log(`[MISSED-DELIVERY-CHECK] Running stale delivery detection at ${now.toLocaleTimeString()}`);
+    const todaysLogs = await storage.getSubscriptionDeliveryLogsByDate(today);
+    const scheduledLogs = todaysLogs.filter((log3) => log3.status === "scheduled");
+    if (scheduledLogs.length === 0) {
+      console.log(`[MISSED-DELIVERY-CHECK] No stale deliveries found for today`);
+      return;
+    }
+    console.log(`[MISSED-DELIVERY-CHECK] Found ${scheduledLogs.length} scheduled deliveries past cutoff time`);
+    let markedCount = 0;
+    let notifiedCount = 0;
+    for (const log3 of scheduledLogs) {
+      try {
+        await storage.updateSubscriptionDeliveryLog(log3.id, {
+          status: "missed",
+          notes: "Auto-marked as missed (past delivery cutoff time)",
+          updatedAt: /* @__PURE__ */ new Date()
+        });
+        await storage.syncDeliveryHistory(
+          log3.subscriptionId,
+          "missed",
+          log3.date,
+          "Auto-marked as missed (past delivery cutoff time)"
+        );
+        markedCount++;
+        console.log(`  \u2705 Marked delivery log ${log3.id} (subscription ${log3.subscriptionId}) as MISSED`);
+        try {
+          const subscription = await db.query.subscriptions.findFirst({
+            where: (s, { eq: eq10 }) => eq10(s.id, log3.subscriptionId)
+          });
+          if (subscription) {
+            const user = await db.query.users.findFirst({
+              where: (u, { eq: eq10 }) => eq10(u.id, subscription.userId)
+            });
+            if (user) {
+              const deliveryDate = log3.date.toLocaleDateString("en-IN");
+              const deliveryTime = log3.date.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+              await sendMissedDeliveryNotification(
+                user.id,
+                user.phone,
+                deliveryDate,
+                deliveryTime,
+                log3.subscriptionId
+              );
+              if (user.email) {
+                await sendMissedDeliveryEmail(
+                  user.email,
+                  user.name || "Valued Customer",
+                  deliveryDate,
+                  deliveryTime,
+                  log3.subscriptionId
+                );
+              }
+              notifiedCount++;
+              console.log(`  \u{1F4E7} Sent notifications for subscription ${log3.subscriptionId}`);
+            }
+          }
+        } catch (notifyError) {
+          console.warn(`  \u26A0\uFE0F Failed to send notifications for delivery ${log3.id}:`, notifyError);
+        }
+      } catch (error) {
+        console.error(`  \u274C Error marking delivery ${log3.id} as missed:`, error);
+      }
+    }
+    if (markedCount > 0) {
+      console.log(`\u2705 [MISSED-DELIVERY-CHECK] Auto-marked ${markedCount} stale deliveries as MISSED, notified ${notifiedCount} users`);
+    }
+  } catch (error) {
+    console.error("Error in markStaleDeliveriesAsMissed:", error);
+  }
+}
+async function expirePendingPaymentOrders() {
+  try {
+    const now = /* @__PURE__ */ new Date();
+    console.log(`[EXPIRY-CHECK] Checking for pending payment orders with expiresAt <= ${now.toISOString()}...`);
+    const expiredOrders = await db.query.orders.findMany({
+      where: (o, { and: and6, eq: eq10, lt: lt2, isNull: isNull3 }) => and6(
+        eq10(o.paymentStatus, "pending"),
+        lt2(o.expiresAt, now),
+        // ✅ Using expiresAt column (not createdAt calculation)
+        isNull3(o.paymentVerifiedBy)
+        // Not yet confirmed
+      )
+    });
+    if (expiredOrders.length === 0) {
+      console.log(`[EXPIRY-CHECK] No expired pending payment orders found`);
+      return;
+    }
+    console.log(`[EXPIRY-CHECK] Found ${expiredOrders.length} expired pending payment order(s)`);
+    let expiredCount = 0;
+    for (const order of expiredOrders) {
+      try {
+        await storage.updateOrderStatus(order.id, "cancelled");
+        console.log(`[EXPIRY-CHECK] \u23F1\uFE0F Order ${order.id} marked as CANCELLED (expiresAt: ${order.expiresAt})`);
+        expiredCount++;
+      } catch (error) {
+        console.error(`[EXPIRY-CHECK] Error expiring order ${order.id}:`, error);
+      }
+    }
+    if (expiredCount > 0) {
+      console.log(`\u2705 [EXPIRY-CHECK] Marked ${expiredCount} order(s) as expired`);
+    }
+  } catch (error) {
+    console.error("[EXPIRY-CHECK] Error in expirePendingPaymentOrders:", error);
+  }
+}
+async function runScheduledTasks() {
+  if (isRunning) return;
+  isRunning = true;
+  try {
+    await verifyPendingGPayPayments();
+    await expirePendingPaymentOrders();
+    await autoResumeSubscriptions();
+    await generateDailyDeliveryLogs();
+    await updateNextDeliveryDates();
+    await markStaleDeliveriesAsMissed();
+    await sendScheduledOrder2HourNotifications();
+  } finally {
+    isRunning = false;
+  }
+}
+function startCronJobs() {
+  console.log("\u{1F550} Starting scheduled jobs...");
+  runScheduledTasks();
+  const GPAY_ACTIVE_INTERVAL = 60 * 1e3;
+  const GPAY_IDLE_INTERVAL = 5 * 60 * 1e3;
+  let consecutiveEmptyRuns = 0;
+  let paymentPollingTimeout;
+  const scheduleNextGPayPoll = (delay) => {
+    paymentPollingTimeout = setTimeout(async () => {
+      try {
+        const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1e3);
+        const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+        const { orders: ordersTable } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+        const { and: and6, eq: eq10, gte: gte3, isNull: isNull3 } = await import("drizzle-orm");
+        const pending = await db2.select({ id: ordersTable.id }).from(ordersTable).where(
+          and6(
+            eq10(ordersTable.paymentStatus, "pending"),
+            eq10(ordersTable.paymentSource, "google-pay"),
+            gte3(ordersTable.createdAt, fifteenMinutesAgo),
+            isNull3(ordersTable.paymentVerifiedBy)
+          )
+        ).limit(1);
+        if (pending.length > 0) {
+          consecutiveEmptyRuns = 0;
+          await verifyPendingGPayPayments();
+          scheduleNextGPayPoll(GPAY_ACTIVE_INTERVAL);
+        } else {
+          consecutiveEmptyRuns++;
+          console.log(`[GPAY-POLLING] No pending orders \u2014 next check in 5 min (idle run #${consecutiveEmptyRuns})`);
+          scheduleNextGPayPoll(GPAY_IDLE_INTERVAL);
+        }
+      } catch (error) {
+        console.error("[GPAY-POLLING] Interval error:", error);
+        scheduleNextGPayPoll(GPAY_ACTIVE_INTERVAL);
+      }
+    }, delay);
+  };
+  scheduleNextGPayPoll(GPAY_ACTIVE_INTERVAL);
+  let subscriptionInterval = setInterval(() => {
+    try {
+      (async () => {
+        if (isRunning) return;
+        isRunning = true;
+        try {
+          await autoResumeSubscriptions();
+          await generateDailyDeliveryLogs();
+          await updateNextDeliveryDates();
+          await markStaleDeliveriesAsMissed();
+          await sendScheduledOrder2HourNotifications();
+        } finally {
+          isRunning = false;
+        }
+      })();
+    } catch (error) {
+      console.error("[CRON] Error in subscription tasks:", error);
+    }
+  }, 5 * 60 * 1e3);
+  console.log("\u2705 Payment polling started (every 60 seconds)");
+  console.log("\u2705 Subscription tasks started (every 5 minutes)");
+  process.on("exit", () => {
+    clearTimeout(paymentPollingTimeout);
+    clearInterval(subscriptionInterval);
+  });
+}
+var isRunning;
+var init_cronJobs = __esm({
+  "server/cronJobs.ts"() {
+    "use strict";
+    init_db();
+    init_schema();
+    init_storage();
+    init_whatsappService();
+    init_emailService();
+    init_gpayVerificationService();
+    isRunning = false;
+  }
+});
+
+// server/env.ts
+import dotenv from "dotenv";
+dotenv.config();
 
 // server/index.ts
+init_routes();
 init_partnerAuth();
+import express2 from "express";
+import { sql as sql5 } from "drizzle-orm";
+import cookieParser from "cookie-parser";
+import multer from "multer";
 
 // server/imageService.ts
 import { v2 as cloudinary } from "cloudinary";
@@ -19347,6 +20033,7 @@ var log2 = (message, source = "express") => {
 };
 var app = express2();
 console.log("\u{1F680} Server is starting...");
+debugger;
 app.use(express2.json({
   verify: (req, _res, buf) => {
     req.rawBody = buf;

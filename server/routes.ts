@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { getCache, setCache, invalidateCache, invalidateCachePrefix } from "./cache";
-import { insertOrderSchema, userLoginSchema, insertUserSchema } from "@shared/schema";
+import { insertOrderSchema, userLoginSchema, insertUserSchema, insertCustomSubscriptionRequestSchema } from "@shared/schema";
 import { registerAdminRoutes } from "./adminRoutes";
 import { registerPartnerRoutes } from "./partnerRoutes";
 import { registerDeliveryRoutes } from "./deliveryRoutes";
@@ -35,7 +35,7 @@ function shouldSendPaymentInitiatedAdminNotification(id: string): boolean {
 
   paymentInitiatedAdminNotifications.set(id, now);
 
-  for (const [key, sentAt] of paymentInitiatedAdminNotifications) {
+  for (const [key, sentAt] of Array.from(paymentInitiatedAdminNotifications.entries())) {
     if (now - sentAt > PAYMENT_INITIATED_ADMIN_NOTIFY_TTL_MS) {
       paymentInitiatedAdminNotifications.delete(key);
     }
@@ -306,7 +306,7 @@ function calculateTotalDeliveries(frequency: string, deliveryDays: string[], dur
 }
 
 // ✅ Helper: Generate delivery logs for monthly subscriptions upfront
-async function generateSubscriptionDeliveryLogs(
+export async function generateSubscriptionDeliveryLogs(
   subscription: any,
   plan: any,
   startDate: Date,
@@ -2008,32 +2008,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           minOrderAmount: s.minOrderAmount === null ? undefined : s.minOrderAmount
         }));
 
-        // Use the shared calculateDelivery utility that the frontend uses
-        const { calculateDelivery } = await import("@shared/deliveryUtils");
-        const chefThreshold = chef?.freeDeliveryThreshold ?? 0;
-        const feeResult = calculateDelivery(addressDistance, sanitized.subtotal || 0, deliverySettings, undefined, chefThreshold);
-
-        const minOrderAmount = feeResult.minOrderAmount || 0;
-        const meetsMinimum = minOrderAmount > 0 && (sanitized.subtotal || 0) >= minOrderAmount;
-
-        // Fee is waived if freeDeliveryEligible is natively true OR if subtotal meets the minimum order threshold
-        const expectedDeliveryFee = (feeResult.freeDeliveryEligible || meetsMinimum) ? 0 : feeResult.deliveryFee;
-
-        console.log("[SERVER] Recomputed delivery fee using Admin settings:", {
-          baseFee: feeResult.deliveryFee,
-          expectedDeliveryFee,
-          isFreeDelivery: feeResult.freeDeliveryEligible || meetsMinimum,
-          meetsMinimumThreshold: meetsMinimum,
-          minOrderAmount,
-          subtotal: sanitized.subtotal,
-          addressDistance
-        });
-
-        // Overwrite any client-supplied deliveryFee with server-calculated value
-        (sanitized as any).deliveryFee = expectedDeliveryFee;
-
-        // 🛣️ Fetch admin-configured distance multiplier and apply it
-        // This allows admins to adjust the road distance multiplier without code changes
+        // 🛣️ Fetch admin-configured distance multiplier and apply it BEFORE fee calculation
         let roadDistanceMultiplier = 1.5; // Default fallback
         try {
           const paymentSettingsData = await db.query.paymentSettings.findFirst();
@@ -2051,6 +2026,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } catch (err) {
           console.warn(`[DISTANCE-MULTIPLIER] Could not fetch admin settings, using default 1.5x:`, err);
         }
+
+        // Use the shared calculateDelivery utility that the frontend uses
+        const { calculateDelivery } = await import("@shared/deliveryUtils");
+        const chefThreshold = chef?.freeDeliveryThreshold ?? 0;
+        const feeResult = calculateDelivery(addressDistance, sanitized.subtotal || 0, deliverySettings, roadDistanceMultiplier, chefThreshold);
+
+        const minOrderAmount = feeResult.minOrderAmount || 0;
+        const meetsMinimum = minOrderAmount > 0 && (sanitized.subtotal || 0) >= minOrderAmount;
+
+        // Fee is waived if freeDeliveryEligible is natively true OR if subtotal meets the minimum order threshold
+        const expectedDeliveryFee = (feeResult.freeDeliveryEligible || meetsMinimum) ? 0 : feeResult.deliveryFee;
+
+        console.log("[SERVER] Recomputed delivery fee using Admin settings:", {
+          baseFee: feeResult.deliveryFee,
+          expectedDeliveryFee,
+          isFreeDelivery: feeResult.freeDeliveryEligible || meetsMinimum,
+          meetsMinimumThreshold: meetsMinimum,
+          minOrderAmount,
+          subtotal: sanitized.subtotal,
+          addressDistance,
+          appliedMultiplier: roadDistanceMultiplier
+        });
+
+        // Overwrite any client-supplied deliveryFee with server-calculated value
+        (sanitized as any).deliveryFee = expectedDeliveryFee;
 
         // Apply road distance multiplier for accurate display and payout
         // This matches the adjusted distance used in fee calculation
@@ -2082,25 +2082,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // 🆕 Calculate platform fee (convenience fee) from payment settings
         let platformFee = 0;
         try {
-          // Fetch platform fee settings from admin payment settings
-          const paymentSettingsResponse = await fetch(`http://localhost:${process.env.PORT || 5000}/api/payment-settings`);
-          const paymentSettings = paymentSettingsResponse.ok ? await paymentSettingsResponse.json() : {};
+          const paymentSettings = await db.query.paymentSettings.findFirst();
 
-          if (paymentSettings?.platformFeeEnabled) {
+          if (paymentSettings && (paymentSettings as any).platformFeeEnabled) {
             const subtotalAmount = sanitized.subtotal || 0;
-            if (subtotalAmount < 100) {
-              platformFee = paymentSettings.platformFeeBelow100 || 0;
+            const threshold = (paymentSettings as any).platformFeeWaiverThreshold || 200;
+
+            if (subtotalAmount >= threshold) {
+              platformFee = 0;
+            } else if (subtotalAmount < 100) {
+              platformFee = (paymentSettings as any).platformFeeBelow100 || 0;
             } else if (subtotalAmount < 200) {
-              platformFee = paymentSettings.platformFeeBelow200 || 0;
+              platformFee = (paymentSettings as any).platformFeeBelow200 || 0;
             } else {
-              platformFee = paymentSettings.platformFeeAbove200 || 0;
+              platformFee = (paymentSettings as any).platformFeeAbove200 || 0;
             }
           }
           (sanitized as any).platformFee = platformFee;
           console.log("[PLATFORM-FEE] Calculated fee from payment settings:", {
             subtotal: sanitized.subtotal,
             fee: platformFee,
-            platformFeeEnabled: paymentSettings?.platformFeeEnabled
+            platformFeeEnabled: (paymentSettings as any)?.platformFeeEnabled,
+            threshold: (paymentSettings as any)?.platformFeeWaiverThreshold
           });
         } catch (pfErr) {
           console.error("[PLATFORM-FEE] Error calculating fee:", pfErr);
@@ -2581,8 +2584,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const activeStatuses = ['pending', 'confirmed', 'accepted_by_chef', 'preparing', 'prepared', 'accepted_by_delivery', 'out_for_delivery'];
 
       const activeOrders = allOrders
-        .filter(order => order.userId === userId || order.phone === user.phone || order.email === user.email)
-        .filter(order => activeStatuses.includes(order.status))
+        .filter(order => order.userId === userId)
+        .filter(order => {
+          if (!activeStatuses.includes(order.status)) return false;
+          
+          // Ignore expired pending orders (abandoned checkouts)
+          if (order.status === 'pending' && order.paymentStatus === 'pending') {
+            const expiresAt = order.expiresAt ? new Date(order.expiresAt) : null;
+            if (expiresAt && new Date() > expiresAt) {
+              return false;
+            }
+          }
+          
+          return true;
+        })
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()); // DESC
 
       if (activeOrders.length === 0) {
@@ -3878,8 +3893,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         minOrderAmount: setting.minOrderAmount ?? undefined
       }));
 
+      // Fetch admin-configured distance multiplier
+      let roadDistanceMultiplier = 1.5;
+      try {
+        const paymentSettingsData = await db.query.paymentSettings.findFirst();
+        if (paymentSettingsData) {
+          const enabled = (paymentSettingsData as any).enableRoadDistanceMultiplier;
+          const dbMultiplier = (paymentSettingsData as any).roadDistanceMultiplier;
+          if (enabled === false) {
+            roadDistanceMultiplier = 1.0;
+          } else if (dbMultiplier) {
+            roadDistanceMultiplier = parseFloat(dbMultiplier as any);
+          }
+        }
+      } catch (err) {
+        console.warn(`[DISTANCE-MULTIPLIER] Could not fetch admin settings:`, err);
+      }
+
       // Calculate delivery fee using admin settings, applying chef-specific threshold
-      const deliveryCalc = calculateDelivery(distance, subtotal, deliverySettings, undefined, chefForCalc?.freeDeliveryThreshold ?? 0);
+      const deliveryCalc = calculateDelivery(distance, subtotal, deliverySettings, roadDistanceMultiplier, chefForCalc?.freeDeliveryThreshold ?? 0);
 
       res.json({
         distance,
@@ -4296,7 +4328,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.authenticatedUser!.userId;
       const allSubscriptions = await storage.getSubscriptions();
-      const userSubscriptions = allSubscriptions.filter(s => s.userId === userId);
+      const filteredByUserId = allSubscriptions.filter(s => s.userId === userId);
+      
+      const userSubscriptions = [];
+      for (const s of filteredByUserId) {
+        const plan = await storage.getSubscriptionPlan(s.planId);
+        const isCustom = plan?.sectionName === "Custom Subscriptions";
+        
+        if (isCustom && !s.isPaid && s.status !== "active") {
+          // Skip unpaid custom subscriptions from active subscriptions list
+          continue;
+        }
+        userSubscriptions.push(s);
+      }
 
       // Serialize timestamps to ISO strings for proper frontend handling
       const serialized = userSubscriptions.map(s => {
@@ -4356,6 +4400,191 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching user subscriptions:", error);
       res.status(500).json({ message: "Failed to fetch subscriptions" });
+    }
+  });
+
+  // GET price per roti setting
+  app.get("/api/custom-subscription/price-per-roti", async (req, res) => {
+    try {
+      const priceStr = await storage.getAdminSetting("price_per_roti");
+      const price = priceStr ? parseInt(priceStr, 10) : 8;
+      res.json({ pricePerRoti: price });
+    } catch (error: any) {
+      console.error("Error fetching price per roti:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch price per roti" });
+    }
+  });
+
+  // Submit custom subscription request
+  app.post("/api/custom-subscription/request", requireUser(), async (req: AuthenticatedUserRequest, res) => {
+    try {
+      const userId = req.authenticatedUser!.userId;
+      const user = await storage.getUser(userId);
+      if (!user) {
+        res.status(404).json({ message: "User not found" });
+        return;
+      }
+
+      const body = req.body;
+      const parsed = insertCustomSubscriptionRequestSchema.safeParse({
+        ...body,
+        userId,
+        customerName: user.name,
+        phone: user.phone,
+        email: user.email || null,
+      });
+
+      if (!parsed.success) {
+        res.status(400).json({ message: parsed.error.errors[0]?.message || "Invalid input" });
+        return;
+      }
+
+      // Check slot exists if provided
+      if (parsed.data.deliverySlotId) {
+        const slot = await storage.getDeliveryTimeSlot(parsed.data.deliverySlotId);
+        if (!slot) {
+          res.status(404).json({ message: "Delivery time slot not found" });
+          return;
+        }
+      }
+
+      const created = await storage.createCustomSubscriptionRequest(parsed.data);
+
+      // Broadcast to admin via WebSocket
+      const { broadcastNewCustomRequest } = await import("./websocket");
+      broadcastNewCustomRequest(created);
+
+      res.status(201).json(created);
+    } catch (error: any) {
+      console.error("Error creating custom subscription request:", error);
+      res.status(500).json({ message: error.message || "Failed to create custom subscription request" });
+    }
+  });
+
+  // Submit custom subscription request without login (auto-creates user account)
+  app.post("/api/custom-subscription/request/public", async (req, res) => {
+    try {
+      const {
+        customerName,
+        phone,
+        email,
+        latitude,
+        longitude,
+        ...requestPayload
+      } = req.body;
+
+      if (!customerName || !phone) {
+        res.status(400).json({ message: "Customer name and phone are required" });
+        return;
+      }
+
+      // Validate phone format (10 digits)
+      const sanitizedPhone = phone.trim().replace(/\s+/g, '');
+      if (!/^\d{10}$/.test(sanitizedPhone)) {
+        res.status(400).json({ message: "Valid 10-digit phone number is required" });
+        return;
+      }
+
+      // Check if user exists, if not create one
+      let user = await storage.getUserByPhone(sanitizedPhone);
+      let isNewUser = false;
+      let generatedPassword: string | undefined;
+
+      if (!user) {
+        isNewUser = true;
+        const newPassword = sanitizedPhone.slice(-6);
+        generatedPassword = newPassword;
+        const passwordHash = await hashPassword(newPassword);
+
+        try {
+          user = await storage.createUser({
+            name: customerName.trim(),
+            phone: sanitizedPhone,
+            email: email ? email.trim().toLowerCase() : null,
+            address: requestPayload.address ? requestPayload.address.trim() : null,
+            passwordHash,
+            referralCode: null,
+            walletBalance: 0,
+            latitude: latitude || null,
+            longitude: longitude || null,
+          });
+
+          // Generate referral code
+          try {
+            const referralCode = await storage.generateReferralCode(user.id);
+            user.referralCode = referralCode;
+          } catch (e: any) {
+            console.warn(`Failed to generate referral code: ${e.message}`);
+          }
+        } catch (createUserError: any) {
+          console.error("Error creating user during custom subscription request:", createUserError);
+          throw createUserError;
+        }
+      } else {
+        await storage.updateUserLastLogin(user.id);
+      }
+
+      // Generate tokens
+      const accessToken = generateAccessToken(user);
+      const refreshToken = generateRefreshToken(user);
+
+      const parsed = insertCustomSubscriptionRequestSchema.safeParse({
+        ...requestPayload,
+        userId: user.id,
+        customerName: user.name,
+        phone: user.phone,
+        email: user.email || null,
+      });
+
+      if (!parsed.success) {
+        res.status(400).json({ message: parsed.error.errors[0]?.message || "Invalid input" });
+        return;
+      }
+
+      // Check slot exists if provided
+      if (parsed.data.deliverySlotId) {
+        const slot = await storage.getDeliveryTimeSlot(parsed.data.deliverySlotId);
+        if (!slot) {
+          res.status(404).json({ message: "Delivery time slot not found" });
+          return;
+        }
+      }
+
+      const created = await storage.createCustomSubscriptionRequest(parsed.data);
+
+      // Broadcast to admin via WebSocket
+      const { broadcastNewCustomRequest } = await import("./websocket");
+      broadcastNewCustomRequest(created);
+
+      res.status(201).json({
+        request: created,
+        user: {
+          id: user.id,
+          name: user.name,
+          phone: user.phone,
+          email: user.email,
+          address: user.address,
+        },
+        accessToken,
+        refreshToken,
+        isNewUser,
+        defaultPassword: isNewUser ? generatedPassword : undefined,
+      });
+    } catch (error: any) {
+      console.error("Error creating public custom subscription request:", error);
+      res.status(500).json({ message: error.message || "Failed to submit request" });
+    }
+  });
+
+  // GET user's custom subscription requests
+  app.get("/api/custom-subscription/requests", requireUser(), async (req: AuthenticatedUserRequest, res) => {
+    try {
+      const userId = req.authenticatedUser!.userId;
+      const requests = await storage.getCustomSubscriptionRequestsByUserId(userId);
+      res.json(requests);
+    } catch (error: any) {
+      console.error("Error fetching custom subscription requests:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch custom subscription requests" });
     }
   });
 
@@ -4900,11 +5129,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log(`💳 Subscription ${req.params.id} payment confirmed - TxnID: ${paymentTransactionId.trim()}`);
 
-      // Broadcast to admin for verification
-      const { broadcastSubscriptionUpdate } = await import("./websocket");
       if (updated) {
-        // Broadcast subscription update to notify admin/chef/customer/browser
-        broadcastSubscriptionUpdate(updated);
+        // Check if there is an associated custom subscription request
+        const customRequest = await storage.getCustomSubscriptionRequestBySubscriptionId(req.params.id);
+        if (customRequest) {
+          // Update custom request status to "paid"
+          await storage.updateCustomSubscriptionRequest(customRequest.id, {
+            status: "paid",
+          });
+          
+          // Broadcast custom request status update
+          const { broadcastCustomRequestUpdate } = await import("./websocket");
+          const updatedRequest = await storage.getCustomSubscriptionRequest(customRequest.id);
+          if (updatedRequest) {
+            broadcastCustomRequestUpdate(updatedRequest);
+          }
+        } else {
+          // Broadcast standard subscription update to notify admin/chef/customer/browser
+          const { broadcastSubscriptionUpdate } = await import("./websocket");
+          broadcastSubscriptionUpdate(updated);
+        }
 
         // Also send a lightweight email to the customer confirming we received their payment submission - disabled for performance
         if (SEND_SUBSCRIPTION_EMAILS) {
@@ -6205,7 +6449,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           console.log(`[GEOCODE-FULL] 1. Requesting Google API: "${fullAddress}"`);
 
-          const response = await axios.get('https://maps.googleapis.com/maps/api/geocode/json', {
+          let response = await axios.get('https://maps.googleapis.com/maps/api/geocode/json', {
             params: {
               address: fullAddress,
               key: apiKey,
@@ -6213,8 +6457,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
             timeout: 10000,
           });
 
-          if (response.data.status === 'OK' && response.data.results && response.data.results.length > 0) {
-            const result = response.data.results[0];
+          let results = response.data.results;
+          let status = response.data.status;
+
+          // Smart Fallback: If Google Geocoding returned no results due to an overly specific building name
+          // (such as flat numbers or "13/19"), retry the search without the building name.
+          if ((status !== 'OK' || !results || results.length === 0) && building && building.trim().length > 0) {
+            const fallbackParts = [street, area, pincode, 'Mumbai', 'India'].filter(Boolean);
+            const fallbackAddress = fallbackParts.join(', ');
+            console.log(`⚠️ [GEOCODE-FULL] Google API returned ${status} for full address. Trying fallback without building detail: "${fallbackAddress}"`);
+            
+            response = await axios.get('https://maps.googleapis.com/maps/api/geocode/json', {
+              params: {
+                address: fallbackAddress,
+                key: apiKey,
+              },
+              timeout: 10000,
+            });
+            results = response.data.results;
+            status = response.data.status;
+          }
+
+          if (status === 'OK' && results && results.length > 0) {
+            const result = results[0];
             const location = result.geometry.location;
             const locationType = result.geometry.location_type;
 
@@ -6243,7 +6508,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               accuracy,
             };
           } else {
-            console.warn(`❌ [GEOCODE-FULL] Google Failed. Payload:`, response.data);
+            console.warn(`❌ [GEOCODE-FULL] Google Failed. Status: ${status}`);
             return null;
           }
         } catch (error: any) {
@@ -6264,7 +6529,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           console.log(`[GEOCODE-FULL] 2. Trying Google Places New API Fallback: "${textQuery}"`);
 
-          const response = await axios.post(
+          let response = await axios.post(
             'https://places.googleapis.com/v1/places:searchText',
             { textQuery },
             {
@@ -6277,8 +6542,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           );
 
-          if (response.data.places && response.data.places.length > 0) {
-            const place = response.data.places[0];
+          let places = response.data.places;
+
+          // Smart Fallback: If Google Places returned no results due to an overly specific building name
+          // retry the query without the building details.
+          if ((!places || places.length === 0) && building && building.trim().length > 0) {
+            const fallbackParts = [street, area, pincode, 'Mumbai', 'India'].filter(Boolean);
+            const fallbackQuery = fallbackParts.join(', ');
+            console.log(`⚠️ [GEOCODE-FULL] Google Places returned no results for textQuery. Trying fallback query without building detail: "${fallbackQuery}"`);
+
+            response = await axios.post(
+              'https://places.googleapis.com/v1/places:searchText',
+              { textQuery: fallbackQuery },
+              {
+                headers: {
+                  'Content-Type': 'application/json',
+                  'X-Goog-Api-Key': apiKey,
+                  'X-Goog-FieldMask': 'places.formattedAddress,places.location'
+                },
+                timeout: 10000
+              }
+            );
+            places = response.data.places;
+          }
+
+          if (places && places.length > 0) {
+            const place = places[0];
             const location = place.location;
 
             console.log(`✅ [GEOCODE-FULL] Google Places New API Success:`, {
@@ -6520,11 +6809,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }));
       const { calculateDelivery } = await import("@shared/deliveryUtils");
 
+      // Fetch admin-configured distance multiplier
+      let roadDistanceMultiplier = 1.5;
+      try {
+        const paymentSettingsData = await db.query.paymentSettings.findFirst();
+        if (paymentSettingsData) {
+          const enabled = (paymentSettingsData as any).enableRoadDistanceMultiplier;
+          const dbMultiplier = (paymentSettingsData as any).roadDistanceMultiplier;
+          if (enabled === false) {
+            roadDistanceMultiplier = 1.0;
+          } else if (dbMultiplier) {
+            roadDistanceMultiplier = parseFloat(dbMultiplier as any);
+          }
+        }
+      } catch (err) {
+        console.warn(`[DISTANCE-MULTIPLIER] Could not fetch admin settings:`, err);
+      }
+
       const feeCalcResult = calculateDelivery(
         distance || 0,
         orderAmount,
         deliverySettings,
-        undefined,
+        roadDistanceMultiplier,
         (chef as any)?.freeDeliveryThreshold ?? 0
       );
 
