@@ -23,6 +23,7 @@ interface CategoryCart {
   chefName: string;
   chefLatitude?: number;
   chefLongitude?: number;
+  chefFreeDeliveryThreshold?: number;
   items: CartItem[];
   total?: number;
   deliveryFee?: number;
@@ -32,7 +33,7 @@ interface CategoryCart {
   deliveryRangeName?: string;
   minOrderAmount?: number;
   chefIsActive?: boolean;
-  isFeeFinal?: boolean; // New flag to indicate if fee is final
+  isFeeFinal?: boolean;
 }
 
 interface ChefStatus {
@@ -62,7 +63,8 @@ interface CartStore {
     item: Omit<CartItem, "quantity">,
     categoryName: string,
     chefLatitude?: number,
-    chefLongitude?: number
+    chefLongitude?: number,
+    chefFreeDeliveryThreshold?: number
   ) => boolean;
   removeFromCart: (categoryId: string, itemId: string, chefId?: string) => void;
   updateQuantity: (categoryId: string, itemId: string, quantity: number, chefId?: string) => void;
@@ -119,7 +121,7 @@ export const useCart = create<CartStore>()(
       // Fetch admin payment settings (multiplier) so UI calculations match server
       fetchPaymentSettings: async () => {
         try {
-          const response = await apiClient.get("/api/admin/payment-settings");
+          const response = await apiClient.get("/api/payment-settings");
           if (response.status === 200 && response.data) {
             set({ paymentSettings: response.data });
           }
@@ -173,7 +175,7 @@ export const useCart = create<CartStore>()(
       },
 
       // ✅ Add item to specific category cart
-      addToCart: (item, categoryName, chefLatitude, chefLongitude) => {
+      addToCart: (item, categoryName, chefLatitude, chefLongitude, chefFreeDeliveryThreshold) => {
         const { carts, canAddItem } = get();
 
         // Safety check
@@ -207,6 +209,7 @@ export const useCart = create<CartStore>()(
             chefName: item.chefName || "",
             chefLatitude,
             chefLongitude,
+            chefFreeDeliveryThreshold,
             items: [{ ...item, quantity: 1 }],
           };
           set({ carts: [...carts, newCart] });
@@ -381,7 +384,7 @@ export const useCart = create<CartStore>()(
               ? 1.0
               : parseFloat(ps?.roadDistanceMultiplier ?? "1.50");
 
-            const deliveryCalc = calculateDelivery(distance, subtotal, deliverySettings, multiplier);
+            const deliveryCalc = calculateDelivery(distance, subtotal, deliverySettings, multiplier, cart.chefFreeDeliveryThreshold ?? 0);
             deliveryFee = deliveryCalc.deliveryFee;
             freeDeliveryEligible = deliveryCalc.freeDeliveryEligible;
             amountForFreeDelivery = deliveryCalc.amountForFreeDelivery;

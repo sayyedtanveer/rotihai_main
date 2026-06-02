@@ -41,8 +41,9 @@ export default function AdminChefs() {
     addressPincode: "",
     latitude: 19.0728,
     longitude: 72.8826,
-    maxDeliveryDistanceKm: 5, // Default 5km delivery radius
-    servicePincodes: null as string[] | null, // NEW: Service pincodes
+    maxDeliveryDistanceKm: 5,
+    freeDeliveryThreshold: 200,
+    servicePincodes: null as string[] | null,
     isVerified: false, // Verified chef badge (verified by us)
     // FSSAI / Compliance (all optional)
     fssaiNumber: "",
@@ -201,7 +202,8 @@ export default function AdminChefs() {
       latitude: 19.0728,
       longitude: 72.8826,
       maxDeliveryDistanceKm: 5,
-      servicePincodes: null, // NEW: Initialize service pincodes
+      freeDeliveryThreshold: 200,
+      servicePincodes: null,
       isVerified: false,
       // FSSAI / Compliance
       fssaiNumber: "",
@@ -325,7 +327,8 @@ export default function AdminChefs() {
       latitude: (chef as any).latitude || 19.0728,
       longitude: (chef as any).longitude || 72.8826,
       maxDeliveryDistanceKm: (chef as any).maxDeliveryDistanceKm || 5,
-      servicePincodes: (chef as any).servicePincodes || null, // NEW: Load service pincodes
+      freeDeliveryThreshold: (chef as any).freeDeliveryThreshold ?? 200,
+      servicePincodes: (chef as any).servicePincodes || null,
       isVerified: (chef as any).isVerified === true,
       // FSSAI / Compliance
       fssaiNumber: (chef as any).fssaiNumber || "",
@@ -827,6 +830,24 @@ export default function AdminChefs() {
                 />
               </div>
 
+              {/* Free Delivery Threshold */}
+              <div>
+                <Label htmlFor="freeDeliveryThreshold" className="text-xs text-gray-600">
+                  Free Delivery Above (₹)
+                </Label>
+                <Input
+                  id="freeDeliveryThreshold"
+                  type="number"
+                  min="0"
+                  value={(formData as any).freeDeliveryThreshold ?? 200}
+                  onChange={(e) => setFormData({ ...formData, freeDeliveryThreshold: parseInt(e.target.value) || 0 })}
+                  placeholder="200"
+                  className="text-sm"
+                  data-testid="input-free-delivery-threshold"
+                />
+                <p className="text-xs text-gray-500 mt-1">Chef-specific minimum order for free delivery. Effective threshold = MAX(this value, slab minimum).</p>
+              </div>
+
               {/* Service Pincodes - NEW FIELD */}
               <div>
                 <Label htmlFor="servicePincodes" className="text-xs text-gray-600">
@@ -1255,6 +1276,24 @@ export default function AdminChefs() {
                   placeholder="5"
                   className="text-sm"
                 />
+              </div>
+
+              {/* Free Delivery Threshold */}
+              <div>
+                <Label htmlFor="edit-freeDeliveryThreshold" className="text-xs text-gray-600">
+                  Free Delivery Above (₹)
+                </Label>
+                <Input
+                  id="edit-freeDeliveryThreshold"
+                  type="number"
+                  min="0"
+                  value={(formData as any).freeDeliveryThreshold ?? 200}
+                  onChange={(e) => setFormData({ ...formData, freeDeliveryThreshold: parseInt(e.target.value) || 0 })}
+                  placeholder="200"
+                  className="text-sm"
+                  data-testid="input-edit-free-delivery-threshold"
+                />
+                <p className="text-xs text-gray-500 mt-1">Chef-specific minimum order for free delivery. Effective threshold = MAX(this value, slab minimum).</p>
               </div>
 
               {/* Service Pincodes - NEW FIELD */}

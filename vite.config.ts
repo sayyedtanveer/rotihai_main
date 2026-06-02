@@ -103,9 +103,6 @@ export default defineConfig({
           protocol: "wss",
           clientPort: 443,
         }
-      : {
-          host: process.env.VITE_HMR_HOST || "localhost",
-          port: 5173,
-        },
+      : true,
   },
 });

@@ -122,6 +122,7 @@ export function setupWebSocket(server: Server) {
       if (type === "browser") {
         // Browser connections don't need authentication - they receive broadcast updates
         clientId = `browser_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        customerUserId = userId || undefined;
       } else if (type === "customer") {
         if (!orderId && !userId) { // Allow connection with userId only as well
           ws.close(1008, "Order ID or User ID required for customer connection");
@@ -1197,4 +1198,66 @@ export async function broadcastOrderCancelledToDelivery(deliveryPersonId: string
     console.error(`⚠️ Error saving pending order_cancelled broadcast for ${deliveryPersonId}:`, error);
   }
 }
+
+// Broadcast new custom subscription request to all connected admins
+export function broadcastNewCustomRequest(request: any) {
+  const message = JSON.stringify({
+    type: "new_custom_subscription_request",
+    data: request,
+    message: `New custom subscription request from ${request.customerName} for ${request.rotiPerDay} rotis/day.`
+  });
+
+  console.log(`📡 BROADCASTING NEW CUSTOM SUBSCRIPTION REQUEST: ${request.id}`);
+  let adminCount = 0;
+  clients.forEach((client, clientId) => {
+    if (client.type === "admin" && client.ws.readyState === WebSocket.OPEN) {
+      client.ws.send(message);
+      adminCount++;
+    }
+  });
+  console.log(`  Admins notified: ${adminCount}`);
+}
+
+// Broadcast custom subscription request updates to customer and admins
+export function broadcastCustomRequestUpdate(request: any) {
+  // Safe serialize: ensure Date fields are strings
+  const safeRequest = { ...request };
+  const dateFields = ['createdAt', 'updatedAt', 'approvedAt'];
+  for (const field of dateFields) {
+    if (safeRequest[field]) {
+      if (safeRequest[field] instanceof Date) {
+        safeRequest[field] = safeRequest[field].toISOString();
+      } else if (typeof safeRequest[field] !== 'string') {
+        safeRequest[field] = String(safeRequest[field]);
+      }
+    }
+  }
+
+  const message = JSON.stringify({
+    type: "custom_request_update",
+    data: safeRequest
+  });
+
+  console.log(`📡 BROADCASTING CUSTOM REQUEST UPDATE: ${safeRequest.id} for user ${safeRequest.userId}`);
+  let adminNotified = 0;
+  let customerNotified = 0;
+
+  clients.forEach((client, clientId) => {
+    if (client.type === "admin" && client.ws.readyState === WebSocket.OPEN) {
+      client.ws.send(message);
+      adminNotified++;
+    } else if (
+      (client.type === "customer" || client.type === "browser") &&
+      client.userId === safeRequest.userId &&
+      client.ws.readyState === WebSocket.OPEN
+    ) {
+      client.ws.send(message);
+      customerNotified++;
+    }
+  });
+
+  console.log(`  Admins notified: ${adminNotified} | Customer notified: ${customerNotified}`);
+}
+
+
 

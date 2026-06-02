@@ -165,7 +165,7 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
       group.plans.push(plan);
     });
 
-    return [...groupsMap.values()]
+    return Array.from(groupsMap.values())
       .sort((a, b) => a.minOrder - b.minOrder || a.sectionName.localeCompare(b.sectionName))
       .filter(g => g.plans.length > 0);
   }, [plans]);
@@ -1175,7 +1175,7 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
                           }`}
                         >
                           <div className="px-3 pb-3 pt-1 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                            {section.plans.map((plan) => (
+                            {section.plans.map((plan: SubscriptionPlan) => (
                               <SubscriptionCard
                                 key={plan.id}
                                 plan={plan}
@@ -1197,6 +1197,25 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
                       </CardContent>
                     </Card>
                   )}
+
+                  {/* Custom Subscription Call-to-Action */}
+                  <div className="bg-gradient-to-r from-orange-500/10 via-amber-500/10 to-orange-500/5 border border-orange-200/50 dark:border-orange-900/50 rounded-2xl p-5 mt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+                    <div className="space-y-1 text-center sm:text-left">
+                      <h4 className="font-semibold text-orange-800 dark:text-orange-300">Need a Custom Roti Plan?</h4>
+                      <p className="text-xs text-muted-foreground max-w-sm">
+                        Choose your own daily roti count, select specific delivery days, and request a personalized subscription.
+                      </p>
+                    </div>
+                    <Button 
+                      onClick={() => {
+                        onClose();
+                        setLocation("/custom-subscription");
+                      }}
+                      className="bg-gradient-to-r from-orange-500 to-pink-500 hover:from-orange-600 hover:to-pink-600 text-white rounded-full px-5 text-xs font-semibold shadow-md shrink-0"
+                    >
+                      Request Custom Plan
+                    </Button>
+                  </div>
                 </div>
               )}
             </TabsContent>

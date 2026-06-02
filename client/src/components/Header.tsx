@@ -37,9 +37,10 @@ interface HeaderProps {
   onLoginClick?: () => void;
   onOffersClick: () => void; // Added onOffersClick prop
   showNotificationBell?: boolean; // Show bell only on specific pages
+  streetRefinementDone?: boolean; // Block Install Prompt until Street Refinement completes
 }
 
-export default function Header({ cartItemCount = 0, onCartClick, onMenuClick, searchQuery = "", onSearchChange, onChefListClick, onSubscriptionClick, onLoginClick, onOffersClick, showNotificationBell = false }: HeaderProps) {
+export default function Header({ cartItemCount = 0, onCartClick, onMenuClick, searchQuery = "", onSearchChange, onChefListClick, onSubscriptionClick, onLoginClick, onOffersClick, showNotificationBell = false, streetRefinementDone = false }: HeaderProps) {
   const { user } = useAuth();
   const isAuthenticated = !!user;
   const { toast } = useToast();
@@ -168,7 +169,7 @@ export default function Header({ cartItemCount = 0, onCartClick, onMenuClick, se
 
   return (
     <>
-      <InstallPrompt />
+      <InstallPrompt streetRefinementDone={streetRefinementDone} />
       <header className="sticky top-0 z-50 bg-background border-b">
       <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-8">
         <div className="flex items-center justify-between gap-2 sm:gap-4 h-14 sm:h-16">

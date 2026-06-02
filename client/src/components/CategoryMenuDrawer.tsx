@@ -207,17 +207,17 @@ export default function CategoryMenuDrawer({
                         >
                           <button
                             onClick={() => toggleSection(group.section)}
-                            className="sticky top-16 w-full flex items-center justify-between px-1 py-2 bg-background z-20"
+                            className="sticky top-16 w-full flex items-center justify-between px-2 py-3 bg-background z-20 border-b"
                           >
                             <div className="flex items-center gap-2">
-                              <ChevronDown
-                                className={`h-5 w-5 ${
-                                  openSections[group.section] ? "rotate-180" : ""
-                                }`}
-                              />
-                              <h4 className="font-bold">{group.section}</h4>
-                              <Badge variant="secondary">{group.products.length}</Badge>
+                              <h4 className="font-bold text-lg">{group.section}</h4>
+                              <Badge variant="secondary" className="ml-1">{group.products.length}</Badge>
                             </div>
+                            <ChevronDown
+                              className={`h-5 w-5 text-muted-foreground transition-transform duration-200 ${
+                                openSections[group.section] ? "rotate-180" : ""
+                              }`}
+                            />
                           </button>
 
                           {openSections[group.section] && (
@@ -302,7 +302,7 @@ export default function CategoryMenuDrawer({
                                             )}
                                           </div>
                                         </div>
-                                        <p className="text-sm text-muted-foreground mt-2 line-clamp-2" data-testid={`text-description-${product.id}`}>
+                                        <p className="text-sm text-muted-foreground mt-2" data-testid={`text-description-${product.id}`}>
                                           {product.description}
                                         </p>
                                       </div>

@@ -82,7 +82,9 @@ export default function NotificationBell() {
                   </div>
                   <div className="flex items-center justify-between">
                     <p className="text-xs text-muted-foreground">
-                      Order #{notification.orderId.slice(0, 8)}
+                      {notification.orderId?.startsWith("custom_")
+                        ? "Custom Roti Request"
+                        : `Order #${notification.orderId?.slice(0, 8)}`}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {format(new Date(notification.timestamp), "HH:mm")}

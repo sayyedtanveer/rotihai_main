@@ -18,7 +18,7 @@ import { queryClient } from "@/lib/queryClient";
 import { getWebSocketURL } from "@/lib/fetchClient";
 import { format } from "date-fns";
 import { Search, Filter, Truck, User, ExternalLink } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 
 type OrderItem = {
   id?: string;
@@ -36,7 +36,17 @@ export default function AdminOrders() {
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
   const [selectedOrderForAssignment, setSelectedOrderForAssignment] = useState<Order | null>(null);
   const [selectedDeliveryPersonId, setSelectedDeliveryPersonId] = useState("");
+  const [expandedAddresses, setExpandedAddresses] = useState<Set<string>>(new Set());
   const itemsPerPage = 100;
+
+  const toggleAddress = useCallback((orderId: string) => {
+    setExpandedAddresses(prev => {
+      const next = new Set(prev);
+      if (next.has(orderId)) next.delete(orderId);
+      else next.add(orderId);
+      return next;
+    });
+  }, []);
 
   const { data: orders, isLoading } = useQuery<Order[]>({
     queryKey: ["/api/admin", "orders"],
@@ -395,17 +405,36 @@ export default function AdminOrders() {
                         </TableCell>
                         <TableCell>
                           <div className="max-w-xs text-sm">
+                            {/* Desktop: tooltip on hover. Mobile: tap to expand. */}
                             <TooltipProvider>
                               <Tooltip>
                                 <TooltipTrigger asChild>
-                                  <p className="text-slate-700 dark:text-slate-300 whitespace-normal break-words line-clamp-2 cursor-help">
-                                    {order.addressBuilding ? `${order.addressBuilding}, ${order.addressStreet ? order.addressStreet + ', ' : ''}${order.addressArea}` : (order.address || "No address provided")}
-                                  </p>
+                                  <button
+                                    type="button"
+                                    className="text-left w-full"
+                                    onClick={() => toggleAddress(order.id)}
+                                    aria-expanded={expandedAddresses.has(order.id)}
+                                  >
+                                    <p
+                                      className={`text-slate-700 dark:text-slate-300 whitespace-normal break-words cursor-pointer underline-offset-2 hover:underline ${
+                                        expandedAddresses.has(order.id) ? "" : "line-clamp-2"
+                                      }`}
+                                    >
+                                      {order.addressBuilding
+                                        ? `${order.addressBuilding}, ${order.addressStreet ? order.addressStreet + ", " : ""}${order.addressArea}`
+                                        : order.address || "No address provided"}
+                                    </p>
+                                    {!expandedAddresses.has(order.id) && (
+                                      <span className="text-xs text-blue-500 md:hidden">(tap to expand)</span>
+                                    )}
+                                  </button>
                                 </TooltipTrigger>
-                                <TooltipContent side="top" className="max-w-sm">
+                                <TooltipContent side="top" className="max-w-sm hidden md:block">
                                   <div className="text-sm">
                                     <p className="font-medium break-words">
-                                      {order.addressBuilding ? `${order.addressBuilding}, ${order.addressStreet ? order.addressStreet + ', ' : ''}${order.addressArea}` : (order.address || "No address provided")}
+                                      {order.addressBuilding
+                                        ? `${order.addressBuilding}, ${order.addressStreet ? order.addressStreet + ", " : ""}${order.addressArea}`
+                                        : order.address || "No address provided"}
                                     </p>
                                     {order.addressPincode && (
                                       <p className="text-xs mt-1">{order.addressCity} - {order.addressPincode}</p>

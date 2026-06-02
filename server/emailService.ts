@@ -443,3 +443,186 @@ export async function sendMissedDeliveryEmail(
     html: createMissedDeliveryEmail(name, deliveryDate, deliveryTime, subscriptionId),
   });
 }
+
+/* ============================================
+   ADMIN ORDER CONFIRMATION EMAIL TEMPLATE
+============================================ */
+export interface AdminOrderNotificationParams {
+  orderId: string;
+  customerName: string;
+  customerPhone: string;
+  customerEmail?: string | null;
+  chefName?: string | null;
+  items: Array<{ name: string; quantity: number; price: number }>;
+  subtotal: number;
+  deliveryFee: number;
+  platformFee?: number;
+  total: number;
+  deliveryAddress: string;
+  addressPincode?: string | null;
+  deliveryTime?: string | null;
+  distance?: number;
+  paymentStatus?: string;
+}
+
+export function createAdminOrderConfirmationEmail(params: AdminOrderNotificationParams) {
+  const itemsHtml = params.items
+    .map(
+      (item) =>
+        `<tr style="border-bottom: 1px solid #eee;">
+          <td style="padding: 8px;">${item.name}</td>
+          <td style="text-align: center; padding: 8px;">x${item.quantity}</td>
+          <td style="text-align: right; padding: 8px;">₹${(item.price * item.quantity).toFixed(2)}</td>
+        </tr>`
+    )
+    .join("");
+
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        body { font-family: Arial; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%); color: white; padding: 20px; border-radius: 8px 8px 0 0; text-align: center; }
+        .section { background: #f9f9f9; padding: 15px; margin: 15px 0; border-radius: 6px; border-left: 4px solid #ff6b35; }
+        .customer-info { background: #e3f2fd; padding: 15px; border-radius: 6px; margin: 15px 0; }
+        .order-items { background: white; padding: 15px; border-radius: 6px; margin: 15px 0; }
+        table { width: 100%; border-collapse: collapse; }
+        .total-row { font-weight: bold; font-size: 16px; border-top: 2px solid #ff6b35; padding: 10px 0; color: #ff6b35; }
+        .badge { display: inline-block; background: #ff6b35; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; }
+        .delivery-info { background: #fff3e0; padding: 15px; border-radius: 6px; margin: 15px 0; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <!-- HEADER -->
+        <div class="header">
+          <h1 style="margin: 0;">📦 New Order Confirmed</h1>
+          <p style="margin: 5px 0;">Order ID: <span class="badge">${params.orderId}</span></p>
+        </div>
+
+        <!-- CUSTOMER DETAILS -->
+        <div class="customer-info">
+          <h3 style="margin-top: 0;">👤 Customer Details</h3>
+          <p><strong>Name:</strong> ${params.customerName}</p>
+          <p><strong>Phone:</strong> <a href="tel:${params.customerPhone}">${params.customerPhone}</a></p>
+          ${params.customerEmail ? `<p><strong>Email:</strong> <a href="mailto:${params.customerEmail}">${params.customerEmail}</a></p>` : ""}
+        </div>
+
+        <!-- ORDER ITEMS -->
+        <div class="section">
+          <h3 style="margin-top: 0;">📋 Order Items</h3>
+          <div class="order-items">
+            <table>
+              <thead>
+                <tr style="background: #f0f0f0; border-bottom: 2px solid #ff6b35;">
+                  <th style="text-align: left; padding: 10px;">Item</th>
+                  <th style="text-align: center; padding: 10px;">Qty</th>
+                  <th style="text-align: right; padding: 10px;">Price</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${itemsHtml}
+              </tbody>
+            </table>
+
+            <table style="margin-top: 15px;">
+              <tr>
+                <td style="text-align: right; padding: 8px;">Subtotal:</td>
+                <td style="text-align: right; padding: 8px; width: 100px;">₹${params.subtotal.toFixed(2)}</td>
+              </tr>
+              ${params.deliveryFee ? `<tr>
+                <td style="text-align: right; padding: 8px;">Delivery Fee:</td>
+                <td style="text-align: right; padding: 8px;">₹${params.deliveryFee.toFixed(2)}</td>
+              </tr>` : ""}
+              ${params.platformFee ? `<tr>
+                <td style="text-align: right; padding: 8px;">Platform Fee:</td>
+                <td style="text-align: right; padding: 8px;">₹${params.platformFee.toFixed(2)}</td>
+              </tr>` : ""}
+              <tr class="total-row">
+                <td style="text-align: right; padding: 10px;">Total Amount:</td>
+                <td style="text-align: right; padding: 10px;">₹${params.total.toFixed(2)}</td>
+              </tr>
+            </table>
+          </div>
+        </div>
+
+        <!-- DELIVERY DETAILS -->
+        <div class="delivery-info">
+          <h3 style="margin-top: 0;">🏠 Delivery Details</h3>
+          <p><strong>Address:</strong> ${params.deliveryAddress}</p>
+          ${params.addressPincode ? `<p><strong>Pincode:</strong> ${params.addressPincode}</p>` : ""}
+          ${params.deliveryTime ? `<p><strong>⏱️ Delivery Time:</strong> ${params.deliveryTime}</p>` : ""}
+          ${params.distance ? `<p><strong>📍 Distance:</strong> ${params.distance.toFixed(2)} km</p>` : ""}
+        </div>
+
+        <!-- CHEF ASSIGNMENT -->
+        ${params.chefName ? `<div class="section">
+          <h3 style="margin-top: 0;">👨‍🍳 Assigned Chef</h3>
+          <p><strong>Chef Name:</strong> ${params.chefName}</p>
+        </div>` : ""}
+
+        <!-- PAYMENT STATUS -->
+        ${params.paymentStatus ? `<div class="section">
+          <h3 style="margin-top: 0;">💳 Payment Status</h3>
+          <p><strong>Status:</strong> <span class="badge">${params.paymentStatus.toUpperCase()}</span></p>
+        </div>` : ""}
+
+        <!-- FOOTER -->
+        <div style="text-align: center; padding: 20px; color: #666; font-size: 12px; border-top: 1px solid #ddd; margin-top: 20px;">
+          <p style="margin: 5px 0;">⚡ This is an automated notification from RotiHai Admin System</p>
+          <p style="margin: 5px 0;">Action Required: Review order and prepare for processing</p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+}
+
+/* ============================================
+   SEND ADMIN ORDER NOTIFICATION
+============================================ */
+export async function sendAdminOrderNotification(
+  adminEmails: string[],
+  params: AdminOrderNotificationParams
+) {
+  console.log(`\n📧 [ADMIN-EMAIL] === ADMIN ORDER NOTIFICATION START ===`);
+  console.log(`📧 [ADMIN-EMAIL] Order ID: ${params.orderId}`);
+  console.log(`📧 [ADMIN-EMAIL] Total admin emails to notify: ${adminEmails.length}`);
+  console.log(`📧 [ADMIN-EMAIL] Email list: [${adminEmails.join(", ")}]`);
+  
+  if (adminEmails.length === 0) {
+    console.warn(`⚠️ [ADMIN-EMAIL] No admin emails provided! Skipping notification.`);
+    return false;
+  }
+
+  const emailSubject = `📦 New Order Confirmed - Order #${params.orderId}`;
+  const emailHtml = createAdminOrderConfirmationEmail(params);
+
+  console.log(`📧 [ADMIN-EMAIL] Email subject: ${emailSubject}`);
+  console.log(`📧 [ADMIN-EMAIL] Email HTML size: ${emailHtml.length} chars`);
+
+  try {
+    // Send email to all admin emails
+    const emailPromises = adminEmails.map((email, index) => {
+      console.log(`📧 [ADMIN-EMAIL] Sending to admin #${index + 1}: ${email}`);
+      return sendEmail({
+        to: email,
+        subject: emailSubject,
+        html: emailHtml,
+      });
+    });
+
+    const results = await Promise.all(emailPromises);
+    const successCount = results.filter(r => r === true).length;
+    
+    console.log(`📧 [ADMIN-EMAIL] === RESULT: ${successCount}/${adminEmails.length} emails sent successfully ===\n`);
+    
+    return successCount > 0;
+  } catch (error: any) {
+    console.error(`❌ [ADMIN-EMAIL] Exception in sendAdminOrderNotification:`, error);
+    console.error(`❌ [ADMIN-EMAIL] Error: ${error.message}`);
+    return false;
+  }
+}
