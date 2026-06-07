@@ -97,7 +97,6 @@ import { sql } from "drizzle-orm";
 import { pgTable, text, varchar, integer, decimal, boolean, timestamp, jsonb, index, uniqueIndex, pgEnum, real } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
-import * as crypto from "crypto";
 var adminRoleEnum, sessions, users, adminUsers, partnerUsers, categories, chefs, products, paymentStatusEnum, deliveryPersonnelStatusEnum, deliveryPersonnel, orders, paymentVerificationLog, deliverySettings, deliveryPartnerPayouts, cartSettings, discountTypeEnum, coupons, couponUsages, referrals, transactionTypeEnum, walletTransactions, walletSettings, paymentSettings, payoutTransactions, referralRewards, subscriptionStatusEnum, subscriptionFrequencyEnum, deliveryLogStatusEnum, subscriptionPlans, subscriptions, subscriptionDeliveryLogs, insertCategorySchema, insertProductSchema, insertChefSchema, orderItemSchema, insertOrderSchema, insertUserSchema, userLoginSchema, insertAdminUserSchema, adminLoginSchema, insertPartnerUserSchema, partnerLoginSchema, insertSubscriptionPlanSchema, promotionalBanners, insertPromotionalBannerSchema, insertSubscriptionSchema, insertDeliverySettingSchema, insertSubscriptionDeliveryLogSchema, insertDeliveryPartnerPayoutSchema, insertCartSettingSchema, insertDeliveryPersonnelSchema, deliveryPersonnelLoginSchema, insertCouponSchema, insertReferralSchema, insertWalletTransactionSchema, insertReferralRewardSchema, deliveryTimeSlots, insertDeliveryTimeSlotsSchema, rotiSettings, insertRotiSettingsSchema, visitors, insertVisitorSchema, deliveryAreas, insertDeliveryAreasSchema, adminSettings, insertAdminSettingsSchema, pushSubscriptions, insertPushSubscriptionSchema, newsletterSubscribers, pendingBroadcasts, insertPendingBroadcastSchema, pendingCheckouts, insertPendingCheckoutSchema, customSubscriptionRequests, insertCustomSubscriptionRequestSchema;
 var init_schema = __esm({
   "shared/schema.ts"() {
@@ -199,8 +198,15 @@ var init_schema = __esm({
       // Admin-confirmed licence
       chefType: text("chef_type"),
       // 'home' | 'restaurant' | null
-      complianceStatus: text("compliance_status").notNull().default("pending")
+      complianceStatus: text("compliance_status").notNull().default("pending"),
       // 'pending' | 'verified' | 'rejected'
+      // ── Auto Schedule Configuration (optional) ──────────────────────────────
+      autoScheduleEnabled: boolean("auto_schedule_enabled").notNull().default(false),
+      // Enable auto-schedule feature
+      openingTime: varchar("opening_time", { length: 5 }),
+      // Opening time in HH:mm format (e.g., "09:00")
+      closingTime: varchar("closing_time", { length: 5 })
+      // Closing time in HH:mm format (e.g., "22:00")
     });
     products = pgTable("products", {
       id: text("id").primaryKey(),
@@ -746,7 +752,19 @@ var init_schema = __esm({
     });
     insertSubscriptionPlanSchema = createInsertSchema(subscriptionPlans);
     promotionalBanners = pgTable("promotional_banners", {
-      id: varchar("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+      id: varchar("id").primaryKey().$defaultFn(() => {
+        if (typeof window !== "undefined" && window.crypto && window.crypto.randomUUID) {
+          return window.crypto.randomUUID();
+        }
+        try {
+          const cryptoMod = __require("crypto");
+          if (cryptoMod && cryptoMod.randomUUID) {
+            return cryptoMod.randomUUID();
+          }
+        } catch (e) {
+        }
+        return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+      }),
       title: text("title").notNull(),
       subtitle: text("subtitle").notNull(),
       buttonText: text("button_text").notNull(),
@@ -1408,13 +1426,365 @@ var init_deliveryUtils = __esm({
   }
 });
 
+// server/analytics.ts
+var analytics_exports = {};
+__export(analytics_exports, {
+  calculateGrowth: () => calculateGrowth,
+  calculateRevenueMetrics: () => calculateRevenueMetrics,
+  filterOrdersByDateRange: () => filterOrdersByDateRange,
+  generateRevenueTrendChart: () => generateRevenueTrendChart,
+  generateTopAreas: () => generateTopAreas,
+  generateTopSellingItems: () => generateTopSellingItems,
+  getCustomerMetrics: () => getCustomerMetrics,
+  getOrderStatusBreakdown: () => getOrderStatusBreakdown,
+  getPeriodOrderComparison: () => getPeriodOrderComparison,
+  getPeriodRange: () => getPeriodRange,
+  getPeriodRevenueComparison: () => getPeriodRevenueComparison,
+  getPreviousPeriodRange: () => getPreviousPeriodRange,
+  getVisitorMetricsForPeriod: () => getVisitorMetricsForPeriod,
+  getVisitorMetricsForToday: () => getVisitorMetricsForToday,
+  isCancelledOrder: () => isCancelledOrder,
+  isValidRevenueOrder: () => isValidRevenueOrder
+});
+import {
+  startOfDay,
+  endOfDay,
+  startOfWeek,
+  endOfWeek,
+  startOfMonth,
+  endOfMonth,
+  startOfYear,
+  endOfYear,
+  subDays,
+  subWeeks,
+  subMonths,
+  subYears,
+  format,
+  isWithinInterval
+} from "date-fns";
+var isValidRevenueOrder, isCancelledOrder, getPeriodRange, getPreviousPeriodRange, filterOrdersByDateRange, calculateGrowth, calculateRevenueMetrics, getPeriodRevenueComparison, getPeriodOrderComparison, getOrderStatusBreakdown, getCustomerMetrics, generateRevenueTrendChart, generateTopSellingItems, generateTopAreas, getVisitorMetricsForToday, getVisitorMetricsForPeriod;
+var init_analytics = __esm({
+  "server/analytics.ts"() {
+    "use strict";
+    isValidRevenueOrder = (order) => {
+      return (order.paymentStatus === "paid" || order.paymentStatus === "confirmed") && (order.status === "delivered" || order.status === "completed");
+    };
+    isCancelledOrder = (order) => {
+      return order.status === "cancelled";
+    };
+    getPeriodRange = (period, date = /* @__PURE__ */ new Date()) => {
+      switch (period) {
+        case "today":
+          return { start: startOfDay(date), end: endOfDay(date) };
+        case "week":
+          return { start: startOfWeek(date, { weekStartsOn: 1 }), end: endOfWeek(date, { weekStartsOn: 1 }) };
+        case "month":
+          return { start: startOfMonth(date), end: endOfMonth(date) };
+        case "year":
+          return { start: startOfYear(date), end: endOfYear(date) };
+        case "lifetime":
+          return { start: new Date(2e3, 0, 1), end: endOfDay(date) };
+      }
+    };
+    getPreviousPeriodRange = (period, date = /* @__PURE__ */ new Date()) => {
+      switch (period) {
+        case "today":
+          const yesterday = subDays(date, 1);
+          return { start: startOfDay(yesterday), end: endOfDay(yesterday) };
+        case "week":
+          const lastWeek = subWeeks(date, 1);
+          return { start: startOfWeek(lastWeek, { weekStartsOn: 1 }), end: endOfWeek(lastWeek, { weekStartsOn: 1 }) };
+        case "month":
+          const lastMonth = subMonths(date, 1);
+          return { start: startOfMonth(lastMonth), end: endOfMonth(lastMonth) };
+        case "year":
+          const lastYear = subYears(date, 1);
+          return { start: startOfYear(lastYear), end: endOfYear(lastYear) };
+        case "lifetime":
+          return { start: new Date(2e3, 0, 1), end: endOfDay(date) };
+      }
+    };
+    filterOrdersByDateRange = (orders3, range) => {
+      return orders3.filter((order) => {
+        const orderDate = (order.status === "delivered" || order.status === "completed") && order.deliveredAt ? new Date(order.deliveredAt) : new Date(order.createdAt);
+        return isWithinInterval(orderDate, { start: range.start, end: range.end });
+      });
+    };
+    calculateGrowth = (current, previous) => {
+      if (previous === 0) {
+        return { growth: current > 0 ? 100 : 0, trend: current > 0 ? "up" : "flat" };
+      }
+      const growth = (current - previous) / previous * 100;
+      return {
+        growth: Number(growth.toFixed(1)),
+        trend: growth > 0 ? "up" : growth < 0 ? "down" : "flat"
+      };
+    };
+    calculateRevenueMetrics = (orders3) => {
+      const validOrders = orders3.filter(isValidRevenueOrder);
+      let grossRevenue = 0;
+      let netRevenue = 0;
+      let totalDeliveryFees = 0;
+      let totalPlatformFees = 0;
+      let totalDiscounts = 0;
+      let totalWalletUsage = 0;
+      validOrders.forEach((order) => {
+        grossRevenue += (order.subtotal || 0) + (order.deliveryFee || 0) + (order.platformFee || 0);
+        netRevenue += order.total || 0;
+        totalDeliveryFees += order.deliveryFee || 0;
+        totalPlatformFees += order.platformFee || 0;
+        totalDiscounts += order.discount || 0;
+        totalWalletUsage += order.walletAmountUsed || 0;
+      });
+      return {
+        revenue: netRevenue,
+        // Primary metric for KPI cards
+        grossRevenue,
+        netRevenue,
+        totalDeliveryFees,
+        totalPlatformFees,
+        totalDiscounts,
+        totalWalletUsage,
+        averageOrderValue: validOrders.length > 0 ? Math.round(netRevenue / validOrders.length) : 0,
+        validOrderCount: validOrders.length
+      };
+    };
+    getPeriodRevenueComparison = (allOrders, period) => {
+      const now = /* @__PURE__ */ new Date();
+      const currentRange = getPeriodRange(period, now);
+      const prevRange = getPreviousPeriodRange(period, now);
+      const currentOrders = filterOrdersByDateRange(allOrders, currentRange);
+      const prevOrders = filterOrdersByDateRange(allOrders, prevRange);
+      const currentMetrics = calculateRevenueMetrics(currentOrders);
+      const prevMetrics = calculateRevenueMetrics(prevOrders);
+      const growth = calculateGrowth(currentMetrics.revenue, prevMetrics.revenue);
+      return {
+        current: currentMetrics.revenue,
+        previous: prevMetrics.revenue,
+        growth: growth.growth,
+        trend: growth.trend
+      };
+    };
+    getPeriodOrderComparison = (allOrders, period) => {
+      const now = /* @__PURE__ */ new Date();
+      const currentRange = getPeriodRange(period, now);
+      const prevRange = getPreviousPeriodRange(period, now);
+      const currentOrders = filterOrdersByDateRange(allOrders, currentRange);
+      const prevOrders = filterOrdersByDateRange(allOrders, prevRange);
+      const growth = calculateGrowth(currentOrders.length, prevOrders.length);
+      return {
+        current: currentOrders.length,
+        previous: prevOrders.length,
+        growth: growth.growth,
+        trend: growth.trend
+      };
+    };
+    getOrderStatusBreakdown = (orders3) => {
+      const breakdown = {
+        pending: 0,
+        accepted: 0,
+        preparing: 0,
+        ready: 0,
+        outForDelivery: 0,
+        delivered: 0,
+        cancelled: 0,
+        total: orders3.length
+      };
+      orders3.forEach((order) => {
+        if (order.status === "pending") breakdown.pending++;
+        else if (order.status === "accepted_by_chef") breakdown.accepted++;
+        else if (order.status === "preparing") breakdown.preparing++;
+        else if (order.status === "prepared") breakdown.ready++;
+        else if (order.status === "out_for_delivery") breakdown.outForDelivery++;
+        else if (order.status === "delivered" || order.status === "completed") breakdown.delivered++;
+        else if (order.status === "cancelled") breakdown.cancelled++;
+      });
+      return breakdown;
+    };
+    getCustomerMetrics = (allOrders, users4, periodRange) => {
+      const allCustomerIds = new Set(allOrders.map((o) => o.userId).filter(Boolean));
+      const periodOrders = filterOrdersByDateRange(allOrders, periodRange);
+      const periodCustomerIds = new Set(periodOrders.map((o) => o.userId).filter(Boolean));
+      let newCustomersInPeriod = 0;
+      let repeatCustomersInPeriod = 0;
+      periodCustomerIds.forEach((userId) => {
+        const userOrders = allOrders.filter((o) => o.userId === userId).sort(
+          (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+        );
+        if (userOrders.length > 0) {
+          const firstOrderDate = new Date(userOrders[0].createdAt);
+          if (isWithinInterval(firstOrderDate, periodRange)) {
+            newCustomersInPeriod++;
+          } else {
+            repeatCustomersInPeriod++;
+          }
+        }
+      });
+      const totalValidOrders = allOrders.filter(isValidRevenueOrder).length;
+      return {
+        totalCustomers: allCustomerIds.size,
+        newCustomersInPeriod,
+        repeatCustomersInPeriod,
+        returningCustomerPercentage: periodCustomerIds.size > 0 ? Number((repeatCustomersInPeriod / periodCustomerIds.size * 100).toFixed(1)) : 0,
+        averageOrdersPerCustomer: allCustomerIds.size > 0 ? Number((allOrders.length / allCustomerIds.size).toFixed(1)) : 0,
+        revenuePerCustomer: allCustomerIds.size > 0 ? Math.round(calculateRevenueMetrics(allOrders).revenue / allCustomerIds.size) : 0
+      };
+    };
+    generateRevenueTrendChart = (orders3, period) => {
+      const validOrders = orders3.filter(isValidRevenueOrder);
+      const now = /* @__PURE__ */ new Date();
+      let dataMap = /* @__PURE__ */ new Map();
+      if (period === "today") {
+        for (let i = 0; i < 24; i++) {
+          const h = String(i).padStart(2, "0");
+          dataMap.set(`${h}:00`, 0);
+        }
+      } else if (period === "7days" || period === "30days" || period === "90days") {
+        const days = period === "7days" ? 7 : period === "30days" ? 30 : 90;
+        for (let i = days - 1; i >= 0; i--) {
+          const d = subDays(now, i);
+          dataMap.set(format(d, "MMM dd"), 0);
+        }
+      } else if (period === "12months") {
+        for (let i = 11; i >= 0; i--) {
+          const d = subMonths(now, i);
+          dataMap.set(format(d, "MMM yyyy"), 0);
+        }
+      }
+      validOrders.forEach((order) => {
+        const date = new Date(order.deliveredAt || order.createdAt);
+        let key = "";
+        if (period === "today") {
+          if (isWithinInterval(date, { start: startOfDay(now), end: endOfDay(now) })) {
+            key = `${String(date.getHours()).padStart(2, "0")}:00`;
+          }
+        } else if (period === "7days" || period === "30days" || period === "90days") {
+          const days = period === "7days" ? 7 : period === "30days" ? 30 : 90;
+          if (isWithinInterval(date, { start: subDays(now, days - 1), end: now })) {
+            key = format(date, "MMM dd");
+          }
+        } else if (period === "12months") {
+          if (isWithinInterval(date, { start: startOfMonth(subMonths(now, 11)), end: endOfMonth(now) })) {
+            key = format(date, "MMM yyyy");
+          }
+        }
+        if (key && dataMap.has(key)) {
+          dataMap.set(key, (dataMap.get(key) || 0) + (order.total || 0));
+        }
+      });
+      return Array.from(dataMap.entries()).map(([label, revenue]) => ({ label, revenue }));
+    };
+    generateTopSellingItems = (orders3, limit = 5) => {
+      const validOrders = orders3.filter(isValidRevenueOrder);
+      const itemStats = /* @__PURE__ */ new Map();
+      validOrders.forEach((order) => {
+        if (Array.isArray(order.items)) {
+          order.items.forEach((item) => {
+            if (!item.name) return;
+            const current = itemStats.get(item.id) || { name: item.name, quantity: 0, revenue: 0 };
+            current.quantity += item.quantity || 1;
+            current.revenue += (item.price || 0) * (item.quantity || 1);
+            itemStats.set(item.id, current);
+          });
+        }
+      });
+      return Array.from(itemStats.values()).sort((a, b) => b.revenue - a.revenue).slice(0, limit);
+    };
+    generateTopAreas = (orders3, limit = 5) => {
+      const validOrders = orders3.filter(isValidRevenueOrder);
+      const areaStats = /* @__PURE__ */ new Map();
+      validOrders.forEach((order) => {
+        if (!order.addressArea) return;
+        const current = areaStats.get(order.addressArea) || { name: order.addressArea, orders: 0, revenue: 0 };
+        current.orders += 1;
+        current.revenue += order.total || 0;
+        areaStats.set(order.addressArea, current);
+      });
+      return Array.from(areaStats.values()).sort((a, b) => b.revenue - a.revenue).slice(0, limit);
+    };
+    getVisitorMetricsForToday = (visitors3) => {
+      if (!visitors3 || visitors3.length === 0) {
+        return {
+          todaysVisits: 0,
+          uniqueVisitors: 0,
+          newVisitors: 0,
+          returningVisitors: 0
+        };
+      }
+      const todayRange = getPeriodRange("today");
+      const todayVisitors = visitors3.filter((v) => {
+        if (!v.sessionId || v.sessionId.trim() === "") {
+          return false;
+        }
+        const visitDate = new Date(v.createdAt);
+        return isWithinInterval(visitDate, todayRange);
+      });
+      const todaysVisits = todayVisitors.length;
+      const uniqueSessionIds = new Set(todayVisitors.map((v) => v.sessionId).filter(Boolean));
+      const uniqueVisitors = uniqueSessionIds.size;
+      let newVisitors = 0;
+      let returningVisitors = 0;
+      uniqueSessionIds.forEach((sessionId) => {
+        const previousVisits = visitors3.filter(
+          (v) => v.sessionId === sessionId && new Date(v.createdAt) < todayRange.start
+        );
+        if (previousVisits.length === 0) {
+          newVisitors++;
+        } else {
+          returningVisitors++;
+        }
+      });
+      console.log("[VISITOR METRICS] Today calculations:", {
+        totalVisitors: visitors3.length,
+        todaysVisits,
+        uniqueVisitors,
+        newVisitors,
+        returningVisitors,
+        sessionIdsWithoutValue: visitors3.filter((v) => !v.sessionId || v.sessionId.trim() === "").length
+      });
+      return {
+        todaysVisits,
+        uniqueVisitors,
+        newVisitors,
+        returningVisitors
+      };
+    };
+    getVisitorMetricsForPeriod = (visitors3, period) => {
+      const periodRange = getPeriodRange(period);
+      const periodVisitors = visitors3.filter((v) => {
+        const visitDate = new Date(v.createdAt);
+        return isWithinInterval(visitDate, periodRange);
+      });
+      const uniqueSessionIds = new Set(periodVisitors.map((v) => v.sessionId));
+      let newVisitors = 0;
+      let returningVisitors = 0;
+      uniqueSessionIds.forEach((sessionId) => {
+        const previousVisits = visitors3.filter(
+          (v) => v.sessionId === sessionId && new Date(v.createdAt) < periodRange.start
+        );
+        if (previousVisits.length === 0) {
+          newVisitors++;
+        } else {
+          returningVisitors++;
+        }
+      });
+      return {
+        visits: periodVisitors.length,
+        uniqueVisitors: uniqueSessionIds.size,
+        newVisitors,
+        returningVisitors
+      };
+    };
+  }
+});
+
 // server/storage.ts
 var storage_exports = {};
 __export(storage_exports, {
   MemStorage: () => MemStorage,
   storage: () => storage
 });
-import { randomUUID as randomUUID2 } from "crypto";
+import { randomUUID } from "crypto";
 import { nanoid } from "nanoid";
 import { eq, and, gte, desc, asc, or, isNull, sql as sql3, count, lt, inArray } from "drizzle-orm";
 function convertDateForDB(value) {
@@ -1528,7 +1898,7 @@ var init_storage = __esm({
         return db.query.users.findFirst({ where: (user, { eq: eq10 }) => eq10(user.phone, phone) });
       }
       async createUser(userData) {
-        const id = randomUUID2();
+        const id = randomUUID();
         const referralCode = userData.referralCode || `REF${nanoid(8).toUpperCase()}`;
         const user = {
           ...userData,
@@ -1568,7 +1938,7 @@ var init_storage = __esm({
         return db.query.categories.findFirst({ where: (c, { eq: eq10 }) => eq10(c.id, id) });
       }
       async createCategory(insertCategory) {
-        const id = randomUUID2();
+        const id = randomUUID();
         const category = { requiresDeliverySlot: false, displayOrder: 999, ...insertCategory, id };
         await db.insert(categories2).values(category);
         return category;
@@ -1598,7 +1968,7 @@ var init_storage = __esm({
         return db.query.products.findMany({ where: (p, { eq: eq10 }) => eq10(p.categoryId, categoryId) });
       }
       async createProduct(insertProduct) {
-        const id = randomUUID2();
+        const id = randomUUID();
         const marginPercent = insertProduct.marginPercent !== void 0 ? typeof insertProduct.marginPercent === "number" ? insertProduct.marginPercent.toString() : insertProduct.marginPercent : "0";
         const product = {
           ...insertProduct,
@@ -1635,7 +2005,7 @@ var init_storage = __esm({
         return true;
       }
       async createOrder(insertOrder) {
-        const id = randomUUID2();
+        const id = randomUUID();
         const orderData = {
           id,
           customerName: insertOrder.customerName,
@@ -1779,6 +2149,9 @@ var init_storage = __esm({
         if (data.fssaiVerified !== void 0) updateData.fssaiVerified = data.fssaiVerified;
         if (data.chefType !== void 0) updateData.chefType = data.chefType || null;
         if (data.complianceStatus !== void 0) updateData.complianceStatus = data.complianceStatus;
+        if (data.autoScheduleEnabled !== void 0) updateData.autoScheduleEnabled = data.autoScheduleEnabled;
+        if (data.openingTime !== void 0) updateData.openingTime = data.openingTime || null;
+        if (data.closingTime !== void 0) updateData.closingTime = data.closingTime || null;
         console.log("\u{1F525} updateChef() - Received data:", { id, incomingMaxDeliveryDistanceKm: data.maxDeliveryDistanceKm, servicePincodes: data.servicePincodes, updateData });
         await db.update(chefs2).set(updateData).where(eq(chefs2.id, id));
         const chef = await this.getChefById(id);
@@ -1795,7 +2168,7 @@ var init_storage = __esm({
         return db.query.adminUsers.findFirst({ where: (admin, { eq: eq10 }) => eq10(admin.id, id) });
       }
       async createAdmin(adminData) {
-        const id = randomUUID2();
+        const id = randomUUID();
         const admin = {
           id,
           username: adminData.username,
@@ -1857,7 +2230,7 @@ var init_storage = __esm({
       }
       async createPartner(data) {
         try {
-          const id = randomUUID2();
+          const id = randomUUID();
           const newPartner = {
             id,
             ...data,
@@ -1914,17 +2287,162 @@ var init_storage = __esm({
       async getDashboardMetrics() {
         const orders3 = await db.query.orders.findMany();
         const users4 = await db.query.users.findMany();
-        const revenueOrders = orders3.filter((o) => o.status !== "cancelled");
-        const totalRevenue = revenueOrders.reduce((sum, order) => sum + order.total, 0);
-        const pendingOrders = orders3.filter((o) => o.status === "pending").length;
-        const completedOrders = orders3.filter((o) => o.status === "delivered" || o.status === "completed").length;
-        return {
-          userCount: users4.length,
-          orderCount: orders3.length,
-          totalRevenue,
-          pendingOrders,
-          completedOrders
+        const chefs3 = await db.query.chefs.findMany();
+        const deliveryPersonnel3 = await db.query.deliveryPersonnel.findMany();
+        const visitors3 = await db.query.visitors.findMany();
+        const {
+          calculateRevenueMetrics: calculateRevenueMetrics2,
+          getPeriodRevenueComparison: getPeriodRevenueComparison2,
+          getPeriodOrderComparison: getPeriodOrderComparison2,
+          getOrderStatusBreakdown: getOrderStatusBreakdown2,
+          getCustomerMetrics: getCustomerMetrics2,
+          getPeriodRange: getPeriodRange2,
+          getVisitorMetricsForToday: getVisitorMetricsForToday2,
+          filterOrdersByDateRange: filterOrdersByDateRange2,
+          isValidRevenueOrder: isValidRevenueOrder2
+        } = await Promise.resolve().then(() => (init_analytics(), analytics_exports));
+        const statusBreakdown = getOrderStatusBreakdown2(orders3);
+        const revenuePeriods = {
+          today: getPeriodRevenueComparison2(orders3, "today"),
+          month: getPeriodRevenueComparison2(orders3, "month"),
+          lifetime: getPeriodRevenueComparison2(orders3, "lifetime")
         };
+        const orderPeriods = {
+          today: getPeriodOrderComparison2(orders3, "today"),
+          week: getPeriodOrderComparison2(orders3, "week"),
+          month: getPeriodOrderComparison2(orders3, "month")
+        };
+        const customerMetrics = getCustomerMetrics2(orders3, users4, getPeriodRange2("month"));
+        const prevCustomerMetrics = getCustomerMetrics2(orders3, users4, getPeriodRange2("month", new Date(Date.now() - 30 * 24 * 60 * 60 * 1e3)));
+        const customersGrowth = prevCustomerMetrics.newCustomersInPeriod === 0 ? customerMetrics.newCustomersInPeriod > 0 ? 100 : 0 : Number(((customerMetrics.newCustomersInPeriod - prevCustomerMetrics.newCustomersInPeriod) / prevCustomerMetrics.newCustomersInPeriod * 100).toFixed(1));
+        const customersTrend = customersGrowth > 0 ? "up" : customersGrowth < 0 ? "down" : "flat";
+        const visitorMetrics = getVisitorMetricsForToday2(visitors3);
+        const todayRange = getPeriodRange2("today");
+        const ordersDeliveredToday = filterOrdersByDateRange2(orders3, todayRange).filter(isValidRevenueOrder2);
+        const activeChefsToday = new Set(ordersDeliveredToday.map((o) => o.chefId).filter(Boolean)).size;
+        const activeDeliveryPartnersToday = new Set(
+          ordersDeliveredToday.filter((o) => o.assignedDeliveryPersonnelId).map((o) => o.assignedDeliveryPersonnelId)
+        ).size;
+        const cancelledOrdersToday = filterOrdersByDateRange2(orders3, todayRange).filter((o) => o.status === "cancelled").length;
+        const validOrdersToday = ordersDeliveredToday;
+        const averageOrderValueToday = validOrdersToday.length > 0 ? Math.round(validOrdersToday.reduce((sum, o) => sum + (o.total || 0), 0) / validOrdersToday.length) : 0;
+        const newCustomersToday = filterOrdersByDateRange2(orders3, todayRange).filter((o) => {
+          const userOrders = orders3.filter((uo) => uo.userId === o.userId);
+          return userOrders.length === 1;
+        }).length;
+        const monthRange = getPeriodRange2("month");
+        const advanceOrders = filterOrdersByDateRange2(orders3, monthRange).filter((o) => o.paymentStatus === "confirmed" && (o.status === "pending" || o.status === "accepted"));
+        const monthlyEarlyRevenue = advanceOrders.reduce((sum, o) => sum + (o.total || 0), 0);
+        const deliveredOrders = orders3.filter((o) => o.status === "delivered" || o.status === "completed");
+        const paymentStatusBreakdown = deliveredOrders.reduce((acc, o) => {
+          acc[o.paymentStatus || "undefined"] = (acc[o.paymentStatus || "undefined"] || 0) + 1;
+          return acc;
+        }, {});
+        console.log("[DASHBOARD METRICS] Database Query Results:", {
+          totalOrders: orders3.length,
+          totalUsers: users4.length,
+          totalChefs: chefs3.length,
+          totalDeliveryPersonnel: deliveryPersonnel3.length,
+          totalVisitors: visitors3.length,
+          ordersWithPaymentPaid: orders3.filter((o) => o.paymentStatus === "paid").length,
+          ordersWithStatusDelivered: orders3.filter((o) => o.status === "delivered").length,
+          ordersWithStatusCompleted: orders3.filter((o) => o.status === "completed").length,
+          totalDeliveredAndCompleted: deliveredOrders.length,
+          paymentStatusOfDeliveredOrders: paymentStatusBreakdown,
+          validRevenueOrders: orders3.filter(isValidRevenueOrder2).length,
+          advanceOrders: advanceOrders.length,
+          monthlyEarlyRevenue
+        });
+        const safeMetrics = {
+          userCount: users4?.length ?? 0,
+          orderCount: orders3?.length ?? 0,
+          totalRevenue: revenuePeriods?.lifetime?.current ?? 0,
+          pendingOrders: statusBreakdown?.pending ?? 0,
+          completedOrders: statusBreakdown?.delivered ?? 0,
+          revenueGrowth: revenuePeriods?.month?.growth ?? 0,
+          revenueTrend: revenuePeriods?.month?.trend ?? "flat",
+          ordersGrowth: orderPeriods?.month?.growth ?? 0,
+          ordersTrend: orderPeriods?.month?.trend ?? "flat",
+          customersGrowth: customersGrowth ?? 0,
+          customersTrend: customersTrend ?? "flat",
+          statusBreakdown: statusBreakdown ?? {
+            pending: 0,
+            accepted: 0,
+            preparing: 0,
+            ready: 0,
+            outForDelivery: 0,
+            delivered: 0,
+            cancelled: 0
+          },
+          revenuePeriods: revenuePeriods ?? {
+            today: { current: 0, previous: 0, growth: 0, trend: "flat" },
+            month: { current: 0, previous: 0, growth: 0, trend: "flat" },
+            lifetime: { current: 0, previous: 0, growth: 0, trend: "flat" }
+          },
+          orderPeriods: orderPeriods ?? {
+            today: { current: 0, previous: 0, growth: 0, trend: "flat" },
+            month: { current: 0, previous: 0, growth: 0, trend: "flat" }
+          },
+          visitorMetrics: visitorMetrics ?? {
+            todaysVisits: 0,
+            uniqueVisitors: 0,
+            newVisitors: 0,
+            returningVisitors: 0
+          },
+          activeChefsToday: activeChefsToday ?? 0,
+          activeDeliveryPartnersToday: activeDeliveryPartnersToday ?? 0,
+          cancelledOrdersToday: cancelledOrdersToday ?? 0,
+          averageOrderValueToday: averageOrderValueToday ?? 0,
+          newCustomersToday: newCustomersToday ?? 0,
+          monthlyEarlyRevenue: monthlyEarlyRevenue ?? 0
+        };
+        console.log("[DASHBOARD METRICS] Response structure:", {
+          hasRevenuePeriods: !!safeMetrics.revenuePeriods,
+          hasOrderPeriods: !!safeMetrics.orderPeriods,
+          hasVisitorMetrics: !!safeMetrics.visitorMetrics,
+          visitorMetricsKeys: Object.keys(safeMetrics.visitorMetrics),
+          revenuePeriodKeys: Object.keys(safeMetrics.revenuePeriods),
+          orderPeriodKeys: Object.keys(safeMetrics.orderPeriods),
+          monthlyEarlyRevenue: safeMetrics.monthlyEarlyRevenue
+        });
+        return safeMetrics;
+      }
+      async getDashboardChartsData() {
+        try {
+          const orders3 = await db.query.orders.findMany();
+          const { generateRevenueTrendChart: generateRevenueTrendChart2, generateTopSellingItems: generateTopSellingItems2, generateTopAreas: generateTopAreas2 } = await Promise.resolve().then(() => (init_analytics(), analytics_exports));
+          const chartsData = {
+            revenueTrend: {
+              today: generateRevenueTrendChart2(orders3, "today") ?? [],
+              "7days": generateRevenueTrendChart2(orders3, "7days") ?? [],
+              "30days": generateRevenueTrendChart2(orders3, "30days") ?? [],
+              "90days": generateRevenueTrendChart2(orders3, "90days") ?? [],
+              "12months": generateRevenueTrendChart2(orders3, "12months") ?? []
+            },
+            topItems: generateTopSellingItems2(orders3, 10) ?? [],
+            topAreas: generateTopAreas2(orders3, 10) ?? []
+          };
+          console.log("[DASHBOARD CHARTS] Response structure:", {
+            hasRevenueTrend: !!chartsData.revenueTrend,
+            topItemsCount: chartsData.topItems?.length ?? 0,
+            topAreasCount: chartsData.topAreas?.length ?? 0,
+            revenueTrendPeriods: Object.keys(chartsData.revenueTrend)
+          });
+          return chartsData;
+        } catch (error) {
+          console.error("[DASHBOARD CHARTS] Error fetching charts data:", error);
+          return {
+            revenueTrend: {
+              today: [],
+              "7days": [],
+              "30days": [],
+              "90days": [],
+              "12months": []
+            },
+            topItems: [],
+            topAreas: []
+          };
+        }
       }
       // Coupons
       async verifyCoupon(code, orderAmount, userId) {
@@ -1980,7 +2498,7 @@ var init_storage = __esm({
         });
         if (coupon) {
           await db.insert(couponUsages2).values({
-            id: randomUUID2(),
+            id: randomUUID(),
             couponId: coupon.id,
             userId,
             orderId: orderId || null,
@@ -2033,7 +2551,7 @@ var init_storage = __esm({
         return db.query.subscriptionPlans.findFirst({ where: (sp, { eq: eq10 }) => eq10(sp.id, id) });
       }
       async createSubscriptionPlan(data) {
-        const id = randomUUID2();
+        const id = randomUUID();
         const plan = {
           ...data,
           id,
@@ -2073,7 +2591,7 @@ var init_storage = __esm({
         return sub ? serializeSubscription(sub) : void 0;
       }
       async createSubscription(data) {
-        const id = randomUUID2();
+        const id = randomUUID();
         const now = /* @__PURE__ */ new Date();
         const insertData = {
           ...data,
@@ -2268,14 +2786,14 @@ var init_storage = __esm({
         });
       }
       async getSubscriptionDeliveryLogsByDate(date) {
-        const startOfDay = new Date(date);
-        startOfDay.setHours(0, 0, 0, 0);
-        const endOfDay = new Date(date);
-        endOfDay.setHours(23, 59, 59, 999);
+        const startOfDay3 = new Date(date);
+        startOfDay3.setHours(0, 0, 0, 0);
+        const endOfDay3 = new Date(date);
+        endOfDay3.setHours(23, 59, 59, 999);
         return db.query.subscriptionDeliveryLogs.findMany({
           where: (log3, { and: and6, gte: gte3, lte: lte2 }) => and6(
-            gte3(log3.date, startOfDay),
-            lte2(log3.date, endOfDay)
+            gte3(log3.date, startOfDay3),
+            lte2(log3.date, endOfDay3)
           )
         });
       }
@@ -2283,7 +2801,7 @@ var init_storage = __esm({
         return db.query.subscriptionDeliveryLogs.findFirst({ where: (log3, { eq: eq10 }) => eq10(log3.id, id) });
       }
       async createSubscriptionDeliveryLog(data) {
-        const id = randomUUID2();
+        const id = randomUUID();
         const now = /* @__PURE__ */ new Date();
         const logData = {
           ...data,
@@ -2311,21 +2829,21 @@ var init_storage = __esm({
         await db.delete(subscriptionDeliveryLogs2).where(eq(subscriptionDeliveryLogs2.id, id));
       }
       async getDeliveryLogBySubscriptionAndDate(subscriptionId, date) {
-        const startOfDay = new Date(date);
-        startOfDay.setHours(0, 0, 0, 0);
-        const endOfDay = new Date(date);
-        endOfDay.setHours(23, 59, 59, 999);
+        const startOfDay3 = new Date(date);
+        startOfDay3.setHours(0, 0, 0, 0);
+        const endOfDay3 = new Date(date);
+        endOfDay3.setHours(23, 59, 59, 999);
         return db.query.subscriptionDeliveryLogs.findFirst({
           where: (log3, { and: and6, eq: eq10, gte: gte3, lte: lte2 }) => and6(
             eq10(log3.subscriptionId, subscriptionId),
-            gte3(log3.date, startOfDay),
-            lte2(log3.date, endOfDay)
+            gte3(log3.date, startOfDay3),
+            lte2(log3.date, endOfDay3)
           )
         });
       }
       // Custom Subscription Requests implementation
       async createCustomSubscriptionRequest(data) {
-        const id = randomUUID2();
+        const id = randomUUID();
         const now = /* @__PURE__ */ new Date();
         const requestData = {
           ...data,
@@ -2763,7 +3281,7 @@ var init_storage = __esm({
         return void 0;
       }
       async createDeliverySetting(data) {
-        const id = randomUUID2();
+        const id = randomUUID();
         const setting = {
           ...data,
           id,
@@ -2817,7 +3335,7 @@ var init_storage = __esm({
         return void 0;
       }
       async createDeliveryPartnerPayout(data) {
-        const id = randomUUID2();
+        const id = randomUUID();
         const now = /* @__PURE__ */ new Date();
         const minDist = parseFloat(String(data.minDistance));
         const maxDist = parseFloat(String(data.maxDistance));
@@ -2878,7 +3396,7 @@ var init_storage = __esm({
         return db.query.cartSettings.findFirst({ where: (cs, { eq: eq10 }) => eq10(cs.categoryId, categoryId) });
       }
       async createCartSetting(data) {
-        const id = randomUUID2();
+        const id = randomUUID();
         let categoryName = data.categoryName;
         if (!categoryName) {
           const category = await this.getCategoryById(data.categoryId);
@@ -2931,7 +3449,7 @@ var init_storage = __esm({
         });
       }
       async createDeliveryPersonnel(data) {
-        const id = randomUUID2();
+        const id = randomUUID();
         const deliveryPerson = {
           id,
           name: data.name,
@@ -3188,13 +3706,13 @@ var init_storage = __esm({
           const referredBonus = settings?.referredBonus || 0;
           const maxReferralsPerMonth = settings?.maxReferralsPerMonth || 0;
           const maxEarningsPerMonth = settings?.maxEarningsPerMonth || 0;
-          const startOfMonth = /* @__PURE__ */ new Date();
-          startOfMonth.setDate(1);
-          startOfMonth.setHours(0, 0, 0, 0);
+          const startOfMonth2 = /* @__PURE__ */ new Date();
+          startOfMonth2.setDate(1);
+          startOfMonth2.setHours(0, 0, 0, 0);
           const monthlyReferrals = await tx.query.referrals.findMany({
             where: (r, { and: and6, eq: eqOp, gte: gteOp }) => and6(
               eqOp(r.referrerId, referrer.id),
-              gteOp(r.createdAt, startOfMonth)
+              gteOp(r.createdAt, startOfMonth2)
             )
           });
           if (monthlyReferrals.length >= maxReferralsPerMonth) {
@@ -3240,14 +3758,14 @@ var init_storage = __esm({
             await tx.update(referrals2).set({ status: "expired" }).where(eq(referrals2.id, referral.id));
             return;
           }
-          const startOfMonth = /* @__PURE__ */ new Date();
-          startOfMonth.setDate(1);
-          startOfMonth.setHours(0, 0, 0, 0);
+          const startOfMonth2 = /* @__PURE__ */ new Date();
+          startOfMonth2.setDate(1);
+          startOfMonth2.setHours(0, 0, 0, 0);
           const completedThisMonth = await tx.query.referrals.findMany({
             where: (r, { and: and6, eq: eqOp, gte: gteOp }) => and6(
               eqOp(r.referrerId, referral.referrerId),
               eqOp(r.status, "completed"),
-              gteOp(r.createdAt, startOfMonth)
+              gteOp(r.createdAt, startOfMonth2)
             )
           });
           const monthlyEarnings = completedThisMonth.reduce((sum, r) => sum + r.referrerBonus, 0);
@@ -3810,7 +4328,7 @@ var init_storage = __esm({
         });
       }
       async createPromotionalBanner(data) {
-        const id = randomUUID2();
+        const id = randomUUID();
         const banner = {
           id,
           title: data.title,
@@ -3859,7 +4377,7 @@ var init_storage = __esm({
         return db.query.deliveryTimeSlots.findFirst({ where: (slot, { eq: eq10 }) => eq10(slot.id, id) });
       }
       async createDeliveryTimeSlot(data) {
-        const id = randomUUID2();
+        const id = randomUUID();
         const slot = {
           id,
           ...data,
@@ -3966,7 +4484,7 @@ var init_storage = __esm({
         return settings;
       }
       async createReferralReward(data) {
-        const id = randomUUID2();
+        const id = randomUUID();
         const reward = {
           id,
           ...data,
@@ -3992,7 +4510,7 @@ var init_storage = __esm({
       }
       // Create coupon
       async createCoupon(data) {
-        const id = randomUUID2();
+        const id = randomUUID();
         const coupon = {
           id,
           ...data,
@@ -4295,12 +4813,12 @@ var init_storage = __esm({
       async getAllWalletTransactions(dateFilter) {
         if (dateFilter) {
           const filterDate = new Date(dateFilter);
-          const startOfDay = new Date(filterDate.setHours(0, 0, 0, 0));
-          const endOfDay = new Date(filterDate.setHours(23, 59, 59, 999));
+          const startOfDay3 = new Date(filterDate.setHours(0, 0, 0, 0));
+          const endOfDay3 = new Date(filterDate.setHours(23, 59, 59, 999));
           return db.query.walletTransactions.findMany({
             where: (wt, { and: and6, gte: gteOp, lte: lteOp }) => and6(
-              gteOp(wt.createdAt, startOfDay),
-              lteOp(wt.createdAt, endOfDay)
+              gteOp(wt.createdAt, startOfDay3),
+              lteOp(wt.createdAt, endOfDay3)
             ),
             orderBy: (wt, { desc: desc3 }) => [desc3(wt.createdAt)]
           });
@@ -4482,7 +5000,7 @@ var init_storage = __esm({
           const updated = await db.update(adminSettings2).set({ value, description: description || null, updatedAt: /* @__PURE__ */ new Date() }).where(eq(adminSettings2.key, key)).returning();
           if (updated.length === 0) {
             await db.insert(adminSettings2).values({
-              id: randomUUID2(),
+              id: randomUUID(),
               key,
               value,
               description: description || null
@@ -4517,7 +5035,7 @@ var init_storage = __esm({
       }
       // ============ PENDING CHECKOUTS METHODS ============
       async savePendingCheckout(data) {
-        const id = randomUUID2();
+        const id = randomUUID();
         const now = /* @__PURE__ */ new Date();
         const pending = {
           id,
@@ -7147,6 +7665,255 @@ var init_whatsappService = __esm({
   }
 });
 
+// server/utils/restaurantStatus.ts
+function isValidTimeFormat(time) {
+  if (!time) return false;
+  const match = /^([0-1][0-9]|2[0-3]):([0-5][0-9])$/.test(time);
+  return match;
+}
+function timeToMinutes(time) {
+  const [hours, minutes] = time.split(":").map(Number);
+  return hours * 60 + minutes;
+}
+function getCurrentTimeInMinutes(now = /* @__PURE__ */ new Date()) {
+  return now.getHours() * 60 + now.getMinutes();
+}
+function isOpenInScheduleWindow(openingTime, closingTime, currentTimeInMinutes) {
+  const openMins = timeToMinutes(openingTime);
+  const closeMins = timeToMinutes(closingTime);
+  if (openMins <= closeMins) {
+    return currentTimeInMinutes >= openMins && currentTimeInMinutes < closeMins;
+  } else {
+    return currentTimeInMinutes >= openMins || currentTimeInMinutes < closeMins;
+  }
+}
+function calculateRestaurantStatus(config, now = /* @__PURE__ */ new Date()) {
+  if (!config.isActive) {
+    console.log("[RESTAURANT-STATUS] Admin disabled (isActive=false)");
+    return {
+      isCurrentlyOpen: false,
+      reason: "admin_disabled",
+      nextOpeningTime: void 0,
+      currentSchedulePeriodEndsAt: void 0
+    };
+  }
+  if (config.manualOverrideClosed && config.manualOverrideClosed.closedUntil > now) {
+    const closedUntilTime = formatTime(
+      config.manualOverrideClosed.closedUntil.getHours(),
+      config.manualOverrideClosed.closedUntil.getMinutes()
+    );
+    console.log(`[RESTAURANT-STATUS] Manual close override active until ${closedUntilTime}`);
+    return {
+      isCurrentlyOpen: false,
+      reason: "manual_closed",
+      nextOpeningTime: config.openingTime || closedUntilTime,
+      currentSchedulePeriodEndsAt: void 0
+    };
+  }
+  if (config.autoScheduleEnabled && isValidTimeFormat(config.openingTime) && isValidTimeFormat(config.closingTime)) {
+    const currentMinutes = getCurrentTimeInMinutes(now);
+    const isOpen = isOpenInScheduleWindow(config.openingTime, config.closingTime, currentMinutes);
+    if (isOpen) {
+      console.log(`[RESTAURANT-STATUS] Open per auto-schedule (closes at ${config.closingTime})`);
+      return {
+        isCurrentlyOpen: true,
+        reason: "schedule_open",
+        nextOpeningTime: void 0,
+        currentSchedulePeriodEndsAt: config.closingTime
+      };
+    } else {
+      console.log(`[RESTAURANT-STATUS] Closed per auto-schedule (opens at ${config.openingTime})`);
+      return {
+        isCurrentlyOpen: false,
+        reason: "schedule_closed",
+        nextOpeningTime: config.openingTime,
+        currentSchedulePeriodEndsAt: void 0
+      };
+    }
+  }
+  console.log("[RESTAURANT-STATUS] Invalid schedule or auto-schedule disabled - defaulting to open");
+  return {
+    isCurrentlyOpen: true,
+    reason: "always_open",
+    nextOpeningTime: void 0,
+    currentSchedulePeriodEndsAt: void 0
+  };
+}
+function formatTime(hours, minutes) {
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+function setManualCloseForToday(chefId, closedUntil) {
+  manualOverrides.set(chefId, { closedUntil });
+  console.log(`[MANUAL-OVERRIDE] Chef ${chefId} closed for today until ${closedUntil.toISOString()}`);
+}
+function clearManualOverride(chefId) {
+  manualOverrides.delete(chefId);
+  console.log(`[MANUAL-OVERRIDE] Cleared override for chef ${chefId}`);
+}
+function getManualOverride(chefId, now = /* @__PURE__ */ new Date()) {
+  const override = manualOverrides.get(chefId);
+  if (!override || override.closedUntil <= now) {
+    return void 0;
+  }
+  return override;
+}
+function buildRestaurantConfig(chefData) {
+  return {
+    isActive: chefData.isActive,
+    autoScheduleEnabled: chefData.autoScheduleEnabled ?? false,
+    openingTime: chefData.openingTime,
+    closingTime: chefData.closingTime,
+    manualOverrideClosed: getManualOverride(chefData.id)
+  };
+}
+function validateScheduleConfig(autoScheduleEnabled, openingTime, closingTime) {
+  if (!autoScheduleEnabled) {
+    return null;
+  }
+  if (!openingTime || !closingTime) {
+    return "Both opening and closing times are required when auto schedule is enabled";
+  }
+  if (!isValidTimeFormat(openingTime)) {
+    return `Invalid opening time format: "${openingTime}". Use HH:mm (e.g., "09:00")`;
+  }
+  if (!isValidTimeFormat(closingTime)) {
+    return `Invalid closing time format: "${closingTime}". Use HH:mm (e.g., "22:00")`;
+  }
+  return null;
+}
+var manualOverrides;
+var init_restaurantStatus = __esm({
+  "server/utils/restaurantStatus.ts"() {
+    "use strict";
+    manualOverrides = /* @__PURE__ */ new Map();
+  }
+});
+
+// server/reports.ts
+var reports_exports = {};
+__export(reports_exports, {
+  generateCancelledOrdersReport: () => generateCancelledOrdersReport,
+  generateChefReport: () => generateChefReport,
+  generateCompletedOrdersReport: () => generateCompletedOrdersReport,
+  generateCustomerReport: () => generateCustomerReport,
+  generateRevenueReport: () => generateRevenueReport
+});
+import { format as format2 } from "date-fns";
+var generateRevenueReport, generateCompletedOrdersReport, generateCancelledOrdersReport, generateCustomerReport, generateChefReport;
+var init_reports = __esm({
+  "server/reports.ts"() {
+    "use strict";
+    init_analytics();
+    generateRevenueReport = (orders3, range) => {
+      const periodOrders = filterOrdersByDateRange(orders3, range);
+      const metrics = calculateRevenueMetrics(periodOrders);
+      const revenueByDay = /* @__PURE__ */ new Map();
+      periodOrders.filter(isValidRevenueOrder).forEach((order) => {
+        const dateStr = format2(new Date(order.deliveredAt || order.createdAt), "yyyy-MM-dd");
+        const current = revenueByDay.get(dateStr) || { revenue: 0, orders: 0 };
+        current.revenue += order.total || 0;
+        current.orders += 1;
+        revenueByDay.set(dateStr, current);
+      });
+      return {
+        ...metrics,
+        revenueByDay: Array.from(revenueByDay.entries()).map(([date, data]) => ({ date, ...data })).sort((a, b) => a.date.localeCompare(b.date))
+      };
+    };
+    generateCompletedOrdersReport = (orders3, range) => {
+      const periodOrders = filterOrdersByDateRange(orders3, range);
+      const completedOrders = periodOrders.filter(isValidRevenueOrder);
+      return {
+        totalCompleted: completedOrders.length,
+        revenue: completedOrders.reduce((sum, o) => sum + (o.total || 0), 0),
+        averageOrderValue: completedOrders.length > 0 ? Math.round(completedOrders.reduce((sum, o) => sum + (o.total || 0), 0) / completedOrders.length) : 0,
+        orders: completedOrders.map((o) => ({
+          id: o.id,
+          customerName: o.customerName,
+          total: o.total,
+          deliveredAt: o.deliveredAt,
+          chefName: o.chefName,
+          deliveryPersonName: o.deliveryPersonName
+        })).sort((a, b) => new Date(b.deliveredAt || 0).getTime() - new Date(a.deliveredAt || 0).getTime())
+      };
+    };
+    generateCancelledOrdersReport = (orders3, range) => {
+      const periodOrders = filterOrdersByDateRange(orders3, range);
+      const cancelledOrders = periodOrders.filter(isCancelledOrder);
+      const reasons = /* @__PURE__ */ new Map();
+      cancelledOrders.forEach((o) => {
+        const reason = o.rejectionReason || "Unknown";
+        reasons.set(reason, (reasons.get(reason) || 0) + 1);
+      });
+      return {
+        totalCancelled: cancelledOrders.length,
+        cancellationRate: periodOrders.length > 0 ? Number((cancelledOrders.length / periodOrders.length * 100).toFixed(1)) : 0,
+        reasonsBreakdown: Array.from(reasons.entries()).map(([reason, count2]) => ({ reason, count: count2 })),
+        orders: cancelledOrders.map((o) => ({
+          id: o.id,
+          customerName: o.customerName,
+          total: o.total,
+          createdAt: o.createdAt,
+          rejectedAt: o.rejectedAt,
+          rejectedBy: o.rejectedBy,
+          rejectionReason: o.rejectionReason
+        })).sort((a, b) => new Date(b.rejectedAt || 0).getTime() - new Date(a.rejectedAt || 0).getTime())
+      };
+    };
+    generateCustomerReport = (orders3, users4, range) => {
+      const metrics = getCustomerMetrics(orders3, users4, range);
+      const customerStats = /* @__PURE__ */ new Map();
+      orders3.filter(isValidRevenueOrder).forEach((order) => {
+        if (!order.userId) return;
+        const current = customerStats.get(order.userId) || {
+          name: order.customerName,
+          email: order.email || "",
+          phone: order.phone,
+          totalSpent: 0,
+          orderCount: 0,
+          lastOrderDate: ""
+        };
+        current.totalSpent += order.total || 0;
+        current.orderCount += 1;
+        const orderDate = new Date(order.createdAt).toISOString();
+        if (!current.lastOrderDate || orderDate > current.lastOrderDate) {
+          current.lastOrderDate = orderDate;
+        }
+        customerStats.set(order.userId, current);
+      });
+      return {
+        ...metrics,
+        topCustomers: Array.from(customerStats.values()).sort((a, b) => b.totalSpent - a.totalSpent).slice(0, 50)
+      };
+    };
+    generateChefReport = (orders3, chefs3, range) => {
+      const periodOrders = filterOrdersByDateRange(orders3, range);
+      const chefStats = chefs3.map((chef) => {
+        const chefOrders = periodOrders.filter((o) => o.chefId === chef.id);
+        const completedOrders = chefOrders.filter(isValidRevenueOrder);
+        const cancelledOrders = chefOrders.filter((o) => o.status === "cancelled" && (o.rejectedBy === "chef" || o.rejectionReason?.toLowerCase().includes("chef")));
+        const revenue = completedOrders.reduce((sum, o) => sum + (o.subtotal || 0) * 0.8, 0);
+        return {
+          id: chef.id,
+          name: chef.name,
+          rating: chef.rating,
+          totalOrdersAssigned: chefOrders.length,
+          completedOrders: completedOrders.length,
+          cancelledOrders: cancelledOrders.length,
+          acceptanceRate: chefOrders.length > 0 ? Number((completedOrders.length / chefOrders.length * 100).toFixed(1)) : 0,
+          revenueGenerated: completedOrders.reduce((sum, o) => sum + (o.subtotal || 0), 0),
+          estimatedEarnings: revenue
+        };
+      }).sort((a, b) => b.completedOrders - a.completedOrders);
+      return {
+        totalChefs: chefs3.length,
+        activeChefs: chefStats.filter((c) => c.completedOrders > 0).length,
+        chefStats
+      };
+    };
+  }
+});
+
 // server/adminRoutes.ts
 import jwt5 from "jsonwebtoken";
 import { fromZodError } from "zod-validation-error";
@@ -7467,10 +8234,45 @@ function registerAdminRoutes(app2) {
   app2.get("/api/admin/dashboard/metrics", requireAdmin(), async (req, res) => {
     try {
       const metrics = await storage.getDashboardMetrics();
+      console.log("[ADMIN DASHBOARD] Metrics endpoint - Response validation:", {
+        hasAllFields: !!metrics && !!metrics.revenuePeriods && !!metrics.orderPeriods && !!metrics.visitorMetrics,
+        revenuePeriodFields: metrics?.revenuePeriods ? Object.keys(metrics.revenuePeriods) : [],
+        visitorMetricsFields: metrics?.visitorMetrics ? Object.keys(metrics.visitorMetrics) : [],
+        timestamp: (/* @__PURE__ */ new Date()).toISOString()
+      });
       res.json(metrics);
     } catch (error) {
-      console.error("Dashboard metrics error:", error);
-      res.status(500).json({ message: "Failed to fetch metrics" });
+      console.error("[ADMIN DASHBOARD] Metrics error:", {
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : void 0,
+        timestamp: (/* @__PURE__ */ new Date()).toISOString()
+      });
+      res.status(500).json({
+        message: "Failed to fetch metrics",
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+  app2.get("/api/admin/dashboard/charts", requireAdmin(), async (req, res) => {
+    try {
+      const chartsData = await storage.getDashboardChartsData();
+      console.log("[ADMIN DASHBOARD] Charts endpoint - Response validation:", {
+        hasAllFields: !!chartsData && !!chartsData.revenueTrend && !!chartsData.topItems && !!chartsData.topAreas,
+        topItemsCount: chartsData?.topItems?.length ?? 0,
+        topAreasCount: chartsData?.topAreas?.length ?? 0,
+        timestamp: (/* @__PURE__ */ new Date()).toISOString()
+      });
+      res.json(chartsData);
+    } catch (error) {
+      console.error("[ADMIN DASHBOARD] Charts error:", {
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : void 0,
+        timestamp: (/* @__PURE__ */ new Date()).toISOString()
+      });
+      res.status(500).json({
+        message: "Failed to fetch charts data",
+        error: error instanceof Error ? error.message : String(error)
+      });
     }
   });
   app2.get("/api/admin/orders", requireAdmin(), async (req, res) => {
@@ -8253,7 +9055,7 @@ Please prepare this order.`;
   app2.patch("/api/admin/chefs/:id", requireAdminOrManager(), async (req, res) => {
     try {
       const { id } = req.params;
-      const { address, latitude, longitude } = req.body;
+      const { address, latitude, longitude, autoScheduleEnabled, openingTime, closingTime } = req.body;
       if (address) {
         if (typeof latitude !== "number" || typeof longitude !== "number") {
           res.status(400).json({ message: "Valid coordinates (latitude/longitude) required when address is provided" });
@@ -8264,18 +9066,40 @@ Please prepare this order.`;
           return;
         }
       }
+      if (autoScheduleEnabled !== void 0 || openingTime !== void 0 || closingTime !== void 0) {
+        const scheduleEnabled = autoScheduleEnabled !== void 0 ? autoScheduleEnabled : false;
+        const opening = openingTime !== void 0 ? openingTime : null;
+        const closing = closingTime !== void 0 ? closingTime : null;
+        const validationError = validateScheduleConfig(scheduleEnabled, opening, closing);
+        if (validationError) {
+          res.status(400).json({ message: validationError });
+          return;
+        }
+        console.log(`\u2705 Admin scheduling update for chef ${id}:`, {
+          autoScheduleEnabled: scheduleEnabled,
+          openingTime: opening,
+          closingTime: closing
+        });
+      }
       const chef = await storage.updateChef(id, req.body);
       if (!chef) {
         res.status(404).json({ message: "Chef not found" });
         return;
       }
-      if (req.body.isActive !== void 0) {
-        const { broadcastChefStatusUpdate: broadcastChefStatusUpdate3 } = await Promise.resolve().then(() => (init_websocket(), websocket_exports));
-        broadcastChefStatusUpdate3(chef);
+      const config = buildRestaurantConfig(chef);
+      const status = calculateRestaurantStatus(config);
+      const response = {
+        ...chef,
+        isCurrentlyOpen: status.isCurrentlyOpen,
+        currentScheduleStatus: status.reason,
+        nextOpeningTime: status.nextOpeningTime
+      };
+      if (req.body.isActive !== void 0 || autoScheduleEnabled !== void 0 || openingTime !== void 0 || closingTime !== void 0) {
+        broadcastChefStatusUpdate(response);
       }
       invalidateCache("chefs");
       invalidateCachePrefix("pincode-");
-      res.json(chef);
+      res.json(response);
     } catch (error) {
       console.error("Error updating chef:", error);
       res.status(500).json({ message: "Failed to update chef" });
@@ -10232,52 +11056,91 @@ Please prepare this order.`;
       res.status(500).json({ message: "Failed to renew subscription" });
     }
   });
-  app2.get("/api/admin/reports/sales", requireAdmin(), async (req, res) => {
+  app2.get("/api/admin/reports/revenue", requireAdmin(), async (req, res) => {
     try {
       const { from, to } = req.query;
-      const report = await storage.getSalesReport(
-        from ? new Date(from) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1e3),
-        to ? new Date(to) : /* @__PURE__ */ new Date()
-      );
+      const { getPeriodRange: getPeriodRange2 } = await Promise.resolve().then(() => (init_analytics(), analytics_exports));
+      const { generateRevenueReport: generateRevenueReport2 } = await Promise.resolve().then(() => (init_reports(), reports_exports));
+      const range = {
+        start: from ? new Date(from) : getPeriodRange2("month").start,
+        end: to ? new Date(to) : /* @__PURE__ */ new Date()
+      };
+      const orders3 = await storage.getAllOrders();
+      const report = generateRevenueReport2(orders3, range);
       res.json(report);
     } catch (error) {
-      console.error("Get sales report error:", error);
-      res.status(500).json({ message: "Failed to fetch sales report" });
+      console.error("Get revenue report error:", error);
+      res.status(500).json({ message: "Failed to fetch revenue report" });
     }
   });
-  app2.get("/api/admin/reports/users", requireAdmin(), async (req, res) => {
+  app2.get("/api/admin/reports/completed-orders", requireAdmin(), async (req, res) => {
     try {
       const { from, to } = req.query;
-      const report = await storage.getUserReport(
-        from ? new Date(from) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1e3),
-        to ? new Date(to) : /* @__PURE__ */ new Date()
-      );
+      const { getPeriodRange: getPeriodRange2 } = await Promise.resolve().then(() => (init_analytics(), analytics_exports));
+      const { generateCompletedOrdersReport: generateCompletedOrdersReport2 } = await Promise.resolve().then(() => (init_reports(), reports_exports));
+      const range = {
+        start: from ? new Date(from) : getPeriodRange2("month").start,
+        end: to ? new Date(to) : /* @__PURE__ */ new Date()
+      };
+      const orders3 = await storage.getAllOrders();
+      const report = generateCompletedOrdersReport2(orders3, range);
       res.json(report);
     } catch (error) {
-      console.error("Get user report error:", error);
-      res.status(500).json({ message: "Failed to fetch user report" });
+      console.error("Get completed orders report error:", error);
+      res.status(500).json({ message: "Failed to fetch completed orders report" });
     }
   });
-  app2.get("/api/admin/reports/inventory", requireAdmin(), async (req, res) => {
-    try {
-      const report = await storage.getInventoryReport();
-      res.json(report);
-    } catch (error) {
-      console.error("Get inventory report error:", error);
-      res.status(500).json({ message: "Failed to fetch inventory report" });
-    }
-  });
-  app2.get("/api/admin/reports/subscriptions", requireAdmin(), async (req, res) => {
+  app2.get("/api/admin/reports/cancelled-orders", requireAdmin(), async (req, res) => {
     try {
       const { from, to } = req.query;
-      const report = await storage.getSubscriptionReport(
-        from ? new Date(from) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1e3),
-        to ? new Date(to) : /* @__PURE__ */ new Date()
-      );
+      const { getPeriodRange: getPeriodRange2 } = await Promise.resolve().then(() => (init_analytics(), analytics_exports));
+      const { generateCancelledOrdersReport: generateCancelledOrdersReport2 } = await Promise.resolve().then(() => (init_reports(), reports_exports));
+      const range = {
+        start: from ? new Date(from) : getPeriodRange2("month").start,
+        end: to ? new Date(to) : /* @__PURE__ */ new Date()
+      };
+      const orders3 = await storage.getAllOrders();
+      const report = generateCancelledOrdersReport2(orders3, range);
       res.json(report);
     } catch (error) {
-      console.error("Get subscription report error:", error);
-      res.status(500).json({ message: "Failed to fetch subscription report" });
+      console.error("Get cancelled orders report error:", error);
+      res.status(500).json({ message: "Failed to fetch cancelled orders report" });
+    }
+  });
+  app2.get("/api/admin/reports/customers", requireAdmin(), async (req, res) => {
+    try {
+      const { from, to } = req.query;
+      const { getPeriodRange: getPeriodRange2 } = await Promise.resolve().then(() => (init_analytics(), analytics_exports));
+      const { generateCustomerReport: generateCustomerReport2 } = await Promise.resolve().then(() => (init_reports(), reports_exports));
+      const range = {
+        start: from ? new Date(from) : getPeriodRange2("month").start,
+        end: to ? new Date(to) : /* @__PURE__ */ new Date()
+      };
+      const orders3 = await storage.getAllOrders();
+      const users4 = await storage.getAllUsers();
+      const report = generateCustomerReport2(orders3, users4, range);
+      res.json(report);
+    } catch (error) {
+      console.error("Get customer report error:", error);
+      res.status(500).json({ message: "Failed to fetch customer report" });
+    }
+  });
+  app2.get("/api/admin/reports/chefs", requireAdmin(), async (req, res) => {
+    try {
+      const { from, to } = req.query;
+      const { getPeriodRange: getPeriodRange2 } = await Promise.resolve().then(() => (init_analytics(), analytics_exports));
+      const { generateChefReport: generateChefReport2 } = await Promise.resolve().then(() => (init_reports(), reports_exports));
+      const range = {
+        start: from ? new Date(from) : getPeriodRange2("month").start,
+        end: to ? new Date(to) : /* @__PURE__ */ new Date()
+      };
+      const orders3 = await storage.getAllOrders();
+      const chefs3 = await storage.getChefs();
+      const report = generateChefReport2(orders3, chefs3, range);
+      res.json(report);
+    } catch (error) {
+      console.error("Get chef report error:", error);
+      res.status(500).json({ message: "Failed to fetch chef report" });
     }
   });
   app2.get("/api/admin/reports/chefs", requireAdmin(), async (req, res) => {
@@ -11622,6 +12485,7 @@ var init_adminRoutes = __esm({
     init_schema();
     init_emailService();
     init_whatsappService();
+    init_restaurantStatus();
     init_cache();
   }
 });
@@ -11961,7 +12825,15 @@ function registerPartnerRoutes(app2) {
         res.status(404).json({ message: "Chef not found" });
         return;
       }
-      res.json(chef);
+      const config = buildRestaurantConfig(chef);
+      const status = calculateRestaurantStatus(config);
+      res.json({
+        ...chef,
+        isCurrentlyOpen: status.isCurrentlyOpen,
+        currentScheduleStatus: status.reason,
+        nextOpeningTime: status.nextOpeningTime,
+        currentSchedulePeriodEndsAt: status.currentSchedulePeriodEndsAt
+      });
     } catch (error) {
       console.error("Error fetching chef details:", error);
       res.status(500).json({ message: "Failed to fetch chef details" });
@@ -11973,9 +12845,70 @@ function registerPartnerRoutes(app2) {
       if (!chefId) {
         return res.status(401).json({ message: "Unauthorized" });
       }
-      const { isActive } = req.body;
+      const { isActive, manualAction } = req.body;
+      if (manualAction) {
+        if (manualAction === "close_for_today") {
+          const chef = await storage.updateChef(chefId, { isActive: true });
+          if (!chef) {
+            return res.status(404).json({ message: "Chef not found" });
+          }
+          const config2 = buildRestaurantConfig(chef);
+          const status2 = calculateRestaurantStatus(config2);
+          let closedUntilTime;
+          if (chef.autoScheduleEnabled && status2.nextOpeningTime) {
+            closedUntilTime = /* @__PURE__ */ new Date((/* @__PURE__ */ new Date()).toDateString() + " " + status2.nextOpeningTime);
+            if (closedUntilTime <= /* @__PURE__ */ new Date()) {
+              closedUntilTime.setDate(closedUntilTime.getDate() + 1);
+            }
+          } else {
+            closedUntilTime = /* @__PURE__ */ new Date();
+            closedUntilTime.setHours(23, 59, 59, 999);
+            if (closedUntilTime <= /* @__PURE__ */ new Date()) {
+              closedUntilTime.setDate(closedUntilTime.getDate() + 1);
+            }
+          }
+          setManualCloseForToday(chefId, closedUntilTime);
+          console.log(`\u{1F6AB} Chef ${chef.name} manually closed until ${closedUntilTime.toLocaleTimeString()}`);
+          const updatedConfig = buildRestaurantConfig(chef);
+          const updatedStatus = calculateRestaurantStatus(updatedConfig);
+          const response2 = {
+            ...chef,
+            isCurrentlyOpen: updatedStatus.isCurrentlyOpen,
+            currentScheduleStatus: updatedStatus.reason,
+            nextOpeningTime: updatedStatus.nextOpeningTime,
+            manualActionApplied: "close_for_today",
+            closedUntil: closedUntilTime
+          };
+          invalidateCache("chefs");
+          broadcastChefStatusUpdate(response2);
+          return res.status(200).json(response2);
+        } else if (manualAction === "open_now") {
+          clearManualOverride(chefId);
+          const ensuredChef = await storage.updateChef(chefId, { isActive: true });
+          if (!ensuredChef) {
+            return res.status(404).json({ message: "Chef not found" });
+          }
+          console.log(`\u2705 Chef ${ensuredChef.name} manually opened now (isActive restored to true)`);
+          const config2 = buildRestaurantConfig(ensuredChef);
+          const status2 = calculateRestaurantStatus(config2);
+          const response2 = {
+            ...ensuredChef,
+            isCurrentlyOpen: status2.isCurrentlyOpen,
+            currentScheduleStatus: status2.reason,
+            nextOpeningTime: status2.nextOpeningTime,
+            manualActionApplied: "open_now"
+          };
+          invalidateCache("chefs");
+          broadcastChefStatusUpdate(response2);
+          return res.status(200).json(response2);
+        } else {
+          return res.status(400).json({
+            message: "Invalid manualAction. Must be 'close_for_today' or 'open_now'"
+          });
+        }
+      }
       if (typeof isActive !== "boolean") {
-        return res.status(400).json({ message: "isActive must be a boolean" });
+        return res.status(400).json({ message: "isActive must be a boolean or use manualAction parameter" });
       }
       const updatedChef = await storage.updateChef(chefId, { isActive });
       if (!updatedChef) {
@@ -11994,8 +12927,17 @@ function registerPartnerRoutes(app2) {
           console.log(`\u26A0\uFE0F Chef ${updatedChef.name} marked unavailable with ${activeSubscriptions.length} active subscriptions - Admin notified for reassignment`);
         }
       }
-      broadcastChefStatusUpdate(updatedChef);
-      return res.status(200).json(updatedChef);
+      const config = buildRestaurantConfig(updatedChef);
+      const status = calculateRestaurantStatus(config);
+      const response = {
+        ...updatedChef,
+        isCurrentlyOpen: status.isCurrentlyOpen,
+        currentScheduleStatus: status.reason,
+        nextOpeningTime: status.nextOpeningTime
+      };
+      invalidateCache("chefs");
+      broadcastChefStatusUpdate(response);
+      return res.status(200).json(response);
     } catch (error) {
       console.error("Error updating chef status:", error);
       return res.status(500).json({ message: "Failed to update chef status" });
@@ -12272,6 +13214,8 @@ var init_partnerRoutes = __esm({
     init_websocket();
     init_whatsappService();
     init_db();
+    init_restaurantStatus();
+    init_cache();
   }
 });
 
@@ -14968,6 +15912,30 @@ async function registerRoutes(app2) {
           chefLon = chef.longitude ?? 72.8826;
           chefName = chef.name;
           maxDeliveryDistance = chef.maxDeliveryDistanceKm ?? 5;
+          const config = buildRestaurantConfig(chef);
+          const status = calculateRestaurantStatus(config);
+          console.log(`[ORDER-VALIDATION] Restaurant status check:`, {
+            chefId: sanitized.chefId,
+            chefName,
+            isCurrentlyOpen: status.isCurrentlyOpen,
+            reason: status.reason,
+            nextOpening: status.nextOpeningTime
+          });
+          if (!status.isCurrentlyOpen) {
+            console.warn(`\u{1F6AB} Order rejected - restaurant is closed:`, {
+              chefId: sanitized.chefId,
+              chefName,
+              closedReason: status.reason,
+              nextOpening: status.nextOpeningTime
+            });
+            return res.status(400).json({
+              message: "Restaurant is currently closed. Please try again later.",
+              restaurantClosed: true,
+              reason: status.reason,
+              nextOpening: status.nextOpeningTime,
+              openingTime: chef.openingTime
+            });
+          }
         }
       }
       const addressDistance = calculateDistance2(chefLat, chefLon, customerLatitude, customerLongitude);
@@ -16180,12 +17148,22 @@ Please accept and start preparation.`;
   app2.get("/api/chefs", async (_req, res) => {
     try {
       const cached = getCache("chefs");
-      if (cached) {
-        return res.json(cached);
+      const chefs3 = cached || await storage.getChefs();
+      if (!cached) {
+        setCache("chefs", chefs3, 5 * 60 * 1e3);
       }
-      const chefs3 = await storage.getChefs();
-      setCache("chefs", chefs3, 5 * 60 * 1e3);
-      res.json(chefs3);
+      const chefsWithStatus = chefs3.map((chef) => {
+        const config = buildRestaurantConfig(chef);
+        const status = calculateRestaurantStatus(config);
+        return {
+          ...chef,
+          isCurrentlyOpen: status.isCurrentlyOpen,
+          currentScheduleStatus: status.reason,
+          nextOpeningTime: status.nextOpeningTime,
+          currentSchedulePeriodEndsAt: status.currentSchedulePeriodEndsAt
+        };
+      });
+      res.json(chefsWithStatus);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch chefs" });
     }
@@ -16215,7 +17193,18 @@ Please accept and start preparation.`;
         console.log(`     \u2705 ${c.name} (${area})`);
       });
       console.log("");
-      res.json(filteredChefs);
+      const chefsWithStatus = filteredChefs.map((chef) => {
+        const config = buildRestaurantConfig(chef);
+        const status = calculateRestaurantStatus(config);
+        return {
+          ...chef,
+          isCurrentlyOpen: status.isCurrentlyOpen,
+          currentScheduleStatus: status.reason,
+          nextOpeningTime: status.nextOpeningTime,
+          currentSchedulePeriodEndsAt: status.currentSchedulePeriodEndsAt
+        };
+      });
+      res.json(chefsWithStatus);
     } catch (error) {
       console.error("\u274C Error fetching chefs by area:", error);
       res.status(500).json({ message: "Failed to fetch chefs for delivery area" });
@@ -16262,7 +17251,18 @@ Please accept and start preparation.`;
         console.log(`     \u2705 ${c.name} - ${c.distanceFromUser}km away (max: ${c.maxDeliveryDistanceKm || 5}km)`);
       });
       console.log("");
-      res.json(nearbyChefs);
+      const chefsWithStatus = nearbyChefs.map((chef) => {
+        const config = buildRestaurantConfig(chef);
+        const status = calculateRestaurantStatus(config);
+        return {
+          ...chef,
+          isCurrentlyOpen: status.isCurrentlyOpen,
+          currentScheduleStatus: status.reason,
+          nextOpeningTime: status.nextOpeningTime,
+          currentSchedulePeriodEndsAt: status.currentSchedulePeriodEndsAt
+        };
+      });
+      res.json(chefsWithStatus);
     } catch (error) {
       console.error("\u274C Error fetching chefs by location:", error);
       res.status(500).json({ message: "Failed to fetch nearby chefs" });
@@ -16294,8 +17294,19 @@ Please accept and start preparation.`;
       });
       console.log(`   Found ${chefsServingPincode.length} chef(s) serving pincode ${pincode}`);
       console.log("");
-      setCache(key, chefsServingPincode, 60 * 60 * 1e3);
-      res.json(chefsServingPincode);
+      const chefsWithStatus = chefsServingPincode.map((chef) => {
+        const config = buildRestaurantConfig(chef);
+        const status = calculateRestaurantStatus(config);
+        return {
+          ...chef,
+          isCurrentlyOpen: status.isCurrentlyOpen,
+          currentScheduleStatus: status.reason,
+          nextOpeningTime: status.nextOpeningTime,
+          currentSchedulePeriodEndsAt: status.currentSchedulePeriodEndsAt
+        };
+      });
+      setCache(key, chefsWithStatus, 60 * 60 * 1e3);
+      res.json(chefsWithStatus);
     } catch (error) {
       console.error("\u274C Error fetching chefs by pincode:", error);
       res.status(500).json({ message: "Failed to fetch chefs for pincode" });
@@ -16389,13 +17400,33 @@ Please accept and start preparation.`;
       const { chefId } = req.params;
       if (!chefId || chefId.startsWith("cat-")) {
         const chefs3 = await storage.getChefsByCategory(chefId);
-        return res.json(chefs3);
+        const chefsWithStatus = chefs3.map((chef2) => {
+          const config2 = buildRestaurantConfig(chef2);
+          const status2 = calculateRestaurantStatus(config2);
+          return {
+            ...chef2,
+            isCurrentlyOpen: status2.isCurrentlyOpen,
+            currentScheduleStatus: status2.reason,
+            nextOpeningTime: status2.nextOpeningTime,
+            currentSchedulePeriodEndsAt: status2.currentSchedulePeriodEndsAt
+          };
+        });
+        return res.json(chefsWithStatus);
       }
       const chef = await storage.getChefById(chefId);
       if (!chef) {
         return res.status(404).json({ message: "Chef not found" });
       }
-      res.json(chef);
+      const config = buildRestaurantConfig(chef);
+      const status = calculateRestaurantStatus(config);
+      const chefWithStatus = {
+        ...chef,
+        isCurrentlyOpen: status.isCurrentlyOpen,
+        currentScheduleStatus: status.reason,
+        nextOpeningTime: status.nextOpeningTime,
+        currentSchedulePeriodEndsAt: status.currentSchedulePeriodEndsAt
+      };
+      res.json(chefWithStatus);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch chef" });
     }
@@ -19087,6 +20118,7 @@ var init_routes = __esm({
     init_userAuth();
     init_userAuth();
     init_adminAuth();
+    init_restaurantStatus();
     init_emailService();
     init_whatsappService();
     init_db();
@@ -19386,6 +20418,7 @@ var init_vite = __esm({
 var cronJobs_exports = {};
 __export(cronJobs_exports, {
   autoResumeSubscriptions: () => autoResumeSubscriptions,
+  checkAutoScheduleTransitions: () => checkAutoScheduleTransitions,
   expirePendingPaymentOrders: () => expirePendingPaymentOrders,
   generateDailyDeliveryLogs: () => generateDailyDeliveryLogs,
   markStaleDeliveriesAsMissed: () => markStaleDeliveriesAsMissed,
@@ -19792,6 +20825,38 @@ async function expirePendingPaymentOrders() {
     console.error("[EXPIRY-CHECK] Error in expirePendingPaymentOrders:", error);
   }
 }
+async function checkAutoScheduleTransitions() {
+  try {
+    const allChefs = await storage.getChefs();
+    const { broadcastChefStatusUpdate: broadcastChefStatusUpdate2 } = await Promise.resolve().then(() => (init_websocket(), websocket_exports));
+    for (const chef of allChefs) {
+      if (!chef.autoScheduleEnabled) continue;
+      const config = buildRestaurantConfig(chef);
+      const status = calculateRestaurantStatus(config);
+      const isNowOpen = status.isCurrentlyOpen;
+      const chefId = chef.id;
+      if (!lastKnownScheduleState.has(chefId)) {
+        lastKnownScheduleState.set(chefId, isNowOpen);
+        continue;
+      }
+      const wasOpen = lastKnownScheduleState.get(chefId);
+      if (wasOpen !== isNowOpen) {
+        lastKnownScheduleState.set(chefId, isNowOpen);
+        const transition = isNowOpen ? "CLOSED \u2192 OPEN" : "OPEN \u2192 CLOSED";
+        console.log(`[AUTO-SCHEDULE] Chef "${chef.name}" (${chefId}): ${transition} per schedule`);
+        broadcastChefStatusUpdate2({
+          ...chef,
+          isCurrentlyOpen: isNowOpen,
+          currentScheduleStatus: status.reason,
+          nextOpeningTime: status.nextOpeningTime,
+          currentSchedulePeriodEndsAt: status.currentSchedulePeriodEndsAt
+        });
+      }
+    }
+  } catch (error) {
+    console.error("[AUTO-SCHEDULE] Error in checkAutoScheduleTransitions:", error);
+  }
+}
 async function runScheduledTasks() {
   if (isRunning) return;
   isRunning = true;
@@ -19864,14 +20929,21 @@ function startCronJobs() {
       console.error("[CRON] Error in subscription tasks:", error);
     }
   }, 5 * 60 * 1e3);
+  const scheduleWatcherInterval = setInterval(() => {
+    checkAutoScheduleTransitions().catch((err) => {
+      console.error("[AUTO-SCHEDULE] Watcher error:", err);
+    });
+  }, 60 * 1e3);
   console.log("\u2705 Payment polling started (every 60 seconds)");
   console.log("\u2705 Subscription tasks started (every 5 minutes)");
+  console.log("\u2705 Auto-schedule watcher started (every 60 seconds)");
   process.on("exit", () => {
     clearTimeout(paymentPollingTimeout);
     clearInterval(subscriptionInterval);
+    clearInterval(scheduleWatcherInterval);
   });
 }
-var isRunning;
+var isRunning, lastKnownScheduleState;
 var init_cronJobs = __esm({
   "server/cronJobs.ts"() {
     "use strict";
@@ -19881,7 +20953,9 @@ var init_cronJobs = __esm({
     init_whatsappService();
     init_emailService();
     init_gpayVerificationService();
+    init_restaurantStatus();
     isRunning = false;
+    lastKnownScheduleState = /* @__PURE__ */ new Map();
   }
 });
 

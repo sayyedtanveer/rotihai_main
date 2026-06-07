@@ -5,6 +5,8 @@ import { broadcastOrderUpdate, broadcastPreparedOrderToAvailableDelivery, broadc
 import { sendDeliveryAvailableNotification } from "./whatsappService";
 import { db, orders } from "@shared/db";
 import { eq } from "drizzle-orm";
+import { buildRestaurantConfig, calculateRestaurantStatus, setManualCloseForToday, clearManualOverride } from "./utils/restaurantStatus";
+import { invalidateCache } from "./cache";
 
 export function registerPartnerRoutes(app: Express): void {
   // ✅ Helper function: Check if date is a scheduled delivery day based on plan frequency
@@ -455,7 +457,17 @@ export function registerPartnerRoutes(app: Express): void {
         return;
       }
 
-      res.json(chef);
+      // Include computed status so the dashboard Switch and status pill are accurate
+      const config = buildRestaurantConfig(chef);
+      const status = calculateRestaurantStatus(config);
+
+      res.json({
+        ...chef,
+        isCurrentlyOpen: status.isCurrentlyOpen,
+        currentScheduleStatus: status.reason,
+        nextOpeningTime: status.nextOpeningTime,
+        currentSchedulePeriodEndsAt: status.currentSchedulePeriodEndsAt,
+      });
     } catch (error) {
       console.error("Error fetching chef details:", error);
       res.status(500).json({ message: "Failed to fetch chef details" });
@@ -470,9 +482,101 @@ export function registerPartnerRoutes(app: Express): void {
         return res.status(401).json({ message: "Unauthorized" });
       }
 
-      const { isActive } = req.body;
+      const { isActive, manualAction } = req.body;
+
+      // ✅ Handle manual action-based overrides (new system)
+      if (manualAction) {
+        if (manualAction === "close_for_today") {
+          // Ensure chef is isActive=true in DB — the manualAction system controls open/closed
+          // via in-memory override, so the DB isActive must always be true for this flow
+          const chef = await storage.updateChef(chefId, { isActive: true });
+          if (!chef) {
+            return res.status(404).json({ message: "Chef not found" });
+          }
+
+          // Calculate when the restaurant will next open according to schedule
+          const config = buildRestaurantConfig(chef);
+          const status = calculateRestaurantStatus(config);
+
+          let closedUntilTime: Date;
+
+          if ((chef as any).autoScheduleEnabled && status.nextOpeningTime) {
+            // Has a schedule — close until the next scheduled opening time
+            closedUntilTime = new Date(new Date().toDateString() + ' ' + status.nextOpeningTime);
+            // If that time is already in the past today, push to tomorrow
+            if (closedUntilTime <= new Date()) {
+              closedUntilTime.setDate(closedUntilTime.getDate() + 1);
+            }
+          } else {
+            // No auto-schedule — close until end of day (23:59) so chef must explicitly reopen
+            closedUntilTime = new Date();
+            closedUntilTime.setHours(23, 59, 59, 999);
+            // If we're already past 23:58, extend to end of tomorrow
+            if (closedUntilTime <= new Date()) {
+              closedUntilTime.setDate(closedUntilTime.getDate() + 1);
+            }
+          }
+
+          setManualCloseForToday(chefId, closedUntilTime);
+
+          console.log(`🚫 Chef ${chef.name} manually closed until ${closedUntilTime.toLocaleTimeString()}`);
+
+          // Recalculate status to include the override
+          const updatedConfig = buildRestaurantConfig(chef);
+          const updatedStatus = calculateRestaurantStatus(updatedConfig);
+
+          const response = {
+            ...chef,
+            isCurrentlyOpen: updatedStatus.isCurrentlyOpen,
+            currentScheduleStatus: updatedStatus.reason,
+            nextOpeningTime: updatedStatus.nextOpeningTime,
+            manualActionApplied: "close_for_today",
+            closedUntil: closedUntilTime
+          };
+
+          invalidateCache("chefs");
+          broadcastChefStatusUpdate(response);
+          return res.status(200).json(response);
+
+        } else if (manualAction === "open_now") {
+          // Clear any active manual override
+          clearManualOverride(chefId);
+
+          // Also ensure isActive=true in DB — chef may have been hard-disabled
+          // by admin or by a previous isActive toggle; open_now must fully re-enable them
+          const ensuredChef = await storage.updateChef(chefId, { isActive: true });
+          if (!ensuredChef) {
+            return res.status(404).json({ message: "Chef not found" });
+          }
+
+          console.log(`✅ Chef ${ensuredChef.name} manually opened now (isActive restored to true)`);
+
+          // Recalculate status with isActive=true and no override
+          const config = buildRestaurantConfig(ensuredChef);
+          const status = calculateRestaurantStatus(config);
+
+          const response = {
+            ...ensuredChef,
+            isCurrentlyOpen: status.isCurrentlyOpen,
+            currentScheduleStatus: status.reason,
+            nextOpeningTime: status.nextOpeningTime,
+            manualActionApplied: "open_now"
+          };
+
+          invalidateCache("chefs");
+          broadcastChefStatusUpdate(response);
+          return res.status(200).json(response);
+
+        } else {
+          return res.status(400).json({ 
+            message: "Invalid manualAction. Must be 'close_for_today' or 'open_now'" 
+          });
+        }
+      }
+
+      // Handle traditional isActive toggle (existing system for backward compatibility)
       if (typeof isActive !== "boolean") {
-        return res.status(400).json({ message: "isActive must be a boolean" });
+        return res.status(400).json({ message: "isActive must be a boolean or use manualAction parameter" });
       }
 
       const updatedChef = await storage.updateChef(chefId, { isActive });
@@ -499,10 +603,22 @@ export function registerPartnerRoutes(app: Express): void {
         }
       }
 
-      // Broadcast chef status update to all connected clients
-      broadcastChefStatusUpdate(updatedChef);
+      // ✅ Include calculated restaurant status in response
+      const config = buildRestaurantConfig(updatedChef);
+      const status = calculateRestaurantStatus(config);
 
-      return res.status(200).json(updatedChef);
+      const response = {
+        ...updatedChef,
+        isCurrentlyOpen: status.isCurrentlyOpen,
+        currentScheduleStatus: status.reason,
+        nextOpeningTime: status.nextOpeningTime
+      };
+
+      // Broadcast chef status update to all connected clients
+      invalidateCache("chefs");
+      broadcastChefStatusUpdate(response);
+
+      return res.status(200).json(response);
     } catch (error) {
       console.error("Error updating chef status:", error);
       return res.status(500).json({ message: "Failed to update chef status" });

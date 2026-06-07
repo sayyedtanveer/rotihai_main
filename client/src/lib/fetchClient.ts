@@ -33,7 +33,19 @@ export async function fetchAPI(
   // Add authorization token if available
   const currentPath = typeof window !== 'undefined' ? window.location.pathname : '';
   let token: string | null = null;
-  
+
+  // ✅ Validate token is a proper JWT (3 dot-separated base64url segments)
+  const isValidJwt = (t: string | null): boolean => {
+    if (!t || typeof t !== 'string') return false;
+    const parts = t.split('.');
+    if (parts.length !== 3) return false;
+    try {
+      atob(parts[0].replace(/-/g, '+').replace(/_/g, '/'));
+      atob(parts[1].replace(/-/g, '+').replace(/_/g, '/'));
+      return true;
+    } catch { return false; }
+  };
+
   if (typeof window !== 'undefined') {
     if (currentPath.startsWith('/admin')) {
       token = localStorage.getItem('adminToken');
@@ -44,9 +56,16 @@ export async function fetchAPI(
     } else {
       token = localStorage.getItem('userToken');
     }
-    
-    if (token) {
+
+    if (token && isValidJwt(token)) {
       headers.Authorization = `Bearer ${token}`;
+    } else if (token && !isValidJwt(token)) {
+      // Malformed token - clear it silently
+      console.warn('[fetchAPI] Malformed token detected, clearing from localStorage');
+      if (currentPath.startsWith('/admin')) localStorage.removeItem('adminToken');
+      else if (currentPath.startsWith('/partner')) localStorage.removeItem('partnerToken');
+      else if (currentPath.startsWith('/delivery')) localStorage.removeItem('deliveryToken');
+      else localStorage.removeItem('userToken');
     }
   }
   

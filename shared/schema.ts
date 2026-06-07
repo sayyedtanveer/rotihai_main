@@ -98,6 +98,10 @@ export const chefs = pgTable("chefs", {
   fssaiVerified: boolean("fssai_verified").notNull().default(false),          // Admin-confirmed licence
   chefType: text("chef_type"),                                               // 'home' | 'restaurant' | null
   complianceStatus: text("compliance_status").notNull().default("pending"),   // 'pending' | 'verified' | 'rejected'
+  // ── Auto Schedule Configuration (optional) ──────────────────────────────
+  autoScheduleEnabled: boolean("auto_schedule_enabled").notNull().default(false), // Enable auto-schedule feature
+  openingTime: varchar("opening_time", { length: 5 }),                       // Opening time in HH:mm format (e.g., "09:00")
+  closingTime: varchar("closing_time", { length: 5 }),                       // Closing time in HH:mm format (e.g., "22:00")
 });
 
 
@@ -633,7 +637,20 @@ export const insertSubscriptionPlanSchema = createInsertSchema(subscriptionPlans
 
 // Promotional Banner Table
 export const promotionalBanners = pgTable("promotional_banners", {
-  id: varchar("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  id: varchar("id").primaryKey().$defaultFn(() => {
+    if (typeof window !== "undefined" && window.crypto && window.crypto.randomUUID) {
+      return window.crypto.randomUUID();
+    }
+    // Fallback for node environment or older browser environments
+    try {
+      const cryptoMod = require("crypto");
+      if (cryptoMod && cryptoMod.randomUUID) {
+        return cryptoMod.randomUUID();
+      }
+    } catch (e) {}
+    // Basic random string generator as ultimate fallback
+    return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+  }),
   title: text("title").notNull(),
   subtitle: text("subtitle").notNull(),
   buttonText: text("button_text").notNull(),

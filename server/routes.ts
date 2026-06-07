@@ -11,6 +11,7 @@ import { setupWebSocket, broadcastNewOrder, broadcastOrderUpdate, broadcastSubsc
 import { hashPassword, verifyPassword, generateAccessToken, generateRefreshToken, requireUser, type AuthenticatedUserRequest } from "./userAuth";
 import { verifyToken as verifyUserToken } from "./userAuth";
 import { requireAdmin } from "./adminAuth";
+import { buildRestaurantConfig, calculateRestaurantStatus } from "./utils/restaurantStatus";
 import { sendEmail, createWelcomeEmail, createPasswordResetEmail, createPasswordChangeConfirmationEmail, sendOrderConfirmationEmail, sendAdminOrderNotification, type AdminOrderNotificationParams } from "./emailService";
 import { sendOrderPlacedAdminNotification, sendPaymentInitiatedAdminNotification } from "./whatsappService";
 import { db, subscriptions, orders, walletSettings, referralRewards, newsletterSubscribers, users, deliveryPersonnel, paymentSettings } from "@shared/db";
@@ -1922,6 +1923,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
           chefName = chef.name;
           // Use chef's specific delivery distance limit, not hardcoded 2.5km!
           maxDeliveryDistance = chef.maxDeliveryDistanceKm ?? 5;
+
+          // ✅ CRITICAL: Validate restaurant status (MANDATORY FINAL GATE)
+          const config = buildRestaurantConfig(chef);
+          const status = calculateRestaurantStatus(config);
+          
+          console.log(`[ORDER-VALIDATION] Restaurant status check:`, {
+            chefId: sanitized.chefId,
+            chefName: chefName,
+            isCurrentlyOpen: status.isCurrentlyOpen,
+            reason: status.reason,
+            nextOpening: status.nextOpeningTime
+          });
+          
+          if (!status.isCurrentlyOpen) {
+            console.warn(`🚫 Order rejected - restaurant is closed:`, {
+              chefId: sanitized.chefId,
+              chefName: chefName,
+              closedReason: status.reason,
+              nextOpening: status.nextOpeningTime
+            });
+            return res.status(400).json({
+              message: "Restaurant is currently closed. Please try again later.",
+              restaurantClosed: true,
+              reason: status.reason,
+              nextOpening: status.nextOpeningTime,
+              openingTime: chef.openingTime
+            });
+          }
         }
       }
 
@@ -3535,12 +3564,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/chefs", async (_req, res) => {
     try {
       const cached = getCache("chefs");
-      if (cached) {
-        return res.json(cached);
+      const chefs = cached || await storage.getChefs();
+      
+      if (!cached) {
+        setCache("chefs", chefs, 5 * 60 * 1000); // 5 min TTL
       }
-      const chefs = await storage.getChefs();
-      setCache("chefs", chefs, 5 * 60 * 1000); // 5 min TTL
-      res.json(chefs);
+
+      // ✅ Add calculated status to each chef (dynamic, not cached)
+      const chefsWithStatus = chefs.map((chef: any) => {
+        const config = buildRestaurantConfig(chef);
+        const status = calculateRestaurantStatus(config);
+        return {
+          ...chef,
+          isCurrentlyOpen: status.isCurrentlyOpen,
+          currentScheduleStatus: status.reason,
+          nextOpeningTime: status.nextOpeningTime,
+          currentSchedulePeriodEndsAt: status.currentSchedulePeriodEndsAt
+        };
+      });
+
+      res.json(chefsWithStatus);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch chefs" });
     }
@@ -3585,7 +3628,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       console.log('');
 
-      res.json(filteredChefs);
+      // ✅ Add calculated status to each chef
+      const chefsWithStatus = filteredChefs.map((chef: any) => {
+        const config = buildRestaurantConfig(chef);
+        const status = calculateRestaurantStatus(config);
+        return {
+          ...chef,
+          isCurrentlyOpen: status.isCurrentlyOpen,
+          currentScheduleStatus: status.reason,
+          nextOpeningTime: status.nextOpeningTime,
+          currentSchedulePeriodEndsAt: status.currentSchedulePeriodEndsAt
+        };
+      });
+
+      res.json(chefsWithStatus);
     } catch (error) {
       console.error("❌ Error fetching chefs by area:", error);
       res.status(500).json({ message: "Failed to fetch chefs for delivery area" });
@@ -3657,7 +3713,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       console.log('');
 
-      res.json(nearbyChefs);
+      // ✅ Add calculated status to each chef
+      const chefsWithStatus = nearbyChefs.map((chef: any) => {
+        const config = buildRestaurantConfig(chef);
+        const status = calculateRestaurantStatus(config);
+        return {
+          ...chef,
+          isCurrentlyOpen: status.isCurrentlyOpen,
+          currentScheduleStatus: status.reason,
+          nextOpeningTime: status.nextOpeningTime,
+          currentSchedulePeriodEndsAt: status.currentSchedulePeriodEndsAt
+        };
+      });
+
+      res.json(chefsWithStatus);
     } catch (error) {
       console.error("❌ Error fetching chefs by location:", error);
       res.status(500).json({ message: "Failed to fetch nearby chefs" });
@@ -3703,8 +3772,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`   Found ${chefsServingPincode.length} chef(s) serving pincode ${pincode}`);
       console.log('');
 
-      setCache(key, chefsServingPincode, 60 * 60 * 1000); // 1 hour TTL
-      res.json(chefsServingPincode);
+      // ✅ Add calculated status to each chef
+      const chefsWithStatus = chefsServingPincode.map((chef: any) => {
+        const config = buildRestaurantConfig(chef);
+        const status = calculateRestaurantStatus(config);
+        return {
+          ...chef,
+          isCurrentlyOpen: status.isCurrentlyOpen,
+          currentScheduleStatus: status.reason,
+          nextOpeningTime: status.nextOpeningTime,
+          currentSchedulePeriodEndsAt: status.currentSchedulePeriodEndsAt
+        };
+      });
+
+      setCache(key, chefsWithStatus, 60 * 60 * 1000); // 1 hour TTL
+      res.json(chefsWithStatus);
     } catch (error) {
       console.error("❌ Error fetching chefs by pincode:", error);
       res.status(500).json({ message: "Failed to fetch chefs for pincode" });
@@ -3840,14 +3922,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!chefId || chefId.startsWith('cat-')) {
         // This looks like a category ID, not a chef ID
         const chefs = await storage.getChefsByCategory(chefId);
-        return res.json(chefs);
+        
+        // ✅ Add calculated status to each chef
+        const chefsWithStatus = chefs.map((chef: any) => {
+          const config = buildRestaurantConfig(chef);
+          const status = calculateRestaurantStatus(config);
+          return {
+            ...chef,
+            isCurrentlyOpen: status.isCurrentlyOpen,
+            currentScheduleStatus: status.reason,
+            nextOpeningTime: status.nextOpeningTime,
+            currentSchedulePeriodEndsAt: status.currentSchedulePeriodEndsAt
+          };
+        });
+        return res.json(chefsWithStatus);
       }
 
       const chef = await storage.getChefById(chefId);
       if (!chef) {
         return res.status(404).json({ message: "Chef not found" });
       }
-      res.json(chef);
+
+      // ✅ Add calculated status
+      const config = buildRestaurantConfig(chef);
+      const status = calculateRestaurantStatus(config);
+      const chefWithStatus = {
+        ...chef,
+        isCurrentlyOpen: status.isCurrentlyOpen,
+        currentScheduleStatus: status.reason,
+        nextOpeningTime: status.nextOpeningTime,
+        currentSchedulePeriodEndsAt: status.currentSchedulePeriodEndsAt
+      };
+
+      res.json(chefWithStatus);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch chef" });
     }

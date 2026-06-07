@@ -71,7 +71,17 @@ export interface IStorage {
     totalRevenue: number;
     pendingOrders: number;
     completedOrders: number;
+    revenueGrowth: number;
+    revenueTrend: "up" | "down" | "flat";
+    ordersGrowth: number;
+    ordersTrend: "up" | "down" | "flat";
+    customersGrowth: number;
+    customersTrend: "up" | "down" | "flat";
+    statusBreakdown: any;
+    revenuePeriods: any;
+    orderPeriods: any;
   }>;
+  getDashboardChartsData(): Promise<any>;
 
   // Subscription methods
   getSubscriptionPlans(): Promise<SubscriptionPlan[]>;
@@ -767,6 +777,10 @@ export class MemStorage implements IStorage {
     if ((data as any).fssaiVerified !== undefined) updateData.fssaiVerified = (data as any).fssaiVerified;
     if ((data as any).chefType !== undefined) updateData.chefType = (data as any).chefType || null;
     if ((data as any).complianceStatus !== undefined) updateData.complianceStatus = (data as any).complianceStatus;
+    // Auto Schedule fields
+    if ((data as any).autoScheduleEnabled !== undefined) updateData.autoScheduleEnabled = (data as any).autoScheduleEnabled;
+    if ((data as any).openingTime !== undefined) updateData.openingTime = (data as any).openingTime || null;
+    if ((data as any).closingTime !== undefined) updateData.closingTime = (data as any).closingTime || null;
 
     console.log("🔥 updateChef() - Received data:", { id, incomingMaxDeliveryDistanceKm: (data as any).maxDeliveryDistanceKm, servicePincodes: (data as any).servicePincodes, updateData });
 
@@ -944,21 +958,225 @@ export class MemStorage implements IStorage {
     totalRevenue: number;
     pendingOrders: number;
     completedOrders: number;
+    revenueGrowth: number;
+    revenueTrend: "up" | "down" | "flat";
+    ordersGrowth: number;
+    ordersTrend: "up" | "down" | "flat";
+    customersGrowth: number;
+    customersTrend: "up" | "down" | "flat";
+    statusBreakdown: any;
+    revenuePeriods: any;
+    orderPeriods: any;
+    visitorMetrics: any;
+    activeChefsToday: number;
+    activeDeliveryPartnersToday: number;
+    cancelledOrdersToday: number;
+    averageOrderValueToday: number;
+    newCustomersToday: number;
   }> {
     const orders = await db.query.orders.findMany();
     const users = await db.query.users.findMany();
-    const revenueOrders = orders.filter((o) => o.status !== "cancelled");
-    const totalRevenue = revenueOrders.reduce((sum, order) => sum + order.total, 0);
-    const pendingOrders = orders.filter((o) => o.status === "pending").length;
-    const completedOrders = orders.filter((o) => o.status === "delivered" || o.status === "completed").length;
+    const chefs = await db.query.chefs.findMany();
+    const deliveryPersonnel = await db.query.deliveryPersonnel.findMany();
+    const visitors = await db.query.visitors.findMany();
+    
+    // Dynamically import analytics to avoid circular deps if any
+    const { 
+      calculateRevenueMetrics, 
+      getPeriodRevenueComparison, 
+      getPeriodOrderComparison,
+      getOrderStatusBreakdown,
+      getCustomerMetrics,
+      getPeriodRange,
+      getVisitorMetricsForToday,
+      filterOrdersByDateRange,
+      isValidRevenueOrder
+    } = await import("./analytics");
 
-    return {
-      userCount: users.length,
-      orderCount: orders.length,
-      totalRevenue,
-      pendingOrders,
-      completedOrders,
+    const statusBreakdown = getOrderStatusBreakdown(orders);
+    
+    // Keep only Today, Month, Lifetime for revenue periods
+    const revenuePeriods = {
+      today: getPeriodRevenueComparison(orders, "today"),
+      month: getPeriodRevenueComparison(orders, "month"),
+      lifetime: getPeriodRevenueComparison(orders, "lifetime"),
     };
+
+    // Keep only Today, Month for order periods
+    const orderPeriods = {
+      today: getPeriodOrderComparison(orders, "today"),
+      week: getPeriodOrderComparison(orders, "week"),
+      month: getPeriodOrderComparison(orders, "month"),
+    };
+
+    const customerMetrics = getCustomerMetrics(orders, users, getPeriodRange("month"));
+    const prevCustomerMetrics = getCustomerMetrics(orders, users, getPeriodRange("month", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)));
+
+    const customersGrowth = prevCustomerMetrics.newCustomersInPeriod === 0 
+      ? (customerMetrics.newCustomersInPeriod > 0 ? 100 : 0)
+      : Number((((customerMetrics.newCustomersInPeriod - prevCustomerMetrics.newCustomersInPeriod) / prevCustomerMetrics.newCustomersInPeriod) * 100).toFixed(1));
+    const customersTrend = customersGrowth > 0 ? "up" : customersGrowth < 0 ? "down" : "flat";
+
+    // Get visitor metrics for today
+    const visitorMetrics = getVisitorMetricsForToday(visitors);
+
+    // Get active chefs today (chefs who have delivered/completed orders today)
+    const todayRange = getPeriodRange("today");
+    const ordersDeliveredToday = filterOrdersByDateRange(orders, todayRange).filter(isValidRevenueOrder);
+    const activeChefsToday = new Set(ordersDeliveredToday.map(o => o.chefId).filter(Boolean)).size;
+
+    // Get active delivery partners today (who have delivered orders today)
+    const activeDeliveryPartnersToday = new Set(
+      ordersDeliveredToday
+        .filter(o => o.assignedDeliveryPersonnelId)
+        .map(o => o.assignedDeliveryPersonnelId)
+    ).size;
+
+    // Get cancelled orders today
+    const cancelledOrdersToday = filterOrdersByDateRange(orders, todayRange)
+      .filter(o => o.status === "cancelled").length;
+
+    // Get average order value today
+    const validOrdersToday = ordersDeliveredToday;
+    const averageOrderValueToday = validOrdersToday.length > 0
+      ? Math.round(validOrdersToday.reduce((sum, o) => sum + (o.total || 0), 0) / validOrdersToday.length)
+      : 0;
+
+    // Get new customers today
+    const newCustomersToday = filterOrdersByDateRange(orders, todayRange)
+      .filter(o => {
+        const userOrders = orders.filter(uo => uo.userId === o.userId);
+        return userOrders.length === 1; // First order
+      }).length;
+
+    // Get monthly early revenue (advance/prepaid orders)
+    const monthRange = getPeriodRange("month");
+    const advanceOrders = filterOrdersByDateRange(orders, monthRange)
+      .filter(o => o.paymentStatus === "confirmed" && (o.status === "pending" || o.status === "accepted"));
+    const monthlyEarlyRevenue = advanceOrders.reduce((sum, o) => sum + (o.total || 0), 0);
+
+    // Debug logging
+    // Debug: Check payment statuses of delivered orders
+    const deliveredOrders = orders.filter(o => o.status === "delivered" || o.status === "completed");
+    const paymentStatusBreakdown = deliveredOrders.reduce((acc, o) => {
+      acc[o.paymentStatus || 'undefined'] = (acc[o.paymentStatus || 'undefined'] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+
+    console.log('[DASHBOARD METRICS] Database Query Results:', {
+      totalOrders: orders.length,
+      totalUsers: users.length,
+      totalChefs: chefs.length,
+      totalDeliveryPersonnel: deliveryPersonnel.length,
+      totalVisitors: visitors.length,
+      ordersWithPaymentPaid: orders.filter(o => o.paymentStatus === "paid").length,
+      ordersWithStatusDelivered: orders.filter(o => o.status === "delivered").length,
+      ordersWithStatusCompleted: orders.filter(o => o.status === "completed").length,
+      totalDeliveredAndCompleted: deliveredOrders.length,
+      paymentStatusOfDeliveredOrders: paymentStatusBreakdown,
+      validRevenueOrders: orders.filter(isValidRevenueOrder).length,
+      advanceOrders: advanceOrders.length,
+      monthlyEarlyRevenue,
+    });
+
+    // Ensure safe defaults for all fields
+    const safeMetrics = {
+      userCount: users?.length ?? 0,
+      orderCount: orders?.length ?? 0,
+      totalRevenue: revenuePeriods?.lifetime?.current ?? 0,
+      pendingOrders: statusBreakdown?.pending ?? 0,
+      completedOrders: statusBreakdown?.delivered ?? 0,
+      revenueGrowth: revenuePeriods?.month?.growth ?? 0,
+      revenueTrend: revenuePeriods?.month?.trend ?? 'flat',
+      ordersGrowth: orderPeriods?.month?.growth ?? 0,
+      ordersTrend: orderPeriods?.month?.trend ?? 'flat',
+      customersGrowth: customersGrowth ?? 0,
+      customersTrend: customersTrend ?? 'flat',
+      statusBreakdown: statusBreakdown ?? { 
+        pending: 0, 
+        accepted: 0, 
+        preparing: 0, 
+        ready: 0, 
+        outForDelivery: 0, 
+        delivered: 0, 
+        cancelled: 0 
+      },
+      revenuePeriods: revenuePeriods ?? {
+        today: { current: 0, previous: 0, growth: 0, trend: 'flat' },
+        month: { current: 0, previous: 0, growth: 0, trend: 'flat' },
+        lifetime: { current: 0, previous: 0, growth: 0, trend: 'flat' }
+      },
+      orderPeriods: orderPeriods ?? {
+        today: { current: 0, previous: 0, growth: 0, trend: 'flat' },
+        month: { current: 0, previous: 0, growth: 0, trend: 'flat' }
+      },
+      visitorMetrics: visitorMetrics ?? {
+        todaysVisits: 0,
+        uniqueVisitors: 0,
+        newVisitors: 0,
+        returningVisitors: 0
+      },
+      activeChefsToday: activeChefsToday ?? 0,
+      activeDeliveryPartnersToday: activeDeliveryPartnersToday ?? 0,
+      cancelledOrdersToday: cancelledOrdersToday ?? 0,
+      averageOrderValueToday: averageOrderValueToday ?? 0,
+      newCustomersToday: newCustomersToday ?? 0,
+      monthlyEarlyRevenue: monthlyEarlyRevenue ?? 0,
+    };
+
+    console.log('[DASHBOARD METRICS] Response structure:', {
+      hasRevenuePeriods: !!safeMetrics.revenuePeriods,
+      hasOrderPeriods: !!safeMetrics.orderPeriods,
+      hasVisitorMetrics: !!safeMetrics.visitorMetrics,
+      visitorMetricsKeys: Object.keys(safeMetrics.visitorMetrics),
+      revenuePeriodKeys: Object.keys(safeMetrics.revenuePeriods),
+      orderPeriodKeys: Object.keys(safeMetrics.orderPeriods),
+      monthlyEarlyRevenue: safeMetrics.monthlyEarlyRevenue,
+    });
+
+    return safeMetrics;
+  }
+
+  async getDashboardChartsData(): Promise<any> {
+    try {
+      const orders = await db.query.orders.findMany();
+      const { generateRevenueTrendChart, generateTopSellingItems, generateTopAreas } = await import("./analytics");
+
+      const chartsData = {
+        revenueTrend: {
+          today: generateRevenueTrendChart(orders, 'today') ?? [],
+          '7days': generateRevenueTrendChart(orders, '7days') ?? [],
+          '30days': generateRevenueTrendChart(orders, '30days') ?? [],
+          '90days': generateRevenueTrendChart(orders, '90days') ?? [],
+          '12months': generateRevenueTrendChart(orders, '12months') ?? [],
+        },
+        topItems: generateTopSellingItems(orders, 10) ?? [],
+        topAreas: generateTopAreas(orders, 10) ?? [],
+      };
+
+      console.log('[DASHBOARD CHARTS] Response structure:', {
+        hasRevenueTrend: !!chartsData.revenueTrend,
+        topItemsCount: chartsData.topItems?.length ?? 0,
+        topAreasCount: chartsData.topAreas?.length ?? 0,
+        revenueTrendPeriods: Object.keys(chartsData.revenueTrend),
+      });
+
+      return chartsData;
+    } catch (error) {
+      console.error('[DASHBOARD CHARTS] Error fetching charts data:', error);
+      // Return safe defaults on error
+      return {
+        revenueTrend: {
+          today: [],
+          '7days': [],
+          '30days': [],
+          '90days': [],
+          '12months': [],
+        },
+        topItems: [],
+        topAreas: [],
+      };
+    }
   }
 
   // Coupons

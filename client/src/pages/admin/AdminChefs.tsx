@@ -18,6 +18,7 @@ import { queryClient } from "@/lib/queryClient";
 import type { Chef, Category } from "@shared/schema";
 import { Star, Pencil, Trash2, Plus, Store, Loader2, MapPin, BadgeCheck, ShieldCheck, ShieldOff, Home, Building2 } from "lucide-react";
 import { ImageUploader } from "@/components/ImageUploader";
+import { formatTime12Hour, formatSlotRange } from "@shared/timeFormatter";
 import { getDeliveryAreas } from "@/lib/deliveryAreas";
 
 export default function AdminChefs() {
@@ -50,6 +51,10 @@ export default function AdminChefs() {
     chefType: "" as "" | "home" | "restaurant",
     fssaiVerified: false,
     complianceStatus: "pending" as "pending" | "verified" | "rejected",
+    // ✅ Auto Schedule Configuration (optional, Phase 4)
+    autoScheduleEnabled: false,
+    openingTime: "",
+    closingTime: "",
   });
 
   // Separate state for servicePincodes input display (allows partial typing)
@@ -210,6 +215,10 @@ export default function AdminChefs() {
       chefType: "",
       fssaiVerified: false,
       complianceStatus: "pending",
+      // ✅ Auto Schedule Configuration
+      autoScheduleEnabled: false,
+      openingTime: "",
+      closingTime: "",
     });
     setServicePincodesInput(""); // Reset display input
     setGeocodeError("");
@@ -335,6 +344,10 @@ export default function AdminChefs() {
       chefType: (chef as any).chefType || "",
       fssaiVerified: (chef as any).fssaiVerified === true,
       complianceStatus: (chef as any).complianceStatus || "pending",
+      // ✅ Auto Schedule Configuration
+      autoScheduleEnabled: (chef as any).autoScheduleEnabled === true,
+      openingTime: (chef as any).openingTime || "",
+      closingTime: (chef as any).closingTime || "",
     });
     // Initialize servicePincodes input field with comma-separated values
     const servicePincodes = (chef as any).servicePincodes;
@@ -481,6 +494,26 @@ export default function AdminChefs() {
                     </div>
                   </div>
                   <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">{chef.description}</p>
+                  
+                  {/* ✅ Phase 4: Calculated Restaurant Status Display */}
+                  {(chef as any).autoScheduleEnabled && (
+                    <div className="mb-3 p-2 bg-blue-50 dark:bg-blue-900/20 rounded text-xs border border-blue-200 dark:border-blue-700">
+                      <div className="flex items-center gap-2">
+                        <span className={`font-semibold ${(chef as any).isCurrentlyOpen ? "text-green-600" : "text-red-600"}`}>
+                          {(chef as any).isCurrentlyOpen ? "🟢 LIVE" : "🔴 SCHEDULED"}
+                        </span>
+                        <span className="text-slate-600 dark:text-slate-300">
+                          {(chef as any).openingTime && (chef as any).closingTime ? formatSlotRange((chef as any).openingTime, (chef as any).closingTime) : "No schedule"}
+                        </span>
+                      </div>
+                      {!((chef as any).isCurrentlyOpen) && (chef as any).nextOpeningTime && (
+                        <p className="text-slate-600 dark:text-slate-300 mt-1">
+                          Opens at: <span className="font-semibold">{formatTime12Hour((chef as any).nextOpeningTime)}</span>
+                        </p>
+                      )}
+                    </div>
+                  )}
+
                   <div className="flex items-center gap-2 text-sm mb-3">
                     <div className="flex items-center gap-1">
                       <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
@@ -891,6 +924,78 @@ export default function AdminChefs() {
                 </div>
               )}
 
+              {/* ✅ Auto Schedule Configuration Section - NEW */}
+              <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-md p-4 space-y-4">
+                <div>
+                  <p className="text-sm font-semibold text-amber-900 dark:text-amber-100 mb-3">
+                    ⏰ Auto Schedule Configuration (Optional)
+                  </p>
+                  <p className="text-xs text-amber-800 dark:text-amber-200 mb-3">
+                    Enable automatic opening/closing based on time. Leave disabled to keep restaurant always open (when isActive=true).
+                  </p>
+
+                  {/* Enable/Disable Toggle */}
+                  <div className="flex items-center gap-3 mb-3">
+                    <Switch
+                      id="autoScheduleEnabled"
+                      checked={(formData as any).autoScheduleEnabled || false}
+                      onCheckedChange={(checked) => setFormData({ ...formData, autoScheduleEnabled: checked })}
+                    />
+                    <Label htmlFor="autoScheduleEnabled" className="text-sm font-medium">
+                      Enable Auto Schedule
+                    </Label>
+                  </div>
+
+                  {/* Opening Time - Only show if enabled */}
+                  {(formData as any).autoScheduleEnabled && (
+                    <div className="grid grid-cols-2 gap-3 mt-3">
+                      <div>
+                        <Label htmlFor="openingTime" className="text-xs text-amber-800 dark:text-amber-200">
+                          Opening Time (HH:mm)
+                        </Label>
+                        <Input
+                          id="openingTime"
+                          type="time"
+                          value={(formData as any).openingTime || ""}
+                          onChange={(e) => {
+                            const time = e.target.value;
+                            setFormData({ ...formData, openingTime: time });
+                          }}
+                          className="text-sm"
+                          placeholder="09:00"
+                        />
+                        <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">e.g., 09:00 for 9 AM</p>
+                      </div>
+                      <div>
+                        <Label htmlFor="closingTime" className="text-xs text-amber-800 dark:text-amber-200">
+                          Closing Time (HH:mm)
+                        </Label>
+                        <Input
+                          id="closingTime"
+                          type="time"
+                          value={(formData as any).closingTime || ""}
+                          onChange={(e) => {
+                            const time = e.target.value;
+                            setFormData({ ...formData, closingTime: time });
+                          }}
+                          className="text-sm"
+                          placeholder="22:00"
+                        />
+                        <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">e.g., 22:00 for 10 PM</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {(formData as any).autoScheduleEnabled && (
+                    <div className="bg-white dark:bg-slate-800 rounded p-2 mt-3 text-xs text-amber-800 dark:text-amber-200">
+                      <p>
+                        <strong>Support for overnight schedules:</strong> Opening time can be later than closing time. 
+                        For example, 20:00 - 04:00 means open from 8 PM to 4 AM the next day.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
 
               {/* Manual Coordinate Validation Section - ALWAYS VISIBLE */}
               <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-md p-3 space-y-3">
@@ -1339,6 +1444,78 @@ export default function AdminChefs() {
                 </div>
               )}
 
+              {/* ✅ Auto Schedule Configuration Section - NEW */}
+              <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-md p-4 space-y-4">
+                <div>
+                  <p className="text-sm font-semibold text-amber-900 dark:text-amber-100 mb-3">
+                    ⏰ Auto Schedule Configuration (Optional)
+                  </p>
+                  <p className="text-xs text-amber-800 dark:text-amber-200 mb-3">
+                    Enable automatic opening/closing based on time. Leave disabled to keep restaurant always open (when isActive=true).
+                  </p>
+
+                  {/* Enable/Disable Toggle */}
+                  <div className="flex items-center gap-3 mb-3">
+                    <Switch
+                      id="edit-autoScheduleEnabled"
+                      checked={(formData as any).autoScheduleEnabled || false}
+                      onCheckedChange={(checked) => setFormData({ ...formData, autoScheduleEnabled: checked })}
+                    />
+                    <Label htmlFor="edit-autoScheduleEnabled" className="text-sm font-medium">
+                      Enable Auto Schedule
+                    </Label>
+                  </div>
+
+                  {/* Opening Time - Only show if enabled */}
+                  {(formData as any).autoScheduleEnabled && (
+                    <div className="grid grid-cols-2 gap-3 mt-3">
+                      <div>
+                        <Label htmlFor="edit-openingTime" className="text-xs text-amber-800 dark:text-amber-200">
+                          Opening Time (HH:mm)
+                        </Label>
+                        <Input
+                          id="edit-openingTime"
+                          type="time"
+                          value={(formData as any).openingTime || ""}
+                          onChange={(e) => {
+                            const time = e.target.value;
+                            setFormData({ ...formData, openingTime: time });
+                          }}
+                          className="text-sm"
+                          placeholder="09:00"
+                        />
+                        <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">e.g., 09:00 for 9 AM</p>
+                      </div>
+                      <div>
+                        <Label htmlFor="edit-closingTime" className="text-xs text-amber-800 dark:text-amber-200">
+                          Closing Time (HH:mm)
+                        </Label>
+                        <Input
+                          id="edit-closingTime"
+                          type="time"
+                          value={(formData as any).closingTime || ""}
+                          onChange={(e) => {
+                            const time = e.target.value;
+                            setFormData({ ...formData, closingTime: time });
+                          }}
+                          className="text-sm"
+                          placeholder="22:00"
+                        />
+                        <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">e.g., 22:00 for 10 PM</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {(formData as any).autoScheduleEnabled && (
+                    <div className="bg-white dark:bg-slate-800 rounded p-2 mt-3 text-xs text-amber-800 dark:text-amber-200">
+                      <p>
+                        <strong>Support for overnight schedules:</strong> Opening time can be later than closing time. 
+                        For example, 20:00 - 04:00 means open from 8 PM to 4 AM the next day.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
 
               {/* Manual Coordinate Validation Section - ALWAYS VISIBLE */}
               <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-md p-3 space-y-3">
