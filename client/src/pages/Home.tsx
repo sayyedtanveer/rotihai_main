@@ -45,6 +45,7 @@ import { calculateDistance } from "@/lib/locationUtils";
 import { useDeliveryLocation } from "@/contexts/DeliveryLocationContext";
 import api from "@/lib/apiClient";
 import { getRoadAdjustedDistance } from "@shared/deliveryUtils";
+import { formatTime12Hour } from "@shared/timeFormatter";
 
 
 const iconMap: Record<string, React.ReactNode> = {
@@ -700,10 +701,12 @@ export default function Home() {
   };
 
   const handleChefClick = (chef: Chef) => {
-    // Get realtime chef status
+    // chefStatuses (WebSocket) takes priority over isCurrentlyOpen (stale API data)
     const realtimeStatus = chefStatuses[chef.id];
-    const isActive = realtimeStatus !== undefined ? realtimeStatus : (chef.isActive !== false);
-    const chefWithStatus = { ...chef, isActive };
+    const isActive = realtimeStatus !== undefined
+      ? realtimeStatus
+      : ((chef as any).isCurrentlyOpen !== undefined ? (chef as any).isCurrentlyOpen : (chef.isActive !== false));
+    const chefWithStatus = { ...chef, isActive, isCurrentlyOpen: isActive };
     setSelectedChefForMenu(chefWithStatus);
     setSelectedCategoryForMenu(selectedCategoryForChefList);
     setIsCategoryMenuOpen(true);
@@ -856,9 +859,14 @@ export default function Home() {
       return orderA - orderB;
     }
 
-    // 2. Within same category, sort by availability (available chefs first)
-    const isActiveA = chefStatuses[a.id] !== undefined ? chefStatuses[a.id] : (a.isActive !== false);
-    const isActiveB = chefStatuses[b.id] !== undefined ? chefStatuses[b.id] : (b.isActive !== false);
+    // 2. Within same category, sort by availability (open chefs first)
+    // chefStatuses (WebSocket) takes priority for real-time accuracy
+    const isActiveA = chefStatuses[a.id] !== undefined
+      ? chefStatuses[a.id]
+      : ((a as any).isCurrentlyOpen !== undefined ? (a as any).isCurrentlyOpen : (a.isActive !== false));
+    const isActiveB = chefStatuses[b.id] !== undefined
+      ? chefStatuses[b.id]
+      : ((b as any).isCurrentlyOpen !== undefined ? (b as any).isCurrentlyOpen : (b.isActive !== false));
 
     if (isActiveA !== isActiveB) {
       return isActiveA ? -1 : 1;
@@ -1362,31 +1370,42 @@ export default function Home() {
                   </div>
                 ) : (
                   filteredChefs.map((chef: any, chefIdx: number) => {
+                    // isChefInactive — TRUE only when admin has fully disabled the chef (isActive=false)
+                    // Controls: grey-out styling, menu block, "Unavailable" overlay
+                    const isChefInactive = chef.isActive === false;
+
+                    // isChefOpen — computed open/closed state (schedule + manual override)
+                    // Controls: "Closed" badge display, sorting, nearest badge
+                    // chefStatuses (WebSocket) takes priority — it updates instantly without waiting
+                    // for React Query refetch. Falls back to chef.isCurrentlyOpen from API data.
                     const realtimeStatus = chefStatuses[chef.id];
-                    const isChefActive = realtimeStatus !== undefined ? realtimeStatus : (chef.isActive !== false);
+                    const isChefOpen = realtimeStatus !== undefined
+                      ? realtimeStatus
+                      : (chef.isCurrentlyOpen !== undefined ? chef.isCurrentlyOpen : true);
+
                     // Reuse pre-computed distance from chefsWithOffers map — no re-computation
                     const distance: number | null = (chef as any).computedDistance ?? null;
-                    // Show "Nearest to you" badge only on the first active chef when we have coordinates
-                    const isNearestChef = chefIdx === 0 && !!userLatitude && !!userLongitude && distance !== null && isChefActive;
+                    // Show "Nearest to you" badge only on the first open (not inactive) chef when we have coordinates
+                    const isNearestChef = chefIdx === 0 && !!userLatitude && !!userLongitude && distance !== null && !isChefInactive;
 
                     return (
                       <Card
                         key={chef.id}
-                        className={`overflow-hidden transition-all ${isChefActive
-                          ? "cursor-pointer hover:shadow-lg"
-                          : "opacity-60 cursor-not-allowed"
+                        className={`overflow-hidden transition-all ${isChefInactive
+                          ? "opacity-60 cursor-not-allowed"
+                          : "cursor-pointer hover:shadow-lg"
                           }`}
                         onClick={() => {
-                          if (!isChefActive) {
+                          if (isChefInactive) {
                             toast({
                               title: "Currently Unavailable",
-                              description: `${chef.name} is not accepting orders right now`,
+                              description: `${chef.name} is not available right now`,
                               variant: "destructive",
                             });
                             return;
                           }
                           const category = categories.find(c => c.id === chef.categoryId);
-                          setSelectedChefForMenu({ ...chef, isActive: isChefActive });
+                          setSelectedChefForMenu({ ...chef, isActive: chef.isActive, isCurrentlyOpen: isChefOpen });
                           setSelectedCategoryForMenu(category || null);
                           setIsCategoryMenuOpen(true);
                         }}
@@ -1396,7 +1415,7 @@ export default function Home() {
                           <img
                             src={chef.image}
                             alt={chef.name}
-                            className={`w-full h-full object-cover transition-transform duration-300 ${isChefActive ? "group-hover:scale-105" : "grayscale"
+                            className={`w-full h-full object-cover transition-transform duration-300 ${isChefInactive ? "grayscale" : "group-hover:scale-105"
                               }`}
                           />
                           <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
@@ -1438,11 +1457,20 @@ export default function Home() {
                             )}
                           </div>
 
-                          {/* Unavailable overlay */}
-                          {!isChefActive && (
+                          {/* Truly inactive overlay — only for disabled chefs */}
+                          {isChefInactive && (
                             <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
                               <Badge variant="destructive" className="text-sm">
                                 Currently Unavailable
+                              </Badge>
+                            </div>
+                          )}
+
+                          {/* Closed badge — active but not currently open */}
+                          {!isChefInactive && !isChefOpen && (
+                            <div className="absolute top-2 left-2">
+                              <Badge variant="destructive" className="text-xs">
+                                Closed
                               </Badge>
                             </div>
                           )}
@@ -1480,7 +1508,12 @@ export default function Home() {
                               </span>
                             )}
                           </div>
-                          {chef.highlightDish && (
+                          {!isChefInactive && !isChefOpen && chef.nextOpeningTime && (
+                            <p className="text-xs text-orange-600 dark:text-orange-400 mt-1.5 font-medium">
+                              ⏰ Opens at {formatTime12Hour(chef.nextOpeningTime)}
+                            </p>
+                          )}
+                          {chef.highlightDish && isChefOpen && (
                             <p className="text-xs text-primary mt-1.5 font-medium line-clamp-1">
                               Try: {chef.highlightDish}
                             </p>
@@ -1521,7 +1554,19 @@ export default function Home() {
                     .map((chef: any, chefIdx: number) => {
                       let distance: number | null = null;
                       let deliveryFee: number | null = null;
-                      const isChefActive = chef.isActive !== false;
+
+                      // isChefInactive — TRUE only when admin has fully disabled the chef (isActive=false)
+                      // Controls: grey-out styling, menu block, "Unavailable" overlay
+                      const isChefInactive = chef.isActive === false;
+
+                      // isChefOpen — computed open/closed state (schedule + manual override)
+                      // Controls: "Closed" badge, opening time hint, add-to-cart gate inside menu
+                      // chefStatuses (WebSocket) takes priority — updates instantly without waiting
+                      // for React Query refetch. Falls back to chef.isCurrentlyOpen from API data.
+                      const realtimeStatus = chefStatuses[chef.id];
+                      const isChefOpen = realtimeStatus !== undefined
+                        ? realtimeStatus
+                        : (chef.isCurrentlyOpen !== undefined ? chef.isCurrentlyOpen : true);
 
                       if (userLatitude && userLongitude && chef.latitude && chef.longitude) {
                         const R = 6371;
@@ -1551,27 +1596,27 @@ export default function Home() {
                         deliveryFee = 20;
                       }
 
-                      // Nearest badge: first active chef in the sorted list when coordinates exist
-                      const isNearestChef = chefIdx === 0 && !!userLatitude && !!userLongitude && distance !== null && isChefActive;
+                      // Nearest badge: first non-inactive chef in the sorted list when coordinates exist
+                      const isNearestChef = chefIdx === 0 && !!userLatitude && !!userLongitude && distance !== null && !isChefInactive;
 
                       return (
                         <Card
                           key={chef.id}
-                          className={`overflow-hidden transition-all ${isChefActive
-                            ? "cursor-pointer hover:shadow-lg"
-                            : "opacity-60 cursor-not-allowed"
+                          className={`overflow-hidden transition-all ${isChefInactive
+                            ? "opacity-60 cursor-not-allowed"
+                            : "cursor-pointer hover:shadow-lg"
                             }`}
                           onClick={() => {
-                            if (!isChefActive) {
+                            if (isChefInactive) {
                               toast({
                                 title: "Currently Unavailable",
-                                description: `${chef.name} is not accepting orders right now`,
+                                description: `${chef.name} is not available right now`,
                                 variant: "destructive",
                               });
                               return;
                             }
                             const category = categories.find(c => c.id === selectedCategoryTab);
-                            setSelectedChefForMenu(chef);
+                            setSelectedChefForMenu({ ...chef, isActive: chef.isActive, isCurrentlyOpen: isChefOpen });
                             setSelectedCategoryForMenu(category || null);
                             setIsCategoryMenuOpen(true);
                           }}
@@ -1582,7 +1627,7 @@ export default function Home() {
                               src={getImageUrl(chef.image)}
                               alt={chef.name}
                               onError={handleImageError}
-                              className={`w-full h-full object-cover transition-transform duration-300 ${isChefActive ? "group-hover:scale-105" : "grayscale"
+                              className={`w-full h-full object-cover transition-transform duration-300 ${isChefInactive ? "grayscale" : "group-hover:scale-105"
                                 }`}
                             />
                             <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
@@ -1593,15 +1638,25 @@ export default function Home() {
                               {chef.rating}
                             </div>
 
-                            {!isChefActive && (
+                            {/* Truly inactive overlay — only for admin-disabled chefs */}
+                            {isChefInactive && (
                               <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
                                 <Badge variant="destructive" className="text-sm">
-                                  Currently Closed
+                                  Currently Unavailable
                                 </Badge>
                               </div>
                             )}
 
-                            {distance !== null && isChefActive && (
+                            {/* Closed badge — active but not currently open */}
+                            {!isChefInactive && !isChefOpen && (
+                              <div className="absolute top-2 left-2">
+                                <Badge variant="destructive" className="text-xs">
+                                  Closed
+                                </Badge>
+                              </div>
+                            )}
+
+                            {distance !== null && !isChefInactive && (
                               <div className="absolute top-3 right-3 bg-white/95 backdrop-blur-sm px-2 py-1 rounded-full text-xs font-medium">
                                 ~{distance.toFixed(1)} km
                               </div>
@@ -1619,7 +1674,7 @@ export default function Home() {
                             <div className="flex items-start justify-between gap-2">
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 flex-wrap">
-                                  <h3 className={`font-bold text-base sm:text-lg truncate ${!isChefActive ? "text-muted-foreground" : ""}`}>
+                                  <h3 className={`font-bold text-base sm:text-lg truncate ${isChefInactive ? "text-muted-foreground" : ""}`}>
                                     {chef.name}
                                   </h3>
                                   {(chef as any).isVerified && (
@@ -1644,7 +1699,11 @@ export default function Home() {
                                 <span>{chef.reviewCount} reviews</span>
                               </div>
                             </div>
-
+                            {!isChefInactive && !isChefOpen && chef.nextOpeningTime && (
+                              <p className="text-xs text-orange-600 dark:text-orange-400 mt-1.5 font-medium">
+                                ⏰ Opens at {formatTime12Hour(chef.nextOpeningTime)}
+                              </p>
+                            )}
                           </div>
                         </Card>
                       );

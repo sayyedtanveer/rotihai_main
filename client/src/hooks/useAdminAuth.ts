@@ -2,6 +2,21 @@ import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import api from "@/lib/apiClient";
 
+// ✅ Validate that a string looks like a well-formed JWT (3 base64url segments)
+function isValidJwtFormat(token: string | null): boolean {
+  if (!token || typeof token !== "string") return false;
+  const parts = token.split(".");
+  if (parts.length !== 3) return false;
+  try {
+    // Try to decode the header and payload
+    atob(parts[0].replace(/-/g, "+").replace(/_/g, "/"));
+    atob(parts[1].replace(/-/g, "+").replace(/_/g, "/"));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function useAdminAuth() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -11,6 +26,18 @@ export function useAdminAuth() {
   useEffect(() => {
     const checkAuth = () => {
       const token = localStorage.getItem("adminToken");
+
+      // ✅ If token exists but is malformed, clear it immediately
+      if (token && !isValidJwtFormat(token)) {
+        console.warn("[useAdminAuth] Malformed adminToken detected — clearing and redirecting to login");
+        localStorage.removeItem("adminToken");
+        localStorage.removeItem("adminUser");
+        setIsAuthenticated(false);
+        setAdmin(null);
+        setIsLoading(false);
+        return;
+      }
+
       setIsAuthenticated(!!token);
 
       // Load admin user object (if any) from localStorage
@@ -26,12 +53,15 @@ export function useAdminAuth() {
 
     checkAuth();
 
-    // Auto-refresh admin token every 10 minutes (before 15min expiry)
+    // Auto-refresh admin token every 10 minutes
     const refreshToken = async () => {
       try {
         const response = await api.post("/api/admin/auth/refresh");
-        if (response.status === 200) {
-          localStorage.setItem("adminToken", response.data.accessToken);
+        if (response.status === 200 && response.data.accessToken) {
+          // ✅ Only store valid token
+          if (isValidJwtFormat(response.data.accessToken)) {
+            localStorage.setItem("adminToken", response.data.accessToken);
+          }
         }
       } catch (error) {
         console.error("Admin token refresh failed:", error);
@@ -40,7 +70,7 @@ export function useAdminAuth() {
 
     // Only start the refresh interval if a token actually exists
     const token = localStorage.getItem("adminToken");
-    if (!token) return;
+    if (!token || !isValidJwtFormat(token)) return;
 
     const tokenRefreshInterval = setInterval(refreshToken, 10 * 60 * 1000);
 

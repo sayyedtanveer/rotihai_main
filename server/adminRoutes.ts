@@ -28,6 +28,7 @@ import { eq } from "drizzle-orm";
 import { subscriptions } from "@shared/schema";
 import { sendEmail, createAdminPasswordResetEmail, sendMissedDeliveryEmail, sendAdminOrderNotification, type AdminOrderNotificationParams } from "./emailService";
 import { sendChefAssignmentNotification, sendDeliveryCompletedNotification, sendMissedDeliveryNotification, sendDeliveryAvailableNotification } from "./whatsappService";
+import { buildRestaurantConfig, calculateRestaurantStatus, validateScheduleConfig } from "./utils/restaurantStatus";
 
 import { invalidateCache, invalidateCachePrefix } from "./cache";
 
@@ -421,10 +422,52 @@ export function registerAdminRoutes(app: Express) {
   app.get("/api/admin/dashboard/metrics", requireAdmin(), async (req, res) => {
     try {
       const metrics = await storage.getDashboardMetrics();
+      
+      // Validation logging
+      console.log('[ADMIN DASHBOARD] Metrics endpoint - Response validation:', {
+        hasAllFields: !!metrics && !!metrics.revenuePeriods && !!metrics.orderPeriods && !!metrics.visitorMetrics,
+        revenuePeriodFields: metrics?.revenuePeriods ? Object.keys(metrics.revenuePeriods) : [],
+        visitorMetricsFields: metrics?.visitorMetrics ? Object.keys(metrics.visitorMetrics) : [],
+        timestamp: new Date().toISOString(),
+      });
+
       res.json(metrics);
     } catch (error) {
-      console.error("Dashboard metrics error:", error);
-      res.status(500).json({ message: "Failed to fetch metrics" });
+      console.error('[ADMIN DASHBOARD] Metrics error:', {
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        timestamp: new Date().toISOString(),
+      });
+      res.status(500).json({ 
+        message: "Failed to fetch metrics",
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  app.get("/api/admin/dashboard/charts", requireAdmin(), async (req, res) => {
+    try {
+      const chartsData = await storage.getDashboardChartsData();
+      
+      // Validation logging
+      console.log('[ADMIN DASHBOARD] Charts endpoint - Response validation:', {
+        hasAllFields: !!chartsData && !!chartsData.revenueTrend && !!chartsData.topItems && !!chartsData.topAreas,
+        topItemsCount: chartsData?.topItems?.length ?? 0,
+        topAreasCount: chartsData?.topAreas?.length ?? 0,
+        timestamp: new Date().toISOString(),
+      });
+
+      res.json(chartsData);
+    } catch (error) {
+      console.error('[ADMIN DASHBOARD] Charts error:', {
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        timestamp: new Date().toISOString(),
+      });
+      res.status(500).json({ 
+        message: "Failed to fetch charts data",
+        error: error instanceof Error ? error.message : String(error)
+      });
     }
   });
 
@@ -1404,7 +1447,7 @@ export function registerAdminRoutes(app: Express) {
   app.patch("/api/admin/chefs/:id", requireAdminOrManager(), async (req, res) => {
     try {
       const { id } = req.params;
-      const { address, latitude, longitude } = req.body;
+      const { address, latitude, longitude, autoScheduleEnabled, openingTime, closingTime } = req.body;
 
       // Validate coordinates if address was provided in update
       if (address) {
@@ -1420,21 +1463,50 @@ export function registerAdminRoutes(app: Express) {
         }
       }
 
+      // ✅ Validate schedule configuration if provided
+      if (autoScheduleEnabled !== undefined || openingTime !== undefined || closingTime !== undefined) {
+        const scheduleEnabled = autoScheduleEnabled !== undefined ? autoScheduleEnabled : false;
+        const opening = openingTime !== undefined ? openingTime : null;
+        const closing = closingTime !== undefined ? closingTime : null;
+        
+        const validationError = validateScheduleConfig(scheduleEnabled, opening, closing);
+        if (validationError) {
+          res.status(400).json({ message: validationError });
+          return;
+        }
+
+        console.log(`✅ Admin scheduling update for chef ${id}:`, {
+          autoScheduleEnabled: scheduleEnabled,
+          openingTime: opening,
+          closingTime: closing
+        });
+      }
+
       const chef = await storage.updateChef(id, req.body);
       if (!chef) {
         res.status(404).json({ message: "Chef not found" });
         return;
       }
 
-      // If isActive status was changed, broadcast the update
-      if (req.body.isActive !== undefined) {
-        const { broadcastChefStatusUpdate } = await import("./websocket");
-        broadcastChefStatusUpdate(chef);
+      // ✅ Build response with calculated restaurant status
+      const config = buildRestaurantConfig(chef);
+      const status = calculateRestaurantStatus(config);
+
+      const response = {
+        ...chef,
+        isCurrentlyOpen: status.isCurrentlyOpen,
+        currentScheduleStatus: status.reason,
+        nextOpeningTime: status.nextOpeningTime
+      };
+
+      // If isActive or schedule status was changed, broadcast the update
+      if (req.body.isActive !== undefined || autoScheduleEnabled !== undefined || openingTime !== undefined || closingTime !== undefined) {
+        broadcastChefStatusUpdate(response);
       }
 
       invalidateCache("chefs");
       invalidateCachePrefix("pincode-");
-      res.json(chef);
+      res.json(response);
     } catch (error) {
       console.error("Error updating chef:", error);
       res.status(500).json({ message: "Failed to update chef" });
@@ -3898,55 +3970,105 @@ export function registerAdminRoutes(app: Express) {
   });
 
   // Reports
-  app.get("/api/admin/reports/sales", requireAdmin(), async (req, res) => {
+  app.get("/api/admin/reports/revenue", requireAdmin(), async (req, res) => {
     try {
       const { from, to } = req.query;
-      const report = await storage.getSalesReport(
-        from ? new Date(from as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
-        to ? new Date(to as string) : new Date()
-      );
+      const { getPeriodRange } = await import("./analytics");
+      const { generateRevenueReport } = await import("./reports");
+      
+      const range = {
+        start: from ? new Date(from as string) : getPeriodRange("month").start,
+        end: to ? new Date(to as string) : new Date()
+      };
+      
+      const orders = await storage.getAllOrders();
+      const report = generateRevenueReport(orders, range);
       res.json(report);
     } catch (error) {
-      console.error("Get sales report error:", error);
-      res.status(500).json({ message: "Failed to fetch sales report" });
+      console.error("Get revenue report error:", error);
+      res.status(500).json({ message: "Failed to fetch revenue report" });
     }
   });
 
-  app.get("/api/admin/reports/users", requireAdmin(), async (req, res) => {
+  app.get("/api/admin/reports/completed-orders", requireAdmin(), async (req, res) => {
     try {
       const { from, to } = req.query;
-      const report = await storage.getUserReport(
-        from ? new Date(from as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
-        to ? new Date(to as string) : new Date()
-      );
+      const { getPeriodRange } = await import("./analytics");
+      const { generateCompletedOrdersReport } = await import("./reports");
+      
+      const range = {
+        start: from ? new Date(from as string) : getPeriodRange("month").start,
+        end: to ? new Date(to as string) : new Date()
+      };
+      
+      const orders = await storage.getAllOrders();
+      const report = generateCompletedOrdersReport(orders, range);
       res.json(report);
     } catch (error) {
-      console.error("Get user report error:", error);
-      res.status(500).json({ message: "Failed to fetch user report" });
+      console.error("Get completed orders report error:", error);
+      res.status(500).json({ message: "Failed to fetch completed orders report" });
     }
   });
 
-  app.get("/api/admin/reports/inventory", requireAdmin(), async (req, res) => {
+  app.get("/api/admin/reports/cancelled-orders", requireAdmin(), async (req, res) => {
     try {
-      const report = await storage.getInventoryReport();
+      const { from, to } = req.query;
+      const { getPeriodRange } = await import("./analytics");
+      const { generateCancelledOrdersReport } = await import("./reports");
+      
+      const range = {
+        start: from ? new Date(from as string) : getPeriodRange("month").start,
+        end: to ? new Date(to as string) : new Date()
+      };
+      
+      const orders = await storage.getAllOrders();
+      const report = generateCancelledOrdersReport(orders, range);
       res.json(report);
     } catch (error) {
-      console.error("Get inventory report error:", error);
-      res.status(500).json({ message: "Failed to fetch inventory report" });
+      console.error("Get cancelled orders report error:", error);
+      res.status(500).json({ message: "Failed to fetch cancelled orders report" });
     }
   });
 
-  app.get("/api/admin/reports/subscriptions", requireAdmin(), async (req, res) => {
+  app.get("/api/admin/reports/customers", requireAdmin(), async (req, res) => {
     try {
       const { from, to } = req.query;
-      const report = await storage.getSubscriptionReport(
-        from ? new Date(from as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
-        to ? new Date(to as string) : new Date()
-      );
+      const { getPeriodRange } = await import("./analytics");
+      const { generateCustomerReport } = await import("./reports");
+      
+      const range = {
+        start: from ? new Date(from as string) : getPeriodRange("month").start,
+        end: to ? new Date(to as string) : new Date()
+      };
+      
+      const orders = await storage.getAllOrders();
+      const users = await storage.getAllUsers();
+      const report = generateCustomerReport(orders, users, range);
       res.json(report);
     } catch (error) {
-      console.error("Get subscription report error:", error);
-      res.status(500).json({ message: "Failed to fetch subscription report" });
+      console.error("Get customer report error:", error);
+      res.status(500).json({ message: "Failed to fetch customer report" });
+    }
+  });
+
+  app.get("/api/admin/reports/chefs", requireAdmin(), async (req, res) => {
+    try {
+      const { from, to } = req.query;
+      const { getPeriodRange } = await import("./analytics");
+      const { generateChefReport } = await import("./reports");
+      
+      const range = {
+        start: from ? new Date(from as string) : getPeriodRange("month").start,
+        end: to ? new Date(to as string) : new Date()
+      };
+      
+      const orders = await storage.getAllOrders();
+      const chefs = await storage.getChefs();
+      const report = generateChefReport(orders, chefs, range);
+      res.json(report);
+    } catch (error) {
+      console.error("Get chef report error:", error);
+      res.status(500).json({ message: "Failed to fetch chef report" });
     }
   });
 

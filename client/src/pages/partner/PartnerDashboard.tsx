@@ -13,7 +13,7 @@ import { queryClient } from "@/lib/queryClient";
 import { usePartnerNotifications } from "@/hooks/usePartnerNotifications";
 import { useWakeLock } from "@/hooks/useWakeLock";
 import PartnerNotificationBell from "@/components/PartnerNotificationBell";
-import { formatTime12Hour, formatDeliveryTime } from "@shared/timeFormatter";
+import { formatTime12Hour, formatDeliveryTime, formatSlotRange } from "@shared/timeFormatter";
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import type { Chef, Product, Order } from "@shared/schema"; // Assuming Order type is defined in schema
@@ -225,6 +225,7 @@ export default function PartnerDashboard() {
     },
   });
 
+  // Permanent open/close toggle — writes isActive to DB
   const toggleChefStatusMutation = useMutation({
     mutationFn: async (isActive: boolean) => {
       const response = await api.patch("/api/partner/chef/status", { isActive });
@@ -233,16 +234,45 @@ export default function PartnerDashboard() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/partner/chef"] });
       toast({
-        title: data.isActive ? "Store is now OPEN" : "Store is now CLOSED",
+        title: data.isActive ? "Restaurant Open" : "Restaurant Closed",
         description: data.isActive
-          ? "Customers can now see and order from your menu"
-          : "Your store will appear as unavailable to customers",
+          ? "Customers can now place orders."
+          : "Customers can still browse your menu but cannot order.",
       });
     },
     onError: () => {
       toast({
         title: "Failed to update status",
         description: "Please try again",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // manualAction kept for schedule-aware temporary override (used by auto-schedule watcher)
+  const manualActionMutation = useMutation({
+    mutationFn: async (manualAction: "close_for_today" | "open_now") => {
+      const response = await api.patch("/api/partner/chef/status", { manualAction });
+      return response.data;
+    },
+    onSuccess: (data, manualAction) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/partner/chef"] });
+      if (manualAction === "close_for_today") {
+        toast({
+          title: "Restaurant Closed",
+          description: "Customers can still browse your menu. Will reopen automatically per schedule.",
+        });
+      } else {
+        toast({
+          title: "Restaurant Open",
+          description: "Customers can now place orders.",
+        });
+      }
+    },
+    onError: () => {
+      toast({
+        title: "Action failed",
+        description: "Failed to apply the action. Please try again.",
         variant: "destructive",
       });
     },
@@ -423,21 +453,26 @@ export default function PartnerDashboard() {
                 {chefName}
               </h1>
               <div
-                className={`flex items-center gap-1.5 px-2 py-1 rounded-full border transition-all flex-shrink-0 ${chefDetails?.isActive
+                className={`flex items-center gap-1.5 px-2 py-1 rounded-full border transition-all flex-shrink-0 ${(chefDetails as any)?.isCurrentlyOpen
                   ? "bg-green-50 dark:bg-green-950 border-green-500"
                   : "bg-red-50 dark:bg-red-950 border-red-500"
                   }`}
               >
-                <Store className={`h-3 w-3 ${chefDetails?.isActive ? "text-green-600" : "text-red-600"}`} />
-                <span className={`text-xs font-medium ${chefDetails?.isActive ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"}`}>
-                  {chefDetails?.isActive ? "OPEN" : "CLOSED"}
+                <Store className={`h-3 w-3 ${(chefDetails as any)?.isCurrentlyOpen ? "text-green-600" : "text-red-600"}`} />
+                <span className={`text-xs font-medium ${(chefDetails as any)?.isCurrentlyOpen ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"}`}>
+                  {(chefDetails as any)?.isCurrentlyOpen ? "OPEN" : "CLOSED"}
                 </span>
+                {/* Switch uses manualAction — leaves isActive=true so chef stays visible on homepage.
+                    checked state reads isCurrentlyOpen (computed: schedule + manual override) */}
                 <Switch
-                  checked={chefDetails?.isActive ?? true}
-                  onCheckedChange={(checked) => toggleChefStatusMutation.mutate(checked)}
-                  disabled={toggleChefStatusMutation.isPending}
+                  checked={(chefDetails as any)?.isCurrentlyOpen ?? true}
+                  onCheckedChange={(checked) =>
+                    manualActionMutation.mutate(checked ? "open_now" : "close_for_today")
+                  }
+                  disabled={manualActionMutation.isPending}
                   data-testid="switch-chef-status"
                 />
+                {manualActionMutation.isPending && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
               </div>
             </div>
             <div className="flex items-center gap-1">
@@ -573,6 +608,47 @@ export default function PartnerDashboard() {
                 </CardContent>
               </Card>
             </div>
+
+            {/* Operating Hours card — always show when chef is admin-enabled */}
+            {chefDetails?.isActive && (
+              <Card className="border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/20">
+                <CardHeader>
+                  <CardTitle className="text-sm md:text-base flex items-center gap-2">
+                    <Clock className="h-4 w-4" />
+                    Operating Hours
+                  </CardTitle>
+                  <CardDescription>
+                    {(chefDetails as any)?.autoScheduleEnabled 
+                      ? `Open: ${(chefDetails as any)?.openingTime && (chefDetails as any)?.closingTime ? formatSlotRange((chefDetails as any).openingTime, (chefDetails as any).closingTime) : "Not configured"}`
+                      : "Schedule not configured - always open"}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {(chefDetails as any)?.autoScheduleEnabled && (
+                    <div className="p-3 bg-white dark:bg-slate-800 rounded border border-blue-200 dark:border-blue-700">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className={`font-semibold ${(chefDetails as any)?.isCurrentlyOpen ? "text-green-600" : "text-red-600"}`}>
+                          {(chefDetails as any)?.isCurrentlyOpen ? "🟢 OPEN NOW" : "🔴 CLOSED NOW"}
+                        </span>
+                      </div>
+                      {!((chefDetails as any)?.isCurrentlyOpen) && (chefDetails as any)?.nextOpeningTime && (
+                        <p className="text-xs text-slate-600 dark:text-slate-300">
+                          Next opens at: <span className="font-semibold">{formatTime12Hour((chefDetails as any).nextOpeningTime)}</span>
+                        </p>
+                      )}
+                      {(chefDetails as any)?.currentScheduleStatus === "manual_closed" && (
+                        <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-1">
+                          ⏰ Manually closed — toggle OPEN above to reopen immediately, or wait for the schedule.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  <p className="text-xs text-slate-600 dark:text-slate-400">
+                    Configure your operating hours in your profile settings
+                  </p>
+                </CardContent>
+              </Card>
+            )}
 
             {/* Orders Section */}
             <Card>

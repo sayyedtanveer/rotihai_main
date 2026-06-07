@@ -2,6 +2,7 @@ import { X, Star, ChevronRight, BadgeCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { Category, Chef as BaseChef } from "@shared/schema";
+import { formatSlotRange } from "@shared/timeFormatter";
 
 // ✅ Frontend-safe Chef type (adds optional coordinates)
 type FrontendChef = BaseChef & {
@@ -58,6 +59,10 @@ export default function ChefListDrawer({
               ) : (
                 categoryChefs.map((chef) => {
                   const isInactive = chef.isActive === false;
+                  // ✅ Phase 6: Check if restaurant has scheduled hours
+                  const hasSchedule = (chef as any).autoScheduleEnabled;
+                  const isCurrentlyOpen = (chef as any).isCurrentlyOpen;
+                  
                   return (
                     <div
                       key={chef.id}
@@ -98,10 +103,26 @@ export default function ChefListDrawer({
                                     Inactive
                                   </span>
                                 )}
+                                {/* ✅ Phase 6: Show schedule status badge */}
+                                {hasSchedule && isCurrentlyOpen !== undefined && (
+                                  <span className={`text-xs px-2 py-0.5 rounded-full flex items-center gap-1 ${
+                                    isCurrentlyOpen 
+                                      ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
+                                      : 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300'
+                                  }`}>
+                                    {isCurrentlyOpen ? '🟢 Open' : '🔴 Scheduled'}
+                                  </span>
+                                )}
                               </div>
                               <p className="text-sm text-muted-foreground mb-2">
                                 {chef.description}
                               </p>
+                              {/* ✅ Phase 6: Show opening hours if scheduled */}
+                              {hasSchedule && (chef as any).openingTime && (chef as any).closingTime && (
+                                <p className="text-xs text-muted-foreground mb-2">
+                                  ⏰ {formatSlotRange((chef as any).openingTime, (chef as any).closingTime)}
+                                </p>
+                              )}
                               <div className="flex items-center gap-2">
                                 <div className="flex items-center gap-1">
                                   <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />

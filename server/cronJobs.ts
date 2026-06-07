@@ -5,8 +5,16 @@ import { storage } from "./storage";
 import { sendScheduledOrder2HourReminder, sendMissedDeliveryNotification } from "./whatsappService";
 import { sendMissedDeliveryEmail } from "./emailService";
 import { gpayVerificationService } from "./services/gpayVerificationService";
+import { buildRestaurantConfig, calculateRestaurantStatus } from "./utils/restaurantStatus";
 
 let isRunning = false;
+
+/**
+ * In-memory map tracking last known open/closed state per chef for auto-schedule watching.
+ * Only populated for chefs with autoScheduleEnabled=true.
+ * Key: chefId, Value: last known isCurrentlyOpen boolean
+ */
+const lastKnownScheduleState = new Map<string, boolean>();
 
 // ✅ Google Pay Payment Verification Polling
 /**
@@ -564,6 +572,66 @@ export async function expirePendingPaymentOrders(): Promise<void> {
   }
 }
 
+/**
+ * Auto-Schedule Status Watcher
+ *
+ * Detects when a chef's computed open/closed state flips due to the clock
+ * crossing a scheduled opening or closing time, then broadcasts the change
+ * to all connected clients via the existing WebSocket infrastructure.
+ *
+ * Design:
+ * - Pure in-memory: no DB query per tick (uses the cached chefs list from storage)
+ * - One DB read on first run to seed `lastKnownScheduleState`
+ * - Subsequent ticks: recalculate from the same in-memory chef data
+ * - Only broadcasts when state actually transitions (Open→Closed or Closed→Open)
+ * - Skips chefs with autoScheduleEnabled=false (manual-only chefs are handled
+ *   by the existing broadcastChefStatusUpdate calls in partnerRoutes/adminRoutes)
+ */
+export async function checkAutoScheduleTransitions(): Promise<void> {
+  try {
+    // Fetch all chefs (uses storage cache — no extra DB round-trip if recently fetched)
+    const allChefs = await storage.getChefs();
+
+    const { broadcastChefStatusUpdate } = await import("./websocket");
+
+    for (const chef of allChefs) {
+      // Only watch chefs that use auto-schedule
+      if (!(chef as any).autoScheduleEnabled) continue;
+
+      const config = buildRestaurantConfig(chef as any);
+      const status = calculateRestaurantStatus(config);
+      const isNowOpen = status.isCurrentlyOpen;
+      const chefId = chef.id;
+
+      if (!lastKnownScheduleState.has(chefId)) {
+        // First run — seed without broadcasting
+        lastKnownScheduleState.set(chefId, isNowOpen);
+        continue;
+      }
+
+      const wasOpen = lastKnownScheduleState.get(chefId);
+
+      if (wasOpen !== isNowOpen) {
+        // State flipped — update cache and broadcast
+        lastKnownScheduleState.set(chefId, isNowOpen);
+
+        const transition = isNowOpen ? "CLOSED → OPEN" : "OPEN → CLOSED";
+        console.log(`[AUTO-SCHEDULE] Chef "${chef.name}" (${chefId}): ${transition} per schedule`);
+
+        broadcastChefStatusUpdate({
+          ...chef,
+          isCurrentlyOpen: isNowOpen,
+          currentScheduleStatus: status.reason,
+          nextOpeningTime: status.nextOpeningTime,
+          currentSchedulePeriodEndsAt: status.currentSchedulePeriodEndsAt,
+        });
+      }
+    }
+  } catch (error) {
+    console.error("[AUTO-SCHEDULE] Error in checkAutoScheduleTransitions:", error);
+  }
+}
+
 export async function runScheduledTasks(): Promise<void> {
   if (isRunning) return;
   
@@ -659,12 +727,25 @@ export function startCronJobs(): void {
     }
   }, 5 * 60 * 1000); // 5 minutes
 
+  // Auto-schedule transition watcher: runs every 60 seconds
+  // Pure in-memory clock check — no DB query per tick after the first seed run.
+  // Detects when a chef's computed open/closed state changes due to schedule
+  // and broadcasts via existing WebSocket infrastructure.
+  // First run is deferred 60s so the initial storage cache is warm.
+  const scheduleWatcherInterval = setInterval(() => {
+    checkAutoScheduleTransitions().catch(err => {
+      console.error("[AUTO-SCHEDULE] Watcher error:", err);
+    });
+  }, 60 * 1000); // 60 seconds
+
   console.log("✅ Payment polling started (every 60 seconds)");
   console.log("✅ Subscription tasks started (every 5 minutes)");
+  console.log("✅ Auto-schedule watcher started (every 60 seconds)");
   
   // Cleanup on process exit
   process.on('exit', () => {
-  clearTimeout(paymentPollingTimeout);
-  clearInterval(subscriptionInterval);
-});
+    clearTimeout(paymentPollingTimeout);
+    clearInterval(subscriptionInterval);
+    clearInterval(scheduleWatcherInterval);
+  });
 }

@@ -45,6 +45,7 @@ import { getStoredPincodeValidation } from "@/lib/pincodeUtils";
 import { CartItem } from "@/types/cartItem";
 import { CheckoutDialogProps } from "@/types/checkoutdialogprops";
 import { useCart } from "@/hooks/use-cart";
+import { useCustomerNotifications } from "@/hooks/useCustomerNotifications";
 import OrderSummaryCard from "@/components/OrderSummaryCard";
 
 /*
@@ -219,6 +220,15 @@ export default function CheckoutDialog({
   const [locationError, setLocationError] = useState("");
   const [hasLocationPermission, setHasLocationPermission] = useState(false);
   const [isRequestingLocation, setIsRequestingLocation] = useState(false);
+
+  // Live chef status from WebSocket — takes priority over stale cart prop
+  // Ensures checkout blocks ordering in real-time when chef closes while dialog is open
+  const { chefStatuses: liveChefStatuses } = useCustomerNotifications();
+  const isChefCurrentlyClosed = cart?.chefId
+    ? (liveChefStatuses[cart.chefId] !== undefined
+        ? !liveChefStatuses[cart.chefId]
+        : cart?.chefIsActive === false)
+    : cart?.chefIsActive === false;
 
   // Delivery address zone validation (NOT GPS-based)
   const [addressInDeliveryZone, setAddressInDeliveryZone] = useState(true);
@@ -2723,8 +2733,8 @@ export default function CheckoutDialog({
         return;
       }
 
-      // Check if chef is accepting orders
-      if (validCart.chefIsActive === false) {
+      // Check if chef is accepting orders (use live WebSocket status, not stale prop)
+      if (isChefCurrentlyClosed) {
         toast({
           title: "Chef Currently Closed",
           description: `${validCart.chefName} is not accepting orders right now. Please try again later.`,
@@ -3220,14 +3230,14 @@ export default function CheckoutDialog({
           </DialogHeader>
 
           <div id="checkout-scroll-container" className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 pb-0 space-y-4">
-            {/* Chef closed warning */}
-            {cart?.chefIsActive === false && (
+            {/* Chef closed warning — live WebSocket status */}
+            {isChefCurrentlyClosed && (
               <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-md p-3 mb-1">
                 <p className="text-sm font-semibold text-red-700 dark:text-red-400">
                   Chef Currently Closed
                 </p>
                 <p className="text-xs text-red-600 dark:text-red-500 mt-0.5">
-                  {cart.chefName} is not accepting orders right now. Please
+                  {cart?.chefName} is not accepting orders right now. Please
                   check back later.
                 </p>
               </div>
@@ -4146,7 +4156,7 @@ export default function CheckoutDialog({
                     disabled={
                       isLoading ||
                       !isFormValid ||
-                      cart?.chefIsActive === false ||
+                      isChefCurrentlyClosed ||
                       isRotiOrderBlocked ||
                       !addressZoneValidated ||
                       (addressZoneValidated && !addressInDeliveryZone) ||
@@ -4244,7 +4254,7 @@ export default function CheckoutDialog({
                     isLoading ||
                     isValidatingReferral || // ✅ Disable while validating referral code (industry standard)
                     !isFormValid ||
-                    cart?.chefIsActive === false ||
+                    isChefCurrentlyClosed ||
                     isRotiOrderBlocked ||
                     !addressZoneValidated ||
                     (addressZoneValidated && !addressInDeliveryZone) ||

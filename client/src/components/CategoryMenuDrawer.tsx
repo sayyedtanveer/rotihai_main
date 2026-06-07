@@ -6,6 +6,7 @@ import type { Category, Product } from "@shared/schema";
 import { useCustomerNotifications } from "@/hooks/useCustomerNotifications";
 import { getImageUrl, handleImageError } from "@/lib/imageUrl";
 import { groupProductsBySection } from "@/utils/productGrouping";
+import { formatTime12Hour } from "@shared/timeFormatter";
 import { useState, useRef } from "react";
 
 interface CategoryMenuDrawerProps {
@@ -41,9 +42,12 @@ export default function CategoryMenuDrawer({
 
   if (!isOpen || !category || !chef) return null;
 
-  // Use realtime chef status from WebSocket, fallback to chef prop
+  // chefStatuses (WebSocket) takes priority — updates instantly on status change.
+  // Falls back to chef.isCurrentlyOpen (API data) then chef.isActive (DB field).
   const realtimeChefStatus = chefStatuses[chef.id];
-  const isChefClosed = realtimeChefStatus !== undefined ? !realtimeChefStatus : (chef.isActive === false);
+  const isChefClosed = realtimeChefStatus !== undefined
+    ? !realtimeChefStatus
+    : ((chef as any).isCurrentlyOpen !== undefined ? !(chef as any).isCurrentlyOpen : (chef.isActive === false));
 
   const categoryProducts = products.filter(
     (p) => p.categoryId === category.id && p.chefId === chef.id
@@ -137,6 +141,12 @@ export default function CategoryMenuDrawer({
               <p className="text-xs text-red-600 dark:text-red-500 mt-1">
                 {chef.name} is not accepting orders right now. You can browse the menu but cannot place orders.
               </p>
+              {/* ✅ Phase 6: Show schedule info if available */}
+              {(chef as any).autoScheduleEnabled && (chef as any).nextOpeningTime && (
+                <p className="text-xs text-red-600 dark:text-red-500 mt-2 font-medium">
+                  ⏰ Opens again at: <span className="font-semibold">{formatTime12Hour((chef as any).nextOpeningTime)}</span>
+                </p>
+              )}
             </div>
           )}
 

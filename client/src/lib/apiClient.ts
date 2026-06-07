@@ -1,5 +1,19 @@
 import axios from 'axios';
 
+// ✅ Validate that a token is a well-formed JWT (3 base64url segments)
+function isValidJwtFormat(token: string | null): boolean {
+  if (!token || typeof token !== "string") return false;
+  const parts = token.split(".");
+  if (parts.length !== 3) return false;
+  try {
+    atob(parts[0].replace(/-/g, "+").replace(/_/g, "/"));
+    atob(parts[1].replace(/-/g, "+").replace(/_/g, "/"));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // Get API URL from environment variable - NO FALLBACK
 const apiUrl = import.meta.env.VITE_API_URL;
 
@@ -53,9 +67,13 @@ api.interceptors.request.use((config) => {
     });
   }
 
-  // Add authorization header if token exists
-  if (token) {
+  // ✅ Only attach token if it's a valid JWT format
+  if (token && isValidJwtFormat(token)) {
     config.headers.Authorization = `Bearer ${token}`;
+  } else if (token && !isValidJwtFormat(token)) {
+    // Malformed token - clear it and don't send it
+    console.warn('[API-REQUEST] ⚠️ Malformed token detected, clearing from localStorage', { tokenType, path });
+    localStorage.removeItem(tokenType);
   } else if (path.startsWith('/delivery')) {
     console.warn('[API-REQUEST] ⚠️ No token found for delivery request!', { path, url: config.url });
   }

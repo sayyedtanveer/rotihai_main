@@ -10,6 +10,7 @@ interface ChefStatusUpdate {
   id: string;
   name: string;
   isActive: boolean;
+  isCurrentlyOpen?: boolean; // computed status — preferred over isActive for customer-facing logic
 }
 
 interface ProductAvailabilityUpdate {
@@ -105,21 +106,26 @@ class CustomerNotificationsManager {
 
         if (data.type === "chef_status_update") {
           const chef = data.data as ChefStatusUpdate;
-          console.log(`Chef status updated: ${chef.name} is now ${chef.isActive ? "OPEN" : "CLOSED"}`);
+          // Use isCurrentlyOpen (computed: schedule + manual override) when available,
+          // fall back to isActive (DB field) for backwards compatibility.
+          const isNowOpen = chef.isCurrentlyOpen !== undefined ? chef.isCurrentlyOpen : chef.isActive;
+          console.log(`Chef status updated: ${chef.name} isCurrentlyOpen=${isNowOpen}`);
 
           const wasOpen = this.chefStatuses[chef.id];
           // Show toast only if status actually changed and not first load
-          if (!this.isFirstLoad && wasOpen !== undefined && wasOpen !== chef.isActive) {
+          if (!this.isFirstLoad && wasOpen !== undefined && wasOpen !== isNowOpen) {
             toast({
-              title: chef.isActive ? "Kitchen Now Open" : "Kitchen Now Closed",
-              description: `${chef.name} is ${chef.isActive ? "now accepting orders" : "currently closed"}`,
-              variant: chef.isActive ? "default" : "destructive",
+              title: isNowOpen ? "Kitchen Now Open" : "Kitchen Now Closed",
+              description: `${chef.name} is ${isNowOpen ? "now accepting orders" : "currently closed"}`,
+              variant: isNowOpen ? "default" : "destructive",
             });
           }
 
+          // Store isCurrentlyOpen (computed) — not isActive (DB). This ensures
+          // manual close + auto-schedule both correctly gate ordering on the client.
           this.chefStatuses = {
             ...this.chefStatuses,
-            [chef.id]: chef.isActive
+            [chef.id]: isNowOpen
           };
 
           // Invalidate chef-related queries to refresh data

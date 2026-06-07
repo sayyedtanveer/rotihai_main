@@ -149,9 +149,10 @@ export const useCart = create<CartStore>()(
           const response = await apiClient.get("/api/chefs");
           if (response.status === 200) {
             const chefs = response.data;
-            const statuses: ChefStatus[] = chefs.map((chef: { id: string; isActive: boolean }) => ({
+            const statuses: ChefStatus[] = chefs.map((chef: { id: string; isActive: boolean; isCurrentlyOpen?: boolean }) => ({
               chefId: chef.id,
-              isActive: chef.isActive ?? true,
+              // Prefer computed isCurrentlyOpen (schedule + manual override) over raw DB isActive
+              isActive: chef.isCurrentlyOpen !== undefined ? chef.isCurrentlyOpen : (chef.isActive ?? true),
             }));
             get().setChefStatuses(statuses);
           }
