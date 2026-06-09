@@ -7,6 +7,9 @@ import { db, orders } from "@shared/db";
 import { eq } from "drizzle-orm";
 import { buildRestaurantConfig, calculateRestaurantStatus, setManualCloseForToday, clearManualOverride } from "./utils/restaurantStatus";
 import { invalidateCache } from "./cache";
+import { chefs } from "@shared/schema";
+import { z } from "zod";
+import { chefUnavailabilityService } from "./services/chefUnavailabilityService";
 
 export function registerPartnerRoutes(app: Express): void {
   // ✅ Helper function: Check if date is a scheduled delivery day based on plan frequency
@@ -727,9 +730,9 @@ export function registerPartnerRoutes(app: Express): void {
         return;
       }
 
-      // Get all subscriptions assigned to this chef and filter for active ones
+      // Get all subscriptions assigned to this chef (original assignments)
       const allSubscriptions = await storage.getSubscriptions();
-      const subscriptions = allSubscriptions.filter(s =>
+      const ownSubscriptions = allSubscriptions.filter(s =>
         s.chefId === chefId && s.isPaid && s.status !== "cancelled"
       );
 
@@ -741,60 +744,98 @@ export function registerPartnerRoutes(app: Express): void {
       // Get all delivery logs for today
       const todaysLogs = await storage.getSubscriptionDeliveryLogsByDate(today);
 
+      // REASSIGNMENT FIX: Also include logs where chefOverrideId = this chef,
+      // even if the subscription's original chefId belongs to someone else.
+      // These are deliveries admin reassigned to this chef due to unavailability.
+      const reassignedLogs = todaysLogs.filter(log =>
+        (log as any).chefOverrideId === chefId &&
+        // Exclude subscriptions already in ownSubscriptions to avoid duplicates
+        !ownSubscriptions.some(s => s.id === log.subscriptionId)
+      );
+
+      // Build a Set of subscriptionIds that have reassigned deliveries today
+      const reassignedSubIds = new Set(reassignedLogs.map(l => l.subscriptionId));
+
       const todaysDeliveries: any[] = [];
       let preparing = 0;
       let outForDelivery = 0;
       let delivered = 0;
 
-      for (const sub of subscriptions) {
-        // Skip subscriptions with invalid nextDeliveryDate
-        if (!sub.nextDeliveryDate || isNaN(new Date(sub.nextDeliveryDate).getTime())) {
-          continue;
-        }
+      // ── Process own subscriptions ────────────────────────────────────────────
+      for (const sub of ownSubscriptions) {
+        if (!sub.nextDeliveryDate || isNaN(new Date(sub.nextDeliveryDate).getTime())) continue;
 
-        // Check if subscription has delivery today based on next delivery date
         const nextDelivery = new Date(sub.nextDeliveryDate);
         nextDelivery.setHours(0, 0, 0, 0);
         const nextDeliveryStr = nextDelivery.toISOString().split('T')[0];
 
-        if (nextDeliveryStr === todayStr && sub.status !== "paused" && sub.status !== "cancelled") {
-          // Get the plan name
-          const plan = await storage.getSubscriptionPlan(sub.planId);
+        if (nextDeliveryStr !== todayStr || sub.status === "paused" || sub.status === "cancelled") continue;
 
-          // Get chef name if assigned
-          let chefName: string | undefined;
-          if (sub.chefId) {
-            const chef = await storage.getChefById(sub.chefId);
-            chefName = chef?.name;
-          }
+        const plan = await storage.getSubscriptionPlan(sub.planId);
 
-          // Find today's delivery log for this subscription
-          const deliveryLog = todaysLogs.find(log => log.subscriptionId === sub.id);
+        // Find today's delivery log — prefer the log with chefOverrideId=null (original assignment)
+        const deliveryLog = todaysLogs.find(log =>
+          log.subscriptionId === sub.id && !(log as any).chefOverrideId
+        ) || todaysLogs.find(log => log.subscriptionId === sub.id);
 
-          const currentStatus = deliveryLog?.status || "scheduled";
+        // Skip if this log was reassigned away to a different chef
+        const logChefOverride = (deliveryLog as any)?.chefOverrideId;
+        if (logChefOverride && logChefOverride !== chefId) continue;
 
-          if (currentStatus === "preparing") preparing++;
-          else if (currentStatus === "out_for_delivery") outForDelivery++;
-          else if (currentStatus === "delivered") delivered++;
+        const currentStatus = deliveryLog?.status || "scheduled";
+        if (currentStatus === "preparing") preparing++;
+        else if (currentStatus === "out_for_delivery") outForDelivery++;
+        else if (currentStatus === "delivered") delivered++;
 
-          todaysDeliveries.push({
-            id: deliveryLog?.id || sub.id,
-            subscriptionId: sub.id,
-            customerName: sub.customerName,
-            phone: sub.phone,
-            address: sub.address,
-            planName: plan?.name || "Unknown Plan",
-            // Frontend expects these exact keys
-            nextDeliveryDate: sub.nextDeliveryDate,
-            nextDeliveryTime: deliveryLog?.time || sub.nextDeliveryTime || "09:00",
-            remainingDeliveries: sub.remainingDeliveries,
-            totalDeliveries: sub.totalDeliveries,
-            planItems: plan?.items || [],
-            deliverySlotId: sub.deliverySlotId,
-            status: currentStatus,
-            chefName,
-          });
-        }
+        todaysDeliveries.push({
+          id: deliveryLog?.id || sub.id,
+          subscriptionId: sub.id,
+          customerName: sub.customerName,
+          phone: sub.phone,
+          address: sub.address,
+          planName: plan?.name || "Unknown Plan",
+          nextDeliveryDate: sub.nextDeliveryDate,
+          nextDeliveryTime: deliveryLog?.time || sub.nextDeliveryTime || "09:00",
+          remainingDeliveries: sub.remainingDeliveries,
+          totalDeliveries: sub.totalDeliveries,
+          planItems: plan?.items || [],
+          deliverySlotId: sub.deliverySlotId,
+          status: currentStatus,
+          chefName: undefined, // own subscription, no override needed
+          isReassigned: false,
+        });
+      }
+
+      // ── Process reassigned deliveries ────────────────────────────────────────
+      for (const log of reassignedLogs) {
+        const sub = allSubscriptions.find(s => s.id === log.subscriptionId);
+        if (!sub || sub.status === "cancelled") continue;
+
+        const plan = await storage.getSubscriptionPlan(sub.planId);
+        const originalChef = sub.chefId ? await storage.getChefById(sub.chefId) : null;
+
+        const currentStatus = log.status || "scheduled";
+        if (currentStatus === "preparing") preparing++;
+        else if (currentStatus === "out_for_delivery") outForDelivery++;
+        else if (currentStatus === "delivered") delivered++;
+
+        todaysDeliveries.push({
+          id: log.id,
+          subscriptionId: sub.id,
+          customerName: sub.customerName,
+          phone: sub.phone,
+          address: sub.address,
+          planName: plan?.name || "Unknown Plan",
+          nextDeliveryDate: log.date,  // Use log date for reassigned deliveries
+          nextDeliveryTime: log.time || sub.nextDeliveryTime || "09:00",
+          remainingDeliveries: sub.remainingDeliveries,
+          totalDeliveries: sub.totalDeliveries,
+          planItems: plan?.items || [],
+          deliverySlotId: sub.deliverySlotId,
+          status: currentStatus,
+          chefName: originalChef?.name,  // Show original chef name for context
+          isReassigned: true,             // Flag so partner UI can show "Reassigned" badge
+        });
       }
 
       res.json({
@@ -963,6 +1004,98 @@ export function registerPartnerRoutes(app: Express): void {
     } catch (error) {
       console.error("Error marking broadcasts delivered:", error);
       res.status(500).json({ message: "Failed to mark delivered" });
+    }
+  });
+
+  // ─── Chef Availability (Subscription Unavailability Management) ─────────────
+
+  // GET /api/partner/chef/availability — fetch current availability status + leave dates
+  app.get("/api/partner/chef/availability", requirePartner(), async (req: AuthenticatedPartnerRequest, res) => {
+    try {
+      const chefId = req.partner?.chefId;
+      if (!chefId) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      // Query chefs table for availability fields only
+      const chef = await db.query.chefs.findFirst({ where: eq(chefs.id, chefId) });
+      if (!chef) {
+        return res.status(404).json({ message: "Chef not found" });
+      }
+      return res.json({
+        subscriptionAvailabilityStatus: chef.subscriptionAvailabilityStatus,
+        leaveStartDate: chef.leaveStartDate ?? null,
+        leaveEndDate: chef.leaveEndDate ?? null,
+      });
+    } catch (error) {
+      console.error("Error fetching chef availability:", error);
+      return res.status(500).json({ message: "Failed to fetch availability" });
+    }
+  });
+
+  // PATCH /api/partner/chef/availability — update availability status
+  const availabilitySchema = z.object({
+    subscriptionAvailabilityStatus: z.enum(["available", "unavailable_today", "on_leave"]),
+    leaveStartDate: z.string().optional(),
+    leaveEndDate: z.string().optional(),
+  });
+
+  app.patch("/api/partner/chef/availability", requirePartner(), async (req: AuthenticatedPartnerRequest, res) => {
+    try {
+      const chefId = req.partner?.chefId;
+      if (!chefId) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      const parseResult = availabilitySchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({ message: "Invalid request body", errors: parseResult.error.errors });
+      }
+
+      const { subscriptionAvailabilityStatus, leaveStartDate, leaveEndDate } = parseResult.data;
+
+      if (subscriptionAvailabilityStatus === "available") {
+        await chefUnavailabilityService.markAvailable(chefId);
+        return res.json({
+          subscriptionAvailabilityStatus: "available",
+          message: "Marked as available",
+        });
+      }
+
+      if (subscriptionAvailabilityStatus === "unavailable_today") {
+        const { affectedCount } = await chefUnavailabilityService.markUnavailableToday(chefId);
+        return res.json({
+          subscriptionAvailabilityStatus: "unavailable_today",
+          affectedCount,
+          message: `Marked as unavailable today. ${affectedCount} scheduled ${affectedCount === 1 ? "delivery" : "deliveries"} affected.`,
+        });
+      }
+
+      // on_leave — both dates are required
+      if (!leaveStartDate || !leaveEndDate) {
+        return res.status(400).json({ message: "leaveStartDate and leaveEndDate are required for on_leave status" });
+      }
+
+      const startDate = new Date(`${leaveStartDate}T12:00:00`);
+      const endDate = new Date(`${leaveEndDate}T12:00:00`);
+
+      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+        return res.status(400).json({ message: "leaveStartDate and leaveEndDate must be valid ISO date strings" });
+      }
+
+      const { affectedCount } = await chefUnavailabilityService.setOnLeave(chefId, startDate, endDate);
+      return res.json({
+        subscriptionAvailabilityStatus: "on_leave",
+        leaveStartDate,
+        leaveEndDate,
+        affectedCount,
+        message: `Set on leave from ${leaveStartDate} to ${leaveEndDate}. ${affectedCount} scheduled ${affectedCount === 1 ? "delivery" : "deliveries"} affected today.`,
+      });
+    } catch (error: any) {
+      if (error && typeof error.status === "number") {
+        return res.status(error.status).json({ message: error.message });
+      }
+      console.error("Error updating chef availability:", error);
+      return res.status(500).json({ message: "Failed to update availability" });
     }
   });
 }

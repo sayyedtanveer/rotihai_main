@@ -14,7 +14,7 @@ export function startKeepAlive(intervalMinutes: number = 10): void {
 
   const intervalMs = intervalMinutes * 60 * 1000;
 
-  console.log(`🔄 Starting keep-alive ping every ${intervalMinutes} minutes`);
+  console.debug(`🔄 Starting keep-alive ping every ${intervalMinutes} minutes`);
 
   // Send first ping immediately
   pingServer();
@@ -30,7 +30,7 @@ async function pingServer(): Promise<void> {
     const response = await fetch(getApiUrl("/api/health"));
     if (response.ok) {
       const data = await response.json();
-      console.log("✅ Keep-alive ping successful", data.timestamp);
+      console.debug("✅ Keep-alive ping successful", data.timestamp);
     } else {
       console.warn("Keep-alive ping returned non-OK status:", response.status);
     }

@@ -31,6 +31,8 @@ import { sendChefAssignmentNotification, sendDeliveryCompletedNotification, send
 import { buildRestaurantConfig, calculateRestaurantStatus, validateScheduleConfig } from "./utils/restaurantStatus";
 
 import { invalidateCache, invalidateCachePrefix } from "./cache";
+import { z } from "zod";
+import { chefUnavailabilityService } from "./services/chefUnavailabilityService";
 
 export function registerAdminRoutes(app: Express) {
   // ✅ Helper function: Check if date is a scheduled delivery day based on plan frequency
@@ -3113,6 +3115,13 @@ export function registerAdminRoutes(app: Express) {
           lastDeliveryDate: new Date(existingLog.date),
           remainingDeliveries: Math.max(0, subscription.remainingDeliveries - 1),
         });
+        // Sync deliveryHistory JSONB so it stays consistent with delivery logs
+        await storage.syncDeliveryHistory(subscriptionId.trim(), "delivered", new Date(existingLog.date), notes || "Marked delivered by admin");
+      }
+
+      // Sync deliveryHistory for skipped/missed status changes too
+      if ((status === "skipped" || status === "missed") && existingLog.date) {
+        await storage.syncDeliveryHistory(subscriptionId.trim(), status as "skipped" | "missed", new Date(existingLog.date), notes || `Marked ${status} by admin`);
       }
 
       console.log(`✏️ Admin updated delivery log ${logId} status to: ${status}`);
@@ -4048,27 +4057,6 @@ export function registerAdminRoutes(app: Express) {
     } catch (error) {
       console.error("Get customer report error:", error);
       res.status(500).json({ message: "Failed to fetch customer report" });
-    }
-  });
-
-  app.get("/api/admin/reports/chefs", requireAdmin(), async (req, res) => {
-    try {
-      const { from, to } = req.query;
-      const { getPeriodRange } = await import("./analytics");
-      const { generateChefReport } = await import("./reports");
-      
-      const range = {
-        start: from ? new Date(from as string) : getPeriodRange("month").start,
-        end: to ? new Date(to as string) : new Date()
-      };
-      
-      const orders = await storage.getAllOrders();
-      const chefs = await storage.getChefs();
-      const report = generateChefReport(orders, chefs, range);
-      res.json(report);
-    } catch (error) {
-      console.error("Get chef report error:", error);
-      res.status(500).json({ message: "Failed to fetch chef report" });
     }
   });
 
@@ -5713,6 +5701,107 @@ export function registerAdminRoutes(app: Express) {
         success: false,
         message: error.message || "Failed to trigger referral expiration" 
       });
+    }
+  });
+
+  // ========== CHEF UNAVAILABILITY ADMIN ENDPOINTS ==========
+
+  // 6.1 — GET /api/admin/unavailability-actions
+  // Returns all pending admin actions derived from unavailable chefs' scheduled deliveries
+  app.get("/api/admin/unavailability-actions", requireAdmin(), async (req: AuthenticatedAdminRequest, res) => {
+    try {
+      const actions = await chefUnavailabilityService.getPendingActions();
+      return res.status(200).json(actions);
+    } catch (error: any) {
+      if (error?.status === 404) return res.status(404).json({ message: error.message });
+      if (error?.status === 409) return res.status(409).json({ message: error.message });
+      if (error?.status === 400) return res.status(400).json({ message: error.message });
+      console.error("Error fetching unavailability actions:", error);
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // 6.2 — GET /api/admin/unavailability-actions/count
+  // Returns the count of pending unavailability actions (for badge display)
+  app.get("/api/admin/unavailability-actions/count", requireAdmin(), async (req: AuthenticatedAdminRequest, res) => {
+    try {
+      const pendingCount = await chefUnavailabilityService.getPendingActionCount();
+      return res.status(200).json({ pendingCount });
+    } catch (error: any) {
+      if (error?.status === 404) return res.status(404).json({ message: error.message });
+      if (error?.status === 409) return res.status(409).json({ message: error.message });
+      if (error?.status === 400) return res.status(400).json({ message: error.message });
+      console.error("Error fetching unavailability action count:", error);
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // 6.3 — POST /api/admin/delivery-actions/:deliveryLogId/reassign
+  // Reassigns a scheduled delivery to a replacement chef
+  app.post("/api/admin/delivery-actions/:deliveryLogId/reassign", requireAdmin(), async (req: AuthenticatedAdminRequest, res) => {
+    const bodySchema = z.object({
+      replacementChefId: z.string().min(1),
+    });
+
+    const validation = bodySchema.safeParse(req.body);
+    if (!validation.success) {
+      return res.status(400).json({ message: fromZodError(validation.error).toString() });
+    }
+
+    const { deliveryLogId } = req.params;
+    const { replacementChefId } = validation.data;
+
+    try {
+      await chefUnavailabilityService.reassignDelivery(deliveryLogId, replacementChefId);
+      return res.status(200).json({
+        message: "Delivery reassigned successfully",
+        deliveryLogId,
+        replacementChefId,
+      });
+    } catch (error: any) {
+      if (error?.status === 404) return res.status(404).json({ message: error.message });
+      if (error?.status === 409) return res.status(409).json({ message: error.message });
+      if (error?.status === 400) return res.status(400).json({ message: error.message });
+      console.error("Error reassigning delivery:", error);
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // 6.4 — POST /api/admin/delivery-actions/:deliveryLogId/skip
+  // Platform-skips a delivery due to chef unavailability; extends subscription by 1 day
+  app.post("/api/admin/delivery-actions/:deliveryLogId/skip", requireAdmin(), async (req: AuthenticatedAdminRequest, res) => {
+    const { deliveryLogId } = req.params;
+
+    try {
+      const { newEndDate } = await chefUnavailabilityService.platformSkipDelivery(deliveryLogId);
+      return res.status(200).json({
+        message: "Delivery platform-skipped. Subscription extended by 1 day.",
+        deliveryLogId,
+        newEndDate,
+      });
+    } catch (error: any) {
+      if (error?.status === 404) return res.status(404).json({ message: error.message });
+      if (error?.status === 409) return res.status(409).json({ message: error.message });
+      if (error?.status === 400) return res.status(400).json({ message: error.message });
+      console.error("Error platform-skipping delivery:", error);
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // 6.5 — GET /api/admin/available-chefs
+  // Returns available replacement chefs, optionally excluding a given chefId
+  app.get("/api/admin/available-chefs", requireAdmin(), async (req: AuthenticatedAdminRequest, res) => {
+    const excludeChefId = typeof req.query.excludeChefId === "string" ? req.query.excludeChefId : undefined;
+
+    try {
+      const chefs = await chefUnavailabilityService.getAvailableChefs(excludeChefId);
+      return res.status(200).json(chefs);
+    } catch (error: any) {
+      if (error?.status === 404) return res.status(404).json({ message: error.message });
+      if (error?.status === 409) return res.status(409).json({ message: error.message });
+      if (error?.status === 400) return res.status(400).json({ message: error.message });
+      console.error("Error fetching available chefs:", error);
+      return res.status(500).json({ message: "Internal server error" });
     }
   });
 }

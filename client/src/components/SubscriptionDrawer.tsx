@@ -1299,7 +1299,7 @@ function SubscriptionDrawer({ isOpen, onClose }: SubscriptionDrawerProps) {
 
                             <div className="flex justify-between gap-2 text-sm">
                               <span className="text-muted-foreground">Price:</span>
-                              <span className="font-medium">₹{plan?.price}/{plan?.frequency}</span>
+                              <span className="font-medium">₹{plan?.price}/{plan?.frequency === "daily" ? "day" : plan?.frequency === "weekly" ? "wk" : "mo"}</span>
                             </div>
 
                             {/* Step 1: Payment Not Done */}

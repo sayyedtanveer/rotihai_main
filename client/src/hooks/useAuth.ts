@@ -61,18 +61,34 @@ export function useAuth(): UseAuthReturn {
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
 
+  const storedUserData = (() => {
+    try {
+      const stored = localStorage.getItem('userData');
+      return stored ? JSON.parse(stored) as User : undefined;
+    } catch {
+      return undefined;
+    }
+  })();
+
+  const userToken = (() => {
+    try {
+      return localStorage.getItem('userToken');
+    } catch {
+      return null;
+    }
+  })();
+
   const { data: user, isLoading, error } = useQuery<User>({
-    queryKey: ['/api/user/profile'],
+    queryKey: ['/api/user/profile', userToken],
     queryFn: async () => {
-      const token = localStorage.getItem('userToken');
-      if (!token) {
+      if (!userToken) {
         throw new Error('Not authenticated');
       }
 
       try {
         const response = await api.get('/api/user/profile', {
           headers: {
-            'Authorization': `Bearer ${token}`
+            'Authorization': `Bearer ${userToken}`
           }
         });
         console.log('✅ User profile loaded:', response.data);
@@ -89,10 +105,12 @@ export function useAuth(): UseAuthReturn {
     },
     retry: 1,  // ✅ Retry once on failure instead of no retries
     staleTime: 1000 * 60 * 5,
-    enabled: !!localStorage.getItem('userToken'),
+    enabled: !!userToken,
+    initialData: storedUserData,
+    keepPreviousData: true,
   });
 
-  const isAuthenticated = !!user && !!localStorage.getItem('userToken');
+  const isAuthenticated = !!(user || storedUserData) && !!userToken;
 
   const login = async (phone: string, password: string) => {
     try {

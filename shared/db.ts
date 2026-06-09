@@ -61,5 +61,8 @@ export const {
   payoutTransactions,
   paymentVerificationLog,
   paymentSettings,
-  customSubscriptionRequests
+  customSubscriptionRequests,
+  chefUnavailability
 } = schema;
+
+export type { ChefUnavailability, InsertChefUnavailability } from './schema';

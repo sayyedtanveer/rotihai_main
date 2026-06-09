@@ -20,14 +20,15 @@ export interface DeliveryConfig {
   serviceAreas: string[];
 }
 
-// Fallback configuration (current hardcoded values)
-// Used if API fails or is not yet implemented
+// Fallback configuration — used only if the /api/delivery-config API call fails.
+// serviceAreas is intentionally empty so the app doesn't artificially restrict pincodes
+// when the API is unavailable. The actual pincode list lives in the DB delivery_areas table.
 const DEFAULT_CONFIG: DeliveryConfig = {
-  storeName: "Rotihai Kurla",
+  storeName: "Rotihai",
   latitude: 19.0728,
   longitude: 72.8826,
-  maxDeliveryDistance: 2.5,
-  serviceAreas: ["400070", "400086", "400025"]
+  maxDeliveryDistance: 5,
+  serviceAreas: []
 };
 
 export function useDeliveryConfig() {

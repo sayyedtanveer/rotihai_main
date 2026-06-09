@@ -614,3 +614,57 @@ We regret the inconvenience!
 
   return true;
 }
+
+/**
+ * Send WhatsApp notification to admin when a chef marks themselves unavailable today
+ * Non-blocking, fire-and-forget with graceful error handling
+ */
+export async function sendChefUnavailableTodayAdminNotification(
+  chefName: string,
+  affectedCount: number,
+  adminPhone: string
+): Promise<boolean> {
+  const message = `🚨 Chef Unavailable Alert
+Chef ${chefName} has marked themselves unavailable today.
+${affectedCount} subscription deliveries are affected.
+Please go to Admin → Subscriptions → Unavailability Actions to reassign or skip.`.trim();
+
+  return sendWhatsAppMessage(adminPhone, message);
+}
+
+/**
+ * Send WhatsApp notification to admin when a chef sets a leave period
+ * Non-blocking, fire-and-forget with graceful error handling
+ */
+export async function sendChefOnLeaveAdminNotification(
+  chefName: string,
+  leaveStartDate: string,
+  leaveEndDate: string,
+  adminPhone: string
+): Promise<boolean> {
+  const message = `📅 Chef Leave Notice
+Chef ${chefName} has set a leave period from ${leaveStartDate} to ${leaveEndDate}.
+Affected deliveries will be queued for action when leave activates.
+Please go to Admin → Subscriptions → Unavailability Actions to review.`.trim();
+
+  return sendWhatsAppMessage(adminPhone, message);
+}
+
+/**
+ * Send WhatsApp notification to customer when their delivery is platform-skipped due to chef unavailability
+ * Non-blocking, fire-and-forget with graceful error handling
+ */
+export async function sendPlatformSkipCustomerNotification(
+  customerPhone: string,
+  deliveryDate: string,
+  newEndDate: string,
+  subscriptionId: string
+): Promise<boolean> {
+  const message = `⚠️ Delivery Update — RotiHai
+We're sorry! Your scheduled delivery on ${deliveryDate} has been skipped due to chef unavailability.
+Your subscription has been extended by 1 day. New end date: ${newEndDate}.
+Subscription ID: ${subscriptionId}
+We apologise for the inconvenience. —RotiHai Team`.trim();
+
+  return sendWhatsAppMessage(customerPhone, message);
+}

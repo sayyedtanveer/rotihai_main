@@ -533,15 +533,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return coordinatesMap;
     } catch (err) {
       console.error('[COORDINATES] Error fetching area coordinates from database:', err);
-      // Fallback to defaults if database fetch fails
+      // Fallback used only when DB is unreachable — covers major Mumbai zones so
+      // geocoded pincodes still resolve to a sensible area during outages.
       return {
+        // Central Mumbai
         "kurla": { lat: 19.0686, lon: 72.8817, name: "Kurla" },
         "kurla west": { lat: 19.0728, lon: 72.8826, name: "Kurla West" },
         "kurla east": { lat: 19.0644, lon: 72.8877, name: "Kurla East" },
-        "worli": { lat: 19.0176, lon: 72.8194, name: "Worli" },
+        "dadar": { lat: 19.0176, lon: 72.8388, name: "Dadar" },
+        "sion": { lat: 19.0413, lon: 72.8657, name: "Sion" },
+        "chunabhatti": { lat: 19.0505, lon: 72.8681, name: "Chunabhatti" },
+        "chembur": { lat: 19.0522, lon: 72.9005, name: "Chembur" },
+        "ghatkopar": { lat: 19.0866, lon: 72.9090, name: "Ghatkopar" },
+        "vikhroli": { lat: 19.1009, lon: 72.9265, name: "Vikhroli" },
+        "kanjurmarg": { lat: 19.1048, lon: 72.9416, name: "Kanjurmarg" },
+        "bhandup": { lat: 19.1442, lon: 72.9347, name: "Bhandup" },
+        "mulund": { lat: 19.1726, lon: 72.9566, name: "Mulund" },
+        // Western suburbs
         "bandra": { lat: 19.0596, lon: 72.8295, name: "Bandra" },
         "andheri": { lat: 19.1136, lon: 72.8697, name: "Andheri" },
-        "dadar": { lat: 19.0176, lon: 72.8388, name: "Dadar" },
+        "andheri west": { lat: 19.1248, lon: 72.8340, name: "Andheri West" },
+        "andheri east": { lat: 19.1148, lon: 72.8771, name: "Andheri East" },
+        "jogeshwari": { lat: 19.1417, lon: 72.8494, name: "Jogeshwari" },
+        "goregaon": { lat: 19.1527, lon: 72.8497, name: "Goregaon" },
+        "malad": { lat: 19.1891, lon: 72.8487, name: "Malad" },
+        "kandivali": { lat: 19.2167, lon: 72.8521, name: "Kandivali" },
+        "borivali": { lat: 19.2324, lon: 72.8567, name: "Borivali" },
+        "dahisar": { lat: 19.2636, lon: 72.8560, name: "Dahisar" },
+        // South Mumbai
+        "worli": { lat: 19.0176, lon: 72.8194, name: "Worli" },
+        "colaba": { lat: 18.9067, lon: 72.8147, name: "Colaba" },
+        "fort": { lat: 18.9338, lon: 72.8354, name: "Fort" },
+        "lower parel": { lat: 18.9937, lon: 72.8196, name: "Lower Parel" },
+        "parel": { lat: 18.9955, lon: 72.8384, name: "Parel" },
+        "mahim": { lat: 19.0380, lon: 72.8438, name: "Mahim" },
+        // Eastern suburbs
+        "powai": { lat: 19.1197, lon: 72.9056, name: "Powai" },
+        "chandivali": { lat: 19.1146, lon: 72.8992, name: "Chandivali" },
+        "sakinaka": { lat: 19.1001, lon: 72.8898, name: "Sakinaka" },
       };
     }
   };
@@ -3886,25 +3915,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const allChefs = await storage.getChefs();
 
-      // Get all unique areas from chefs
-      const areas = new Set<string>();
+      // Build a map of area → averaged center coordinates (from actual chef locations)
+      const areaMap = new Map<string, { totalLat: number; totalLon: number; count: number }>();
+
       allChefs.forEach(chef => {
-        const area = (chef as any).addressArea || (chef as any).address_area;
-        if (area && area.trim()) {
-          areas.add(area.trim());
+        const area = ((chef as any).addressArea || (chef as any).address_area)?.trim();
+        if (!area) return;
+
+        const lat = typeof chef.latitude === 'number' ? chef.latitude : parseFloat(String(chef.latitude));
+        const lon = typeof chef.longitude === 'number' ? chef.longitude : parseFloat(String(chef.longitude));
+
+        // Only accumulate valid coordinates
+        if (!isNaN(lat) && !isNaN(lon) && lat !== 0 && lon !== 0) {
+          const existing = areaMap.get(area) || { totalLat: 0, totalLon: 0, count: 0 };
+          existing.totalLat += lat;
+          existing.totalLon += lon;
+          existing.count++;
+          areaMap.set(area, existing);
+        } else if (!areaMap.has(area)) {
+          // Area exists but chef has no coordinates — add placeholder so area still appears
+          areaMap.set(area, { totalLat: 0, totalLon: 0, count: 0 });
         }
       });
 
-      // Convert to sorted array
-      const areaList = Array.from(areas).sort();
+      // Convert to sorted array with averaged coordinates
+      const areaList = Array.from(areaMap.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([name, data]) => ({
+          name,
+          // Use averaged chef coordinates for this area; 0/0 count means no coordinates available
+          latitude: data.count > 0 ? data.totalLat / data.count : null,
+          longitude: data.count > 0 ? data.totalLon / data.count : null,
+        }));
 
-      console.log(`📍 [AREAS LIST] Returning ${areaList.length} areas: ${areaList.join(", ")}`);
+      console.log(`📍 [AREAS LIST] Returning ${areaList.length} areas: ${areaList.map(a => a.name).join(", ")}`);
 
-      res.json(areaList.map(name => ({
-        name,
-        latitude: 19.0728, // Default to Kurla West as reference
-        longitude: 72.8826,
-      })));
+      res.json(areaList);
     } catch (error) {
       console.error("❌ Error fetching areas:", error);
       res.status(500).json({ error: "Failed to fetch areas" });
@@ -5181,7 +5227,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const logs = await storage.getSubscriptionDeliveryLogs(req.params.id);
-      res.json(logs);
+      // Strip internal field chefOverrideId from customer-facing response
+      const safeLogs = logs.map(({ chefOverrideId, ...safeLog }: any) => safeLog);
+      res.json(safeLogs);
     } catch (error: any) {
       console.error("Error fetching delivery logs:", error);
       res.status(500).json({ message: error.message || "Failed to fetch delivery logs" });
@@ -5506,11 +5554,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Ensure dates are properly formatted as ISO strings
       const scheduleItems = sortedLogs.map(log => {
         const logDate = log.date instanceof Date ? log.date : new Date(log.date);
+
+        // Build human-readable skip reason for the user
+        let displayReason: string | undefined;
+        if (log.status === "skipped") {
+          if ((log as any).skipReason === "platform_chef_unavailable") {
+            displayReason = "Skipped — chef unavailable (subscription extended by 1 day)";
+          } else if (log.notes && log.notes.startsWith("Skipped: ")) {
+            displayReason = log.notes.replace(/^Skipped: /, "");
+          } else if (log.notes && log.notes !== "Delivery skipped due to subscription pause period") {
+            displayReason = log.notes;
+          } else if (log.notes === "Delivery skipped due to subscription pause period") {
+            displayReason = "Subscription paused";
+          }
+        }
+
         return {
           date: logDate.toISOString(),
           time: log.time,
           items: plan.items,
-          status: log.status  // Preserve actual status (scheduled, delivered, skipped, etc.)
+          status: log.status,       // Preserve actual status (scheduled, delivered, skipped, etc.)
+          skipReason: displayReason, // Human-readable reason, only set for skipped entries
         };
       });
 
@@ -5528,10 +5592,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         schedule: scheduleItems,
         remainingDeliveries: subscription.remainingDeliveries,
         totalDeliveries: subscription.totalDeliveries,
-        deliveryHistory: sortedLogs.map((log: any) => ({
-          ...log,
-          date: log.date instanceof Date ? log.date.toISOString() : log.date
-        }))
+        deliveryHistory: sortedLogs.map((log: any) => {
+          // Strip internal field chefOverrideId from customer-facing response
+          const { chefOverrideId, ...safeLog } = log;
+          return {
+            ...safeLog,
+            date: log.date instanceof Date ? log.date.toISOString() : log.date
+          };
+        })
       });
     } catch (error: any) {
       console.error("Error fetching subscription schedule:", error);

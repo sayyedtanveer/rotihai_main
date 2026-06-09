@@ -362,6 +362,32 @@ export default function PartnerDashboard() {
     },
   });
 
+  // ── Availability tab hooks ──────────────────────────────────────────────
+  const { data: availabilityData, refetch: refetchAvailability } = useQuery({
+    queryKey: ["/api/partner/chef/availability"],
+    queryFn: () => api.get("/api/partner/chef/availability").then(r => r.data),
+    enabled: selectedTab === "availability",
+  });
+  const markUnavailableTodayMutation = useMutation({
+    mutationFn: () => api.patch("/api/partner/chef/availability", { subscriptionAvailabilityStatus: "unavailable_today" }).then(r => r.data),
+    onSuccess: () => { refetchAvailability(); toast({ title: "Marked unavailable today" }); },
+    onError: () => toast({ title: "Failed to update availability", variant: "destructive" }),
+  });
+  const markAvailableMutation = useMutation({
+    mutationFn: () => api.patch("/api/partner/chef/availability", { subscriptionAvailabilityStatus: "available" }).then(r => r.data),
+    onSuccess: () => { refetchAvailability(); toast({ title: "Marked as available" }); },
+    onError: () => toast({ title: "Failed to update availability", variant: "destructive" }),
+  });
+  const setOnLeaveMutation = useMutation({
+    mutationFn: (data: { leaveStartDate: string; leaveEndDate: string }) =>
+      api.patch("/api/partner/chef/availability", { subscriptionAvailabilityStatus: "on_leave", ...data }).then(r => r.data),
+    onSuccess: () => { refetchAvailability(); toast({ title: "Leave period set" }); },
+    onError: () => toast({ title: "Failed to set leave period", variant: "destructive" }),
+  });
+  const [leaveStartInput, setLeaveStartInput] = useState("");
+  const [leaveEndInput, setLeaveEndInput] = useState("");
+  const [leaveValidationError, setLeaveValidationError] = useState("");
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case "pending":
@@ -540,7 +566,7 @@ export default function PartnerDashboard() {
 
       <main className="px-3 md:px-6 py-4 md:py-8">
         <Tabs value={selectedTab} onValueChange={setSelectedTab} className="space-y-4 md:space-y-6">
-          <TabsList className="grid w-full grid-cols-2 md:grid-cols-7 h-auto">
+          <TabsList className="grid w-full grid-cols-2 md:grid-cols-8 h-auto">
             <TabsTrigger value="dashboard" className="text-xs md:text-sm py-2">Dashboard</TabsTrigger>
             <TabsTrigger value="menu" className="text-xs md:text-sm py-2">Menu</TabsTrigger>
             <TabsTrigger value="scheduled" className="text-xs md:text-sm py-2 relative">
@@ -564,6 +590,7 @@ export default function PartnerDashboard() {
             </TabsTrigger>
             <TabsTrigger value="income" className="text-xs md:text-sm py-2">Income</TabsTrigger>
             <TabsTrigger value="compliance" className="text-xs md:text-sm py-2">🛡️ <span className="hidden md:inline ml-1">Compliance</span></TabsTrigger>
+            <TabsTrigger value="availability" className="text-xs md:text-sm py-2">Availability</TabsTrigger>
           </TabsList>
 
           <TabsContent value="dashboard" className="space-y-4 md:space-y-6">
@@ -1498,7 +1525,17 @@ export default function PartnerDashboard() {
                       >
                         <div className="flex justify-between items-start gap-3">
                           <div className="flex-1">
-                            <h4 className="font-bold text-base text-slate-900 dark:text-white">{delivery.planName}</h4>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h4 className="font-bold text-base text-slate-900 dark:text-white">{delivery.planName}</h4>
+                              {delivery.isReassigned && (
+                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
+                                  ↩ Reassigned to you
+                                </span>
+                              )}
+                            </div>
+                            {delivery.isReassigned && delivery.chefName && (
+                              <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Original chef: {delivery.chefName}</p>
+                            )}
                             {delivery.deliverySlotId && (
                               <p className="text-sm font-semibold text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-950/50 px-2 py-1 rounded inline-block mt-2">
                                 {formatDeliveryTime(delivery.nextDeliveryTime)}
@@ -1738,6 +1775,128 @@ export default function PartnerDashboard() {
                     Contact your platform admin. Partners cannot edit compliance information directly.
                   </p>
                 </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* ── Availability Tab ────────────────────────────────────────────── */}
+          <TabsContent value="availability" className="space-y-4 md:space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm md:text-base flex items-center gap-2">
+                  <Calendar className="h-4 w-4" />
+                  Subscription Availability
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Manage your availability for subscription deliveries. This does not affect your restaurant open/close status.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Current status badge */}
+                <div className="flex items-center gap-3 p-3 rounded-lg bg-slate-50 dark:bg-slate-800 border border-border/50">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Current Status:</p>
+                  {availabilityData?.subscriptionAvailabilityStatus === "available" && (
+                    <Badge className="bg-green-500 hover:bg-green-600 text-white">✅ Available</Badge>
+                  )}
+                  {availabilityData?.subscriptionAvailabilityStatus === "unavailable_today" && (
+                    <Badge className="bg-red-500 hover:bg-red-600 text-white">🔴 Unavailable Today</Badge>
+                  )}
+                  {availabilityData?.subscriptionAvailabilityStatus === "on_leave" && (
+                    <Badge className="bg-amber-500 hover:bg-amber-600 text-white">
+                      📅 On Leave
+                      {availabilityData.leaveStartDate && availabilityData.leaveEndDate && (
+                        <span className="ml-1">
+                          ({format(new Date(availabilityData.leaveStartDate), "dd/MM/yyyy")} – {format(new Date(availabilityData.leaveEndDate), "dd/MM/yyyy")})
+                        </span>
+                      )}
+                    </Badge>
+                  )}
+                  {!availabilityData && (
+                    <Badge variant="secondary">Loading…</Badge>
+                  )}
+                </div>
+
+                {/* Mark Unavailable Today — only when available */}
+                {availabilityData?.subscriptionAvailabilityStatus === "available" && (
+                  <Button
+                    variant="destructive"
+                    className="w-full"
+                    onClick={() => markUnavailableTodayMutation.mutate()}
+                    disabled={markUnavailableTodayMutation.isPending}
+                  >
+                    {markUnavailableTodayMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Mark Unavailable Today
+                  </Button>
+                )}
+
+                {/* Set On Leave form — when available or unavailable_today */}
+                {(availabilityData?.subscriptionAvailabilityStatus === "available" ||
+                  availabilityData?.subscriptionAvailabilityStatus === "unavailable_today") && (
+                  <div className="space-y-3 p-4 rounded-lg border border-border/50 bg-slate-50 dark:bg-slate-800">
+                    <p className="text-sm font-semibold">Set Leave Period</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-xs text-muted-foreground font-medium">Start Date</label>
+                        <input
+                          type="date"
+                          value={leaveStartInput}
+                          onChange={(e) => {
+                            setLeaveStartInput(e.target.value);
+                            setLeaveValidationError("");
+                          }}
+                          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs text-muted-foreground font-medium">End Date</label>
+                        <input
+                          type="date"
+                          value={leaveEndInput}
+                          onChange={(e) => {
+                            setLeaveEndInput(e.target.value);
+                            setLeaveValidationError("");
+                          }}
+                          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                        />
+                      </div>
+                    </div>
+                    {leaveValidationError && (
+                      <p className="text-xs text-destructive font-medium">{leaveValidationError}</p>
+                    )}
+                    <Button
+                      className="w-full"
+                      onClick={() => {
+                        if (!leaveStartInput || !leaveEndInput) {
+                          setLeaveValidationError("Both start and end dates are required.");
+                          return;
+                        }
+                        if (leaveEndInput < leaveStartInput) {
+                          setLeaveValidationError("End date must be on or after the start date.");
+                          return;
+                        }
+                        setLeaveValidationError("");
+                        setOnLeaveMutation.mutate({ leaveStartDate: leaveStartInput, leaveEndDate: leaveEndInput });
+                      }}
+                      disabled={setOnLeaveMutation.isPending}
+                    >
+                      {setOnLeaveMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      Set On Leave
+                    </Button>
+                  </div>
+                )}
+
+                {/* Mark Available — when not available */}
+                {availabilityData?.subscriptionAvailabilityStatus !== "available" && availabilityData && (
+                  <Button
+                    variant="default"
+                    className="w-full bg-green-600 hover:bg-green-700 text-white"
+                    onClick={() => markAvailableMutation.mutate()}
+                    disabled={markAvailableMutation.isPending}
+                  >
+                    {markAvailableMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Mark as Available
+                  </Button>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

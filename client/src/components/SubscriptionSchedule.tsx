@@ -14,7 +14,8 @@ interface ScheduleItem {
   date: Date;
   time: string;
   items: any[];
-  status: "delivered" | "pending" | "skipped" | "scheduled";
+  status: "delivered" | "pending" | "skipped" | "scheduled" | "missed";
+  skipReason?: string;
 }
 
 interface ScheduleData {
@@ -117,7 +118,10 @@ export function SubscriptionSchedule({ subscriptionId }: SubscriptionSchedulePro
                     statusIcon = <CheckCircle2 className="w-5 h-5 text-green-600" />;
                   } else if (item.status === "skipped") {
                     bgClass = "bg-gray-50 border-gray-200 opacity-75";
-                    statusText = "Skipped";
+                    statusText = item.skipReason ? `Skipped — ${item.skipReason}` : "Skipped";
+                  } else if (item.status === "missed") {
+                    bgClass = "bg-red-50 border-red-200 opacity-75";
+                    statusText = "Missed";
                   } else if (item.status === "scheduled") {
                     bgClass = "bg-blue-50 border-blue-200";
                   }

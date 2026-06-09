@@ -23,10 +23,8 @@ interface PeriodData {
 }
 
 interface VisitorMetricsData {
-  todaysVisits: number;
-  uniqueVisitors: number;
-  newVisitors: number;
-  returningVisitors: number;
+  todaysUniqueVisitors: number;
+  totalUniqueVisitors: number;
 }
 
 interface StatusBreakdownData {
@@ -55,6 +53,7 @@ interface DashboardMetrics {
   revenuePeriods: {
     today: PeriodData;
     month: PeriodData;
+    year: PeriodData;
     lifetime: PeriodData;
   };
   orderPeriods: {
@@ -266,7 +265,7 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        {/* ROW 1: Revenue Today, Orders Today, New Customers, Pending Orders */}
+        {/* ROW 1: Revenue Today, Orders Today, Total Customers, Pending Orders */}
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
           {metricsLoading ? (
             <>
@@ -276,13 +275,13 @@ export default function AdminDashboard() {
             <>
               {renderKPICard("Revenue Today", formatCurrency(metrics?.revenuePeriods?.today?.current || 0), metrics?.revenuePeriods?.today?.growth || 0, metrics?.revenuePeriods?.today?.trend || 'flat', DollarSign, "vs Yesterday")}
               {renderKPICard("Orders Today", metrics?.orderPeriods?.today?.current || 0, metrics?.orderPeriods?.today?.growth || 0, metrics?.orderPeriods?.today?.trend || 'flat', ShoppingBag, "vs Yesterday")}
-              {renderKPICard("New Customers", metrics?.newCustomersToday || 0, metrics?.customersGrowth || 0, metrics?.customersTrend || 'flat', Users, "Today")}
+              {renderKPICard("Total Customers", metrics?.userCount || 0, metrics?.customersGrowth || 0, metrics?.customersTrend || 'flat', Users, "Registered")}
               {renderKPICard("Pending Orders", metrics?.pendingOrders || 0, 0, 'flat', Clock, "Awaiting Action")}
             </>
           )}
         </div>
 
-        {/* ROW 1.5: Weekly Orders, Monthly Orders, Monthly Early Revenue, Monthly Revenue */}
+        {/* ROW 1.5: Weekly Orders, Monthly Orders, Yearly Revenue, Monthly Revenue */}
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
           {metricsLoading ? (
             <>
@@ -292,24 +291,22 @@ export default function AdminDashboard() {
             <>
               {renderKPICard("Weekly Orders", metrics?.orderPeriods?.week?.current || 0, metrics?.orderPeriods?.week?.growth || 0, metrics?.orderPeriods?.week?.trend || 'flat', ShoppingBag, "Last 7 Days")}
               {renderKPICard("Monthly Orders", metrics?.orderPeriods?.month?.current || 0, metrics?.orderPeriods?.month?.growth || 0, metrics?.orderPeriods?.month?.trend || 'flat', ShoppingBag, "This Month")}
-              {renderKPICard("Early Revenue", formatCurrency(metrics?.monthlyEarlyRevenue || 0), 0, 'flat', TrendingUp, "Advance Orders")}
+              {renderKPICard("Yearly Revenue", formatCurrency(metrics?.revenuePeriods?.year?.current || 0), metrics?.revenuePeriods?.year?.growth || 0, metrics?.revenuePeriods?.year?.trend || 'flat', DollarSign, "vs Last Year")}
               {renderKPICard("Monthly Revenue", formatCurrency(metrics?.revenuePeriods?.month?.current || 0), metrics?.revenuePeriods?.month?.growth || 0, metrics?.revenuePeriods?.month?.trend || 'flat', DollarSign, "vs Last Month")}
             </>
           )}
         </div>
 
-        {/* ROW 2: Today's Visits, Unique Visitors, New Visitors, Returning Visitors */}
-        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+        {/* ROW 2: Today's Unique Visitors, Total Unique Visitors */}
+        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-2">
           {metricsLoading ? (
             <>
-              {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-20 w-full rounded-lg" />)}
+              {[...Array(2)].map((_, i) => <Skeleton key={i} className="h-20 w-full rounded-lg" />)}
             </>
           ) : (
             <>
-              {renderKPICard("Today's Visits", metrics?.visitorMetrics?.todaysVisits || 0, 0, 'flat', Eye, "Total Sessions")}
-              {renderKPICard("Unique Visitors", metrics?.visitorMetrics?.uniqueVisitors || 0, 0, 'flat', Users, "Unique Users")}
-              {renderKPICard("New Visitors", metrics?.visitorMetrics?.newVisitors || 0, 0, 'flat', UserCog, "First-time")}
-              {renderKPICard("Returning Visitors", metrics?.visitorMetrics?.returningVisitors || 0, 0, 'flat', Activity, "Repeat Users")}
+              {renderKPICard("Today's Visitors", metrics?.visitorMetrics?.todaysUniqueVisitors || 0, 0, 'flat', Eye, "Unique")}
+              {renderKPICard("Total Visitors", metrics?.visitorMetrics?.totalUniqueVisitors || 0, 0, 'flat', Users, "All Time")}
             </>
           )}
         </div>

@@ -8,6 +8,8 @@ import {
 } from "@shared/db";
 import { getRoadAdjustedDistance } from "@shared/deliveryUtils";
 
+export type CreateSubscriptionDeliveryLogInput = Omit<SubscriptionDeliveryLog, "id" | "createdAt" | "updatedAt" | "skipReason" | "chefOverrideId"> & { skipReason?: string | null; chefOverrideId?: string | null };
+
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByPhone(phone: string): Promise<User | undefined>;
@@ -78,7 +80,12 @@ export interface IStorage {
     customersGrowth: number;
     customersTrend: "up" | "down" | "flat";
     statusBreakdown: any;
-    revenuePeriods: any;
+    revenuePeriods: {
+      today: { current: number; previous: number; growth: number; trend: "up" | "down" | "flat" };
+      month: { current: number; previous: number; growth: number; trend: "up" | "down" | "flat" };
+      year: { current: number; previous: number; growth: number; trend: "up" | "down" | "flat" };
+      lifetime: { current: number; previous: number; growth: number; trend: "up" | "down" | "flat" };
+    };
     orderPeriods: any;
   }>;
   getDashboardChartsData(): Promise<any>;
@@ -105,7 +112,7 @@ export interface IStorage {
   getSubscriptionDeliveryLogs(subscriptionId: string): Promise<SubscriptionDeliveryLog[]>;
   getSubscriptionDeliveryLogsByDate(date: Date): Promise<SubscriptionDeliveryLog[]>;
   getSubscriptionDeliveryLog(id: string): Promise<SubscriptionDeliveryLog | undefined>;
-  createSubscriptionDeliveryLog(data: Omit<SubscriptionDeliveryLog, "id" | "createdAt" | "updatedAt">): Promise<SubscriptionDeliveryLog>;
+  createSubscriptionDeliveryLog(data: CreateSubscriptionDeliveryLogInput): Promise<SubscriptionDeliveryLog>;
   updateSubscriptionDeliveryLog(id: string, data: Partial<SubscriptionDeliveryLog>): Promise<SubscriptionDeliveryLog | undefined>;
   deleteSubscriptionDeliveryLog(id: string): Promise<void>;
   getDeliveryLogBySubscriptionAndDate(subscriptionId: string, date: Date): Promise<SubscriptionDeliveryLog | undefined>;
@@ -989,16 +996,18 @@ export class MemStorage implements IStorage {
       getCustomerMetrics,
       getPeriodRange,
       getVisitorMetricsForToday,
+      filterOrdersByCreatedDateRange,
       filterOrdersByDateRange,
       isValidRevenueOrder
     } = await import("./analytics");
 
     const statusBreakdown = getOrderStatusBreakdown(orders);
     
-    // Keep only Today, Month, Lifetime for revenue periods
+    // Build revenue periods for Today, Month, Year, and Lifetime
     const revenuePeriods = {
       today: getPeriodRevenueComparison(orders, "today"),
       month: getPeriodRevenueComparison(orders, "month"),
+      year: getPeriodRevenueComparison(orders, "year"),
       lifetime: getPeriodRevenueComparison(orders, "lifetime"),
     };
 
@@ -1017,8 +1026,22 @@ export class MemStorage implements IStorage {
       : Number((((customerMetrics.newCustomersInPeriod - prevCustomerMetrics.newCustomersInPeriod) / prevCustomerMetrics.newCustomersInPeriod) * 100).toFixed(1));
     const customersTrend = customersGrowth > 0 ? "up" : customersGrowth < 0 ? "down" : "flat";
 
-    // Get visitor metrics for today
-    const visitorMetrics = getVisitorMetricsForToday(visitors);
+    // Get visitor metrics for today and total unique visitors
+    const visitorMetricsToday = getVisitorMetricsForToday(visitors);
+    
+    // ✅ Calculate total unique visitors (all unique sessionIds across all time)
+    const allUniqueSessionIds = new Set(
+      visitors
+        .filter(v => v.sessionId && v.sessionId.trim() !== '')
+        .map(v => v.sessionId)
+    );
+    const totalUniqueVisitors = allUniqueSessionIds.size;
+
+    // ✅ Simplified visitor metrics - only what matters: today's unique + total unique
+    const visitorMetrics = {
+      todaysUniqueVisitors: visitorMetricsToday.uniqueVisitors,
+      totalUniqueVisitors: totalUniqueVisitors,
+    };
 
     // Get active chefs today (chefs who have delivered/completed orders today)
     const todayRange = getPeriodRange("today");
@@ -1043,7 +1066,7 @@ export class MemStorage implements IStorage {
       : 0;
 
     // Get new customers today
-    const newCustomersToday = filterOrdersByDateRange(orders, todayRange)
+    const newCustomersToday = filterOrdersByCreatedDateRange(orders, todayRange)
       .filter(o => {
         const userOrders = orders.filter(uo => uo.userId === o.userId);
         return userOrders.length === 1; // First order
@@ -1055,37 +1078,55 @@ export class MemStorage implements IStorage {
       .filter(o => o.paymentStatus === "confirmed" && (o.status === "pending" || o.status === "accepted"));
     const monthlyEarlyRevenue = advanceOrders.reduce((sum, o) => sum + (o.total || 0), 0);
 
-    // Debug logging
-    // Debug: Check payment statuses of delivered orders
+    // ✅ CRITICAL: Count only valid revenue orders (paid/confirmed AND delivered/completed)
+    const validRevenueOrders = orders.filter(isValidRevenueOrder);
+    const completedValidOrders = validRevenueOrders.length;
+
+    // ✅ Count unique customers (users who have placed at least one order)
+    const customerIds = new Set(orders.filter(o => o.userId).map(o => o.userId));
+    const totalCustomers = customerIds.size;
+
+    // Debug logging with detailed breakdown
     const deliveredOrders = orders.filter(o => o.status === "delivered" || o.status === "completed");
     const paymentStatusBreakdown = deliveredOrders.reduce((acc, o) => {
       acc[o.paymentStatus || 'undefined'] = (acc[o.paymentStatus || 'undefined'] || 0) + 1;
       return acc;
     }, {} as Record<string, number>);
 
-    console.log('[DASHBOARD METRICS] Database Query Results:', {
-      totalOrders: orders.length,
-      totalUsers: users.length,
-      totalChefs: chefs.length,
-      totalDeliveryPersonnel: deliveryPersonnel.length,
-      totalVisitors: visitors.length,
-      ordersWithPaymentPaid: orders.filter(o => o.paymentStatus === "paid").length,
-      ordersWithStatusDelivered: orders.filter(o => o.status === "delivered").length,
-      ordersWithStatusCompleted: orders.filter(o => o.status === "completed").length,
-      totalDeliveredAndCompleted: deliveredOrders.length,
-      paymentStatusOfDeliveredOrders: paymentStatusBreakdown,
-      validRevenueOrders: orders.filter(isValidRevenueOrder).length,
-      advanceOrders: advanceOrders.length,
-      monthlyEarlyRevenue,
+    // Year period debugging
+    const yearRange = getPeriodRange("year");
+    const yearOrders = filterOrdersByDateRange(orders, yearRange);
+    const yearValidOrders = yearOrders.filter(isValidRevenueOrder);
+
+    console.log('[DASHBOARD METRICS] 📊 ACCURATE CALCULATION:', {
+      // User metrics
+      totalUsersInSystem: users.length,
+      totalCustomers: totalCustomers,
+      // Order metrics
+      totalOrdersInSystem: orders.length,
+      deliveredOrCompletedOrders: deliveredOrders.length,
+      validRevenueOrders: completedValidOrders,
+      // Payment accuracy
+      paidOrders: orders.filter(o => o.paymentStatus === "paid").length,
+      confirmedOrders: orders.filter(o => o.paymentStatus === "confirmed").length,
+      deliveredStatus: orders.filter(o => o.status === "delivered").length,
+      completedStatus: orders.filter(o => o.status === "completed").length,
+      // Year period detail
+      yearPeriodStart: yearRange.start.toISOString(),
+      yearPeriodEnd: yearRange.end.toISOString(),
+      ordersInYearPeriod: yearOrders.length,
+      validRevenueOrdersInYear: yearValidOrders.length,
+      yearRevenue: revenuePeriods?.year?.current ?? 0,
+      paymentStatusBreakdown: paymentStatusBreakdown,
     });
 
     // Ensure safe defaults for all fields
     const safeMetrics = {
-      userCount: users?.length ?? 0,
-      orderCount: orders?.length ?? 0,
+      userCount: totalCustomers,
+      orderCount: completedValidOrders,
       totalRevenue: revenuePeriods?.lifetime?.current ?? 0,
       pendingOrders: statusBreakdown?.pending ?? 0,
-      completedOrders: statusBreakdown?.delivered ?? 0,
+      completedOrders: completedValidOrders,
       revenueGrowth: revenuePeriods?.month?.growth ?? 0,
       revenueTrend: revenuePeriods?.month?.trend ?? 'flat',
       ordersGrowth: orderPeriods?.month?.growth ?? 0,
@@ -1104,6 +1145,7 @@ export class MemStorage implements IStorage {
       revenuePeriods: revenuePeriods ?? {
         today: { current: 0, previous: 0, growth: 0, trend: 'flat' },
         month: { current: 0, previous: 0, growth: 0, trend: 'flat' },
+        year: { current: 0, previous: 0, growth: 0, trend: 'flat' },
         lifetime: { current: 0, previous: 0, growth: 0, trend: 'flat' }
       },
       orderPeriods: orderPeriods ?? {
@@ -1111,10 +1153,8 @@ export class MemStorage implements IStorage {
         month: { current: 0, previous: 0, growth: 0, trend: 'flat' }
       },
       visitorMetrics: visitorMetrics ?? {
-        todaysVisits: 0,
-        uniqueVisitors: 0,
-        newVisitors: 0,
-        returningVisitors: 0
+        todaysUniqueVisitors: 0,
+        totalUniqueVisitors: 0
       },
       activeChefsToday: activeChefsToday ?? 0,
       activeDeliveryPartnersToday: activeDeliveryPartnersToday ?? 0,
@@ -1653,7 +1693,7 @@ export class MemStorage implements IStorage {
     return db.query.subscriptionDeliveryLogs.findFirst({ where: (log, { eq }) => eq(log.id, id) });
   }
 
-  async createSubscriptionDeliveryLog(data: Omit<SubscriptionDeliveryLog, "id" | "createdAt" | "updatedAt">): Promise<SubscriptionDeliveryLog> {
+  async createSubscriptionDeliveryLog(data: CreateSubscriptionDeliveryLogInput): Promise<SubscriptionDeliveryLog> {
     const id = randomUUID();
     const now = new Date();
     const logData = {

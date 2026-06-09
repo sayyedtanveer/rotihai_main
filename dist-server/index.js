@@ -23,6 +23,7 @@ __export(schema_exports, {
   adminUsers: () => adminUsers,
   cartSettings: () => cartSettings,
   categories: () => categories,
+  chefUnavailability: () => chefUnavailability,
   chefs: () => chefs,
   couponUsages: () => couponUsages,
   coupons: () => coupons,
@@ -94,10 +95,10 @@ __export(schema_exports, {
   walletTransactions: () => walletTransactions
 });
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, decimal, boolean, timestamp, jsonb, index, uniqueIndex, pgEnum, real } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, decimal, boolean, timestamp, date, jsonb, index, uniqueIndex, pgEnum, real } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
-var adminRoleEnum, sessions, users, adminUsers, partnerUsers, categories, chefs, products, paymentStatusEnum, deliveryPersonnelStatusEnum, deliveryPersonnel, orders, paymentVerificationLog, deliverySettings, deliveryPartnerPayouts, cartSettings, discountTypeEnum, coupons, couponUsages, referrals, transactionTypeEnum, walletTransactions, walletSettings, paymentSettings, payoutTransactions, referralRewards, subscriptionStatusEnum, subscriptionFrequencyEnum, deliveryLogStatusEnum, subscriptionPlans, subscriptions, subscriptionDeliveryLogs, insertCategorySchema, insertProductSchema, insertChefSchema, orderItemSchema, insertOrderSchema, insertUserSchema, userLoginSchema, insertAdminUserSchema, adminLoginSchema, insertPartnerUserSchema, partnerLoginSchema, insertSubscriptionPlanSchema, promotionalBanners, insertPromotionalBannerSchema, insertSubscriptionSchema, insertDeliverySettingSchema, insertSubscriptionDeliveryLogSchema, insertDeliveryPartnerPayoutSchema, insertCartSettingSchema, insertDeliveryPersonnelSchema, deliveryPersonnelLoginSchema, insertCouponSchema, insertReferralSchema, insertWalletTransactionSchema, insertReferralRewardSchema, deliveryTimeSlots, insertDeliveryTimeSlotsSchema, rotiSettings, insertRotiSettingsSchema, visitors, insertVisitorSchema, deliveryAreas, insertDeliveryAreasSchema, adminSettings, insertAdminSettingsSchema, pushSubscriptions, insertPushSubscriptionSchema, newsletterSubscribers, pendingBroadcasts, insertPendingBroadcastSchema, pendingCheckouts, insertPendingCheckoutSchema, customSubscriptionRequests, insertCustomSubscriptionRequestSchema;
+var adminRoleEnum, sessions, users, adminUsers, partnerUsers, categories, chefs, products, paymentStatusEnum, deliveryPersonnelStatusEnum, deliveryPersonnel, orders, paymentVerificationLog, deliverySettings, deliveryPartnerPayouts, cartSettings, discountTypeEnum, coupons, couponUsages, referrals, transactionTypeEnum, walletTransactions, walletSettings, paymentSettings, payoutTransactions, referralRewards, subscriptionStatusEnum, subscriptionFrequencyEnum, deliveryLogStatusEnum, subscriptionPlans, subscriptions, subscriptionDeliveryLogs, chefUnavailability, insertCategorySchema, insertProductSchema, insertChefSchema, orderItemSchema, insertOrderSchema, insertUserSchema, userLoginSchema, insertAdminUserSchema, adminLoginSchema, insertPartnerUserSchema, partnerLoginSchema, insertSubscriptionPlanSchema, promotionalBanners, insertPromotionalBannerSchema, insertSubscriptionSchema, insertDeliverySettingSchema, insertSubscriptionDeliveryLogSchema, insertDeliveryPartnerPayoutSchema, insertCartSettingSchema, insertDeliveryPersonnelSchema, deliveryPersonnelLoginSchema, insertCouponSchema, insertReferralSchema, insertWalletTransactionSchema, insertReferralRewardSchema, deliveryTimeSlots, insertDeliveryTimeSlotsSchema, rotiSettings, insertRotiSettingsSchema, visitors, insertVisitorSchema, deliveryAreas, insertDeliveryAreasSchema, adminSettings, insertAdminSettingsSchema, pushSubscriptions, insertPushSubscriptionSchema, newsletterSubscribers, pendingBroadcasts, insertPendingBroadcastSchema, pendingCheckouts, insertPendingCheckoutSchema, customSubscriptionRequests, insertCustomSubscriptionRequestSchema;
 var init_schema = __esm({
   "shared/schema.ts"() {
     "use strict";
@@ -205,8 +206,15 @@ var init_schema = __esm({
       // Enable auto-schedule feature
       openingTime: varchar("opening_time", { length: 5 }),
       // Opening time in HH:mm format (e.g., "09:00")
-      closingTime: varchar("closing_time", { length: 5 })
+      closingTime: varchar("closing_time", { length: 5 }),
       // Closing time in HH:mm format (e.g., "22:00")
+      // ── Subscription Availability (separate from isActive/openingTime/closingTime) ─
+      subscriptionAvailabilityStatus: text("subscription_availability_status").notNull().default("available"),
+      // 'available' | 'unavailable_today' | 'on_leave'
+      leaveStartDate: date("leave_start_date"),
+      // DATE — chef leave is date-based, no time component
+      leaveEndDate: date("leave_end_date")
+      // DATE — chef leave is date-based, no time component
     });
     products = pgTable("products", {
       id: text("id").primaryKey(),
@@ -607,9 +615,28 @@ var init_schema = __esm({
       deliveryPersonId: varchar("delivery_person_id"),
       // nullable
       notes: text("notes"),
+      skipReason: text("skip_reason"),
+      // null = customer skip; 'platform_chef_unavailable' = platform skip
+      chefOverrideId: text("chef_override_id"),
+      // null unless delivery was reassigned to a different chef
       createdAt: timestamp("created_at").notNull().defaultNow(),
       updatedAt: timestamp("updated_at").notNull().defaultNow()
     });
+    chefUnavailability = pgTable("chef_unavailability", {
+      id: text("id").primaryKey().default(sql`gen_random_uuid()::text`),
+      chefId: text("chef_id").notNull().references(() => chefs.id),
+      unavailabilityType: text("unavailability_type").notNull(),
+      // 'unavailable_today' | 'on_leave'
+      leaveStartDate: date("leave_start_date"),
+      // DATE — date-based business logic
+      leaveEndDate: date("leave_end_date"),
+      // DATE — date-based business logic
+      createdAt: timestamp("created_at").notNull().defaultNow(),
+      updatedAt: timestamp("updated_at").notNull().defaultNow()
+    }, (t) => [
+      index("idx_chef_unavailability_chef_id").on(t.chefId),
+      index("idx_chef_unavailability_created").on(t.createdAt)
+    ]);
     insertCategorySchema = createInsertSchema(categories).omit({
       id: true
     });
@@ -1210,6 +1237,7 @@ __export(db_exports, {
   adminUsers: () => adminUsers2,
   cartSettings: () => cartSettings2,
   categories: () => categories2,
+  chefUnavailability: () => chefUnavailability2,
   chefs: () => chefs2,
   couponUsages: () => couponUsages2,
   coupons: () => coupons2,
@@ -1247,7 +1275,7 @@ __export(db_exports, {
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { sql as sql2 } from "drizzle-orm";
-var dbType, connectionString, pool, db, users2, sessions2, categories2, products2, orders2, chefs2, adminUsers2, partnerUsers2, subscriptions2, subscriptionPlans2, subscriptionDeliveryLogs2, deliverySettings2, deliveryPartnerPayouts2, cartSettings2, deliveryPersonnel2, coupons2, couponUsages2, referrals2, walletTransactions2, walletSettings2, referralRewards2, promotionalBanners2, deliveryTimeSlots2, rotiSettings2, visitors2, deliveryAreas2, adminSettings2, newsletterSubscribers2, pendingBroadcasts2, pendingCheckouts2, payoutTransactions2, paymentVerificationLog2, paymentSettings2, customSubscriptionRequests2;
+var dbType, connectionString, pool, db, users2, sessions2, categories2, products2, orders2, chefs2, adminUsers2, partnerUsers2, subscriptions2, subscriptionPlans2, subscriptionDeliveryLogs2, deliverySettings2, deliveryPartnerPayouts2, cartSettings2, deliveryPersonnel2, coupons2, couponUsages2, referrals2, walletTransactions2, walletSettings2, referralRewards2, promotionalBanners2, deliveryTimeSlots2, rotiSettings2, visitors2, deliveryAreas2, adminSettings2, newsletterSubscribers2, pendingBroadcasts2, pendingCheckouts2, payoutTransactions2, paymentVerificationLog2, paymentSettings2, customSubscriptionRequests2, chefUnavailability2;
 var init_db = __esm({
   "shared/db.ts"() {
     "use strict";
@@ -1300,7 +1328,8 @@ var init_db = __esm({
       payoutTransactions: payoutTransactions2,
       paymentVerificationLog: paymentVerificationLog2,
       paymentSettings: paymentSettings2,
-      customSubscriptionRequests: customSubscriptionRequests2
+      customSubscriptionRequests: customSubscriptionRequests2,
+      chefUnavailability: chefUnavailability2
     } = schema_exports);
   }
 });
@@ -1431,6 +1460,7 @@ var analytics_exports = {};
 __export(analytics_exports, {
   calculateGrowth: () => calculateGrowth,
   calculateRevenueMetrics: () => calculateRevenueMetrics,
+  filterOrdersByCreatedDateRange: () => filterOrdersByCreatedDateRange,
   filterOrdersByDateRange: () => filterOrdersByDateRange,
   generateRevenueTrendChart: () => generateRevenueTrendChart,
   generateTopAreas: () => generateTopAreas,
@@ -1462,7 +1492,7 @@ import {
   format,
   isWithinInterval
 } from "date-fns";
-var isValidRevenueOrder, isCancelledOrder, getPeriodRange, getPreviousPeriodRange, filterOrdersByDateRange, calculateGrowth, calculateRevenueMetrics, getPeriodRevenueComparison, getPeriodOrderComparison, getOrderStatusBreakdown, getCustomerMetrics, generateRevenueTrendChart, generateTopSellingItems, generateTopAreas, getVisitorMetricsForToday, getVisitorMetricsForPeriod;
+var isValidRevenueOrder, isCancelledOrder, getPeriodRange, getPreviousPeriodRange, filterOrdersByDateRange, filterOrdersByCreatedDateRange, calculateGrowth, calculateRevenueMetrics, getPeriodRevenueComparison, getPeriodOrderComparison, getOrderStatusBreakdown, getCustomerMetrics, generateRevenueTrendChart, generateTopSellingItems, generateTopAreas, getVisitorMetricsForToday, getVisitorMetricsForPeriod;
 var init_analytics = __esm({
   "server/analytics.ts"() {
     "use strict";
@@ -1472,42 +1502,48 @@ var init_analytics = __esm({
     isCancelledOrder = (order) => {
       return order.status === "cancelled";
     };
-    getPeriodRange = (period, date = /* @__PURE__ */ new Date()) => {
+    getPeriodRange = (period, date2 = /* @__PURE__ */ new Date()) => {
       switch (period) {
         case "today":
-          return { start: startOfDay(date), end: endOfDay(date) };
+          return { start: startOfDay(date2), end: endOfDay(date2) };
         case "week":
-          return { start: startOfWeek(date, { weekStartsOn: 1 }), end: endOfWeek(date, { weekStartsOn: 1 }) };
+          return { start: startOfWeek(date2, { weekStartsOn: 1 }), end: endOfWeek(date2, { weekStartsOn: 1 }) };
         case "month":
-          return { start: startOfMonth(date), end: endOfMonth(date) };
+          return { start: startOfMonth(date2), end: endOfMonth(date2) };
         case "year":
-          return { start: startOfYear(date), end: endOfYear(date) };
+          return { start: startOfYear(date2), end: endOfYear(date2) };
         case "lifetime":
-          return { start: new Date(2e3, 0, 1), end: endOfDay(date) };
+          return { start: new Date(2e3, 0, 1), end: endOfDay(date2) };
       }
     };
-    getPreviousPeriodRange = (period, date = /* @__PURE__ */ new Date()) => {
+    getPreviousPeriodRange = (period, date2 = /* @__PURE__ */ new Date()) => {
       switch (period) {
         case "today":
-          const yesterday = subDays(date, 1);
+          const yesterday = subDays(date2, 1);
           return { start: startOfDay(yesterday), end: endOfDay(yesterday) };
         case "week":
-          const lastWeek = subWeeks(date, 1);
+          const lastWeek = subWeeks(date2, 1);
           return { start: startOfWeek(lastWeek, { weekStartsOn: 1 }), end: endOfWeek(lastWeek, { weekStartsOn: 1 }) };
         case "month":
-          const lastMonth = subMonths(date, 1);
+          const lastMonth = subMonths(date2, 1);
           return { start: startOfMonth(lastMonth), end: endOfMonth(lastMonth) };
         case "year":
-          const lastYear = subYears(date, 1);
+          const lastYear = subYears(date2, 1);
           return { start: startOfYear(lastYear), end: endOfYear(lastYear) };
         case "lifetime":
-          return { start: new Date(2e3, 0, 1), end: endOfDay(date) };
+          return { start: new Date(2e3, 0, 1), end: endOfDay(date2) };
       }
     };
     filterOrdersByDateRange = (orders3, range) => {
       return orders3.filter((order) => {
         const orderDate = (order.status === "delivered" || order.status === "completed") && order.deliveredAt ? new Date(order.deliveredAt) : new Date(order.createdAt);
         return isWithinInterval(orderDate, { start: range.start, end: range.end });
+      });
+    };
+    filterOrdersByCreatedDateRange = (orders3, range) => {
+      return orders3.filter((order) => {
+        const createdAt = new Date(order.createdAt);
+        return isWithinInterval(createdAt, { start: range.start, end: range.end });
       });
     };
     calculateGrowth = (current, previous) => {
@@ -1569,8 +1605,8 @@ var init_analytics = __esm({
       const now = /* @__PURE__ */ new Date();
       const currentRange = getPeriodRange(period, now);
       const prevRange = getPreviousPeriodRange(period, now);
-      const currentOrders = filterOrdersByDateRange(allOrders, currentRange);
-      const prevOrders = filterOrdersByDateRange(allOrders, prevRange);
+      const currentOrders = filterOrdersByCreatedDateRange(allOrders, currentRange);
+      const prevOrders = filterOrdersByCreatedDateRange(allOrders, prevRange);
       const growth = calculateGrowth(currentOrders.length, prevOrders.length);
       return {
         current: currentOrders.length,
@@ -1603,7 +1639,7 @@ var init_analytics = __esm({
     };
     getCustomerMetrics = (allOrders, users4, periodRange) => {
       const allCustomerIds = new Set(allOrders.map((o) => o.userId).filter(Boolean));
-      const periodOrders = filterOrdersByDateRange(allOrders, periodRange);
+      const periodOrders = filterOrdersByCreatedDateRange(allOrders, periodRange);
       const periodCustomerIds = new Set(periodOrders.map((o) => o.userId).filter(Boolean));
       let newCustomersInPeriod = 0;
       let repeatCustomersInPeriod = 0;
@@ -1652,20 +1688,20 @@ var init_analytics = __esm({
         }
       }
       validOrders.forEach((order) => {
-        const date = new Date(order.deliveredAt || order.createdAt);
+        const date2 = new Date(order.deliveredAt || order.createdAt);
         let key = "";
         if (period === "today") {
-          if (isWithinInterval(date, { start: startOfDay(now), end: endOfDay(now) })) {
-            key = `${String(date.getHours()).padStart(2, "0")}:00`;
+          if (isWithinInterval(date2, { start: startOfDay(now), end: endOfDay(now) })) {
+            key = `${String(date2.getHours()).padStart(2, "0")}:00`;
           }
         } else if (period === "7days" || period === "30days" || period === "90days") {
           const days = period === "7days" ? 7 : period === "30days" ? 30 : 90;
-          if (isWithinInterval(date, { start: subDays(now, days - 1), end: now })) {
-            key = format(date, "MMM dd");
+          if (isWithinInterval(date2, { start: subDays(now, days - 1), end: now })) {
+            key = format(date2, "MMM dd");
           }
         } else if (period === "12months") {
-          if (isWithinInterval(date, { start: startOfMonth(subMonths(now, 11)), end: endOfMonth(now) })) {
-            key = format(date, "MMM yyyy");
+          if (isWithinInterval(date2, { start: startOfMonth(subMonths(now, 11)), end: endOfMonth(now) })) {
+            key = format(date2, "MMM yyyy");
           }
         }
         if (key && dataMap.has(key)) {
@@ -1790,10 +1826,10 @@ import { eq, and, gte, desc, asc, or, isNull, sql as sql3, count, lt, inArray } 
 function convertDateForDB(value) {
   if (value === null || value === void 0) return null;
   if (typeof value === "string") {
-    const date = new Date(value);
-    const timestamp2 = date.getTime();
+    const date2 = new Date(value);
+    const timestamp2 = date2.getTime();
     if (isNaN(timestamp2)) return null;
-    return date;
+    return date2;
   }
   if (value instanceof Date) {
     const timestamp2 = value.getTime();
@@ -1892,10 +1928,10 @@ var init_storage = __esm({
         this.subscriptions = /* @__PURE__ */ new Map();
       }
       async getUser(id) {
-        return db.query.users.findFirst({ where: (u, { eq: eq10 }) => eq10(u.id, id) });
+        return db.query.users.findFirst({ where: (u, { eq: eq11 }) => eq11(u.id, id) });
       }
       async getUserByPhone(phone) {
-        return db.query.users.findFirst({ where: (user, { eq: eq10 }) => eq10(user.phone, phone) });
+        return db.query.users.findFirst({ where: (user, { eq: eq11 }) => eq11(user.phone, phone) });
       }
       async createUser(userData) {
         const id = randomUUID();
@@ -1921,7 +1957,7 @@ var init_storage = __esm({
       }
       async getOrdersByUserId(userId) {
         return db.query.orders.findMany({
-          where: (order, { eq: eq10 }) => eq10(order.userId, userId),
+          where: (order, { eq: eq11 }) => eq11(order.userId, userId),
           orderBy: (order, { desc: desc3 }) => [desc3(order.createdAt)]
         });
       }
@@ -1935,7 +1971,7 @@ var init_storage = __esm({
         });
       }
       async getCategoryById(id) {
-        return db.query.categories.findFirst({ where: (c, { eq: eq10 }) => eq10(c.id, id) });
+        return db.query.categories.findFirst({ where: (c, { eq: eq11 }) => eq11(c.id, id) });
       }
       async createCategory(insertCategory) {
         const id = randomUUID();
@@ -1962,10 +1998,10 @@ var init_storage = __esm({
         return db.query.products.findMany();
       }
       async getProductById(id) {
-        return db.query.products.findFirst({ where: (p, { eq: eq10 }) => eq10(p.id, id) });
+        return db.query.products.findFirst({ where: (p, { eq: eq11 }) => eq11(p.id, id) });
       }
       async getProductsByCategoryId(categoryId) {
-        return db.query.products.findMany({ where: (p, { eq: eq10 }) => eq10(p.categoryId, categoryId) });
+        return db.query.products.findMany({ where: (p, { eq: eq11 }) => eq11(p.categoryId, categoryId) });
       }
       async createProduct(insertProduct) {
         const id = randomUUID();
@@ -2055,7 +2091,7 @@ var init_storage = __esm({
         }
       }
       async getOrderById(id) {
-        return db.query.orders.findFirst({ where: (o, { eq: eq10 }) => eq10(o.id, id) });
+        return db.query.orders.findFirst({ where: (o, { eq: eq11 }) => eq11(o.id, id) });
       }
       async getAllOrders() {
         return db.query.orders.findMany();
@@ -2080,11 +2116,11 @@ var init_storage = __esm({
         }));
       }
       async getChefById(id) {
-        const chef = await db.query.chefs.findFirst({ where: (c, { eq: eq10 }) => eq10(c.id, id) });
+        const chef = await db.query.chefs.findFirst({ where: (c, { eq: eq11 }) => eq11(c.id, id) });
         return chef || null;
       }
       async getChefsByCategory(categoryId) {
-        return db.query.chefs.findMany({ where: (c, { eq: eq10 }) => eq10(c.categoryId, categoryId) });
+        return db.query.chefs.findMany({ where: (c, { eq: eq11 }) => eq11(c.categoryId, categoryId) });
       }
       async createChef(data) {
         const id = nanoid();
@@ -2162,10 +2198,10 @@ var init_storage = __esm({
         return true;
       }
       async getAdminByUsername(username) {
-        return db.query.adminUsers.findFirst({ where: (admin, { eq: eq10 }) => eq10(admin.username, username) });
+        return db.query.adminUsers.findFirst({ where: (admin, { eq: eq11 }) => eq11(admin.username, username) });
       }
       async getAdminById(id) {
-        return db.query.adminUsers.findFirst({ where: (admin, { eq: eq10 }) => eq10(admin.id, id) });
+        return db.query.adminUsers.findFirst({ where: (admin, { eq: eq11 }) => eq11(admin.id, id) });
       }
       async createAdmin(adminData) {
         const id = randomUUID();
@@ -2225,7 +2261,7 @@ var init_storage = __esm({
         }
       }
       async getPartnerById(id) {
-        const partner = await db.query.partnerUsers.findFirst({ where: (p, { eq: eq10 }) => eq10(p.id, id) });
+        const partner = await db.query.partnerUsers.findFirst({ where: (p, { eq: eq11 }) => eq11(p.id, id) });
         return partner || null;
       }
       async createPartner(data) {
@@ -2298,6 +2334,7 @@ var init_storage = __esm({
           getCustomerMetrics: getCustomerMetrics2,
           getPeriodRange: getPeriodRange2,
           getVisitorMetricsForToday: getVisitorMetricsForToday2,
+          filterOrdersByCreatedDateRange: filterOrdersByCreatedDateRange2,
           filterOrdersByDateRange: filterOrdersByDateRange2,
           isValidRevenueOrder: isValidRevenueOrder2
         } = await Promise.resolve().then(() => (init_analytics(), analytics_exports));
@@ -2305,6 +2342,7 @@ var init_storage = __esm({
         const revenuePeriods = {
           today: getPeriodRevenueComparison2(orders3, "today"),
           month: getPeriodRevenueComparison2(orders3, "month"),
+          year: getPeriodRevenueComparison2(orders3, "year"),
           lifetime: getPeriodRevenueComparison2(orders3, "lifetime")
         };
         const orderPeriods = {
@@ -2316,7 +2354,15 @@ var init_storage = __esm({
         const prevCustomerMetrics = getCustomerMetrics2(orders3, users4, getPeriodRange2("month", new Date(Date.now() - 30 * 24 * 60 * 60 * 1e3)));
         const customersGrowth = prevCustomerMetrics.newCustomersInPeriod === 0 ? customerMetrics.newCustomersInPeriod > 0 ? 100 : 0 : Number(((customerMetrics.newCustomersInPeriod - prevCustomerMetrics.newCustomersInPeriod) / prevCustomerMetrics.newCustomersInPeriod * 100).toFixed(1));
         const customersTrend = customersGrowth > 0 ? "up" : customersGrowth < 0 ? "down" : "flat";
-        const visitorMetrics = getVisitorMetricsForToday2(visitors3);
+        const visitorMetricsToday = getVisitorMetricsForToday2(visitors3);
+        const allUniqueSessionIds = new Set(
+          visitors3.filter((v) => v.sessionId && v.sessionId.trim() !== "").map((v) => v.sessionId)
+        );
+        const totalUniqueVisitors = allUniqueSessionIds.size;
+        const visitorMetrics = {
+          todaysUniqueVisitors: visitorMetricsToday.uniqueVisitors,
+          totalUniqueVisitors
+        };
         const todayRange = getPeriodRange2("today");
         const ordersDeliveredToday = filterOrdersByDateRange2(orders3, todayRange).filter(isValidRevenueOrder2);
         const activeChefsToday = new Set(ordersDeliveredToday.map((o) => o.chefId).filter(Boolean)).size;
@@ -2326,39 +2372,52 @@ var init_storage = __esm({
         const cancelledOrdersToday = filterOrdersByDateRange2(orders3, todayRange).filter((o) => o.status === "cancelled").length;
         const validOrdersToday = ordersDeliveredToday;
         const averageOrderValueToday = validOrdersToday.length > 0 ? Math.round(validOrdersToday.reduce((sum, o) => sum + (o.total || 0), 0) / validOrdersToday.length) : 0;
-        const newCustomersToday = filterOrdersByDateRange2(orders3, todayRange).filter((o) => {
+        const newCustomersToday = filterOrdersByCreatedDateRange2(orders3, todayRange).filter((o) => {
           const userOrders = orders3.filter((uo) => uo.userId === o.userId);
           return userOrders.length === 1;
         }).length;
         const monthRange = getPeriodRange2("month");
         const advanceOrders = filterOrdersByDateRange2(orders3, monthRange).filter((o) => o.paymentStatus === "confirmed" && (o.status === "pending" || o.status === "accepted"));
         const monthlyEarlyRevenue = advanceOrders.reduce((sum, o) => sum + (o.total || 0), 0);
+        const validRevenueOrders = orders3.filter(isValidRevenueOrder2);
+        const completedValidOrders = validRevenueOrders.length;
+        const customerIds = new Set(orders3.filter((o) => o.userId).map((o) => o.userId));
+        const totalCustomers = customerIds.size;
         const deliveredOrders = orders3.filter((o) => o.status === "delivered" || o.status === "completed");
         const paymentStatusBreakdown = deliveredOrders.reduce((acc, o) => {
           acc[o.paymentStatus || "undefined"] = (acc[o.paymentStatus || "undefined"] || 0) + 1;
           return acc;
         }, {});
-        console.log("[DASHBOARD METRICS] Database Query Results:", {
-          totalOrders: orders3.length,
-          totalUsers: users4.length,
-          totalChefs: chefs3.length,
-          totalDeliveryPersonnel: deliveryPersonnel3.length,
-          totalVisitors: visitors3.length,
-          ordersWithPaymentPaid: orders3.filter((o) => o.paymentStatus === "paid").length,
-          ordersWithStatusDelivered: orders3.filter((o) => o.status === "delivered").length,
-          ordersWithStatusCompleted: orders3.filter((o) => o.status === "completed").length,
-          totalDeliveredAndCompleted: deliveredOrders.length,
-          paymentStatusOfDeliveredOrders: paymentStatusBreakdown,
-          validRevenueOrders: orders3.filter(isValidRevenueOrder2).length,
-          advanceOrders: advanceOrders.length,
-          monthlyEarlyRevenue
+        const yearRange = getPeriodRange2("year");
+        const yearOrders = filterOrdersByDateRange2(orders3, yearRange);
+        const yearValidOrders = yearOrders.filter(isValidRevenueOrder2);
+        console.log("[DASHBOARD METRICS] \u{1F4CA} ACCURATE CALCULATION:", {
+          // User metrics
+          totalUsersInSystem: users4.length,
+          totalCustomers,
+          // Order metrics
+          totalOrdersInSystem: orders3.length,
+          deliveredOrCompletedOrders: deliveredOrders.length,
+          validRevenueOrders: completedValidOrders,
+          // Payment accuracy
+          paidOrders: orders3.filter((o) => o.paymentStatus === "paid").length,
+          confirmedOrders: orders3.filter((o) => o.paymentStatus === "confirmed").length,
+          deliveredStatus: orders3.filter((o) => o.status === "delivered").length,
+          completedStatus: orders3.filter((o) => o.status === "completed").length,
+          // Year period detail
+          yearPeriodStart: yearRange.start.toISOString(),
+          yearPeriodEnd: yearRange.end.toISOString(),
+          ordersInYearPeriod: yearOrders.length,
+          validRevenueOrdersInYear: yearValidOrders.length,
+          yearRevenue: revenuePeriods?.year?.current ?? 0,
+          paymentStatusBreakdown
         });
         const safeMetrics = {
-          userCount: users4?.length ?? 0,
-          orderCount: orders3?.length ?? 0,
+          userCount: totalCustomers,
+          orderCount: completedValidOrders,
           totalRevenue: revenuePeriods?.lifetime?.current ?? 0,
           pendingOrders: statusBreakdown?.pending ?? 0,
-          completedOrders: statusBreakdown?.delivered ?? 0,
+          completedOrders: completedValidOrders,
           revenueGrowth: revenuePeriods?.month?.growth ?? 0,
           revenueTrend: revenuePeriods?.month?.trend ?? "flat",
           ordersGrowth: orderPeriods?.month?.growth ?? 0,
@@ -2377,6 +2436,7 @@ var init_storage = __esm({
           revenuePeriods: revenuePeriods ?? {
             today: { current: 0, previous: 0, growth: 0, trend: "flat" },
             month: { current: 0, previous: 0, growth: 0, trend: "flat" },
+            year: { current: 0, previous: 0, growth: 0, trend: "flat" },
             lifetime: { current: 0, previous: 0, growth: 0, trend: "flat" }
           },
           orderPeriods: orderPeriods ?? {
@@ -2384,10 +2444,8 @@ var init_storage = __esm({
             month: { current: 0, previous: 0, growth: 0, trend: "flat" }
           },
           visitorMetrics: visitorMetrics ?? {
-            todaysVisits: 0,
-            uniqueVisitors: 0,
-            newVisitors: 0,
-            returningVisitors: 0
+            todaysUniqueVisitors: 0,
+            totalUniqueVisitors: 0
           },
           activeChefsToday: activeChefsToday ?? 0,
           activeDeliveryPartnersToday: activeDeliveryPartnersToday ?? 0,
@@ -2447,7 +2505,7 @@ var init_storage = __esm({
       // Coupons
       async verifyCoupon(code, orderAmount, userId) {
         const coupon = await db.query.coupons.findFirst({
-          where: (coupons3, { eq: eq10, and: and6 }) => and6(eq10(coupons3.code, code.toUpperCase()), eq10(coupons3.isActive, true))
+          where: (coupons3, { eq: eq11, and: and7 }) => and7(eq11(coupons3.code, code.toUpperCase()), eq11(coupons3.isActive, true))
         });
         if (!coupon) throw new Error("Invalid coupon code");
         console.log("\u{1F9FE} Coupon validity check:", {
@@ -2471,7 +2529,7 @@ var init_storage = __esm({
         }
         if (userId && coupon.perUserLimit) {
           const userUsageCount = await db.query.couponUsages.findMany({
-            where: (usages, { eq: eq10, and: and6 }) => and6(eq10(usages.couponId, coupon.id), eq10(usages.userId, userId))
+            where: (usages, { eq: eq11, and: and7 }) => and7(eq11(usages.couponId, coupon.id), eq11(usages.userId, userId))
           });
           if (userUsageCount.length >= coupon.perUserLimit) {
             throw new Error(`You have already used this coupon ${coupon.perUserLimit} time(s)`);
@@ -2494,7 +2552,7 @@ var init_storage = __esm({
       }
       async recordCouponUsage(code, userId, orderId) {
         const coupon = await db.query.coupons.findFirst({
-          where: (coupons3, { eq: eq10 }) => eq10(coupons3.code, code.toUpperCase())
+          where: (coupons3, { eq: eq11 }) => eq11(coupons3.code, code.toUpperCase())
         });
         if (coupon) {
           await db.insert(couponUsages2).values({
@@ -2509,7 +2567,7 @@ var init_storage = __esm({
       }
       async incrementCouponUsage(code) {
         const coupon = await db.query.coupons.findFirst({
-          where: (coupons3, { eq: eq10 }) => eq10(coupons3.code, code.toUpperCase())
+          where: (coupons3, { eq: eq11 }) => eq11(coupons3.code, code.toUpperCase())
         });
         if (coupon) {
           await db.update(coupons2).set({ usedCount: coupon.usedCount + 1 }).where(eq(coupons2.code, code.toUpperCase()));
@@ -2517,13 +2575,13 @@ var init_storage = __esm({
       }
       async getCouponUserUsage(couponId, userId) {
         const usages = await db.query.couponUsages.findMany({
-          where: (usages2, { eq: eq10, and: and6 }) => and6(eq10(usages2.couponId, couponId), eq10(usages2.userId, userId))
+          where: (usages2, { eq: eq11, and: and7 }) => and7(eq11(usages2.couponId, couponId), eq11(usages2.userId, userId))
         });
         return usages.length;
       }
       async getCouponByCode(code) {
         const coupon = await db.query.coupons.findFirst({
-          where: (coupons3, { eq: eq10 }) => eq10(coupons3.code, code.toUpperCase())
+          where: (coupons3, { eq: eq11 }) => eq11(coupons3.code, code.toUpperCase())
         });
         if (!coupon) return null;
         return {
@@ -2548,7 +2606,7 @@ var init_storage = __esm({
         });
       }
       async getSubscriptionPlan(id) {
-        return db.query.subscriptionPlans.findFirst({ where: (sp, { eq: eq10 }) => eq10(sp.id, id) });
+        return db.query.subscriptionPlans.findFirst({ where: (sp, { eq: eq11 }) => eq11(sp.id, id) });
       }
       async createSubscriptionPlan(data) {
         const id = randomUUID();
@@ -2574,7 +2632,7 @@ var init_storage = __esm({
         return subs.map(serializeSubscription);
       }
       async getSubscription(id) {
-        const sub = await db.query.subscriptions.findFirst({ where: (s, { eq: eq10 }) => eq10(s.id, id) });
+        const sub = await db.query.subscriptions.findFirst({ where: (s, { eq: eq11 }) => eq11(s.id, id) });
         if (sub) {
           console.log(`
 [DB-DEBUG] getSubscription(${id}) - Raw DB response:`);
@@ -2714,15 +2772,15 @@ var init_storage = __esm({
         return true;
       }
       async getSubscriptionsByUserId(userId) {
-        const subs = await db.query.subscriptions.findMany({ where: (s, { eq: eq10 }) => eq10(s.userId, userId) });
+        const subs = await db.query.subscriptions.findMany({ where: (s, { eq: eq11 }) => eq11(s.userId, userId) });
         return subs.map(serializeSubscription);
       }
       // Get active subscriptions count for a chef
       async getActiveSubscriptionCountByChef(chefId) {
         const result = await db.query.subscriptions.findMany({
-          where: (s, { and: and6, eq: eq10 }) => and6(
-            eq10(s.chefId, chefId),
-            eq10(s.status, "active")
+          where: (s, { and: and7, eq: eq11 }) => and7(
+            eq11(s.chefId, chefId),
+            eq11(s.status, "active")
           )
         });
         return result.length;
@@ -2730,9 +2788,9 @@ var init_storage = __esm({
       // Find the best available chef for a category (load balancing)
       async findBestChefForCategory(categoryId) {
         const activeChefs = await db.query.chefs.findMany({
-          where: (c, { and: and6, eq: eq10 }) => and6(
-            eq10(c.categoryId, categoryId),
-            eq10(c.isActive, true)
+          where: (c, { and: and7, eq: eq11 }) => and7(
+            eq11(c.categoryId, categoryId),
+            eq11(c.isActive, true)
           )
         });
         if (activeChefs.length === 0) {
@@ -2760,9 +2818,9 @@ var init_storage = __esm({
       // Get active subscriptions by chef
       async getActiveSubscriptionsByChef(chefId) {
         const subs = await db.query.subscriptions.findMany({
-          where: (s, { and: and6, eq: eq10 }) => and6(
-            eq10(s.chefId, chefId),
-            eq10(s.status, "active")
+          where: (s, { and: and7, eq: eq11 }) => and7(
+            eq11(s.chefId, chefId),
+            eq11(s.status, "active")
           )
         });
         return subs.map(serializeSubscription);
@@ -2770,9 +2828,9 @@ var init_storage = __esm({
       // Get active AND paused subscriptions for a chef (for partner dashboard)
       async getActiveAndPausedSubscriptionsByChef(chefId) {
         const subs = await db.query.subscriptions.findMany({
-          where: (s, { and: and6, eq: eq10, inArray: inArray2 }) => and6(
-            eq10(s.chefId, chefId),
-            inArray2(s.status, ["active", "paused"])
+          where: (s, { and: and7, eq: eq11, inArray: inArray3 }) => and7(
+            eq11(s.chefId, chefId),
+            inArray3(s.status, ["active", "paused"])
             // ✅ Include both active and paused
           )
         });
@@ -2781,24 +2839,24 @@ var init_storage = __esm({
       // Subscription Delivery Logs
       async getSubscriptionDeliveryLogs(subscriptionId) {
         return db.query.subscriptionDeliveryLogs.findMany({
-          where: (log3, { eq: eq10 }) => eq10(log3.subscriptionId, subscriptionId),
+          where: (log3, { eq: eq11 }) => eq11(log3.subscriptionId, subscriptionId),
           orderBy: (log3, { desc: desc3 }) => [desc3(log3.date)]
         });
       }
-      async getSubscriptionDeliveryLogsByDate(date) {
-        const startOfDay3 = new Date(date);
+      async getSubscriptionDeliveryLogsByDate(date2) {
+        const startOfDay3 = new Date(date2);
         startOfDay3.setHours(0, 0, 0, 0);
-        const endOfDay3 = new Date(date);
+        const endOfDay3 = new Date(date2);
         endOfDay3.setHours(23, 59, 59, 999);
         return db.query.subscriptionDeliveryLogs.findMany({
-          where: (log3, { and: and6, gte: gte3, lte: lte2 }) => and6(
+          where: (log3, { and: and7, gte: gte3, lte: lte2 }) => and7(
             gte3(log3.date, startOfDay3),
             lte2(log3.date, endOfDay3)
           )
         });
       }
       async getSubscriptionDeliveryLog(id) {
-        return db.query.subscriptionDeliveryLogs.findFirst({ where: (log3, { eq: eq10 }) => eq10(log3.id, id) });
+        return db.query.subscriptionDeliveryLogs.findFirst({ where: (log3, { eq: eq11 }) => eq11(log3.id, id) });
       }
       async createSubscriptionDeliveryLog(data) {
         const id = randomUUID();
@@ -2828,14 +2886,14 @@ var init_storage = __esm({
       async deleteSubscriptionDeliveryLog(id) {
         await db.delete(subscriptionDeliveryLogs2).where(eq(subscriptionDeliveryLogs2.id, id));
       }
-      async getDeliveryLogBySubscriptionAndDate(subscriptionId, date) {
-        const startOfDay3 = new Date(date);
+      async getDeliveryLogBySubscriptionAndDate(subscriptionId, date2) {
+        const startOfDay3 = new Date(date2);
         startOfDay3.setHours(0, 0, 0, 0);
-        const endOfDay3 = new Date(date);
+        const endOfDay3 = new Date(date2);
         endOfDay3.setHours(23, 59, 59, 999);
         return db.query.subscriptionDeliveryLogs.findFirst({
-          where: (log3, { and: and6, eq: eq10, gte: gte3, lte: lte2 }) => and6(
-            eq10(log3.subscriptionId, subscriptionId),
+          where: (log3, { and: and7, eq: eq11, gte: gte3, lte: lte2 }) => and7(
+            eq11(log3.subscriptionId, subscriptionId),
             gte3(log3.date, startOfDay3),
             lte2(log3.date, endOfDay3)
           )
@@ -2874,12 +2932,12 @@ var init_storage = __esm({
       }
       async getCustomSubscriptionRequest(id) {
         return db.query.customSubscriptionRequests.findFirst({
-          where: (r, { eq: eq10 }) => eq10(r.id, id)
+          where: (r, { eq: eq11 }) => eq11(r.id, id)
         });
       }
       async getCustomSubscriptionRequestsByUserId(userId) {
         return db.query.customSubscriptionRequests.findMany({
-          where: (r, { eq: eq10 }) => eq10(r.userId, userId),
+          where: (r, { eq: eq11 }) => eq11(r.userId, userId),
           orderBy: (r, { desc: desc3 }) => [desc3(r.createdAt)]
         });
       }
@@ -2902,7 +2960,7 @@ var init_storage = __esm({
       }
       async getCustomSubscriptionRequestBySubscriptionId(subscriptionId) {
         return db.query.customSubscriptionRequests.findFirst({
-          where: (r, { eq: eq10 }) => eq10(r.subscriptionId, subscriptionId)
+          where: (r, { eq: eq11 }) => eq11(r.subscriptionId, subscriptionId)
         });
       }
       async getSalesReport(from, to) {
@@ -3148,7 +3206,7 @@ var init_storage = __esm({
               };
             });
             let payout = await db.query.payoutTransactions.findFirst({
-              where: (pt, { eq: eq10 }) => eq10(pt.orderId, order.id)
+              where: (pt, { eq: eq11 }) => eq11(pt.orderId, order.id)
             });
             if (!payout && order.chefId) {
               try {
@@ -3237,7 +3295,7 @@ var init_storage = __esm({
       async getChefPayoutStatus(orderId) {
         try {
           const payout = await db.query.payoutTransactions.findFirst({
-            where: (pt, { eq: eq10 }) => eq10(pt.orderId, orderId)
+            where: (pt, { eq: eq11 }) => eq11(pt.orderId, orderId)
           });
           return payout;
         } catch (error) {
@@ -3246,20 +3304,20 @@ var init_storage = __esm({
         }
       }
       async getDeliverySettings() {
-        return db.query.deliverySettings.findMany({ where: (ds, { eq: eq10 }) => eq10(ds.isActive, true) });
+        return db.query.deliverySettings.findMany({ where: (ds, { eq: eq11 }) => eq11(ds.isActive, true) });
       }
       async getDeliverySetting(id) {
-        return db.query.deliverySettings.findFirst({ where: (ds, { eq: eq10 }) => eq10(ds.id, id) });
+        return db.query.deliverySettings.findFirst({ where: (ds, { eq: eq11 }) => eq11(ds.id, id) });
       }
       // NEW: Get delivery settings filtered by pincode
       async getDeliverySettingsByPincode(pincode) {
         return db.query.deliverySettings.findMany({
-          where: (ds, { eq: eq10, and: and6, or: or2, isNull: isNull3 }) => and6(
-            eq10(ds.isActive, true),
-            or2(
-              eq10(ds.pincode, pincode),
+          where: (ds, { eq: eq11, and: and7, or: or3, isNull: isNull4 }) => and7(
+            eq11(ds.isActive, true),
+            or3(
+              eq11(ds.pincode, pincode),
               // Exact pincode match
-              isNull3(ds.pincode)
+              isNull4(ds.pincode)
               // Settings with no pincode (apply to all)
             )
           )
@@ -3390,10 +3448,10 @@ var init_storage = __esm({
         return (result.rowCount ?? 0) > 0;
       }
       async getCartSettings() {
-        return db.query.cartSettings.findMany({ where: (cs, { eq: eq10 }) => eq10(cs.isActive, true) });
+        return db.query.cartSettings.findMany({ where: (cs, { eq: eq11 }) => eq11(cs.isActive, true) });
       }
       async getCartSettingByCategoryId(categoryId) {
-        return db.query.cartSettings.findFirst({ where: (cs, { eq: eq10 }) => eq10(cs.categoryId, categoryId) });
+        return db.query.cartSettings.findFirst({ where: (cs, { eq: eq11 }) => eq11(cs.categoryId, categoryId) });
       }
       async createCartSetting(data) {
         const id = randomUUID();
@@ -3424,16 +3482,16 @@ var init_storage = __esm({
           }
         }
         await db.update(cartSettings2).set({ ...updateData, updatedAt: /* @__PURE__ */ new Date() }).where(eq(cartSettings2.id, id));
-        return db.query.cartSettings.findFirst({ where: (cs, { eq: eq10 }) => eq10(cs.id, id) });
+        return db.query.cartSettings.findFirst({ where: (cs, { eq: eq11 }) => eq11(cs.id, id) });
       }
       async deleteCartSetting(id) {
         await db.delete(cartSettings2).where(eq(cartSettings2.id, id));
       }
       async getDeliveryPersonnelByPhone(phone) {
-        return db.query.deliveryPersonnel.findFirst({ where: (dp, { eq: eq10 }) => eq10(dp.phone, phone) });
+        return db.query.deliveryPersonnel.findFirst({ where: (dp, { eq: eq11 }) => eq11(dp.phone, phone) });
       }
       async getDeliveryPersonnelById(id) {
-        return db.query.deliveryPersonnel.findFirst({ where: (dp, { eq: eq10 }) => eq10(dp.id, id) });
+        return db.query.deliveryPersonnel.findFirst({ where: (dp, { eq: eq11 }) => eq11(dp.id, id) });
       }
       async getDeliveryPersonnel(id) {
         return this.getDeliveryPersonnelById(id);
@@ -3443,7 +3501,7 @@ var init_storage = __esm({
       }
       async getAvailableDeliveryPersonnel() {
         return db.query.deliveryPersonnel.findMany({
-          where: (dp, { eq: eq10 }) => eq10(dp.isActive, true),
+          where: (dp, { eq: eq11 }) => eq11(dp.isActive, true),
           orderBy: (dp, { asc: asc2 }) => [asc2(dp.status)]
           // Show "available" first
         });
@@ -3516,10 +3574,10 @@ var init_storage = __esm({
             const refCode = updatedOrder.referralCode;
             console.log(`\u{1F381} [REFERRAL CLAWBACK] Order rejected - checking for referral to reverse for user: ${userId}`);
             const referral = await db.query.referrals.findFirst({
-              where: (r, { eq: eq10, and: and6 }) => and6(
-                eq10(r.referredId, userId),
-                eq10(r.status, "pending"),
-                eq10(r.referralCode, refCode)
+              where: (r, { eq: eq11, and: and7 }) => and7(
+                eq11(r.referredId, userId),
+                eq11(r.status, "pending"),
+                eq11(r.referralCode, refCode)
               )
             });
             if (referral) {
@@ -3664,7 +3722,7 @@ var init_storage = __esm({
             throw new Error(`Minimum order amount \u20B9${minOrderAmount} required to use referral code. Current order: \u20B9${orderAmount}`);
           }
           const referrer = await tx.query.users.findFirst({
-            where: (u, { eq: eq10 }) => eq10(u.referralCode, referralCode)
+            where: (u, { eq: eq11 }) => eq11(u.referralCode, referralCode)
           });
           if (!referrer) {
             throw new Error("Invalid referral code");
@@ -3677,27 +3735,27 @@ var init_storage = __esm({
             throw new Error("Referrer account must be at least 7 days old to share referrals");
           }
           const referrerOrders = await tx.query.orders.findMany({
-            where: (o, { eq: eq10 }) => eq10(o.userId, referrer.id)
+            where: (o, { eq: eq11 }) => eq11(o.userId, referrer.id)
           });
           if (referrerOrders.length === 0) {
             throw new Error("Referrer must have placed at least one order before sharing referrals");
           }
           const newUser = await tx.query.users.findFirst({
-            where: (u, { eq: eq10 }) => eq10(u.id, newUserId)
+            where: (u, { eq: eq11 }) => eq11(u.id, newUserId)
           });
           if (!newUser) {
             throw new Error("User not found");
           }
           if (!options?.skipFirstOrderCheck) {
             const userOrders = await tx.query.orders.findMany({
-              where: (o, { eq: eq10 }) => eq10(o.userId, newUserId)
+              where: (o, { eq: eq11 }) => eq11(o.userId, newUserId)
             });
             if (userOrders.length > 0) {
               throw new Error("You can only use a referral code before placing your first order");
             }
           }
           const existingReferral = await tx.query.referrals.findFirst({
-            where: (r, { eq: eq10 }) => eq10(r.referredId, newUserId)
+            where: (r, { eq: eq11 }) => eq11(r.referredId, newUserId)
           });
           if (existingReferral) {
             throw new Error("User already used a referral code");
@@ -3710,7 +3768,7 @@ var init_storage = __esm({
           startOfMonth2.setDate(1);
           startOfMonth2.setHours(0, 0, 0, 0);
           const monthlyReferrals = await tx.query.referrals.findMany({
-            where: (r, { and: and6, eq: eqOp, gte: gteOp }) => and6(
+            where: (r, { and: and7, eq: eqOp, gte: gteOp }) => and7(
               eqOp(r.referrerId, referrer.id),
               gteOp(r.createdAt, startOfMonth2)
             )
@@ -3740,7 +3798,7 @@ var init_storage = __esm({
         let result = null;
         await db.transaction(async (tx) => {
           const referral = await tx.query.referrals.findFirst({
-            where: (r, { and: and6, eq: eqOp }) => and6(
+            where: (r, { and: and7, eq: eqOp }) => and7(
               eqOp(r.referredId, userId),
               eqOp(r.status, "pending")
             )
@@ -3762,7 +3820,7 @@ var init_storage = __esm({
           startOfMonth2.setDate(1);
           startOfMonth2.setHours(0, 0, 0, 0);
           const completedThisMonth = await tx.query.referrals.findMany({
-            where: (r, { and: and6, eq: eqOp, gte: gteOp }) => and6(
+            where: (r, { and: and7, eq: eqOp, gte: gteOp }) => and7(
               eqOp(r.referrerId, referral.referrerId),
               eqOp(r.status, "completed"),
               gteOp(r.createdAt, startOfMonth2)
@@ -3784,7 +3842,7 @@ var init_storage = __esm({
             }, tx);
           }
           const referrerOrders = await tx.query.orders.findMany({
-            where: (o, { eq: eq10 }) => eq10(o.userId, referral.referrerId)
+            where: (o, { eq: eq11 }) => eq11(o.userId, referral.referrerId)
           });
           const referrerHasCompletedFirstOrder = referrerOrders.some((o) => o.status === "delivered");
           if (canCreditBonus && referrerHasCompletedFirstOrder) {
@@ -3820,18 +3878,18 @@ var init_storage = __esm({
       }
       async getReferralsByUser(userId) {
         return db.query.referrals.findMany({
-          where: (r, { eq: eq10 }) => eq10(r.referrerId, userId)
+          where: (r, { eq: eq11 }) => eq11(r.referrerId, userId)
         });
       }
       async getReferralByReferredId(referredId) {
         const referral = await db.query.referrals.findFirst({
-          where: (r, { eq: eq10 }) => eq10(r.referredId, referredId)
+          where: (r, { eq: eq11 }) => eq11(r.referredId, referredId)
         });
         return referral || null;
       }
       async getUserByReferralCode(referralCode) {
         const user = await db.query.users.findFirst({
-          where: (u, { eq: eq10 }) => eq10(u.referralCode, referralCode.trim().toUpperCase())
+          where: (u, { eq: eq11 }) => eq11(u.referralCode, referralCode.trim().toUpperCase())
         });
         return user || null;
       }
@@ -3865,7 +3923,7 @@ var init_storage = __esm({
       }
       async validateBonusEligibility(userId, orderTotal) {
         const userOrders = await db.query.orders.findMany({
-          where: (o, { eq: eq10 }) => eq10(o.userId, userId)
+          where: (o, { eq: eq11 }) => eq11(o.userId, userId)
         });
         const deliveredOrders = userOrders.filter((order) => order.status === "delivered");
         console.log(`[BONUS-ELIGIBILITY] User ${userId} - Total orders: ${userOrders.length}, Delivered: ${deliveredOrders.length}`);
@@ -3880,7 +3938,7 @@ var init_storage = __esm({
           };
         }
         const referral = await db.query.referrals.findFirst({
-          where: (r, { eq: eq10 }) => eq10(r.referredId, userId)
+          where: (r, { eq: eq11 }) => eq11(r.referredId, userId)
         });
         if (!referral) {
           console.log(`\u26A0\uFE0F [BONUS-ELIGIBILITY] No referral found for user ${userId}`);
@@ -3913,7 +3971,7 @@ var init_storage = __esm({
       async claimReferralBonusAtCheckout(userId, orderTotal, orderId) {
         return await db.transaction(async (tx) => {
           const referral = await tx.query.referrals.findFirst({
-            where: (r, { eq: eq10 }) => eq10(r.referredId, userId)
+            where: (r, { eq: eq11 }) => eq11(r.referredId, userId)
           });
           if (!referral) {
             return { bonusClaimed: false, amount: 0, message: "No referral found for this user" };
@@ -4128,7 +4186,7 @@ var init_storage = __esm({
       }
       async getWalletTransactions(userId, limit = 50) {
         return db.query.walletTransactions.findMany({
-          where: (t, { eq: eq10 }) => eq10(t.userId, userId),
+          where: (t, { eq: eq11 }) => eq11(t.userId, userId),
           orderBy: (t, { desc: desc3 }) => [desc3(t.createdAt)],
           limit
         });
@@ -4263,7 +4321,7 @@ var init_storage = __esm({
         const settings = await this.getActiveReferralReward();
         const expiryDays = settings?.expiryDays || 30;
         let allReferrals = await db.query.referrals.findMany({
-          where: (r, { eq: eq10 }) => eq10(r.referrerId, userId)
+          where: (r, { eq: eq11 }) => eq11(r.referrerId, userId)
         });
         const now = /* @__PURE__ */ new Date();
         for (const referral of allReferrals) {
@@ -4306,7 +4364,7 @@ var init_storage = __esm({
           return { eligible: false, reason: "User has already completed an order" };
         }
         const referral = await db.query.referrals.findFirst({
-          where: (r, { eq: eq10 }) => eq10(r.referredId, userId)
+          where: (r, { eq: eq11 }) => eq11(r.referredId, userId)
         });
         if (!referral) {
           return { eligible: false, reason: "User was not referred" };
@@ -4366,15 +4424,15 @@ var init_storage = __esm({
       }
       async getActiveDeliveryTimeSlots() {
         return db.query.deliveryTimeSlots.findMany({
-          where: (slot, { eq: eq10 }) => eq10(slot.isActive, true),
+          where: (slot, { eq: eq11 }) => eq11(slot.isActive, true),
           orderBy: (slot, { asc: asc2 }) => [asc2(slot.startTime)]
         });
       }
       async getDeliveryTimeSlot(id) {
-        return db.query.deliveryTimeSlots.findFirst({ where: (slot, { eq: eq10 }) => eq10(slot.id, id) });
+        return db.query.deliveryTimeSlots.findFirst({ where: (slot, { eq: eq11 }) => eq11(slot.id, id) });
       }
       async getDeliveryTimeSlotById(id) {
-        return db.query.deliveryTimeSlots.findFirst({ where: (slot, { eq: eq10 }) => eq10(slot.id, id) });
+        return db.query.deliveryTimeSlots.findFirst({ where: (slot, { eq: eq11 }) => eq11(slot.id, id) });
       }
       async createDeliveryTimeSlot(data) {
         const id = randomUUID();
@@ -4412,7 +4470,7 @@ var init_storage = __esm({
       // Roti Settings Management
       async getRotiSettings() {
         const settings = await db.query.rotiSettings.findFirst({
-          where: (rs, { eq: eq10 }) => eq10(rs.isActive, true),
+          where: (rs, { eq: eq11 }) => eq11(rs.isActive, true),
           orderBy: (rs, { desc: desc3 }) => [desc3(rs.createdAt)]
         });
         return settings || void 0;
@@ -4461,7 +4519,7 @@ var init_storage = __esm({
       }
       async getActiveReferralReward() {
         let settings = await db.query.referralRewards.findFirst({
-          where: (rr, { eq: eq10 }) => eq10(rr.isActive, true),
+          where: (rr, { eq: eq11 }) => eq11(rr.isActive, true),
           orderBy: (rr, { desc: desc3 }) => [desc3(rr.createdAt)]
         });
         if (!settings) {
@@ -4536,7 +4594,7 @@ var init_storage = __esm({
         const stats = [];
         for (const coupon of allCoupons) {
           const usages = await db.query.couponUsages.findMany({
-            where: (cu, { eq: eq10 }) => eq10(cu.couponId, coupon.id)
+            where: (cu, { eq: eq11 }) => eq11(cu.couponId, coupon.id)
           });
           const uniqueUsers = new Set(usages.map((u) => u.userId)).size;
           let lastUsed = null;
@@ -4816,7 +4874,7 @@ var init_storage = __esm({
           const startOfDay3 = new Date(filterDate.setHours(0, 0, 0, 0));
           const endOfDay3 = new Date(filterDate.setHours(23, 59, 59, 999));
           return db.query.walletTransactions.findMany({
-            where: (wt, { and: and6, gte: gteOp, lte: lteOp }) => and6(
+            where: (wt, { and: and7, gte: gteOp, lte: lteOp }) => and7(
               gteOp(wt.createdAt, startOfDay3),
               lteOp(wt.createdAt, endOfDay3)
             ),
@@ -5051,18 +5109,18 @@ var init_storage = __esm({
       }
       async getPendingCheckout(id) {
         return db.query.pendingCheckouts.findFirst({
-          where: (pc, { eq: eq10 }) => eq10(pc.id, id)
+          where: (pc, { eq: eq11 }) => eq11(pc.id, id)
         });
       }
       async getPendingCheckoutsByPhone(phone) {
         return db.query.pendingCheckouts.findMany({
-          where: (pc, { eq: eq10 }) => eq10(pc.phone, phone),
+          where: (pc, { eq: eq11 }) => eq11(pc.phone, phone),
           orderBy: (pc, { desc: desc3 }) => [desc3(pc.createdAt)]
         });
       }
       async getAllPendingCheckouts() {
         return db.query.pendingCheckouts.findMany({
-          where: (pc, { eq: eq10 }) => eq10(pc.isDeleted, false),
+          where: (pc, { eq: eq11 }) => eq11(pc.isDeleted, false),
           orderBy: (pc, { desc: desc3 }) => [desc3(pc.createdAt)]
         });
       }
@@ -5085,9 +5143,9 @@ var init_storage = __esm({
         }
         console.log(`[PENDING-CHECKOUT-CLEANUP] Phone: ${currentCheckout.phone}, Current ID: ${id}`);
         const otherCheckouts = await db.query.pendingCheckouts.findMany({
-          where: (pc, { eq: eq10, and: and6 }) => and6(
-            eq10(pc.phone, currentCheckout.phone),
-            eq10(pc.status, "pending")
+          where: (pc, { eq: eq11, and: and7 }) => and7(
+            eq11(pc.phone, currentCheckout.phone),
+            eq11(pc.status, "pending")
           )
         });
         if (otherCheckouts.length > 0) {
@@ -7244,11 +7302,14 @@ var init_timeFormatter = __esm({
 var whatsappService_exports = {};
 __export(whatsappService_exports, {
   sendChefAssignmentNotification: () => sendChefAssignmentNotification,
+  sendChefOnLeaveAdminNotification: () => sendChefOnLeaveAdminNotification,
+  sendChefUnavailableTodayAdminNotification: () => sendChefUnavailableTodayAdminNotification,
   sendDeliveryAvailableNotification: () => sendDeliveryAvailableNotification,
   sendDeliveryCompletedNotification: () => sendDeliveryCompletedNotification,
   sendMissedDeliveryNotification: () => sendMissedDeliveryNotification,
   sendOrderPlacedAdminNotification: () => sendOrderPlacedAdminNotification,
   sendPaymentInitiatedAdminNotification: () => sendPaymentInitiatedAdminNotification,
+  sendPlatformSkipCustomerNotification: () => sendPlatformSkipCustomerNotification,
   sendScheduledDeliveryReminder: () => sendScheduledDeliveryReminder,
   sendScheduledOrder2HourReminder: () => sendScheduledOrder2HourReminder,
   sendWhatsAppMessage: () => sendWhatsAppMessage,
@@ -7651,6 +7712,28 @@ We regret the inconvenience!
   });
   return true;
 }
+async function sendChefUnavailableTodayAdminNotification(chefName, affectedCount, adminPhone) {
+  const message = `\u{1F6A8} Chef Unavailable Alert
+Chef ${chefName} has marked themselves unavailable today.
+${affectedCount} subscription deliveries are affected.
+Please go to Admin \u2192 Subscriptions \u2192 Unavailability Actions to reassign or skip.`.trim();
+  return sendWhatsAppMessage(adminPhone, message);
+}
+async function sendChefOnLeaveAdminNotification(chefName, leaveStartDate, leaveEndDate, adminPhone) {
+  const message = `\u{1F4C5} Chef Leave Notice
+Chef ${chefName} has set a leave period from ${leaveStartDate} to ${leaveEndDate}.
+Affected deliveries will be queued for action when leave activates.
+Please go to Admin \u2192 Subscriptions \u2192 Unavailability Actions to review.`.trim();
+  return sendWhatsAppMessage(adminPhone, message);
+}
+async function sendPlatformSkipCustomerNotification(customerPhone, deliveryDate, newEndDate, subscriptionId) {
+  const message = `\u26A0\uFE0F Delivery Update \u2014 RotiHai
+We're sorry! Your scheduled delivery on ${deliveryDate} has been skipped due to chef unavailability.
+Your subscription has been extended by 1 day. New end date: ${newEndDate}.
+Subscription ID: ${subscriptionId}
+We apologise for the inconvenience. \u2014RotiHai Team`.trim();
+  return sendWhatsAppMessage(customerPhone, message);
+}
 var WHATSAPP_API_URL, WHATSAPP_API_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_TEMPLATE_ORDER_ADMIN, WHATSAPP_TEMPLATE_PAYMENT_ADMIN, WHATSAPP_TEMPLATE_LANGUAGE;
 var init_whatsappService = __esm({
   "server/whatsappService.ts"() {
@@ -7789,6 +7872,341 @@ var init_restaurantStatus = __esm({
   }
 });
 
+// server/services/chefUnavailabilityService.ts
+import { eq as eq3, and as and3, ne, isNull as isNull2, isNotNull, sql as sql4 } from "drizzle-orm";
+var ChefUnavailabilityService, chefUnavailabilityService;
+var init_chefUnavailabilityService = __esm({
+  "server/services/chefUnavailabilityService.ts"() {
+    "use strict";
+    init_db();
+    init_schema();
+    init_whatsappService();
+    ChefUnavailabilityService = class {
+      // ─── 1. markUnavailableToday ────────────────────────────────────────────────
+      /**
+       * Marks a chef as unavailable today (immediate path).
+       * 1. Updates chefs.subscriptionAvailabilityStatus = 'unavailable_today'
+       * 2. Inserts chef_unavailability audit row (unavailabilityType='unavailable_today',
+       *    leaveStartDate=today, leaveEndDate=today) — no status field
+       * 3. Counts affected scheduled delivery logs for today
+       * Returns: { unavailabilityId, affectedCount }
+       */
+      async markUnavailableToday(chefId) {
+        const today = /* @__PURE__ */ new Date();
+        today.setHours(0, 0, 0, 0);
+        const todayStr = today.toISOString().split("T")[0];
+        await db.update(chefs).set({ subscriptionAvailabilityStatus: "unavailable_today" }).where(eq3(chefs.id, chefId));
+        const [inserted] = await db.insert(chefUnavailability).values({
+          chefId,
+          unavailabilityType: "unavailable_today",
+          leaveStartDate: todayStr,
+          leaveEndDate: todayStr
+        }).returning();
+        const unavailabilityId = inserted.id;
+        const affectedCount = await this.countAffectedDeliveries(chefId, today, today);
+        return { unavailabilityId, affectedCount };
+      }
+      // ─── 2. setOnLeave ──────────────────────────────────────────────────────────
+      /**
+       * Sets a future or same-day leave period.
+       * 1. Validates leaveStartDate <= leaveEndDate
+       * 2. Updates chefs row with leave dates immediately
+       * 3. Inserts chef_unavailability audit row immediately (no status, no pending/active logic)
+       * 4. Counts affected deliveries today only (0 if future leave)
+       * Returns: { unavailabilityId, affectedCount }
+       */
+      async setOnLeave(chefId, leaveStartDate, leaveEndDate) {
+        if (leaveStartDate > leaveEndDate) {
+          throw { status: 400, message: "leaveEndDate must be on or after leaveStartDate" };
+        }
+        const leaveStartStr = leaveStartDate.toISOString().split("T")[0];
+        const leaveEndStr = leaveEndDate.toISOString().split("T")[0];
+        const today = /* @__PURE__ */ new Date();
+        today.setHours(0, 0, 0, 0);
+        await db.update(chefs).set({
+          subscriptionAvailabilityStatus: "on_leave",
+          leaveStartDate: leaveStartStr,
+          leaveEndDate: leaveEndStr
+        }).where(eq3(chefs.id, chefId));
+        const [inserted] = await db.insert(chefUnavailability).values({
+          chefId,
+          unavailabilityType: "on_leave",
+          leaveStartDate: leaveStartStr,
+          leaveEndDate: leaveEndStr
+        }).returning();
+        const unavailabilityId = inserted.id;
+        let affectedCount = 0;
+        if (leaveStartDate <= today) {
+          affectedCount = await this.countAffectedDeliveries(chefId, today, today);
+        }
+        return { unavailabilityId, affectedCount };
+      }
+      // ─── 3. markAvailable ───────────────────────────────────────────────────────
+      /**
+       * Marks a chef as available again.
+       * Only resets the chefs row — audit records in chef_unavailability are immutable history
+       * and are NEVER updated.
+       */
+      async markAvailable(chefId) {
+        await db.update(chefs).set({
+          subscriptionAvailabilityStatus: "available",
+          leaveStartDate: null,
+          leaveEndDate: null
+        }).where(eq3(chefs.id, chefId));
+      }
+      // ─── 4. countAffectedDeliveries ─────────────────────────────────────────────
+      /**
+       * Counts scheduled delivery logs for a chef within a date range (date-level comparison).
+       */
+      async countAffectedDeliveries(chefId, startDate, endDate) {
+        const startStr = startDate.toISOString().split("T")[0];
+        const endStr = endDate.toISOString().split("T")[0];
+        const results = await db.select({ id: subscriptionDeliveryLogs.id }).from(subscriptionDeliveryLogs).innerJoin(
+          subscriptions,
+          eq3(subscriptionDeliveryLogs.subscriptionId, subscriptions.id)
+        ).where(
+          and3(
+            eq3(subscriptionDeliveryLogs.status, "scheduled"),
+            eq3(subscriptions.chefId, chefId),
+            sql4`DATE(${subscriptionDeliveryLogs.date}) >= DATE(${startStr}::date)`,
+            sql4`DATE(${subscriptionDeliveryLogs.date}) <= DATE(${endStr}::date)`
+          )
+        );
+        return results.length;
+      }
+      // ─── 5. getPendingActions ───────────────────────────────────────────────────
+      /**
+       * Returns the derived pending action list for the admin Unavailability Actions tab.
+       * Joins subscription_delivery_logs → subscriptions → chefs.
+       *
+       * Date-range-aware availability filter (per-status):
+       *   - unavailable_today chefs: include delivery only if DATE(delivery.date) = today
+       *   - on_leave chefs:          include delivery only if DATE(delivery.date) is within
+       *                               [chef.leaveStartDate, chef.leaveEndDate]
+       *   - available chefs:         excluded entirely
+       *
+       * Ordered by delivery date ASC.
+       */
+      async getPendingActions() {
+        const rows = await db.select({
+          deliveryLogId: subscriptionDeliveryLogs.id,
+          subscriptionId: subscriptionDeliveryLogs.subscriptionId,
+          deliveryDate: subscriptionDeliveryLogs.date,
+          originalChefId: chefs.id,
+          originalChefName: chefs.name,
+          customerName: subscriptions.customerName,
+          planName: subscriptionPlans.name,
+          chefOverrideId: subscriptionDeliveryLogs.chefOverrideId,
+          skipReason: subscriptionDeliveryLogs.skipReason
+        }).from(subscriptionDeliveryLogs).innerJoin(
+          subscriptions,
+          eq3(subscriptionDeliveryLogs.subscriptionId, subscriptions.id)
+        ).innerJoin(chefs, eq3(subscriptions.chefId, chefs.id)).leftJoin(subscriptionPlans, eq3(subscriptions.planId, subscriptionPlans.id)).where(
+          and3(
+            eq3(subscriptionDeliveryLogs.status, "scheduled"),
+            isNull2(subscriptionDeliveryLogs.chefOverrideId),
+            isNull2(subscriptionDeliveryLogs.skipReason),
+            sql4`(
+            (${chefs.subscriptionAvailabilityStatus} = 'unavailable_today' AND DATE(${subscriptionDeliveryLogs.date}) = CURRENT_DATE)
+            OR
+            (${chefs.subscriptionAvailabilityStatus} = 'on_leave'
+             AND ${chefs.leaveStartDate} IS NOT NULL
+             AND ${chefs.leaveEndDate} IS NOT NULL
+             AND ${subscriptionDeliveryLogs.date}::date >= ${chefs.leaveStartDate}::date
+             AND ${subscriptionDeliveryLogs.date}::date <= ${chefs.leaveEndDate}::date)
+          )`
+          )
+        ).orderBy(subscriptionDeliveryLogs.date);
+        return rows.map((row) => ({
+          deliveryLogId: row.deliveryLogId,
+          subscriptionId: row.subscriptionId,
+          deliveryDate: row.deliveryDate,
+          originalChefId: row.originalChefId,
+          originalChefName: row.originalChefName,
+          customerName: row.customerName,
+          planName: row.planName ?? "\u2014",
+          chefOverrideId: row.chefOverrideId ?? null,
+          skipReason: row.skipReason ?? null
+        }));
+      }
+      // ─── 6. getPendingActionCount ───────────────────────────────────────────────
+      /**
+       * Returns the count of pending actions (for the badge in the admin UI).
+       * Uses the same date-range-aware filter as getPendingActions.
+       */
+      async getPendingActionCount() {
+        const rows = await db.select({ id: subscriptionDeliveryLogs.id }).from(subscriptionDeliveryLogs).innerJoin(
+          subscriptions,
+          eq3(subscriptionDeliveryLogs.subscriptionId, subscriptions.id)
+        ).innerJoin(chefs, eq3(subscriptions.chefId, chefs.id)).where(
+          and3(
+            eq3(subscriptionDeliveryLogs.status, "scheduled"),
+            isNull2(subscriptionDeliveryLogs.chefOverrideId),
+            isNull2(subscriptionDeliveryLogs.skipReason),
+            sql4`(
+            (${chefs.subscriptionAvailabilityStatus} = 'unavailable_today' AND DATE(${subscriptionDeliveryLogs.date}) = CURRENT_DATE)
+            OR
+            (${chefs.subscriptionAvailabilityStatus} = 'on_leave'
+             AND ${chefs.leaveStartDate} IS NOT NULL
+             AND ${chefs.leaveEndDate} IS NOT NULL
+             AND ${subscriptionDeliveryLogs.date}::date >= ${chefs.leaveStartDate}::date
+             AND ${subscriptionDeliveryLogs.date}::date <= ${chefs.leaveEndDate}::date)
+          )`
+          )
+        );
+        return rows.length;
+      }
+      // ─── 7. notifyAdmins ────────────────────────────────────────────────────────
+      // Optional future integration — not called by any mandatory code path
+      /**
+       * Sends fire-and-forget WhatsApp notifications to all admin users with a phone number.
+       * Failures are logged as warnings and never propagated.
+       * This method is NOT called from any mandatory code path — it is preserved for
+       * optional future integration only.
+       */
+      async notifyAdmins(message) {
+        try {
+          const adminsWithPhone = await db.select({ phone: adminUsers.phone }).from(adminUsers).where(isNotNull(adminUsers.phone));
+          if (adminsWithPhone.length === 0) {
+            console.warn("[UNAVAILABILITY] No admin users have a phone number configured for WhatsApp notifications");
+            return;
+          }
+          for (const admin of adminsWithPhone) {
+            if (admin.phone) {
+              sendWhatsAppMessage(admin.phone, message).catch((err) => {
+                console.warn("[UNAVAILABILITY] WhatsApp notification failed", err);
+              });
+            }
+          }
+        } catch (err) {
+          console.warn("[UNAVAILABILITY] Failed to query admins for notification", err);
+        }
+      }
+      // ─── 8. reassignDelivery ────────────────────────────────────────────────────
+      /**
+       * Admin: reassign a scheduled delivery to a replacement chef.
+       * Sets chefOverrideId on the delivery log — does NOT touch subscriptions.chefId.
+       * Throws 404 if not found, 409 if already actioned.
+       */
+      async reassignDelivery(deliveryLogId, replacementChefId) {
+        const deliveryLog = await db.query.subscriptionDeliveryLogs.findFirst({
+          where: eq3(subscriptionDeliveryLogs.id, deliveryLogId)
+        });
+        if (!deliveryLog) {
+          throw { status: 404, message: "Delivery log not found" };
+        }
+        if (deliveryLog.chefOverrideId !== null || deliveryLog.skipReason !== null) {
+          throw { status: 409, message: "Delivery already actioned" };
+        }
+        await db.update(subscriptionDeliveryLogs).set({
+          chefOverrideId: replacementChefId,
+          updatedAt: /* @__PURE__ */ new Date()
+        }).where(eq3(subscriptionDeliveryLogs.id, deliveryLogId));
+      }
+      // ─── 9. platformSkipDelivery ────────────────────────────────────────────────
+      /**
+       * Admin: platform-skip a delivery due to chef unavailability.
+       * Wrapped in a db.transaction():
+       * - Sets delivery log: status='skipped', skipReason='platform_chef_unavailable'
+       * - Extends subscription.endDate by 1 calendar day
+       * - Appends entry to subscription.deliveryHistory
+       * - Does NOT change remainingDeliveries
+       * Throws 404 if not found, 409 if already actioned.
+       */
+      async platformSkipDelivery(deliveryLogId) {
+        const deliveryLog = await db.query.subscriptionDeliveryLogs.findFirst({
+          where: eq3(subscriptionDeliveryLogs.id, deliveryLogId)
+        });
+        if (!deliveryLog) {
+          throw { status: 404, message: "Delivery log not found" };
+        }
+        if (deliveryLog.chefOverrideId !== null || deliveryLog.skipReason !== null) {
+          throw { status: 409, message: "Delivery already actioned" };
+        }
+        const subscription = await db.query.subscriptions.findFirst({
+          where: eq3(subscriptions.id, deliveryLog.subscriptionId)
+        });
+        if (!subscription) {
+          throw { status: 404, message: "Delivery log not found" };
+        }
+        let newEndDate;
+        await db.transaction(async (tx) => {
+          const now = /* @__PURE__ */ new Date();
+          await tx.update(subscriptionDeliveryLogs).set({
+            status: "skipped",
+            skipReason: "platform_chef_unavailable",
+            updatedAt: now
+          }).where(eq3(subscriptionDeliveryLogs.id, deliveryLogId));
+          const currentEndDate = subscription.endDate ? new Date(subscription.endDate) : /* @__PURE__ */ new Date();
+          newEndDate = new Date(currentEndDate.getTime() + 24 * 60 * 60 * 1e3);
+          const currentHistory = Array.isArray(subscription.deliveryHistory) ? subscription.deliveryHistory : [];
+          const updatedHistory = [
+            ...currentHistory,
+            {
+              date: deliveryLog.date,
+              status: "skipped",
+              reason: "platform_chef_unavailable"
+            }
+          ];
+          await tx.update(subscriptions).set({
+            endDate: newEndDate,
+            deliveryHistory: updatedHistory,
+            updatedAt: now
+          }).where(eq3(subscriptions.id, deliveryLog.subscriptionId));
+        });
+        const customerPhone = subscription.phone;
+        if (customerPhone) {
+          const deliveryDateStr = deliveryLog.date.toISOString().split("T")[0];
+          const newEndDateStr = newEndDate.toISOString().split("T")[0];
+          const message = `\u26A0\uFE0F Delivery Update \u2014 RotiHai
+We're sorry! Your scheduled delivery on ${deliveryDateStr} has been skipped due to chef unavailability.
+Your subscription has been extended by 1 day. New end date: ${newEndDateStr}.
+Subscription ID: ${subscription.id}
+We apologise for the inconvenience. \u2014RotiHai Team`;
+          sendWhatsAppMessage(customerPhone, message).catch((err) => {
+            console.warn("[UNAVAILABILITY] Customer WhatsApp notification failed", err);
+          });
+        } else {
+          console.warn(
+            `[UNAVAILABILITY] Subscription ${subscription.id} has no phone number \u2014 cannot send customer skip notification`
+          );
+        }
+        return { newEndDate };
+      }
+      // ─── 10. getAvailableChefs ──────────────────────────────────────────────────
+      /**
+       * Returns available replacement chefs for the reassign modal.
+       * Filters: subscriptionAvailabilityStatus = 'available' AND isActive = true.
+       * Optionally excludes the current chef (excludeChefId).
+       */
+      async getAvailableChefs(excludeChefId) {
+        const conditions = [
+          eq3(chefs.subscriptionAvailabilityStatus, "available"),
+          eq3(chefs.isActive, true)
+        ];
+        if (excludeChefId) {
+          conditions.push(ne(chefs.id, excludeChefId));
+        }
+        const rows = await db.select({
+          id: chefs.id,
+          name: chefs.name,
+          phone: chefs.phone,
+          isActive: chefs.isActive,
+          subscriptionAvailabilityStatus: chefs.subscriptionAvailabilityStatus
+        }).from(chefs).where(and3(...conditions));
+        return rows.map((row) => ({
+          id: row.id,
+          name: row.name,
+          phone: row.phone ?? null,
+          isActive: row.isActive,
+          subscriptionAvailabilityStatus: row.subscriptionAvailabilityStatus
+        }));
+      }
+    };
+    chefUnavailabilityService = new ChefUnavailabilityService();
+  }
+});
+
 // server/reports.ts
 var reports_exports = {};
 __export(reports_exports, {
@@ -7817,7 +8235,7 @@ var init_reports = __esm({
       });
       return {
         ...metrics,
-        revenueByDay: Array.from(revenueByDay.entries()).map(([date, data]) => ({ date, ...data })).sort((a, b) => a.date.localeCompare(b.date))
+        revenueByDay: Array.from(revenueByDay.entries()).map(([date2, data]) => ({ date: date2, ...data })).sort((a, b) => a.date.localeCompare(b.date))
       };
     };
     generateCompletedOrdersReport = (orders3, range) => {
@@ -7917,15 +8335,16 @@ var init_reports = __esm({
 // server/adminRoutes.ts
 import jwt5 from "jsonwebtoken";
 import { fromZodError } from "zod-validation-error";
-import { eq as eq3 } from "drizzle-orm";
+import { eq as eq4 } from "drizzle-orm";
+import { z as z2 } from "zod";
 function registerAdminRoutes(app2) {
-  function isDeliveryDay3(date, frequency, deliveryDays) {
+  function isDeliveryDay3(date2, frequency, deliveryDays) {
     if (!deliveryDays || deliveryDays.length === 0) return false;
     if (frequency === "monthly") {
-      const dayOfMonth = date.getDate().toString();
+      const dayOfMonth = date2.getDate().toString();
       return deliveryDays.includes(dayOfMonth);
     } else if (frequency === "weekly" || frequency === "daily") {
-      const dayName = date.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
+      const dayName = date2.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
       return deliveryDays.includes(dayName);
     }
     return false;
@@ -8522,7 +8941,7 @@ function registerAdminRoutes(app2) {
           }
           console.log(`\u2705 New user created on admin payment confirmation: ${user.id} - Phone: ${order.phone}`);
           userCreated = true;
-          await db.update(orders2).set({ userId: user.id }).where(eq3(orders2.id, orderId));
+          await db.update(orders2).set({ userId: user.id }).where(eq4(orders2.id, orderId));
           order.userId = user.id;
           accessToken = generateAccessToken2(user);
           refreshToken = generateRefreshToken2(user);
@@ -8539,7 +8958,7 @@ function registerAdminRoutes(app2) {
           }
         } else {
           console.log(`\u{1F464} User already exists with phone ${order.phone}, linking to order`);
-          await db.update(orders2).set({ userId: user.id }).where(eq3(orders2.id, orderId));
+          await db.update(orders2).set({ userId: user.id }).where(eq4(orders2.id, orderId));
           order.userId = user.id;
           accessToken = generateAccessToken2(user);
           refreshToken = generateRefreshToken2(user);
@@ -9739,7 +10158,7 @@ Please prepare this order.`;
       const { id } = req.params;
       console.log("Admin verifying subscription payment:", id);
       const subscription = await db.query.subscriptions.findFirst({
-        where: eq3(subscriptions.id, id)
+        where: eq4(subscriptions.id, id)
       });
       if (!subscription) {
         console.error("Subscription not found for verification:", id);
@@ -9770,7 +10189,7 @@ Please prepare this order.`;
         chefId,
         chefAssignedAt,
         updatedAt: /* @__PURE__ */ new Date()
-      }).where(eq3(subscriptions.id, id));
+      }).where(eq4(subscriptions.id, id));
       console.log("Subscription payment verified successfully:", id);
       res.json({
         message: "Payment verified and subscription activated"
@@ -10337,10 +10756,10 @@ Please prepare this order.`;
         res.status(404).json({ message: "Subscription not found" });
         return;
       }
-      const { date, status, notes, deliveryPersonId, deliveryTime } = req.body;
+      const { date: date2, status, notes, deliveryPersonId, deliveryTime } = req.body;
       const log3 = await storage.createSubscriptionDeliveryLog({
         subscriptionId: req.params.id,
-        date: new Date(date),
+        date: new Date(date2),
         status: status || "scheduled",
         notes: notes || null,
         deliveryPersonId: deliveryPersonId || null,
@@ -11127,24 +11546,6 @@ Please prepare this order.`;
   });
   app2.get("/api/admin/reports/chefs", requireAdmin(), async (req, res) => {
     try {
-      const { from, to } = req.query;
-      const { getPeriodRange: getPeriodRange2 } = await Promise.resolve().then(() => (init_analytics(), analytics_exports));
-      const { generateChefReport: generateChefReport2 } = await Promise.resolve().then(() => (init_reports(), reports_exports));
-      const range = {
-        start: from ? new Date(from) : getPeriodRange2("month").start,
-        end: to ? new Date(to) : /* @__PURE__ */ new Date()
-      };
-      const orders3 = await storage.getAllOrders();
-      const chefs3 = await storage.getChefs();
-      const report = generateChefReport2(orders3, chefs3, range);
-      res.json(report);
-    } catch (error) {
-      console.error("Get chef report error:", error);
-      res.status(500).json({ message: "Failed to fetch chef report" });
-    }
-  });
-  app2.get("/api/admin/reports/chefs", requireAdmin(), async (req, res) => {
-    try {
       const { from, to, chefId } = req.query;
       const report = await storage.getChefReport(
         from ? new Date(from) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1e3),
@@ -11480,7 +11881,7 @@ Please prepare this order.`;
       }).returning();
       console.log("[ADMIN WALLET SETTINGS] Successfully saved to walletSettings:", newWalletSettings);
       const existingRewards = await db.query.referralRewards.findFirst({
-        where: (rr, { eq: eq10 }) => eq10(rr.isActive, true)
+        where: (rr, { eq: eq11 }) => eq11(rr.isActive, true)
       });
       if (existingRewards) {
         console.log("[ADMIN WALLET SETTINGS] Updating existing referralRewards...");
@@ -11493,7 +11894,7 @@ Please prepare this order.`;
           expiryDays: expiryDays || 0,
           isActive,
           updatedAt: /* @__PURE__ */ new Date()
-        }).where(eq3(referralRewards2.id, existingRewards.id)).returning();
+        }).where(eq4(referralRewards2.id, existingRewards.id)).returning();
         console.log("[ADMIN WALLET SETTINGS] Successfully updated referralRewards:", updatedRewards);
         res.json({ ...newWalletSettings, ...updatedRewards });
       } else {
@@ -11612,9 +12013,9 @@ Please prepare this order.`;
   });
   app2.get("/api/admin/delivery-logs", requireAdmin(), async (req, res) => {
     try {
-      const { date, subscriptionId } = req.query;
-      if (date) {
-        const logs = await storage.getSubscriptionDeliveryLogsByDate(new Date(date));
+      const { date: date2, subscriptionId } = req.query;
+      if (date2) {
+        const logs = await storage.getSubscriptionDeliveryLogsByDate(new Date(date2));
         res.json(logs);
       } else if (subscriptionId) {
         const logs = await storage.getSubscriptionDeliveryLogs(subscriptionId);
@@ -11956,7 +12357,7 @@ Please prepare this order.`;
           enableRoadDistanceMultiplier: settings.enableRoadDistanceMultiplier === void 0 ? true : !!settings.enableRoadDistanceMultiplier,
           roadDistanceMultiplier: settings.roadDistanceMultiplier || "1.50",
           updatedAt: /* @__PURE__ */ new Date()
-        }).where(eq3(paymentSettings2.id, existing.id)).returning();
+        }).where(eq4(paymentSettings2.id, existing.id)).returning();
         result = updated[0];
         console.log("[PAYMENT-SETTINGS-WRITE] \u2705 UPDATE successful, result:", {
           id: result?.id,
@@ -12084,8 +12485,8 @@ Please prepare this order.`;
   });
   app2.get("/api/admin/wallet-transactions", requireAdmin(), async (req, res) => {
     try {
-      const { date } = req.query;
-      const transactions = await storage.getAllWalletTransactions(date);
+      const { date: date2 } = req.query;
+      const transactions = await storage.getAllWalletTransactions(date2);
       const enrichedTransactions = await Promise.all(
         transactions.map(async (tx) => {
           const user = await storage.getUser(tx.userId);
@@ -12381,8 +12782,8 @@ Please prepare this order.`;
       const thirtyDaysAgo = /* @__PURE__ */ new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
       const allLogs = await db.query.subscriptionDeliveryLogs.findMany({
-        where: (logs, { and: and6, eq: eq10, gte: gte3 }) => and6(
-          eq10(logs.deliveryPersonId, chefId),
+        where: (logs, { and: and7, eq: eq11, gte: gte3 }) => and7(
+          eq11(logs.deliveryPersonId, chefId),
           gte3(logs.date, thirtyDaysAgo)
         )
       });
@@ -12424,8 +12825,8 @@ Please prepare this order.`;
       const performanceData = await Promise.all(
         allChefs.map(async (chef) => {
           const logs = await db.query.subscriptionDeliveryLogs.findMany({
-            where: (l, { and: and6, eq: eq10, gte: gte3 }) => and6(
-              eq10(l.deliveryPersonId, chef.id),
+            where: (l, { and: and7, eq: eq11, gte: gte3 }) => and7(
+              eq11(l.deliveryPersonId, chef.id),
               gte3(l.date, thirtyDaysAgo)
             )
           });
@@ -12471,6 +12872,85 @@ Please prepare this order.`;
       });
     }
   });
+  app2.get("/api/admin/unavailability-actions", requireAdmin(), async (req, res) => {
+    try {
+      const actions = await chefUnavailabilityService.getPendingActions();
+      return res.status(200).json(actions);
+    } catch (error) {
+      if (error?.status === 404) return res.status(404).json({ message: error.message });
+      if (error?.status === 409) return res.status(409).json({ message: error.message });
+      if (error?.status === 400) return res.status(400).json({ message: error.message });
+      console.error("Error fetching unavailability actions:", error);
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  app2.get("/api/admin/unavailability-actions/count", requireAdmin(), async (req, res) => {
+    try {
+      const pendingCount = await chefUnavailabilityService.getPendingActionCount();
+      return res.status(200).json({ pendingCount });
+    } catch (error) {
+      if (error?.status === 404) return res.status(404).json({ message: error.message });
+      if (error?.status === 409) return res.status(409).json({ message: error.message });
+      if (error?.status === 400) return res.status(400).json({ message: error.message });
+      console.error("Error fetching unavailability action count:", error);
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  app2.post("/api/admin/delivery-actions/:deliveryLogId/reassign", requireAdmin(), async (req, res) => {
+    const bodySchema = z2.object({
+      replacementChefId: z2.string().min(1)
+    });
+    const validation = bodySchema.safeParse(req.body);
+    if (!validation.success) {
+      return res.status(400).json({ message: fromZodError(validation.error).toString() });
+    }
+    const { deliveryLogId } = req.params;
+    const { replacementChefId } = validation.data;
+    try {
+      await chefUnavailabilityService.reassignDelivery(deliveryLogId, replacementChefId);
+      return res.status(200).json({
+        message: "Delivery reassigned successfully",
+        deliveryLogId,
+        replacementChefId
+      });
+    } catch (error) {
+      if (error?.status === 404) return res.status(404).json({ message: error.message });
+      if (error?.status === 409) return res.status(409).json({ message: error.message });
+      if (error?.status === 400) return res.status(400).json({ message: error.message });
+      console.error("Error reassigning delivery:", error);
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  app2.post("/api/admin/delivery-actions/:deliveryLogId/skip", requireAdmin(), async (req, res) => {
+    const { deliveryLogId } = req.params;
+    try {
+      const { newEndDate } = await chefUnavailabilityService.platformSkipDelivery(deliveryLogId);
+      return res.status(200).json({
+        message: "Delivery platform-skipped. Subscription extended by 1 day.",
+        deliveryLogId,
+        newEndDate
+      });
+    } catch (error) {
+      if (error?.status === 404) return res.status(404).json({ message: error.message });
+      if (error?.status === 409) return res.status(409).json({ message: error.message });
+      if (error?.status === 400) return res.status(400).json({ message: error.message });
+      console.error("Error platform-skipping delivery:", error);
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  app2.get("/api/admin/available-chefs", requireAdmin(), async (req, res) => {
+    const excludeChefId = typeof req.query.excludeChefId === "string" ? req.query.excludeChefId : void 0;
+    try {
+      const chefs3 = await chefUnavailabilityService.getAvailableChefs(excludeChefId);
+      return res.status(200).json(chefs3);
+    } catch (error) {
+      if (error?.status === 404) return res.status(404).json({ message: error.message });
+      if (error?.status === 409) return res.status(409).json({ message: error.message });
+      if (error?.status === 400) return res.status(400).json({ message: error.message });
+      console.error("Error fetching available chefs:", error);
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
 }
 var init_adminRoutes = __esm({
   "server/adminRoutes.ts"() {
@@ -12487,19 +12967,21 @@ var init_adminRoutes = __esm({
     init_whatsappService();
     init_restaurantStatus();
     init_cache();
+    init_chefUnavailabilityService();
   }
 });
 
 // server/partnerRoutes.ts
-import { eq as eq4 } from "drizzle-orm";
+import { eq as eq5 } from "drizzle-orm";
+import { z as z3 } from "zod";
 function registerPartnerRoutes(app2) {
-  function isDeliveryDay3(date, frequency, deliveryDays) {
+  function isDeliveryDay3(date2, frequency, deliveryDays) {
     if (!deliveryDays || deliveryDays.length === 0) return false;
     if (frequency === "monthly") {
-      const dayOfMonth = date.getDate().toString();
+      const dayOfMonth = date2.getDate().toString();
       return deliveryDays.includes(dayOfMonth);
     } else if (frequency === "weekly" || frequency === "daily") {
-      const dayName = date.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
+      const dayName = date2.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
       return deliveryDays.includes(dayName);
     }
     return false;
@@ -12640,7 +13122,7 @@ function registerPartnerRoutes(app2) {
         status: "accepted_by_chef",
         approvedBy: partnerId,
         approvedAt: /* @__PURE__ */ new Date()
-      }).where(eq4(orders2.id, orderId)).returning();
+      }).where(eq5(orders2.id, orderId)).returning();
       if (updatedOrder) {
         console.log(`\u2705 Chef accepted order ${orderId}, status: ${updatedOrder.status} (auto-preparing)`);
         broadcastOrderUpdate(updatedOrder);
@@ -13169,10 +13651,10 @@ function registerPartnerRoutes(app2) {
       const chefId = req.partner?.chefId;
       if (!chefId) return res.status(401).json({ message: "Unauthorized" });
       const pending = await db.query.pendingBroadcasts.findMany({
-        where: (pb, { eq: eq10, and: and6 }) => and6(
-          eq10(pb.recipientId, String(chefId)),
-          eq10(pb.recipientType, "chef"),
-          eq10(pb.isDelivered, false)
+        where: (pb, { eq: eq11, and: and7 }) => and7(
+          eq11(pb.recipientId, String(chefId)),
+          eq11(pb.recipientType, "chef"),
+          eq11(pb.isDelivered, false)
         ),
         orderBy: (pb, { asc: asc2 }) => [asc2(pb.createdAt)]
       });
@@ -13190,19 +13672,94 @@ function registerPartnerRoutes(app2) {
       if (!Array.isArray(ids) || ids.length === 0) {
         return res.json({ success: true });
       }
-      const { eq: eq10, inArray: inArray2, and: and6 } = await import("drizzle-orm");
+      const { eq: eq11, inArray: inArray3, and: and7 } = await import("drizzle-orm");
       const { pendingBroadcasts: pendingBroadcasts3 } = await Promise.resolve().then(() => (init_db(), db_exports));
       await db.update(pendingBroadcasts3).set({ isDelivered: true }).where(
-        and6(
-          eq10(pendingBroadcasts3.recipientId, String(chefId)),
-          eq10(pendingBroadcasts3.recipientType, "chef"),
-          inArray2(pendingBroadcasts3.id, ids)
+        and7(
+          eq11(pendingBroadcasts3.recipientId, String(chefId)),
+          eq11(pendingBroadcasts3.recipientType, "chef"),
+          inArray3(pendingBroadcasts3.id, ids)
         )
       );
       res.json({ success: true });
     } catch (error) {
       console.error("Error marking broadcasts delivered:", error);
       res.status(500).json({ message: "Failed to mark delivered" });
+    }
+  });
+  app2.get("/api/partner/chef/availability", requirePartner(), async (req, res) => {
+    try {
+      const chefId = req.partner?.chefId;
+      if (!chefId) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      const chef = await db.query.chefs.findFirst({ where: eq5(chefs.id, chefId) });
+      if (!chef) {
+        return res.status(404).json({ message: "Chef not found" });
+      }
+      return res.json({
+        subscriptionAvailabilityStatus: chef.subscriptionAvailabilityStatus,
+        leaveStartDate: chef.leaveStartDate ?? null,
+        leaveEndDate: chef.leaveEndDate ?? null
+      });
+    } catch (error) {
+      console.error("Error fetching chef availability:", error);
+      return res.status(500).json({ message: "Failed to fetch availability" });
+    }
+  });
+  const availabilitySchema = z3.object({
+    subscriptionAvailabilityStatus: z3.enum(["available", "unavailable_today", "on_leave"]),
+    leaveStartDate: z3.string().optional(),
+    leaveEndDate: z3.string().optional()
+  });
+  app2.patch("/api/partner/chef/availability", requirePartner(), async (req, res) => {
+    try {
+      const chefId = req.partner?.chefId;
+      if (!chefId) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      const parseResult = availabilitySchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({ message: "Invalid request body", errors: parseResult.error.errors });
+      }
+      const { subscriptionAvailabilityStatus, leaveStartDate, leaveEndDate } = parseResult.data;
+      if (subscriptionAvailabilityStatus === "available") {
+        await chefUnavailabilityService.markAvailable(chefId);
+        return res.json({
+          subscriptionAvailabilityStatus: "available",
+          message: "Marked as available"
+        });
+      }
+      if (subscriptionAvailabilityStatus === "unavailable_today") {
+        const { affectedCount: affectedCount2 } = await chefUnavailabilityService.markUnavailableToday(chefId);
+        return res.json({
+          subscriptionAvailabilityStatus: "unavailable_today",
+          affectedCount: affectedCount2,
+          message: `Marked as unavailable today. ${affectedCount2} scheduled ${affectedCount2 === 1 ? "delivery" : "deliveries"} affected.`
+        });
+      }
+      if (!leaveStartDate || !leaveEndDate) {
+        return res.status(400).json({ message: "leaveStartDate and leaveEndDate are required for on_leave status" });
+      }
+      const startDate = new Date(leaveStartDate);
+      const endDate = new Date(leaveEndDate);
+      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+        return res.status(400).json({ message: "leaveStartDate and leaveEndDate must be valid ISO date strings" });
+      }
+      const { affectedCount } = await chefUnavailabilityService.setOnLeave(chefId, startDate, endDate);
+      return res.json({
+        subscriptionAvailabilityStatus: "on_leave",
+        leaveStartDate,
+        leaveEndDate,
+        affectedCount,
+        message: `Set on leave from ${leaveStartDate} to ${leaveEndDate}. ${affectedCount} scheduled ${affectedCount === 1 ? "delivery" : "deliveries"} affected today.`
+      });
+    } catch (error) {
+      if (error && typeof error.status === "number") {
+        return res.status(error.status).json({ message: error.message });
+      }
+      console.error("Error updating chef availability:", error);
+      return res.status(500).json({ message: "Failed to update availability" });
     }
   });
 }
@@ -13216,19 +13773,21 @@ var init_partnerRoutes = __esm({
     init_db();
     init_restaurantStatus();
     init_cache();
+    init_schema();
+    init_chefUnavailabilityService();
   }
 });
 
 // server/deliveryRoutes.ts
-import { eq as eq5, and as and3, sql as sql4 } from "drizzle-orm";
+import { eq as eq6, and as and4, sql as sql5 } from "drizzle-orm";
 function registerDeliveryRoutes(app2) {
-  function isDeliveryDay3(date, frequency, deliveryDays) {
+  function isDeliveryDay3(date2, frequency, deliveryDays) {
     if (!deliveryDays || deliveryDays.length === 0) return false;
     if (frequency === "monthly") {
-      const dayOfMonth = date.getDate().toString();
+      const dayOfMonth = date2.getDate().toString();
       return deliveryDays.includes(dayOfMonth);
     } else if (frequency === "weekly" || frequency === "daily") {
-      const dayName = date.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
+      const dayName = date2.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
       return deliveryDays.includes(dayName);
     }
     return false;
@@ -13502,7 +14061,7 @@ function registerDeliveryRoutes(app2) {
         await db.update(orders2).set({
           deliveryPersonName: deliveryPerson.name,
           deliveryPersonPhone: deliveryPerson.phone
-        }).where(eq5(orders2.id, orderId));
+        }).where(eq6(orders2.id, orderId));
       }
       const updatedOrder = await storage.updateOrderStatus(orderId, "accepted_by_delivery");
       if (updatedOrder) {
@@ -13547,8 +14106,8 @@ function registerDeliveryRoutes(app2) {
           assignedAt: null,
           deliveryPersonName: null,
           deliveryPersonPhone: null
-        }).where(eq5(orders2.id, orderId)).returning();
-        await tx.update(deliveryPersonnel2).set({ status: "available" }).where(eq5(deliveryPersonnel2.id, deliveryPersonId));
+        }).where(eq6(orders2.id, orderId)).returning();
+        await tx.update(deliveryPersonnel2).set({ status: "available" }).where(eq6(deliveryPersonnel2.id, deliveryPersonId));
         return updatedOrder;
       });
       if (!result) {
@@ -13942,19 +14501,19 @@ function registerDeliveryRoutes(app2) {
       const limit = Math.min(100, parseInt(req.query.limit) || 50);
       const offset = (page - 1) * limit;
       const pending = await db.query.pendingBroadcasts.findMany({
-        where: (pb, { eq: eq10, and: and6 }) => and6(
-          eq10(pb.recipientId, String(deliveryPersonId)),
-          eq10(pb.recipientType, "delivery"),
-          eq10(pb.isDelivered, false)
+        where: (pb, { eq: eq11, and: and7 }) => and7(
+          eq11(pb.recipientId, String(deliveryPersonId)),
+          eq11(pb.recipientType, "delivery"),
+          eq11(pb.isDelivered, false)
         ),
         orderBy: (pb, { asc: asc2 }) => [asc2(pb.createdAt)],
         limit,
         offset
       });
-      const countResult = await db.select({ count: sql4`count(*)::int` }).from(pendingBroadcasts2).where(and3(
-        eq5(pendingBroadcasts2.recipientId, String(deliveryPersonId)),
-        eq5(pendingBroadcasts2.recipientType, "delivery"),
-        eq5(pendingBroadcasts2.isDelivered, false)
+      const countResult = await db.select({ count: sql5`count(*)::int` }).from(pendingBroadcasts2).where(and4(
+        eq6(pendingBroadcasts2.recipientId, String(deliveryPersonId)),
+        eq6(pendingBroadcasts2.recipientType, "delivery"),
+        eq6(pendingBroadcasts2.isDelivered, false)
       ));
       const total = countResult[0]?.count || 0;
       const totalPages = Math.ceil(total / limit);
@@ -13981,13 +14540,13 @@ function registerDeliveryRoutes(app2) {
       if (!Array.isArray(ids) || ids.length === 0) {
         return res.json({ success: true });
       }
-      const { eq: eq10, inArray: inArray2, and: and6 } = await import("drizzle-orm");
+      const { eq: eq11, inArray: inArray3, and: and7 } = await import("drizzle-orm");
       const { pendingBroadcasts: pendingBroadcasts3 } = await Promise.resolve().then(() => (init_db(), db_exports));
       await db.update(pendingBroadcasts3).set({ isDelivered: true }).where(
-        and6(
-          eq10(pendingBroadcasts3.recipientId, String(deliveryPersonId)),
-          eq10(pendingBroadcasts3.recipientType, "delivery"),
-          inArray2(pendingBroadcasts3.id, ids)
+        and7(
+          eq11(pendingBroadcasts3.recipientId, String(deliveryPersonId)),
+          eq11(pendingBroadcasts3.recipientType, "delivery"),
+          inArray3(pendingBroadcasts3.id, ids)
         )
       );
       res.json({ success: true });
@@ -14011,7 +14570,7 @@ var init_deliveryRoutes = __esm({
 });
 
 // server/services/gpayVerificationService.ts
-import { eq as eq6, desc as desc2 } from "drizzle-orm";
+import { eq as eq7, desc as desc2 } from "drizzle-orm";
 var GPayVerificationService, gpayVerificationService;
 var init_gpayVerificationService = __esm({
   "server/services/gpayVerificationService.ts"() {
@@ -14032,7 +14591,7 @@ var init_gpayVerificationService = __esm({
         try {
           console.log(`[GPAY-VERIFY] Starting verification for Order#${orderId}, Phone: ${expectedPhone}, Amount: \u20B9${expectedAmount}`);
           const order = await db.query.orders.findFirst({
-            where: eq6(orders.id, orderId)
+            where: eq7(orders.id, orderId)
           });
           if (!order) {
             console.warn(`[GPAY-VERIFY] \u274C Order not found: ${orderId}`);
@@ -14275,7 +14834,7 @@ var init_gpayVerificationService = __esm({
       async getLastVerificationLog(orderId) {
         try {
           const log3 = await db.query.paymentVerificationLog.findFirst({
-            where: eq6(paymentVerificationLog.orderId, orderId),
+            where: eq7(paymentVerificationLog.orderId, orderId),
             orderBy: desc2(paymentVerificationLog.checkedAt)
           });
           return log3;
@@ -14291,7 +14850,7 @@ var init_gpayVerificationService = __esm({
 
 // server/routes/gpay-verification.ts
 import { Router } from "express";
-import { eq as eq7 } from "drizzle-orm";
+import { eq as eq8 } from "drizzle-orm";
 var router, gpay_verification_default;
 var init_gpay_verification = __esm({
   "server/routes/gpay-verification.ts"() {
@@ -14320,7 +14879,7 @@ var init_gpay_verification = __esm({
             paymentStatus: "confirmed",
             paymentVerifiedBy: "manual-check",
             gpayTransactionId: result.transactionId
-          }).where(eq7(orders.id, orderId));
+          }).where(eq8(orders.id, orderId));
           console.log(`\u2705 [GPAY-API] Order#${orderId} manually verified`);
           return res.json({
             success: true,
@@ -14347,7 +14906,7 @@ var init_gpay_verification = __esm({
       try {
         const { orderId } = req.params;
         const order = await db.query.orders.findFirst({
-          where: eq7(orders.id, orderId)
+          where: eq8(orders.id, orderId)
         });
         if (!order) {
           return res.status(404).json({
@@ -14442,7 +15001,7 @@ var init_gpay_verification = __esm({
       try {
         const { orderId } = req.params;
         const order = await db.query.orders.findFirst({
-          where: eq7(orders.id, orderId)
+          where: eq8(orders.id, orderId)
         });
         if (!order) {
           return res.status(404).json({
@@ -14466,7 +15025,7 @@ var init_gpay_verification = __esm({
             paymentStatus: "confirmed",
             paymentVerifiedBy: "manual-retry",
             gpayTransactionId: result.transactionId
-          }).where(eq7(orders.id, orderId));
+          }).where(eq8(orders.id, orderId));
           return res.json({
             success: true,
             message: "Payment verified on retry",
@@ -14475,7 +15034,7 @@ var init_gpay_verification = __esm({
         }
         await db.update(orders).set({
           verificationAttempts: (order.verificationAttempts || 0) + 1
-        }).where(eq7(orders.id, orderId));
+        }).where(eq8(orders.id, orderId));
         return res.status(400).json({
           success: false,
           message: `Verification failed: ${result.reason}`,
@@ -14501,7 +15060,7 @@ __export(routes_exports, {
   registerRoutes: () => registerRoutes
 });
 import { createServer } from "http";
-import { eq as eq8 } from "drizzle-orm";
+import { eq as eq9 } from "drizzle-orm";
 import axios2 from "axios";
 function shouldSendPaymentInitiatedAdminNotification(id) {
   const now = Date.now();
@@ -14567,14 +15126,14 @@ function checkRateLimitReferralValidation(ip) {
   }
   return false;
 }
-function isDeliveryDay(date, frequency, deliveryDays) {
+function isDeliveryDay(date2, frequency, deliveryDays) {
   if (!deliveryDays || deliveryDays.length === 0) return false;
   const hasWeekdayNames = isWeekdayNameFormat(deliveryDays);
   if (hasWeekdayNames) {
-    const dayName = date.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
+    const dayName = date2.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
     return deliveryDays.includes(dayName);
   } else {
-    const dayOfMonth = date.getDate().toString();
+    const dayOfMonth = date2.getDate().toString();
     return deliveryDays.includes(dayOfMonth);
   }
 }
@@ -15296,13 +15855,13 @@ async function registerRoutes(app2) {
       }
       const db2 = (await Promise.resolve().then(() => (init_db(), db_exports))).db;
       const userOrders = await db2.query.orders.findMany({
-        where: (o, { eq: eq10 }) => eq10(o.userId, user.id)
+        where: (o, { eq: eq11 }) => eq11(o.userId, user.id)
       });
       const deliveredOrders = userOrders.filter((order) => order.status === "delivered");
       const hasCompletedFirstOrder = deliveredOrders.length > 0;
       let pendingBonus = null;
       const referral = await db2.query.referrals.findFirst({
-        where: (r, { eq: eq10 }) => eq10(r.referredId, user.id)
+        where: (r, { eq: eq11 }) => eq11(r.referredId, user.id)
       });
       if (referral && referral.status === "pending" && hasCompletedFirstOrder) {
         const settings = await storage.getActiveReferralReward();
@@ -15316,9 +15875,9 @@ async function registerRoutes(app2) {
       let earnedReferralBonuses = 0;
       const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1e3);
       const recentBonusTransactions = await db2.query.walletTransactions.findMany({
-        where: (wt, { eq: eq10, and: andOp, gte: gte3 }) => andOp(
-          eq10(wt.userId, user.id),
-          eq10(wt.type, "referral_bonus"),
+        where: (wt, { eq: eq11, and: andOp, gte: gte3 }) => andOp(
+          eq11(wt.userId, user.id),
+          eq11(wt.type, "referral_bonus"),
           gte3(wt.createdAt, twentyFourHoursAgo)
         )
       });
@@ -15466,7 +16025,7 @@ async function registerRoutes(app2) {
         return res.status(400).json({ valid: false, message: "Invalid referral code" });
       }
       const firstReferrerOrder = await db.query.orders.findFirst({
-        where: (o, { and: and6, eq: eqOp }) => and6(
+        where: (o, { and: and7, eq: eqOp }) => and7(
           eqOp(o.userId, referrer.id),
           eqOp(o.status, "delivered")
         )
@@ -15658,12 +16217,12 @@ async function registerRoutes(app2) {
       const subscription = await storage.getSubscription(subscriptionId);
       if (!subscription) return res.status(404).json({ message: "Subscription not found" });
       if (subscription.userId !== userId) return res.status(403).json({ message: "Unauthorized" });
-      const date = new Date(deliveryDate);
-      if (isNaN(date.getTime())) return res.status(400).json({ message: "Invalid date format" });
-      date.setHours(0, 0, 0, 0);
-      console.log(`[SKIP] User ${userId} skipping delivery for ${subscriptionId} on ${date.toDateString()}`);
+      const date2 = new Date(deliveryDate);
+      if (isNaN(date2.getTime())) return res.status(400).json({ message: "Invalid date format" });
+      date2.setHours(0, 0, 0, 0);
+      console.log(`[SKIP] User ${userId} skipping delivery for ${subscriptionId} on ${date2.toDateString()}`);
       const skipNote = reason ? `Skipped: ${reason}` : "Skipped";
-      const existingLogs = await storage.getSubscriptionDeliveryLogsByDate(date);
+      const existingLogs = await storage.getSubscriptionDeliveryLogsByDate(date2);
       let log3 = existingLogs.find((l) => l.subscriptionId === subscriptionId);
       if (log3) {
         log3 = await storage.updateSubscriptionDeliveryLog(log3.id, {
@@ -15674,7 +16233,7 @@ async function registerRoutes(app2) {
       } else {
         log3 = await storage.createSubscriptionDeliveryLog({
           subscriptionId,
-          date,
+          date: date2,
           time: subscription.nextDeliveryTime || DEFAULT_DELIVERY_TIME,
           status: "skipped",
           notes: skipNote,
@@ -15905,7 +16464,7 @@ async function registerRoutes(app2) {
       let chef = null;
       if (sanitized.chefId) {
         chef = await db.query.chefs.findFirst({
-          where: (c, { eq: eq10 }) => eq10(c.id, sanitized.chefId)
+          where: (c, { eq: eq11 }) => eq11(c.id, sanitized.chefId)
         });
         if (chef) {
           chefLat = chef.latitude ?? 19.0728;
@@ -16315,11 +16874,11 @@ async function registerRoutes(app2) {
             console.log(`\u{1F50D} [REFERRAL-COMPLETION] Looking for pending referral for userId: ${userId}`);
             const { db: database } = await Promise.resolve().then(() => (init_db(), db_exports));
             const { referrals: referralsTable } = await Promise.resolve().then(() => (init_db(), db_exports));
-            const { eq: eq10, and: and6 } = await import("drizzle-orm");
+            const { eq: eq11, and: and7 } = await import("drizzle-orm");
             const pendingReferral = await database.query.referrals.findFirst({
-              where: (r, { eq: eq11, and: and7 }) => and7(
-                eq11(r.referredId, userId),
-                eq11(r.status, "pending")
+              where: (r, { eq: eq12, and: and8 }) => and8(
+                eq12(r.referredId, userId),
+                eq12(r.status, "pending")
               )
             });
             console.log(`\u{1F4CA} [REFERRAL-COMPLETION] Pending referral lookup:`, {
@@ -16331,13 +16890,13 @@ async function registerRoutes(app2) {
               console.log(`\u2705 [REFERRAL-COMPLETION] Found pending referral, completing...`);
               await database.transaction(async (tx) => {
                 const referredUser = await tx.query.users.findFirst({
-                  where: (u, { eq: eq11 }) => eq11(u.id, userId)
+                  where: (u, { eq: eq12 }) => eq12(u.id, userId)
                 });
                 await tx.update(referralsTable).set({
                   status: "completed",
                   referredOrderCompleted: true,
                   completedAt: /* @__PURE__ */ new Date()
-                }).where(eq10(referralsTable.id, pendingReferral.id));
+                }).where(eq11(referralsTable.id, pendingReferral.id));
                 await storage.createWalletTransaction({
                   userId: pendingReferral.referrerId,
                   amount: pendingReferral.referrerBonus,
@@ -16656,7 +17215,7 @@ ${"=".repeat(80)}`);
           } else if (order.email) {
             console.log(`\u{1F4E7} Subscription email disabled. Order confirmation skipped for ${order.email}`);
           }
-          await db.update(orders2).set({ userId: user.id }).where(eq8(orders2.id, id));
+          await db.update(orders2).set({ userId: user.id }).where(eq9(orders2.id, id));
           order.userId = user.id;
           accessToken = generateAccessToken2(user);
           refreshToken = generateRefreshToken2(user);
@@ -16667,10 +17226,10 @@ ${"=".repeat(80)}`);
             hasReferralCode: !!order.referralCode,
             referralCode: order.referralCode || "NULL"
           });
-          const userOrderCount = await db.select().from(orders2).where(eq8(orders2.userId, user.id)).then((rows) => rows.length);
+          const userOrderCount = await db.select().from(orders2).where(eq9(orders2.userId, user.id)).then((rows) => rows.length);
           const isFirstLoginAfterAdminCreation = userOrderCount === 0 && user.createdAt && Date.now() - new Date(user.createdAt).getTime() < 36e5;
           console.log(`[DROPDOWN USER] User order count: ${userOrderCount}, isFirstLogin: ${isFirstLoginAfterAdminCreation}`);
-          await db.update(orders2).set({ userId: user.id }).where(eq8(orders2.id, id));
+          await db.update(orders2).set({ userId: user.id }).where(eq9(orders2.id, id));
           order.userId = user.id;
           accessToken = generateAccessToken2(user);
           refreshToken = generateRefreshToken2(user);
@@ -16922,7 +17481,7 @@ Please accept and start preparation.`;
         });
       }
       const txResult = await db.transaction(async (tx) => {
-        const [existing] = await tx.select().from(orders2).where(eq8(orders2.id, id)).limit(1);
+        const [existing] = await tx.select().from(orders2).where(eq9(orders2.id, id)).limit(1);
         if (!existing) return null;
         const prevAssignedTo2 = existing.assignedTo;
         const [updatedOrder2] = await tx.update(orders2).set({
@@ -16931,9 +17490,9 @@ Please accept and start preparation.`;
           assignedAt: null,
           deliveryPersonName: null,
           deliveryPersonPhone: null
-        }).where(eq8(orders2.id, id)).returning();
+        }).where(eq9(orders2.id, id)).returning();
         if (prevAssignedTo2) {
-          await tx.update(deliveryPersonnel2).set({ status: "available" }).where(eq8(deliveryPersonnel2.id, prevAssignedTo2));
+          await tx.update(deliveryPersonnel2).set({ status: "available" }).where(eq9(deliveryPersonnel2.id, prevAssignedTo2));
         }
         return { updatedOrder: updatedOrder2, prevAssignedTo: prevAssignedTo2 };
       });
@@ -17057,7 +17616,7 @@ Please accept and start preparation.`;
     try {
       const { id } = req.params;
       console.log(`[PENDING-CHECKOUT] Cancelling checkout: ${id}`);
-      const updatedOrders = await db.update(orders2).set({ status: "cancelled" }).where(eq8(orders2.pendingCheckoutId, id)).returning();
+      const updatedOrders = await db.update(orders2).set({ status: "cancelled" }).where(eq9(orders2.pendingCheckoutId, id)).returning();
       if (updatedOrders.length > 0) {
         console.log(`[PENDING-CHECKOUT] \u2705 Associated order ${updatedOrders[0].id} also cancelled.`);
       }
@@ -17742,21 +18301,21 @@ Please accept and start preparation.`;
       res.status(500).json({ message: error.message || "Failed to check user" });
     }
   });
-  const toISOStringOrNull = (date, fieldName = "unknown") => {
+  const toISOStringOrNull = (date2, fieldName = "unknown") => {
     try {
-      console.log(`[ISO-CONVERT] Converting ${fieldName}: type=${typeof date}`);
-      if (!date) {
+      console.log(`[ISO-CONVERT] Converting ${fieldName}: type=${typeof date2}`);
+      if (!date2) {
         console.log(`[ISO-CONVERT] ${fieldName} is null/empty, returning null`);
         return null;
       }
-      if (date instanceof Date) {
-        const timeValue = date.getTime();
+      if (date2 instanceof Date) {
+        const timeValue = date2.getTime();
         console.log(`[ISO-CONVERT] ${fieldName} - getTime(): ${timeValue}, isNaN: ${isNaN(timeValue)}`);
         if (isNaN(timeValue)) {
           console.warn(`[ISO-CONVERT] ${fieldName} - INVALID DATE OBJECT (getTime returned NaN), returning null`);
           return null;
         }
-        const isoStr = date.toISOString();
+        const isoStr = date2.toISOString();
         console.log(`[ISO-CONVERT] ${fieldName} - toISOString succeeded: ${isoStr}`);
         const parsedDate = new Date(isoStr);
         const year = parsedDate.getFullYear();
@@ -17772,9 +18331,9 @@ Please accept and start preparation.`;
         }
         return isoStr;
       }
-      if (typeof date === "string") {
-        console.log(`[ISO-CONVERT] ${fieldName} is string: "${date}"`);
-        const parsed = new Date(date);
+      if (typeof date2 === "string") {
+        console.log(`[ISO-CONVERT] ${fieldName} is string: "${date2}"`);
+        const parsed = new Date(date2);
         const time = parsed.getTime();
         console.log(`[ISO-CONVERT] ${fieldName} - Parsed string, getTime(): ${time}, year: ${parsed.getFullYear()}`);
         if (isNaN(time)) {
@@ -17786,12 +18345,12 @@ Please accept and start preparation.`;
           console.warn(`[ISO-CONVERT] ${fieldName} - Invalid year: ${year}, returning null`);
           return null;
         }
-        return date;
+        return date2;
       }
       console.log(`[ISO-CONVERT] ${fieldName} - Unhandled type, returning null`);
       return null;
     } catch (e) {
-      console.error(`[ISO-CONVERT] Error converting ${fieldName}: type=${typeof date}, error:`, e);
+      console.error(`[ISO-CONVERT] Error converting ${fieldName}: type=${typeof date2}, error:`, e);
       return null;
     }
   };
@@ -17850,8 +18409,8 @@ Please accept and start preparation.`;
         if (sub.nextDeliveryDate === null) {
           console.log(`[SUB-GET] ${sub.id}: nextDeliveryDate is NULL after serialization`);
         } else {
-          const date = new Date(sub.nextDeliveryDate);
-          const year = date.getFullYear();
+          const date2 = new Date(sub.nextDeliveryDate);
+          const year = date2.getFullYear();
           if (year === 1970) {
             console.warn(`[SUB-GET] ${sub.id}: nextDeliveryDate is 1970! Raw value: ${sub.nextDeliveryDate}`);
           } else {
@@ -18389,7 +18948,8 @@ Please accept and start preparation.`;
         return;
       }
       const logs = await storage.getSubscriptionDeliveryLogs(req.params.id);
-      res.json(logs);
+      const safeLogs = logs.map(({ chefOverrideId, ...safeLog }) => safeLog);
+      res.json(safeLogs);
     } catch (error) {
       console.error("Error fetching delivery logs:", error);
       res.status(500).json({ message: error.message || "Failed to fetch delivery logs" });
@@ -18663,10 +19223,13 @@ Please accept and start preparation.`;
         schedule: scheduleItems,
         remainingDeliveries: subscription.remainingDeliveries,
         totalDeliveries: subscription.totalDeliveries,
-        deliveryHistory: sortedLogs.map((log3) => ({
-          ...log3,
-          date: log3.date instanceof Date ? log3.date.toISOString() : log3.date
-        }))
+        deliveryHistory: sortedLogs.map((log3) => {
+          const { chefOverrideId, ...safeLog } = log3;
+          return {
+            ...safeLog,
+            date: log3.date instanceof Date ? log3.date.toISOString() : log3.date
+          };
+        })
       });
     } catch (error) {
       console.error("Error fetching subscription schedule:", error);
@@ -18746,7 +19309,7 @@ Please accept and start preparation.`;
   app2.get("/api/wallet-settings", async (req, res) => {
     try {
       const walletSetting = await db.query.walletSettings.findFirst({
-        where: (ws, { eq: eq10 }) => eq10(ws.isActive, true)
+        where: (ws, { eq: eq11 }) => eq11(ws.isActive, true)
       });
       const defaultWallet = {
         maxUsagePerOrder: 0,
@@ -19860,11 +20423,11 @@ Please accept and start preparation.`;
       }
       const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { pushSubscriptions: pushSubscriptions2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { eq: eq10, and: and6 } = await import("drizzle-orm");
+      const { eq: eq11, and: and7 } = await import("drizzle-orm");
       const existing = await db2.select().from(pushSubscriptions2).where(
-        and6(
-          eq10(pushSubscriptions2.userId, userId),
-          eq10(pushSubscriptions2.userType, userType)
+        and7(
+          eq11(pushSubscriptions2.userId, userId),
+          eq11(pushSubscriptions2.userType, userType)
         )
       ).limit(1);
       if (existing.length > 0) {
@@ -19872,7 +20435,7 @@ Please accept and start preparation.`;
           subscription,
           isActive: true,
           lastActivatedAt: /* @__PURE__ */ new Date()
-        }).where(eq10(pushSubscriptions2.id, existing[0].id));
+        }).where(eq11(pushSubscriptions2.id, existing[0].id));
         console.log(`\u2705 Push subscription updated for ${userType} ${userId}`);
       } else {
         await db2.insert(pushSubscriptions2).values({
@@ -19906,11 +20469,11 @@ Please accept and start preparation.`;
       }
       const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { pushSubscriptions: pushSubscriptions2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { eq: eq10, and: and6 } = await import("drizzle-orm");
+      const { eq: eq11, and: and7 } = await import("drizzle-orm");
       await db2.update(pushSubscriptions2).set({ isActive: false }).where(
-        and6(
-          eq10(pushSubscriptions2.userId, userId),
-          eq10(pushSubscriptions2.userType, userType)
+        and7(
+          eq11(pushSubscriptions2.userId, userId),
+          eq11(pushSubscriptions2.userType, userType)
         )
       );
       console.log(`\u{1F5D1}\uFE0F Push subscriptions removed for ${userType} ${userId}`);
@@ -19931,14 +20494,14 @@ Please accept and start preparation.`;
       const { sendPushToAllAdmins: sendPushToAllAdmins2, isPushConfiguredAsync: isPushConfiguredAsync2, getVapidPublicKeyAsync: getVapidPublicKeyAsync2 } = await Promise.resolve().then(() => (init_pushService(), pushService_exports));
       const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { pushSubscriptions: pushSubscriptions2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { eq: eq10, and: and6 } = await import("drizzle-orm");
+      const { eq: eq11, and: and7 } = await import("drizzle-orm");
       const configured = await isPushConfiguredAsync2();
       const publicKey = await getVapidPublicKeyAsync2();
       const activeSubs = await db2.select({
         id: pushSubscriptions2.id,
         userType: pushSubscriptions2.userType,
         endpointPrefix: pushSubscriptions2.subscription
-      }).from(pushSubscriptions2).where(and6(eq10(pushSubscriptions2.userType, "admin"), eq10(pushSubscriptions2.isActive, true)));
+      }).from(pushSubscriptions2).where(and7(eq11(pushSubscriptions2.userType, "admin"), eq11(pushSubscriptions2.isActive, true)));
       if (!configured) {
         return res.json({
           configured: false,
@@ -20004,12 +20567,12 @@ Please accept and start preparation.`;
       if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
         return res.status(400).json({ success: false, message: "Please enter a valid email address." });
       }
-      const existing = await db.select().from(newsletterSubscribers2).where(eq8(newsletterSubscribers2.email, email.toLowerCase().trim())).limit(1);
+      const existing = await db.select().from(newsletterSubscribers2).where(eq9(newsletterSubscribers2.email, email.toLowerCase().trim())).limit(1);
       if (existing.length > 0) {
         if (existing[0].isActive) {
           return res.json({ success: true, message: "You're already subscribed!" });
         }
-        await db.update(newsletterSubscribers2).set({ isActive: true, unsubscribedAt: null }).where(eq8(newsletterSubscribers2.email, email.toLowerCase().trim()));
+        await db.update(newsletterSubscribers2).set({ isActive: true, unsubscribedAt: null }).where(eq9(newsletterSubscribers2.email, email.toLowerCase().trim()));
         return res.json({ success: true, message: "Welcome back! You've been re-subscribed." });
       }
       await db.insert(newsletterSubscribers2).values({
@@ -20428,17 +20991,17 @@ __export(cronJobs_exports, {
   updateNextDeliveryDates: () => updateNextDeliveryDates,
   verifyPendingGPayPayments: () => verifyPendingGPayPayments
 });
-import { eq as eq9 } from "drizzle-orm";
+import { eq as eq10 } from "drizzle-orm";
 async function verifyPendingGPayPayments() {
   try {
     console.log("[GPAY-POLLING] Starting Google Pay payment verification...");
     const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1e3);
     const pendingOrders = await db.query.orders.findMany({
-      where: (o, { and: and6, eq: eq10, gte: gte3, isNull: isNull3, lte: lte2, lt: lt2 }) => and6(
-        eq10(o.paymentStatus, "pending"),
-        eq10(o.paymentSource, "google-pay"),
+      where: (o, { and: and7, eq: eq11, gte: gte3, isNull: isNull4, lte: lte2, lt: lt2 }) => and7(
+        eq11(o.paymentStatus, "pending"),
+        eq11(o.paymentSource, "google-pay"),
         gte3(o.createdAt, fifteenMinutesAgo),
-        isNull3(o.paymentVerifiedBy)
+        isNull4(o.paymentVerifiedBy)
       )
     });
     console.log(`[GPAY-POLLING] Found ${pendingOrders.length} pending Google Pay order(s)`);
@@ -20464,10 +21027,10 @@ async function verifyPendingGPayPayments() {
             phoneMatch: true,
             amountMatch: true,
             referenceMatch: true
-          }).where(eq9(orders.id, order.id));
+          }).where(eq10(orders.id, order.id));
           try {
             const existingUser = await db.query.users.findFirst({
-              where: (u, { eq: eq10 }) => eq10(u.phone, order.phone)
+              where: (u, { eq: eq11 }) => eq11(u.phone, order.phone)
             });
             if (!existingUser) {
               console.log(`[GPAY-POLLING] \u{1F464} Creating account for new user: ${order.phone}`);
@@ -20499,7 +21062,7 @@ async function verifyPendingGPayPayments() {
           console.log(`[GPAY-POLLING] \u274C Verification failed: ${result.reason}`);
           await db.update(orders).set({
             verificationAttempts: (order.verificationAttempts || 0) + 1
-          }).where(eq9(orders.id, order.id));
+          }).where(eq10(orders.id, order.id));
           failedCount++;
         }
       } catch (error) {
@@ -20514,13 +21077,13 @@ async function verifyPendingGPayPayments() {
     console.error("[GPAY-POLLING] Error:", error);
   }
 }
-function isDeliveryDay2(date, frequency, deliveryDays) {
+function isDeliveryDay2(date2, frequency, deliveryDays) {
   if (!deliveryDays || deliveryDays.length === 0) return false;
   if (frequency === "monthly") {
-    const dayOfMonth = date.getDate().toString();
+    const dayOfMonth = date2.getDate().toString();
     return deliveryDays.includes(dayOfMonth);
   } else if (frequency === "weekly" || frequency === "daily") {
-    const dayName = date.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
+    const dayName = date2.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
     return deliveryDays.includes(dayName);
   }
   return false;
@@ -20543,9 +21106,9 @@ async function autoResumeSubscriptions() {
   try {
     const now = /* @__PURE__ */ new Date();
     const pausedSubscriptions = await db.query.subscriptions.findMany({
-      where: (s, { and: and6, eq: eq10, lte: lte2, isNotNull }) => and6(
-        eq10(s.status, "paused"),
-        isNotNull(s.pauseResumeDate),
+      where: (s, { and: and7, eq: eq11, lte: lte2, isNotNull: isNotNull2 }) => and7(
+        eq11(s.status, "paused"),
+        isNotNull2(s.pauseResumeDate),
         lte2(s.pauseResumeDate, now)
       )
     });
@@ -20555,7 +21118,7 @@ async function autoResumeSubscriptions() {
         pauseStartDate: null,
         pauseResumeDate: null,
         updatedAt: now
-      }).where(eq9(subscriptions.id, subscription.id));
+      }).where(eq10(subscriptions.id, subscription.id));
       console.log(`\u25B6\uFE0F Auto-resumed subscription ${subscription.id} (scheduled for ${subscription.pauseResumeDate})`);
       try {
         const { broadcastSubscriptionUpdate: broadcastSubscriptionUpdate3 } = await Promise.resolve().then(() => (init_websocket(), websocket_exports));
@@ -20579,9 +21142,9 @@ async function generateDailyDeliveryLogs() {
     const today = /* @__PURE__ */ new Date();
     today.setHours(0, 0, 0, 0);
     const allSubscriptions = await db.query.subscriptions.findMany({
-      where: (s, { and: and6, eq: eq10 }) => and6(
-        eq10(s.status, "active"),
-        eq10(s.isPaid, true)
+      where: (s, { and: and7, eq: eq11 }) => and7(
+        eq11(s.status, "active"),
+        eq11(s.isPaid, true)
       )
     });
     let logsCreated = 0;
@@ -20623,9 +21186,9 @@ async function updateNextDeliveryDates() {
     const today = /* @__PURE__ */ new Date();
     today.setHours(0, 0, 0, 0);
     const subscriptionsToUpdate = await db.query.subscriptions.findMany({
-      where: (s, { and: and6, eq: eq10, lte: lte2 }) => and6(
-        eq10(s.status, "active"),
-        eq10(s.isPaid, true),
+      where: (s, { and: and7, eq: eq11, lte: lte2 }) => and7(
+        eq11(s.status, "active"),
+        eq11(s.isPaid, true),
         lte2(s.nextDeliveryDate, today)
       )
     });
@@ -20638,7 +21201,7 @@ async function updateNextDeliveryDates() {
         nextDeliveryDate: nextDate,
         lastDeliveryDate: today,
         updatedAt: /* @__PURE__ */ new Date()
-      }).where(eq9(subscriptions.id, subscription.id));
+      }).where(eq10(subscriptions.id, subscription.id));
     }
     if (subscriptionsToUpdate.length > 0) {
       console.log(`\u{1F4C5} Updated next delivery date for ${subscriptionsToUpdate.length} subscription(s)`);
@@ -20651,10 +21214,10 @@ async function sendScheduledOrder2HourNotifications() {
   try {
     const now = /* @__PURE__ */ new Date();
     const allScheduledOrders = await db.query.orders.findMany({
-      where: (o, { and: and6, eq: eq10, isNotNull }) => and6(
-        eq10(o.status, "approved"),
-        isNotNull(o.deliveryTime),
-        isNotNull(o.deliveryDate)
+      where: (o, { and: and7, eq: eq11, isNotNull: isNotNull2 }) => and7(
+        eq11(o.status, "approved"),
+        isNotNull2(o.deliveryTime),
+        isNotNull2(o.deliveryDate)
       )
     });
     let notificationsSent = 0;
@@ -20669,7 +21232,7 @@ async function sendScheduledOrder2HourNotifications() {
         const items = Array.isArray(order.items) ? order.items.map((item) => item.name || item.title || "Item").join(", ") : "Order items";
         if (order.chefId) {
           const chef = await db.query.chefs.findFirst({
-            where: eq9(chefs.id, order.chefId)
+            where: eq10(chefs.id, order.chefId)
           });
           if (chef && chef.phone) {
             const success = await sendScheduledOrder2HourReminder(
@@ -20747,11 +21310,11 @@ async function markStaleDeliveriesAsMissed() {
         console.log(`  \u2705 Marked delivery log ${log3.id} (subscription ${log3.subscriptionId}) as MISSED`);
         try {
           const subscription = await db.query.subscriptions.findFirst({
-            where: (s, { eq: eq10 }) => eq10(s.id, log3.subscriptionId)
+            where: (s, { eq: eq11 }) => eq11(s.id, log3.subscriptionId)
           });
           if (subscription) {
             const user = await db.query.users.findFirst({
-              where: (u, { eq: eq10 }) => eq10(u.id, subscription.userId)
+              where: (u, { eq: eq11 }) => eq11(u.id, subscription.userId)
             });
             if (user) {
               const deliveryDate = log3.date.toLocaleDateString("en-IN");
@@ -20795,11 +21358,11 @@ async function expirePendingPaymentOrders() {
     const now = /* @__PURE__ */ new Date();
     console.log(`[EXPIRY-CHECK] Checking for pending payment orders with expiresAt <= ${now.toISOString()}...`);
     const expiredOrders = await db.query.orders.findMany({
-      where: (o, { and: and6, eq: eq10, lt: lt2, isNull: isNull3 }) => and6(
-        eq10(o.paymentStatus, "pending"),
+      where: (o, { and: and7, eq: eq11, lt: lt2, isNull: isNull4 }) => and7(
+        eq11(o.paymentStatus, "pending"),
         lt2(o.expiresAt, now),
         // ✅ Using expiresAt column (not createdAt calculation)
-        isNull3(o.paymentVerifiedBy)
+        isNull4(o.paymentVerifiedBy)
         // Not yet confirmed
       )
     });
@@ -20837,6 +21400,15 @@ async function checkAutoScheduleTransitions() {
       const chefId = chef.id;
       if (!lastKnownScheduleState.has(chefId)) {
         lastKnownScheduleState.set(chefId, isNowOpen);
+        const seedTransition = isNowOpen ? "OPEN (startup sync)" : "CLOSED (startup sync)";
+        console.log(`[AUTO-SCHEDULE] Chef "${chef.name}" (${chefId}): ${seedTransition}`);
+        broadcastChefStatusUpdate2({
+          ...chef,
+          isCurrentlyOpen: isNowOpen,
+          currentScheduleStatus: status.reason,
+          nextOpeningTime: status.nextOpeningTime,
+          currentSchedulePeriodEndsAt: status.currentSchedulePeriodEndsAt
+        });
         continue;
       }
       const wasOpen = lastKnownScheduleState.get(chefId);
@@ -20885,13 +21457,13 @@ function startCronJobs() {
         const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1e3);
         const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
         const { orders: ordersTable } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-        const { and: and6, eq: eq10, gte: gte3, isNull: isNull3 } = await import("drizzle-orm");
+        const { and: and7, eq: eq11, gte: gte3, isNull: isNull4 } = await import("drizzle-orm");
         const pending = await db2.select({ id: ordersTable.id }).from(ordersTable).where(
-          and6(
-            eq10(ordersTable.paymentStatus, "pending"),
-            eq10(ordersTable.paymentSource, "google-pay"),
+          and7(
+            eq11(ordersTable.paymentStatus, "pending"),
+            eq11(ordersTable.paymentSource, "google-pay"),
             gte3(ordersTable.createdAt, fifteenMinutesAgo),
-            isNull3(ordersTable.paymentVerifiedBy)
+            isNull4(ordersTable.paymentVerifiedBy)
           )
         ).limit(1);
         if (pending.length > 0) {
@@ -20967,7 +21539,7 @@ dotenv.config();
 init_routes();
 init_partnerAuth();
 import express2 from "express";
-import { sql as sql5 } from "drizzle-orm";
+import { sql as sql6 } from "drizzle-orm";
 import cookieParser from "cookie-parser";
 import multer from "multer";
 
@@ -21467,7 +22039,7 @@ app.use((req, res, next) => {
     if (req.query.db_check === "true") {
       try {
         const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-        await db2.execute(sql5`SELECT 1`);
+        await db2.execute(sql6`SELECT 1`);
         dbStatus = "connected";
       } catch (err) {
         dbStatus = "unreachable";

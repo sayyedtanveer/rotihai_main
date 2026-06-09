@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, decimal, boolean, timestamp, jsonb, index, uniqueIndex, pgEnum, real } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, decimal, boolean, timestamp, date, jsonb, index, uniqueIndex, pgEnum, real } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import * as crypto from "crypto";
@@ -102,6 +102,10 @@ export const chefs = pgTable("chefs", {
   autoScheduleEnabled: boolean("auto_schedule_enabled").notNull().default(false), // Enable auto-schedule feature
   openingTime: varchar("opening_time", { length: 5 }),                       // Opening time in HH:mm format (e.g., "09:00")
   closingTime: varchar("closing_time", { length: 5 }),                       // Closing time in HH:mm format (e.g., "22:00")
+  // ── Subscription Availability (separate from isActive/openingTime/closingTime) ─
+  subscriptionAvailabilityStatus: text("subscription_availability_status").notNull().default("available"), // 'available' | 'unavailable_today' | 'on_leave'
+  leaveStartDate: date("leave_start_date"),                                 // DATE — chef leave is date-based, no time component
+  leaveEndDate: date("leave_end_date"),                                     // DATE — chef leave is date-based, no time component
 });
 
 
@@ -469,9 +473,30 @@ export const subscriptionDeliveryLogs = pgTable("subscription_delivery_logs", {
   status: deliveryLogStatusEnum("status").notNull().default("scheduled"),
   deliveryPersonId: varchar("delivery_person_id"), // nullable
   notes: text("notes"),
+  skipReason: text("skip_reason"),       // null = customer skip; 'platform_chef_unavailable' = platform skip
+  chefOverrideId: text("chef_override_id"), // null unless delivery was reassigned to a different chef
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
+
+// Chef Unavailability — pure audit/history table for unavailability events.
+// NO status column — source of truth is chefs.subscriptionAvailabilityStatus.
+// No chef_unavailability_actions table; pending actions are derived at query time.
+export const chefUnavailability = pgTable("chef_unavailability", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()::text`),
+  chefId: text("chef_id").notNull().references(() => chefs.id),
+  unavailabilityType: text("unavailability_type").notNull(), // 'unavailable_today' | 'on_leave'
+  leaveStartDate: date("leave_start_date"),                 // DATE — date-based business logic
+  leaveEndDate: date("leave_end_date"),                     // DATE — date-based business logic
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("idx_chef_unavailability_chef_id").on(t.chefId),
+  index("idx_chef_unavailability_created").on(t.createdAt),
+]);
+
+export type ChefUnavailability = typeof chefUnavailability.$inferSelect;
+export type InsertChefUnavailability = typeof chefUnavailability.$inferInsert;
 
 export const insertCategorySchema = createInsertSchema(categories).omit({
   id: true,

@@ -76,6 +76,13 @@ export const filterOrdersByDateRange = (orders: Order[], range: DateRange): Orde
   });
 };
 
+export const filterOrdersByCreatedDateRange = (orders: Order[], range: DateRange): Order[] => {
+  return orders.filter(order => {
+    const createdAt = new Date(order.createdAt);
+    return isWithinInterval(createdAt, { start: range.start, end: range.end });
+  });
+};
+
 export const calculateGrowth = (current: number, previous: number): { growth: number; trend: "up" | "down" | "flat" } => {
   if (previous === 0) {
     return { growth: current > 0 ? 100 : 0, trend: current > 0 ? "up" : "flat" };
@@ -154,8 +161,8 @@ export const getPeriodOrderComparison = (allOrders: Order[], period: TimePeriod)
   const currentRange = getPeriodRange(period, now);
   const prevRange = getPreviousPeriodRange(period, now);
 
-  const currentOrders = filterOrdersByDateRange(allOrders, currentRange);
-  const prevOrders = filterOrdersByDateRange(allOrders, prevRange);
+  const currentOrders = filterOrdersByCreatedDateRange(allOrders, currentRange);
+  const prevOrders = filterOrdersByCreatedDateRange(allOrders, prevRange);
 
   const growth = calculateGrowth(currentOrders.length, prevOrders.length);
 
@@ -199,7 +206,7 @@ export const getCustomerMetrics = (allOrders: Order[], users: User[], periodRang
   // Definition: User who has placed at least one order.
   const allCustomerIds = new Set(allOrders.map(o => o.userId).filter(Boolean));
   
-  const periodOrders = filterOrdersByDateRange(allOrders, periodRange);
+  const periodOrders = filterOrdersByCreatedDateRange(allOrders, periodRange);
   const periodCustomerIds = new Set(periodOrders.map(o => o.userId).filter(Boolean));
   
   // Find new customers in this period (first order was in this period)
