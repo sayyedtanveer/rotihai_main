@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { Category, Chef as BaseChef } from "@shared/schema";
 import { formatSlotRange } from "@shared/timeFormatter";
+import { getImageUrl, handleImageError, hasImage } from "@/lib/imageUrl";
 
 // ✅ Frontend-safe Chef type (adds optional coordinates)
 type FrontendChef = BaseChef & {
@@ -80,11 +81,19 @@ export default function ChefListDrawer({
                       data-testid={`chef-card-${chef.id}`}
                     >
                       <div className="flex gap-4">
-                        <img
-                          src={chef.image}
-                          alt={chef.name}
-                          className={`w-20 h-20 rounded-lg object-cover ${isInactive ? 'grayscale' : ''}`}
-                        />
+                        {hasImage(chef.image) ? (
+                          <img
+                            src={getImageUrl(chef.image)}
+                            alt={chef.name}
+                            className={`w-20 h-20 rounded-lg object-cover ${isInactive ? 'grayscale' : ''}`}
+                            onError={handleImageError}
+                            data-hide-on-error="true"
+                          />
+                        ) : (
+                          <div className="w-20 h-20 rounded-lg bg-muted flex items-center justify-center text-primary">
+                            <span className="text-xl">🍽️</span>
+                          </div>
+                        )}
                         <div className="flex-1">
                           <div className="flex items-start justify-between gap-2">
                             <div className="flex-1">

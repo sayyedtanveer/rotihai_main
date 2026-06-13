@@ -161,6 +161,7 @@ export default function CartCard({
                       alt={item.name}
                       className={`w-10 h-10 sm:w-12 sm:h-12 object-cover rounded-md flex-shrink-0 ${isUnavailable ? 'grayscale' : ''}`}
                       onError={handleImageError}
+                      data-hide-on-error="true"
                       data-testid={`img-item-${item.id}`}
                     />
                   )}
