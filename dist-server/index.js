@@ -224,7 +224,7 @@ var init_schema = __esm({
       // ← NEW: Cost from hotel/supplier (₹)
       price: integer("price").notNull(),
       // ← RotiHai selling price (₹)
-      image: text("image").notNull(),
+      image: text("image"),
       rating: decimal("rating", { precision: 2, scale: 1 }).notNull().default("4.5"),
       reviewCount: integer("review_count").notNull().default(0),
       isVeg: boolean("is_veg").notNull().default(true),
@@ -1605,8 +1605,10 @@ var init_analytics = __esm({
       const now = /* @__PURE__ */ new Date();
       const currentRange = getPeriodRange(period, now);
       const prevRange = getPreviousPeriodRange(period, now);
-      const currentOrders = filterOrdersByCreatedDateRange(allOrders, currentRange);
-      const prevOrders = filterOrdersByCreatedDateRange(allOrders, prevRange);
+      const currentOrdersRaw = filterOrdersByCreatedDateRange(allOrders, currentRange);
+      const prevOrdersRaw = filterOrdersByCreatedDateRange(allOrders, prevRange);
+      const currentOrders = currentOrdersRaw.filter((o) => !isCancelledOrder(o));
+      const prevOrders = prevOrdersRaw.filter((o) => !isCancelledOrder(o));
       const growth = calculateGrowth(currentOrders.length, prevOrders.length);
       return {
         current: currentOrders.length,
@@ -9302,7 +9304,11 @@ Please prepare this order.`;
   });
   app2.post("/api/admin/products", requireAdminOrManager(), async (req, res) => {
     try {
-      const validation = insertProductSchema.safeParse(req.body);
+      const body = {
+        ...req.body,
+        image: req.body.image && typeof req.body.image === "string" && req.body.image.trim() ? req.body.image.trim() : null
+      };
+      const validation = insertProductSchema.safeParse(body);
       if (!validation.success) {
         res.status(400).json({ message: fromZodError(validation.error).toString() });
         return;
@@ -10819,6 +10825,10 @@ Please prepare this order.`;
           lastDeliveryDate: new Date(existingLog.date),
           remainingDeliveries: Math.max(0, subscription.remainingDeliveries - 1)
         });
+        await storage.syncDeliveryHistory(subscriptionId.trim(), "delivered", new Date(existingLog.date), notes || "Marked delivered by admin");
+      }
+      if ((status === "skipped" || status === "missed") && existingLog.date) {
+        await storage.syncDeliveryHistory(subscriptionId.trim(), status, new Date(existingLog.date), notes || `Marked ${status} by admin`);
       }
       console.log(`\u270F\uFE0F Admin updated delivery log ${logId} status to: ${status}`);
       res.json(updatedLog);
@@ -13508,54 +13518,86 @@ function registerPartnerRoutes(app2) {
         return;
       }
       const allSubscriptions = await storage.getSubscriptions();
-      const subscriptions4 = allSubscriptions.filter(
+      const ownSubscriptions = allSubscriptions.filter(
         (s) => s.chefId === chefId && s.isPaid && s.status !== "cancelled"
       );
       const today = /* @__PURE__ */ new Date();
       today.setHours(0, 0, 0, 0);
       const todayStr = today.toISOString().split("T")[0];
       const todaysLogs = await storage.getSubscriptionDeliveryLogsByDate(today);
+      const reassignedLogs = todaysLogs.filter(
+        (log3) => log3.chefOverrideId === chefId && // Exclude subscriptions already in ownSubscriptions to avoid duplicates
+        !ownSubscriptions.some((s) => s.id === log3.subscriptionId)
+      );
+      const reassignedSubIds = new Set(reassignedLogs.map((l) => l.subscriptionId));
       const todaysDeliveries = [];
       let preparing = 0;
       let outForDelivery = 0;
       let delivered = 0;
-      for (const sub of subscriptions4) {
-        if (!sub.nextDeliveryDate || isNaN(new Date(sub.nextDeliveryDate).getTime())) {
-          continue;
-        }
+      for (const sub of ownSubscriptions) {
+        if (!sub.nextDeliveryDate || isNaN(new Date(sub.nextDeliveryDate).getTime())) continue;
         const nextDelivery = new Date(sub.nextDeliveryDate);
         nextDelivery.setHours(0, 0, 0, 0);
         const nextDeliveryStr = nextDelivery.toISOString().split("T")[0];
-        if (nextDeliveryStr === todayStr && sub.status !== "paused" && sub.status !== "cancelled") {
-          const plan = await storage.getSubscriptionPlan(sub.planId);
-          let chefName;
-          if (sub.chefId) {
-            const chef = await storage.getChefById(sub.chefId);
-            chefName = chef?.name;
-          }
-          const deliveryLog = todaysLogs.find((log3) => log3.subscriptionId === sub.id);
-          const currentStatus = deliveryLog?.status || "scheduled";
-          if (currentStatus === "preparing") preparing++;
-          else if (currentStatus === "out_for_delivery") outForDelivery++;
-          else if (currentStatus === "delivered") delivered++;
-          todaysDeliveries.push({
-            id: deliveryLog?.id || sub.id,
-            subscriptionId: sub.id,
-            customerName: sub.customerName,
-            phone: sub.phone,
-            address: sub.address,
-            planName: plan?.name || "Unknown Plan",
-            // Frontend expects these exact keys
-            nextDeliveryDate: sub.nextDeliveryDate,
-            nextDeliveryTime: deliveryLog?.time || sub.nextDeliveryTime || "09:00",
-            remainingDeliveries: sub.remainingDeliveries,
-            totalDeliveries: sub.totalDeliveries,
-            planItems: plan?.items || [],
-            deliverySlotId: sub.deliverySlotId,
-            status: currentStatus,
-            chefName
-          });
-        }
+        if (nextDeliveryStr !== todayStr || sub.status === "paused" || sub.status === "cancelled") continue;
+        const plan = await storage.getSubscriptionPlan(sub.planId);
+        const deliveryLog = todaysLogs.find(
+          (log3) => log3.subscriptionId === sub.id && !log3.chefOverrideId
+        ) || todaysLogs.find((log3) => log3.subscriptionId === sub.id);
+        const logChefOverride = deliveryLog?.chefOverrideId;
+        if (logChefOverride && logChefOverride !== chefId) continue;
+        const currentStatus = deliveryLog?.status || "scheduled";
+        if (currentStatus === "preparing") preparing++;
+        else if (currentStatus === "out_for_delivery") outForDelivery++;
+        else if (currentStatus === "delivered") delivered++;
+        todaysDeliveries.push({
+          id: deliveryLog?.id || sub.id,
+          subscriptionId: sub.id,
+          customerName: sub.customerName,
+          phone: sub.phone,
+          address: sub.address,
+          planName: plan?.name || "Unknown Plan",
+          nextDeliveryDate: sub.nextDeliveryDate,
+          nextDeliveryTime: deliveryLog?.time || sub.nextDeliveryTime || "09:00",
+          remainingDeliveries: sub.remainingDeliveries,
+          totalDeliveries: sub.totalDeliveries,
+          planItems: plan?.items || [],
+          deliverySlotId: sub.deliverySlotId,
+          status: currentStatus,
+          chefName: void 0,
+          // own subscription, no override needed
+          isReassigned: false
+        });
+      }
+      for (const log3 of reassignedLogs) {
+        const sub = allSubscriptions.find((s) => s.id === log3.subscriptionId);
+        if (!sub || sub.status === "cancelled") continue;
+        const plan = await storage.getSubscriptionPlan(sub.planId);
+        const originalChef = sub.chefId ? await storage.getChefById(sub.chefId) : null;
+        const currentStatus = log3.status || "scheduled";
+        if (currentStatus === "preparing") preparing++;
+        else if (currentStatus === "out_for_delivery") outForDelivery++;
+        else if (currentStatus === "delivered") delivered++;
+        todaysDeliveries.push({
+          id: log3.id,
+          subscriptionId: sub.id,
+          customerName: sub.customerName,
+          phone: sub.phone,
+          address: sub.address,
+          planName: plan?.name || "Unknown Plan",
+          nextDeliveryDate: log3.date,
+          // Use log date for reassigned deliveries
+          nextDeliveryTime: log3.time || sub.nextDeliveryTime || "09:00",
+          remainingDeliveries: sub.remainingDeliveries,
+          totalDeliveries: sub.totalDeliveries,
+          planItems: plan?.items || [],
+          deliverySlotId: sub.deliverySlotId,
+          status: currentStatus,
+          chefName: originalChef?.name,
+          // Show original chef name for context
+          isReassigned: true
+          // Flag so partner UI can show "Reassigned" badge
+        });
       }
       res.json({
         todayCount: todaysDeliveries.length,
@@ -13741,8 +13783,8 @@ function registerPartnerRoutes(app2) {
       if (!leaveStartDate || !leaveEndDate) {
         return res.status(400).json({ message: "leaveStartDate and leaveEndDate are required for on_leave status" });
       }
-      const startDate = new Date(leaveStartDate);
-      const endDate = new Date(leaveEndDate);
+      const startDate = /* @__PURE__ */ new Date(`${leaveStartDate}T12:00:00`);
+      const endDate = /* @__PURE__ */ new Date(`${leaveEndDate}T12:00:00`);
       if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
         return res.status(400).json({ message: "leaveStartDate and leaveEndDate must be valid ISO date strings" });
       }
@@ -15390,13 +15432,41 @@ async function registerRoutes(app2) {
     } catch (err) {
       console.error("[COORDINATES] Error fetching area coordinates from database:", err);
       return {
+        // Central Mumbai
         "kurla": { lat: 19.0686, lon: 72.8817, name: "Kurla" },
         "kurla west": { lat: 19.0728, lon: 72.8826, name: "Kurla West" },
         "kurla east": { lat: 19.0644, lon: 72.8877, name: "Kurla East" },
-        "worli": { lat: 19.0176, lon: 72.8194, name: "Worli" },
+        "dadar": { lat: 19.0176, lon: 72.8388, name: "Dadar" },
+        "sion": { lat: 19.0413, lon: 72.8657, name: "Sion" },
+        "chunabhatti": { lat: 19.0505, lon: 72.8681, name: "Chunabhatti" },
+        "chembur": { lat: 19.0522, lon: 72.9005, name: "Chembur" },
+        "ghatkopar": { lat: 19.0866, lon: 72.909, name: "Ghatkopar" },
+        "vikhroli": { lat: 19.1009, lon: 72.9265, name: "Vikhroli" },
+        "kanjurmarg": { lat: 19.1048, lon: 72.9416, name: "Kanjurmarg" },
+        "bhandup": { lat: 19.1442, lon: 72.9347, name: "Bhandup" },
+        "mulund": { lat: 19.1726, lon: 72.9566, name: "Mulund" },
+        // Western suburbs
         "bandra": { lat: 19.0596, lon: 72.8295, name: "Bandra" },
         "andheri": { lat: 19.1136, lon: 72.8697, name: "Andheri" },
-        "dadar": { lat: 19.0176, lon: 72.8388, name: "Dadar" }
+        "andheri west": { lat: 19.1248, lon: 72.834, name: "Andheri West" },
+        "andheri east": { lat: 19.1148, lon: 72.8771, name: "Andheri East" },
+        "jogeshwari": { lat: 19.1417, lon: 72.8494, name: "Jogeshwari" },
+        "goregaon": { lat: 19.1527, lon: 72.8497, name: "Goregaon" },
+        "malad": { lat: 19.1891, lon: 72.8487, name: "Malad" },
+        "kandivali": { lat: 19.2167, lon: 72.8521, name: "Kandivali" },
+        "borivali": { lat: 19.2324, lon: 72.8567, name: "Borivali" },
+        "dahisar": { lat: 19.2636, lon: 72.856, name: "Dahisar" },
+        // South Mumbai
+        "worli": { lat: 19.0176, lon: 72.8194, name: "Worli" },
+        "colaba": { lat: 18.9067, lon: 72.8147, name: "Colaba" },
+        "fort": { lat: 18.9338, lon: 72.8354, name: "Fort" },
+        "lower parel": { lat: 18.9937, lon: 72.8196, name: "Lower Parel" },
+        "parel": { lat: 18.9955, lon: 72.8384, name: "Parel" },
+        "mahim": { lat: 19.038, lon: 72.8438, name: "Mahim" },
+        // Eastern suburbs
+        "powai": { lat: 19.1197, lon: 72.9056, name: "Powai" },
+        "chandivali": { lat: 19.1146, lon: 72.8992, name: "Chandivali" },
+        "sakinaka": { lat: 19.1001, lon: 72.8898, name: "Sakinaka" }
       };
     }
   };
@@ -17934,21 +18004,30 @@ Please accept and start preparation.`;
   app2.get("/api/areas", async (req, res) => {
     try {
       const allChefs = await storage.getChefs();
-      const areas = /* @__PURE__ */ new Set();
+      const areaMap = /* @__PURE__ */ new Map();
       allChefs.forEach((chef) => {
-        const area = chef.addressArea || chef.address_area;
-        if (area && area.trim()) {
-          areas.add(area.trim());
+        const area = (chef.addressArea || chef.address_area)?.trim();
+        if (!area) return;
+        const lat = typeof chef.latitude === "number" ? chef.latitude : parseFloat(String(chef.latitude));
+        const lon = typeof chef.longitude === "number" ? chef.longitude : parseFloat(String(chef.longitude));
+        if (!isNaN(lat) && !isNaN(lon) && lat !== 0 && lon !== 0) {
+          const existing = areaMap.get(area) || { totalLat: 0, totalLon: 0, count: 0 };
+          existing.totalLat += lat;
+          existing.totalLon += lon;
+          existing.count++;
+          areaMap.set(area, existing);
+        } else if (!areaMap.has(area)) {
+          areaMap.set(area, { totalLat: 0, totalLon: 0, count: 0 });
         }
       });
-      const areaList = Array.from(areas).sort();
-      console.log(`\u{1F4CD} [AREAS LIST] Returning ${areaList.length} areas: ${areaList.join(", ")}`);
-      res.json(areaList.map((name) => ({
+      const areaList = Array.from(areaMap.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([name, data]) => ({
         name,
-        latitude: 19.0728,
-        // Default to Kurla West as reference
-        longitude: 72.8826
-      })));
+        // Use averaged chef coordinates for this area; 0/0 count means no coordinates available
+        latitude: data.count > 0 ? data.totalLat / data.count : null,
+        longitude: data.count > 0 ? data.totalLon / data.count : null
+      }));
+      console.log(`\u{1F4CD} [AREAS LIST] Returning ${areaList.length} areas: ${areaList.map((a) => a.name).join(", ")}`);
+      res.json(areaList);
     } catch (error) {
       console.error("\u274C Error fetching areas:", error);
       res.status(500).json({ error: "Failed to fetch areas" });
@@ -19203,12 +19282,26 @@ Please accept and start preparation.`;
       });
       const scheduleItems = sortedLogs.map((log3) => {
         const logDate = log3.date instanceof Date ? log3.date : new Date(log3.date);
+        let displayReason;
+        if (log3.status === "skipped") {
+          if (log3.skipReason === "platform_chef_unavailable") {
+            displayReason = "Skipped \u2014 chef unavailable (subscription extended by 1 day)";
+          } else if (log3.notes && log3.notes.startsWith("Skipped: ")) {
+            displayReason = log3.notes.replace(/^Skipped: /, "");
+          } else if (log3.notes && log3.notes !== "Delivery skipped due to subscription pause period") {
+            displayReason = log3.notes;
+          } else if (log3.notes === "Delivery skipped due to subscription pause period") {
+            displayReason = "Subscription paused";
+          }
+        }
         return {
           date: logDate.toISOString(),
           time: log3.time,
           items: plan.items,
-          status: log3.status
+          status: log3.status,
           // Preserve actual status (scheduled, delivered, skipped, etc.)
+          skipReason: displayReason
+          // Human-readable reason, only set for skipped entries
         };
       });
       const subscriptionFormatted = {
@@ -20808,6 +20901,13 @@ var init_vite_config = __esm({
         },
         allowedHosts: true,
         middlewareMode: false,
+        proxy: {
+          "/api": {
+            target: process.env.VITE_API_URL || "http://localhost:5000",
+            changeOrigin: true,
+            secure: false
+          }
+        },
         hmr: process.env.REPLIT_DEV_DOMAIN ? {
           host: process.env.REPLIT_DEV_DOMAIN,
           protocol: "wss",

@@ -9,6 +9,9 @@ import { groupProductsBySection } from "@/utils/productGrouping";
 import { formatTime12Hour } from "@shared/timeFormatter";
 import { useState, useRef } from "react";
 
+const hasImage = (url: string | null | undefined): url is string =>
+  typeof url === "string" && url.trim().length > 0;
+
 interface CategoryMenuDrawerProps {
   isOpen: boolean;
   onClose: () => void;
@@ -250,25 +253,27 @@ export default function CategoryMenuDrawer({
                                     data-testid={`product-card-${product.id}`}
                                   >
                                     <div className="flex gap-4">
-                                      <div className="relative">
-                                        <img
-                                          src={getImageUrl(product.image)}
-                                          alt={product.name}
-                                          onError={handleImageError}
-                                          className={`w-20 h-20 rounded-lg object-cover ${
-                                            !isProductAvailable ? "grayscale" : ""
-                                          }`}
-                                          data-testid={`img-product-${product.id}`}
-                                        />
-                                        {!isProductAvailable && (
-                                          <div className="absolute inset-0 bg-black/40 flex items-center justify-center rounded-lg">
-                                            <Badge variant="destructive" className="text-xs">
-                                              UNAVAILABLE
-                                            </Badge>
-                                          </div>
-                                        )}
-                                      </div>
-                                      <div className="flex-1">
+                                      {hasImage(product.image) && (
+                                        <div className="relative flex-shrink-0">
+                                          <img
+                                            src={getImageUrl(product.image)}
+                                            alt={product.name}
+                                            onError={handleImageError}
+                                            className={`w-20 h-20 rounded-lg object-cover ${
+                                              !isProductAvailable ? "grayscale" : ""
+                                            }`}
+                                            data-testid={`img-product-${product.id}`}
+                                          />
+                                          {!isProductAvailable && (
+                                            <div className="absolute inset-0 bg-black/40 flex items-center justify-center rounded-lg">
+                                              <Badge variant="destructive" className="text-xs">
+                                                UNAVAILABLE
+                                              </Badge>
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+                                      <div className="flex-1 min-w-0">
                                         <div className="flex items-start justify-between gap-2">
                                           <div>
                                             <div className="flex items-center gap-2">

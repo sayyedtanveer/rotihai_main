@@ -14,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import type { Product, Category, Chef } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Plus, Pencil, Trash2, Grid3x3, List } from "lucide-react";
+import { Plus, Pencil, Trash2, Grid3x3, List, UtensilsCrossed } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertProductSchema } from "@shared/schema";
@@ -508,7 +508,7 @@ export default function AdminProducts() {
                       name="image"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Product Image</FormLabel>
+                          <FormLabel>Product Image <span className="text-muted-foreground font-normal text-xs">(Optional — leave blank to show a text-only layout)</span></FormLabel>
                           <div className="space-y-2">
                             <div className="flex gap-2">
                               <FormControl className="flex-1">
@@ -780,12 +780,18 @@ export default function AdminProducts() {
                       <TableRow key={product.id}>
                         <TableCell>
                           <div className="flex items-center gap-3">
-                            <img
-                              src={getImageUrl(product.image)}
-                              alt={product.name}
-                              className="w-12 h-12 rounded object-cover"
-                              onError={handleImageError}
-                            />
+                            {product.image && product.image.trim() ? (
+                              <img
+                                src={getImageUrl(product.image)}
+                                alt={product.name}
+                                className="w-12 h-12 rounded object-cover"
+                                onError={handleImageError}
+                              />
+                            ) : (
+                              <div className="w-12 h-12 rounded bg-muted flex items-center justify-center flex-shrink-0">
+                                <UtensilsCrossed className="h-5 w-5 text-muted-foreground" />
+                              </div>
+                            )}
                             <div>
                               <div className="font-medium">{product.name}</div>
                               <div className="text-sm text-muted-foreground line-clamp-1">
@@ -882,21 +888,27 @@ export default function AdminProducts() {
                 data-testid={`card-product-${product.id}`}
                 className={product.isAvailable === false ? "opacity-60" : ""}
               >
-                <div className="relative">
-                  <img 
-                    src={getImageUrl(product.image)}
-                    alt={product.name} 
-                    className={`w-full aspect-video object-cover rounded-t-lg ${product.isAvailable === false ? "grayscale" : ""}`}
-                    onError={handleImageError}
-                  />
-                  {product.isAvailable === false && (
-                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center rounded-t-lg">
-                      <Badge variant="destructive" className="text-sm">
-                        UNAVAILABLE
-                      </Badge>
-                    </div>
-                  )}
-                </div>
+                {product.image && product.image.trim() ? (
+                  <div className="relative">
+                    <img 
+                      src={getImageUrl(product.image)}
+                      alt={product.name} 
+                      className={`w-full aspect-video object-cover rounded-t-lg ${product.isAvailable === false ? "grayscale" : ""}`}
+                      onError={handleImageError}
+                    />
+                    {product.isAvailable === false && (
+                      <div className="absolute inset-0 bg-black/40 flex items-center justify-center rounded-t-lg">
+                        <Badge variant="destructive" className="text-sm">
+                          UNAVAILABLE
+                        </Badge>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="w-full aspect-video bg-muted rounded-t-lg flex items-center justify-center">
+                    <UtensilsCrossed className="h-8 w-8 text-muted-foreground" />
+                  </div>
+                )}
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between gap-2 mb-2">
                     <h3 className={`font-semibold text-lg text-slate-900 dark:text-slate-100 ${product.isAvailable === false ? "text-muted-foreground" : ""}`}>

@@ -1245,7 +1245,15 @@ export function registerAdminRoutes(app: Express) {
 
   app.post("/api/admin/products", requireAdminOrManager(), async (req, res) => {
     try {
-      const validation = insertProductSchema.safeParse(req.body);
+      // Normalise empty/whitespace image to null so it is stored as null (not empty string)
+      // Satisfies R2.7 (empty-string image → null) and R3 (valid DB state)
+      const body = {
+        ...req.body,
+        image: req.body.image && typeof req.body.image === 'string' && req.body.image.trim()
+          ? req.body.image.trim()
+          : null,
+      };
+      const validation = insertProductSchema.safeParse(body);
       if (!validation.success) {
         res.status(400).json({ message: fromZodError(validation.error).toString() });
         return;
@@ -1259,6 +1267,14 @@ export function registerAdminRoutes(app: Express) {
       res.status(500).json({ message: "Failed to create product" });
     }
   });
+
+  // PATCH /api/admin/products/:id — no image normalisation needed here.
+  // req.body is passed directly to storage.updateProduct → db.update().set(sanitizedData).
+  // This already handles all three cases correctly:
+  //   absent field  → not in SET clause → existing image preserved
+  //   image: null   → SET image = null  → image removed
+  //   image: "URL"  → SET image = url   → image updated
+  // (R2.7 / R3 are satisfied without any explicit normalisation in this route)
 
   app.patch("/api/admin/products/:id", requireAdminOrManager(), async (req, res) => {
     try {
@@ -1400,11 +1416,20 @@ export function registerAdminRoutes(app: Express) {
   app.get("/api/admin/chefs", requireAdmin(), async (req, res) => {
     try {
       const chefs = await storage.getChefs();
-      // Ensure isActive is properly serialized as boolean
-      const serializedChefs = chefs.map(chef => ({
-        ...chef,
-        isActive: Boolean(chef.isActive)
-      }));
+      // Compute runtime open/closed status (same logic as public /api/chefs endpoint)
+      // so admin panel reflects auto-schedule and manual overrides accurately.
+      const serializedChefs = chefs.map(chef => {
+        const config = buildRestaurantConfig(chef as any);
+        const status = calculateRestaurantStatus(config);
+        return {
+          ...chef,
+          isActive: Boolean(chef.isActive),
+          isCurrentlyOpen: status.isCurrentlyOpen,
+          currentScheduleStatus: status.reason,
+          nextOpeningTime: status.nextOpeningTime,
+          currentSchedulePeriodEndsAt: status.currentSchedulePeriodEndsAt,
+        };
+      });
       res.json(serializedChefs);
     } catch (error) {
       console.error("Get chefs error:", error);

@@ -18,8 +18,11 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { Package, AlertTriangle, Edit, Search, TrendingDown } from "lucide-react";
+import { Package, AlertTriangle, Edit, Search, TrendingDown, UtensilsCrossed } from "lucide-react";
 import type { Product } from "@shared/schema";
+
+const hasImage = (url: string | null | undefined): url is string =>
+  typeof url === "string" && url.trim().length > 0;
 
 export default function AdminInventory() {
   const { toast } = useToast();
@@ -249,11 +252,17 @@ export default function AdminInventory() {
                         >
                           <td className="py-3 px-4">
                             <div className="flex items-center gap-3">
-                              <img
-                                src={product.image}
-                                alt={product.name}
-                                className="w-12 h-12 rounded object-cover"
-                              />
+                              {hasImage(product.image) ? (
+                                <img
+                                  src={product.image}
+                                  alt={product.name}
+                                  className="w-12 h-12 rounded object-cover"
+                                />
+                              ) : (
+                                <div className="w-12 h-12 rounded bg-muted flex items-center justify-center flex-shrink-0">
+                                  <UtensilsCrossed className="h-5 w-5 text-muted-foreground" />
+                                </div>
+                              )}
                               <div>
                                 <div className="font-medium text-slate-900 dark:text-slate-100">
                                   {product.name}

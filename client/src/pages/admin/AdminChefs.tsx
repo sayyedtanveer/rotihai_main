@@ -432,19 +432,22 @@ export default function AdminChefs() {
           </div>
         ) : chefs && chefs.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {chefs.map((chef) => (
+            {chefs.map((chef) => {
+              // Use computed isCurrentlyOpen (schedule-aware) for display; fall back to isActive for non-scheduled chefs
+              const isOpen = (chef as any).isCurrentlyOpen !== undefined ? (chef as any).isCurrentlyOpen : (chef.isActive !== false);
+              return (
               <Card
                 key={chef.id}
                 data-testid={`card-chef-${chef.id}`}
-                className={chef.isActive === false ? "opacity-60" : ""}
+                className={!isOpen ? "opacity-60" : ""}
               >
                 <div className="relative">
                   <img
                     src={chef.image}
                     alt={chef.name}
-                    className={`w-full aspect-video object-cover rounded-t-lg ${chef.isActive === false ? "grayscale" : ""}`}
+                    className={`w-full aspect-video object-cover rounded-t-lg ${!isOpen ? "grayscale" : ""}`}
                   />
-                  {chef.isActive === false && (
+                  {!isOpen && (
                     <div className="absolute inset-0 bg-black/40 flex items-center justify-center rounded-t-lg">
                       <Badge variant="destructive" className="text-sm">
                         CLOSED
@@ -455,7 +458,7 @@ export default function AdminChefs() {
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between gap-2 mb-2">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className={`font-semibold text-lg text-slate-900 dark:text-slate-100 ${chef.isActive === false ? "text-muted-foreground" : ""}`}>
+                      <h3 className={`font-semibold text-lg text-slate-900 dark:text-slate-100 ${!isOpen ? "text-muted-foreground" : ""}`}>
                         {chef.name}
                       </h3>
                       {(chef as any).isVerified && (
@@ -521,10 +524,10 @@ export default function AdminChefs() {
                     </div>
                     <span className="text-slate-500 dark:text-slate-400">({chef.reviewCount} reviews)</span>
                     <Badge
-                      variant={chef.isActive !== false ? "default" : "destructive"}
+                      variant={isOpen ? "default" : "destructive"}
                       className="ml-auto"
                     >
-                      {chef.isActive !== false ? "OPEN" : "CLOSED"}
+                      {isOpen ? "OPEN" : "CLOSED"}
                     </Badge>
                   </div>
                   <div className="flex items-center gap-2">
@@ -551,7 +554,8 @@ export default function AdminChefs() {
                   </p>
                 </CardContent>
               </Card>
-            ))}
+            );
+            })}
           </div>
         ) : (
           <Card>

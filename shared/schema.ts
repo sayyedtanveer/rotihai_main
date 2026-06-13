@@ -115,7 +115,7 @@ export const products = pgTable("products", {
   description: text("description").notNull(),
   hotelPrice: integer("hotel_price").notNull().default(0), // ← NEW: Cost from hotel/supplier (₹)
   price: integer("price").notNull(), // ← RotiHai selling price (₹)
-  image: text("image").notNull(),
+  image: text("image"),
   rating: decimal("rating", { precision: 2, scale: 1 }).notNull().default("4.5"),
   reviewCount: integer("review_count").notNull().default(0),
   isVeg: boolean("is_veg").notNull().default(true),

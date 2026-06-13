@@ -18,6 +18,10 @@ import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import type { Chef, Product, Order } from "@shared/schema"; // Assuming Order type is defined in schema
 import { usePushNotifications } from "@/hooks/usePushNotifications";
+
+const hasImage = (url: string | null | undefined): url is string =>
+  typeof url === "string" && url.trim().length > 0;
+
 // Helper function to get slot info
 const getSlotInfo = (slotId: string, slots: any[]): { label: string; startTime: string; endTime: string } | null => {
   if (!slotId) return null;
@@ -879,11 +883,17 @@ export default function PartnerDashboard() {
                     data-testid={`card-product-${product.id}`}
                   >
                     <div className="relative h-40 sm:h-48 overflow-hidden">
-                      <img
-                        src={product.image}
-                        alt={product.name}
-                        className={`w-full h-full object-cover ${!product.isAvailable ? "grayscale" : ""}`}
-                      />
+                      {hasImage(product.image) ? (
+                        <img
+                          src={product.image}
+                          alt={product.name}
+                          className={`w-full h-full object-cover ${!product.isAvailable ? "grayscale" : ""}`}
+                        />
+                      ) : (
+                        <div className={`w-full h-full bg-muted flex items-center justify-center ${!product.isAvailable ? "opacity-60" : ""}`}>
+                          <UtensilsCrossed className="h-10 w-10 text-muted-foreground" />
+                        </div>
+                      )}
                       <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
 
                       {/* Offer Badge */}
