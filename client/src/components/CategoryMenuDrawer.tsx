@@ -9,6 +9,9 @@ import { groupProductsBySection } from "@/utils/productGrouping";
 import { formatTime12Hour } from "@shared/timeFormatter";
 import { useState, useRef } from "react";
 
+const hasImage = (url: string | null | undefined): url is string =>
+  typeof url === "string" && url.trim().length > 0;
+
 interface CategoryMenuDrawerProps {
   isOpen: boolean;
   onClose: () => void;
@@ -153,13 +156,16 @@ export default function CategoryMenuDrawer({
           <ScrollArea className="flex-1">
             <div className="p-4 border-b bg-muted/30" data-testid={`header-${category.id}`}>
               <div className="flex items-start gap-3">
-                <img
-                  src={getImageUrl(category.image)}
-                  alt={category.name}
-                  className="w-16 h-16 rounded-lg object-cover"
-                  data-testid={`img-category-${category.id}`}
-                  onError={handleImageError}
-                />
+                {hasImage(category.image) ? (
+                  <img
+                    src={getImageUrl(category.image)}
+                    alt={category.name}
+                    className="w-16 h-16 rounded-lg object-cover"
+                    data-testid={`img-category-${category.id}`}
+                    onError={handleImageError}
+                    data-hide-on-error="true"
+                  />
+                ) : null}
                 <div className="flex-1">
                   <h3 className="text-lg font-bold mb-1" data-testid={`text-category-name-${category.id}`}>
                     {category.name}
@@ -250,25 +256,28 @@ export default function CategoryMenuDrawer({
                                     data-testid={`product-card-${product.id}`}
                                   >
                                     <div className="flex gap-4">
-                                      <div className="relative">
-                                        <img
-                                          src={getImageUrl(product.image)}
-                                          alt={product.name}
-                                          onError={handleImageError}
-                                          className={`w-20 h-20 rounded-lg object-cover ${
-                                            !isProductAvailable ? "grayscale" : ""
-                                          }`}
-                                          data-testid={`img-product-${product.id}`}
-                                        />
-                                        {!isProductAvailable && (
-                                          <div className="absolute inset-0 bg-black/40 flex items-center justify-center rounded-lg">
-                                            <Badge variant="destructive" className="text-xs">
-                                              UNAVAILABLE
-                                            </Badge>
-                                          </div>
-                                        )}
-                                      </div>
-                                      <div className="flex-1">
+                                      {hasImage(product.image) && (
+                                        <div className="relative flex-shrink-0">
+                                          <img
+                                            src={getImageUrl(product.image)}
+                                            alt={product.name}
+                                            onError={handleImageError}
+                                            data-hide-on-error="true"
+                                            className={`w-20 h-20 rounded-lg object-cover ${
+                                              !isProductAvailable ? "grayscale" : ""
+                                            }`}
+                                            data-testid={`img-product-${product.id}`}
+                                          />
+                                          {!isProductAvailable && (
+                                            <div className="absolute inset-0 bg-black/40 flex items-center justify-center rounded-lg">
+                                              <Badge variant="destructive" className="text-xs">
+                                                UNAVAILABLE
+                                              </Badge>
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+                                      <div className="flex-1 min-w-0">
                                         <div className="flex items-start justify-between gap-2">
                                           <div>
                                             <div className="flex items-center gap-2">

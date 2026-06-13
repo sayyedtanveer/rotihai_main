@@ -6,7 +6,7 @@ import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useDeliveryLocation } from "@/contexts/DeliveryLocationContext";
 import { useCart } from "@/hooks/use-cart";
-import { storePincodeValidation, clearPincodeValidation } from "@/lib/pincodeUtils";
+import { getStoredPincodeValidation, getLegacyPincodeCache, storePincodeValidation, clearPincodeValidation } from "@/lib/pincodeUtils";
 import heroImage from '@assets/generated_images/Indian_food_spread_hero_01f8cdab.png';
 
 export default function Hero() {
@@ -24,34 +24,71 @@ export default function Hero() {
 
   // On mount: restore saved pincode from localStorage
   useEffect(() => {
-    const savedPincode = localStorage.getItem('userPincode');
-    if (savedPincode) {
-      setPincode(savedPincode);
-      const savedArea = localStorage.getItem('pincodeArea');
-      const savedLat = localStorage.getItem('userLatitude');
-      const savedLng = localStorage.getItem('userLongitude');
+    const restorePincodeState = (pincode: string, area: string, latitude: number, longitude: number) => {
+      setPincode(pincode);
+      setPincodeArea(area);
+      setPincodeValidated(true);
+      setUserLocation(latitude, longitude);
+      setDeliveryLocation({
+        pincode,
+        latitude,
+        longitude,
+        address: area,
+        isInZone: true,
+        source: "pincode",
+      });
+      localStorage.setItem('userPincode', pincode);
+      localStorage.setItem('pincodeArea', area);
+      localStorage.setItem('userLatitude', String(latitude));
+      localStorage.setItem('userLongitude', String(longitude));
+    };
 
-      if (savedArea && savedLat && savedLng) {
-        setPincodeArea(savedArea);
-        setPincodeValidated(true);
+    const cached = getStoredPincodeValidation();
+    if (cached) {
+      restorePincodeState(cached.pincode, cached.area, cached.latitude, cached.longitude);
+      return;
+    }
 
-        const lat = parseFloat(savedLat);
-        const lng = parseFloat(savedLng);
+    let savedDeliveryAddress: string | null = null;
+    try {
+      savedDeliveryAddress = localStorage.getItem('lastValidatedDeliveryAddress');
+    } catch {
+      savedDeliveryAddress = null;
+    }
 
-        // CRITICAL: Update cart store to trigger chef loading
-        setUserLocation(lat, lng);
-
-        // CRITICAL: Update delivery context so Home.tsx detects pincode and loads chefs
-        // isInZone: true so Home.tsx uses the fast path (line 217) on return visits
-        setDeliveryLocation({
-          pincode: savedPincode,
-          latitude: lat,
-          longitude: lng,
-          address: savedArea,
-          isInZone: true,
-          source: "pincode"
-        });
+    // Fallback: some flows save a structured address under a different key.
+    // Try `lastValidatedAddressStructured` if the primary key is empty.
+    if (!savedDeliveryAddress) {
+      try {
+        const structured = localStorage.getItem('lastValidatedAddressStructured');
+        if (structured) savedDeliveryAddress = structured;
+      } catch {
+        // ignore
       }
+    }
+
+    if (savedDeliveryAddress) {
+      try {
+        const parsed = JSON.parse(savedDeliveryAddress);
+        const area = parsed.areaName || parsed.address;
+        const latitude = typeof parsed.latitude === 'string' ? parseFloat(parsed.latitude) : parsed.latitude;
+        const longitude = typeof parsed.longitude === 'string' ? parseFloat(parsed.longitude) : parsed.longitude;
+
+        const isValidLocation = parsed.pincode && area && latitude != null && longitude != null && !Number.isNaN(latitude) && !Number.isNaN(longitude);
+        const hasValidTimestamp = !parsed.validatedAt || (!Number.isNaN(new Date(parsed.validatedAt).getTime()) && new Date().getTime() - new Date(parsed.validatedAt).getTime() < 24 * 60 * 60 * 1000);
+
+        if (isValidLocation && hasValidTimestamp) {
+          restorePincodeState(parsed.pincode, area, latitude, longitude);
+          return;
+        }
+      } catch {
+        // Ignore invalid stored address and fall back to legacy keys
+      }
+    }
+
+    const legacy = getLegacyPincodeCache();
+    if (legacy) {
+      restorePincodeState(legacy.pincode, legacy.area, legacy.latitude, legacy.longitude);
     }
   }, [setUserLocation, setDeliveryLocation]);
 

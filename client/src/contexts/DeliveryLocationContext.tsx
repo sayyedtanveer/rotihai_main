@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { getDeliveryAreas, getAreaSuggestions as getDynamicAreaSuggestions, isValidArea as isDynamicValidArea } from "@/lib/deliveryAreas";
+import { getStoredPincodeValidation, getLegacyPincodeCache } from "@/lib/pincodeUtils";
 
 // ============================================
 // DELIVERY LOCATION INTERFACE
@@ -53,35 +54,70 @@ const DeliveryLocationContext = createContext<DeliveryLocationContextType | unde
 // ============================================
 export function DeliveryLocationProvider({ children }: { children: ReactNode }) {
   const [location, setLocation] = useState<DeliveryLocation>(() => {
-    // Try to restore from localStorage on mount
-    const stored = localStorage.getItem("lastValidatedDeliveryAddress");
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        // Check if validation is less than 24 hours old
-        const validatedTime = new Date(parsed.validatedAt).getTime();
-        const now = new Date().getTime();
-        const twentyFourHours = 24 * 60 * 60 * 1000;
+    const now = new Date().getTime();
+    const twentyFourHours = 24 * 60 * 60 * 1000;
 
-        if (now - validatedTime < twentyFourHours) {
-          return {
-            latitude: parsed.latitude || null,
-            longitude: parsed.longitude || null,
-            pincode: parsed.pincode || null,
-            areaName: parsed.areaName || null,
-            address: parsed.address || null,
-            isInZone: parsed.isInZone || false,
-            distance: parsed.distance || null,
-            validatedAt: parsed.validatedAt || null,
-            source: parsed.source || null,
-          };
+    const parseSavedAddress = (raw: string) => {
+      try {
+        const parsed = JSON.parse(raw);
+        const area = parsed.areaName || parsed.address;
+        const latitude = typeof parsed.latitude === 'string' ? parseFloat(parsed.latitude) : parsed.latitude;
+        const longitude = typeof parsed.longitude === 'string' ? parseFloat(parsed.longitude) : parsed.longitude;
+
+        if (!parsed.pincode || !area || Number.isNaN(latitude) || Number.isNaN(longitude)) {
+          return null;
         }
-      } catch (e) {
-        // Silently fail - will use default state
+
+        // Accept stored pincode/address even if `validatedAt` is missing, unparsable
+        // or older than 24 hours. Restoring pincode on reload is more important
+        // for user experience than strictly enforcing the 24-hour expiry here.
+        // If `validatedAt` exists but is unparsable, ignore it and continue.
+
+        return {
+          latitude: latitude,
+          longitude: longitude,
+          pincode: parsed.pincode,
+          areaName: parsed.areaName || null,
+          address: area,
+          isInZone: parsed.isInZone ?? true,
+          distance: parsed.distance ?? null,
+          validatedAt: parsed.validatedAt || new Date().toISOString(),
+          source: parsed.source || "pincode",
+        } as DeliveryLocation;
+      } catch {
+        return null;
+      }
+    };
+
+    let stored: string | null = null;
+    try {
+      stored = localStorage.getItem("lastValidatedDeliveryAddress");
+    } catch {
+      stored = null;
+    }
+
+    if (stored) {
+      const initialLocation = parseSavedAddress(stored);
+      if (initialLocation) {
+        return initialLocation;
       }
     }
 
-    // Default state - empty location
+    const legacyPincode = getStoredPincodeValidation() || getLegacyPincodeCache();
+    if (legacyPincode) {
+      return {
+        latitude: legacyPincode.latitude,
+        longitude: legacyPincode.longitude,
+        pincode: legacyPincode.pincode,
+        areaName: legacyPincode.area,
+        address: legacyPincode.area,
+        isInZone: true,
+        distance: null,
+        validatedAt: legacyPincode.validatedAt || new Date().toISOString(),
+        source: "pincode",
+      };
+    }
+
     return {
       latitude: null,
       longitude: null,

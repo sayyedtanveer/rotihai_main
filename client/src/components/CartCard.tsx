@@ -7,12 +7,15 @@ import { Card, CardHeader, CardContent, CardFooter } from "@/components/ui/card"
 import { getImageUrl, handleImageError } from "@/lib/imageUrl";
 import { useState } from "react";
 
+const hasImage = (url: string | null | undefined): url is string =>
+  typeof url === "string" && url.trim().length > 0;
+
 interface CartItem {
   id: string;
   name: string;
   price: number;
   quantity: number;
-  image: string;
+  image: string | null;
   specialInstructions?: string;
 }
 
@@ -152,13 +155,16 @@ export default function CartCard({
                 data-testid={`item-${item.id}`}
               >
                 <div className={`flex gap-2 sm:gap-3 overflow-hidden ${isUnavailable ? 'opacity-50' : ''}`}>
-                  <img
-                    src={getImageUrl(item.image)}
-                    alt={item.name}
-                    className={`w-10 h-10 sm:w-12 sm:h-12 object-cover rounded-md flex-shrink-0 ${isUnavailable ? 'grayscale' : ''}`}
-                    onError={handleImageError}
-                    data-testid={`img-item-${item.id}`}
-                  />
+                  {hasImage(item.image) && (
+                    <img
+                      src={getImageUrl(item.image)}
+                      alt={item.name}
+                      className={`w-10 h-10 sm:w-12 sm:h-12 object-cover rounded-md flex-shrink-0 ${isUnavailable ? 'grayscale' : ''}`}
+                      onError={handleImageError}
+                      data-hide-on-error="true"
+                      data-testid={`img-item-${item.id}`}
+                    />
+                  )}
                   <div className="flex-1 min-w-0">
                     <h4 className={`font-medium text-xs sm:text-sm truncate ${isUnavailable ? 'line-through text-muted-foreground' : ''}`} data-testid={`text-item-name-${item.id}`}>
                       {item.name}

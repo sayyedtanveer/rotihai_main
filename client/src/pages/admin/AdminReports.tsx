@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -14,6 +14,16 @@ import {
 } from "lucide-react";
 import api from "@/lib/apiClient";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -78,6 +88,54 @@ export default function AdminReports() {
     queryFn: () => fetchReport('chefs'),
     enabled: activeTab === 'chefs'
   });
+
+  const [selectedChefId, setSelectedChefId] = useState<string | null>(null);
+  const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
+  const [isMarkingPaid, setIsMarkingPaid] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  const { data: chefsList } = useQuery({
+    queryKey: ['admin-chefs-list'],
+    queryFn: async () => {
+      const { data } = await api.get('/api/admin/chefs');
+      return data;
+    },
+    enabled: true,
+  });
+
+  const { data: chefPayoutData, isLoading: chefPayoutLoading, refetch: refetchPayout } = useQuery({
+    queryKey: ['admin-report-chef-payout', dateRange, selectedChefId],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        from: dateRange.from.toISOString(),
+        to: dateRange.to.toISOString(),
+      });
+      if (selectedChefId) params.append('chefId', selectedChefId);
+      const { data } = await api.get(`/api/admin/reports/chef-payout?${params}`);
+      return data;
+    },
+    enabled: activeTab === 'chef-payout'
+  });
+
+  useEffect(() => {
+    // clear selections when data or chef filter changes
+    setSelectedOrders(new Set());
+  }, [chefPayoutData, selectedChefId]);
+
+  const handleConfirmBulk = async () => {
+    setConfirmOpen(false);
+    if (selectedOrders.size === 0) return;
+    setIsMarkingPaid(true);
+    try {
+      await api.post('/api/admin/payouts/mark-paid-bulk', { payoutIds: Array.from(selectedOrders) });
+      await refetchPayout();
+      setSelectedOrders(new Set());
+    } catch (e) {
+      console.error('Bulk mark paid failed', e);
+    } finally {
+      setIsMarkingPaid(false);
+    }
+  };
 
   const exportToCSV = (data: any[], filename: string) => {
     if (!data || data.length === 0) return;
@@ -152,6 +210,13 @@ export default function AdminReports() {
               if (activeTab === 'cancelled-orders' && cancelledOrdersData?.orders) exportToCSV(cancelledOrdersData.orders, 'cancelled_orders');
               if (activeTab === 'customers' && customersData?.topCustomers) exportToCSV(customersData.topCustomers, 'customers');
               if (activeTab === 'chefs' && chefsData?.chefStats) exportToCSV(chefsData.chefStats, 'chefs');
+              if (activeTab === 'chef-payout' && chefPayoutData?.orders) exportToCSV(
+                chefPayoutData.orders.map((order: any) => ({
+                  ...order,
+                  items: JSON.stringify(order.items || [])
+                })),
+                'chef_payout_orders'
+              );
             }}>
               <Download className="w-4 h-4 mr-2" /> Export CSV
             </Button>
@@ -167,6 +232,7 @@ export default function AdminReports() {
               <TabsTrigger value="cancelled-orders" className="flex items-center"><XCircle className="w-4 h-4 mr-2"/> Cancelled Orders</TabsTrigger>
               <TabsTrigger value="customers" className="flex items-center"><Users className="w-4 h-4 mr-2"/> Customers</TabsTrigger>
               <TabsTrigger value="chefs" className="flex items-center"><ChefHat className="w-4 h-4 mr-2"/> Chefs</TabsTrigger>
+              <TabsTrigger value="chef-payout" className="flex items-center"><ChefHat className="w-4 h-4 mr-2"/> Chef Payouts</TabsTrigger>
             </TabsList>
           </div>
 
@@ -464,7 +530,152 @@ export default function AdminReports() {
              )}
           </TabsContent>
 
+          {/* CHEF PAYOUT TAB */}
+          <TabsContent value="chef-payout" className="space-y-4">
+            {chefPayoutLoading ? <Skeleton className="h-96 w-full" /> : (
+              <>
+                <div className="flex items-center justify-between gap-4">
+                  <div className="grid gap-4 md:grid-cols-4 w-full">
+                  <Card>
+                    <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Payout Orders</CardTitle></CardHeader>
+                    <CardContent><div className="text-2xl font-bold">{chefPayoutData?.totalOrders || 0}</div></CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Total Chef Earnings</CardTitle></CardHeader>
+                    <CardContent><div className="text-2xl font-bold text-green-600">{formatCurrency(chefPayoutData?.totalChefEarnings || 0)}</div></CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Paid to Chef</CardTitle></CardHeader>
+                    <CardContent><div className="text-2xl font-bold text-blue-600">{chefPayoutData?.orders?.filter((order: any) => order.paidToChef).length || 0}</div></CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Paid Through</CardTitle></CardHeader>
+                    <CardContent>
+                      <div className="text-lg font-medium">
+                        {(() => {
+                          const paidDates = (chefPayoutData?.orders || []).map((o: any) => o.paidAt ? new Date(o.paidAt) : null).filter(Boolean) as Date[];
+                          if (paidDates.length === 0) return 'No payments yet';
+                          const last = new Date(Math.max(...paidDates.map(d => d.getTime())));
+                          return format(last, 'LLL yyyy');
+                        })()}
+                      </div>
+                    </CardContent>
+                  </Card>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Select value={selectedChefId ?? '__all'} onValueChange={(v) => setSelectedChefId(v === '__all' ? null : (v || null))}>
+                      <SelectTrigger className="w-56">
+                        <SelectValue placeholder="Filter by Chef" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__all">All Chefs</SelectItem>
+                        {(chefsList || []).map((c: any) => (
+                          <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+
+                    {selectedOrders.size > 0 && (
+                      <Button variant="destructive" onClick={() => setConfirmOpen(true)} disabled={isMarkingPaid}>
+                        <Check className="w-4 h-4 mr-2" /> Mark Selected as Paid ({selectedOrders.size})
+                      </Button>
+                    )}
+                  </div>
+                </div>
+
+                <Card>
+                  <CardHeader><CardTitle>Chef Payout Order List</CardTitle></CardHeader>
+                  <CardContent className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-8"><Checkbox
+                            checked={chefPayoutData?.orders?.filter((o: any) => o.payoutId && !o.paidToChef).length > 0 && selectedOrders.size === (chefPayoutData?.orders?.filter((o: any) => o.payoutId && !o.paidToChef).length)}
+                            onCheckedChange={() => {
+                              const nonPaid = (chefPayoutData?.orders || []).filter((o: any) => o.payoutId && !o.paidToChef).map((o: any) => o.payoutId);
+                              if (nonPaid.length === 0) return;
+                              const allSelected = nonPaid.every((id: string) => selectedOrders.has(id));
+                              if (allSelected) setSelectedOrders(new Set());
+                              else setSelectedOrders(new Set(nonPaid));
+                            }}
+                          /></TableHead>
+                          <TableHead>Order ID</TableHead>
+                          <TableHead>Chef</TableHead>
+                          <TableHead>Customer</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead className="text-right">Chef Earning</TableHead>
+                          <TableHead className="text-right">Payout Status</TableHead>
+                          <TableHead className="text-right">Action</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {chefPayoutData?.orders?.map((order: any) => (
+                          <TableRow key={order.id}>
+                            <TableCell className="w-8"><Checkbox
+                              checked={order.payoutId ? selectedOrders.has(order.payoutId) : false}
+                              onCheckedChange={() => {
+                                if (!order.payoutId) return;
+                                const s = new Set(selectedOrders);
+                                if (s.has(order.payoutId)) s.delete(order.payoutId);
+                                else s.add(order.payoutId);
+                                setSelectedOrders(s);
+                              }}
+                              disabled={!order.payoutId || order.paidToChef}
+                            /></TableCell>
+                            <TableCell className="font-mono text-xs">{order.id.slice(0, 8)}</TableCell>
+                            <TableCell>{order.chefName}</TableCell>
+                            <TableCell>{order.customerName}</TableCell>
+                            <TableCell>{order.status}</TableCell>
+                            <TableCell className="text-right font-medium">{formatCurrency(order.totalChefEarning)}</TableCell>
+                            <TableCell className="text-right">
+                              <Badge variant={order.paidToChef ? "default" : "secondary"}>
+                                {order.paidToChef ? "Paid" : "Pending"}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {!order.paidToChef && order.payoutId ? (
+                                <Button size="sm" onClick={async () => {
+                                  setIsMarkingPaid(true);
+                                  try {
+                                    await api.post('/api/admin/payouts/mark-paid', { payoutId: order.payoutId });
+                                    await refetchPayout();
+                                  } catch (e) { console.error(e); }
+                                  setIsMarkingPaid(false);
+                                }}>
+                                  <Check className="w-4 h-4 mr-2" /> Mark Paid
+                                </Button>
+                              ) : (
+                                <span className="text-muted-foreground">-</span>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                        {(!chefPayoutData?.orders || chefPayoutData.orders.length === 0) && (
+                          <TableRow><TableCell colSpan={8} className="text-center py-4 text-muted-foreground">No chef payout orders in this period.</TableCell></TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+              </>
+            )}
+          </TabsContent>
+
         </Tabs>
+        <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Confirm bulk payout</DialogTitle>
+              <DialogDescription>Mark {selectedOrders.size} selected payout(s) as paid? This action cannot be undone.</DialogDescription>
+            </DialogHeader>
+            <div className="mt-4 flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setConfirmOpen(false)}>Cancel</Button>
+              <Button onClick={handleConfirmBulk} disabled={isMarkingPaid}>{isMarkingPaid ? 'Marking...' : `Confirm (${selectedOrders.size})`}</Button>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </AdminLayout>
   );

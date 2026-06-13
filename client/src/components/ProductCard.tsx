@@ -3,14 +3,14 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Minus, Star } from "lucide-react";
 import { useState } from "react";
-import { getImageUrl, handleImageError } from "@/lib/imageUrl";
+import { getImageUrl, handleImageError, hasImage } from "@/lib/imageUrl";
 
 interface ProductCardProps {
   id: string;
   name: string;
   description: string;
   price: number;
-  image: string;
+  image: string | null;
   rating?: number;
   reviewCount?: number;
   isVeg?: boolean;
@@ -67,13 +67,16 @@ export default function ProductCard({
   return (
     <Card className="overflow-hidden hover-elevate group" data-testid={`card-product-${id}`}>
       <div className="relative h-48 overflow-hidden">
-        <img
-          src={getImageUrl(image)}
-          alt={name}
-          className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-          onError={handleImageError}
-          data-testid={`img-product-${id}`}
-        />
+        {hasImage(image) && (
+          <img
+            src={getImageUrl(image)}
+            alt={name}
+            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+            onError={handleImageError}
+            data-hide-on-error="true"
+            data-testid={`img-product-${id}`}
+          />
+        )}
         <div className="absolute top-3 left-3 flex gap-2">
           <Badge
             variant={isVeg ? "default" : "destructive"}

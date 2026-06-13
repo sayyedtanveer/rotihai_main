@@ -19,7 +19,7 @@ import ActiveOrderBanner from "@/components/ActiveOrderBanner";
 import { StreetRefinementSheet, getStoredStreetRefinement, saveStreetRefinement } from "@/components/StreetRefinementSheet";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { DeliveryAddressSelector } from "@/components/DeliveryAddressSelector";
-import { getImageUrl, handleImageError } from "@/lib/imageUrl";
+import { getImageUrl, handleImageError, hasImage } from "@/lib/imageUrl";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -1155,13 +1155,20 @@ export default function Home() {
                   >
                     <div className={`relative w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 rounded-full overflow-hidden shadow-md group-hover:shadow-lg transition-all group-hover:scale-105 flex-shrink-0 ${selectedCategoryTab === category.id ? "ring-2 ring-primary ring-offset-2" : ""
                       }`}>
-                      <img
-                        src={getImageUrl(category.image)}
-                        alt={category.name}
-                        className="w-full h-full object-cover object-center"
-                        loading="lazy"
-                        onError={handleImageError}
-                      />
+                      {hasImage(category.image) ? (
+                        <img
+                          src={getImageUrl(category.image)}
+                          alt={category.name}
+                          className="w-full h-full object-cover object-center"
+                          loading="lazy"
+                          onError={handleImageError}
+                          data-hide-on-error="true"
+                        />
+                      ) : (
+                        <div className="w-full h-full bg-muted flex items-center justify-center text-primary">
+                          <span className="text-xl">🍽️</span>
+                        </div>
+                      )}
                     </div>
                     <span className={`text-xs font-medium text-center leading-tight line-clamp-2 max-w-[88px] sm:max-w-[96px] md:max-w-[112px] ${selectedCategoryTab === category.id ? "text-primary font-bold" : "text-muted-foreground"
                       }`}>{category.name}</span>
@@ -1412,12 +1419,20 @@ export default function Home() {
                         data-testid={`card-partner-${chef.id}`}
                       >
                         <div className="relative h-36 sm:h-44 overflow-hidden">
-                          <img
-                            src={chef.image}
-                            alt={chef.name}
-                            className={`w-full h-full object-cover transition-transform duration-300 ${isChefInactive ? "grayscale" : "group-hover:scale-105"
-                              }`}
-                          />
+                          {hasImage(chef.image) ? (
+                            <img
+                              src={getImageUrl(chef.image)}
+                              alt={chef.name}
+                              className={`w-full h-full object-cover transition-transform duration-300 ${isChefInactive ? "grayscale" : "group-hover:scale-105"
+                                }`}
+                              onError={handleImageError}
+                              data-hide-on-error="true"
+                            />
+                          ) : (
+                            <div className="w-full h-full bg-muted flex items-center justify-center text-muted-foreground">
+                              <span className="text-3xl">🍽️</span>
+                            </div>
+                          )}
                           <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
 
                           {/* Offer Badge - only show if there's a real offer */}
@@ -1623,38 +1638,20 @@ export default function Home() {
                           data-testid={`card-chef-${chef.id}`}
                         >
                           <div className="relative h-36 sm:h-44 overflow-hidden">
+                          {hasImage(chef.image) ? (
                             <img
                               src={getImageUrl(chef.image)}
                               alt={chef.name}
                               onError={handleImageError}
+                              data-hide-on-error="true"
                               className={`w-full h-full object-cover transition-transform duration-300 ${isChefInactive ? "grayscale" : "group-hover:scale-105"
                                 }`}
                             />
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
-
-                            {/* Rating Badge */}
-                            <div className="absolute bottom-3 left-3 bg-green-600 text-white text-xs font-bold px-2 py-1 rounded flex items-center gap-1">
-                              <Star className="h-3 w-3 fill-current" />
-                              {chef.rating}
+                          ) : (
+                            <div className="w-full h-full bg-muted flex items-center justify-center text-muted-foreground">
+                              <span className="text-3xl">🍽️</span>
                             </div>
-
-                            {/* Truly inactive overlay — only for admin-disabled chefs */}
-                            {isChefInactive && (
-                              <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                                <Badge variant="destructive" className="text-sm">
-                                  Currently Unavailable
-                                </Badge>
-                              </div>
-                            )}
-
-                            {/* Closed badge — active but not currently open */}
-                            {!isChefInactive && !isChefOpen && (
-                              <div className="absolute top-2 left-2">
-                                <Badge variant="destructive" className="text-xs">
-                                  Closed
-                                </Badge>
-                              </div>
-                            )}
+                          )}
 
                             {distance !== null && !isChefInactive && (
                               <div className="absolute top-3 right-3 bg-white/95 backdrop-blur-sm px-2 py-1 rounded-full text-xs font-medium">

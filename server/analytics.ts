@@ -1,4 +1,4 @@
-import { Order, User, Chef, PaymentStatus, Visitor } from "@shared/schema";
+import { Order, User, Chef, Visitor } from "@shared/schema";
 import { 
   startOfDay, endOfDay, 
   startOfWeek, endOfWeek, 
@@ -73,6 +73,13 @@ export const filterOrdersByDateRange = (orders: Order[], range: DateRange): Orde
       : new Date(order.createdAt);
       
     return isWithinInterval(orderDate, { start: range.start, end: range.end });
+  });
+};
+
+export const filterOrdersByCreatedDateRange = (orders: Order[], range: DateRange): Order[] => {
+  return orders.filter(order => {
+    const createdAt = new Date(order.createdAt);
+    return isWithinInterval(createdAt, { start: range.start, end: range.end });
   });
 };
 
@@ -154,8 +161,12 @@ export const getPeriodOrderComparison = (allOrders: Order[], period: TimePeriod)
   const currentRange = getPeriodRange(period, now);
   const prevRange = getPreviousPeriodRange(period, now);
 
-  const currentOrders = filterOrdersByDateRange(allOrders, currentRange);
-  const prevOrders = filterOrdersByDateRange(allOrders, prevRange);
+  const currentOrdersRaw = filterOrdersByCreatedDateRange(allOrders, currentRange);
+  const prevOrdersRaw = filterOrdersByCreatedDateRange(allOrders, prevRange);
+
+  // Exclude cancelled orders from order counts (they should not count towards today's orders)
+  const currentOrders = currentOrdersRaw.filter(o => !isCancelledOrder(o));
+  const prevOrders = prevOrdersRaw.filter(o => !isCancelledOrder(o));
 
   const growth = calculateGrowth(currentOrders.length, prevOrders.length);
 
@@ -199,7 +210,7 @@ export const getCustomerMetrics = (allOrders: Order[], users: User[], periodRang
   // Definition: User who has placed at least one order.
   const allCustomerIds = new Set(allOrders.map(o => o.userId).filter(Boolean));
   
-  const periodOrders = filterOrdersByDateRange(allOrders, periodRange);
+  const periodOrders = filterOrdersByCreatedDateRange(allOrders, periodRange);
   const periodCustomerIds = new Set(periodOrders.map(o => o.userId).filter(Boolean));
   
   // Find new customers in this period (first order was in this period)
@@ -338,6 +349,19 @@ export const generateTopAreas = (orders: Order[], limit = 5) => {
 // ==========================================
 // Accurate visitor tracking without double-counting
 
+const isValidFrontendVisitor = (visitor: Visitor): boolean => {
+  if (!visitor || !visitor.sessionId || visitor.sessionId.trim() === "") {
+    return false;
+  }
+
+  const page = typeof visitor.page === "string" ? visitor.page.trim().toLowerCase() : "";
+  if (page && (page.startsWith("/admin") || page.startsWith("/partner") || page.startsWith("/delivery"))) {
+    return false;
+  }
+
+  return true;
+};
+
 export const getVisitorMetricsForToday = (visitors: Visitor[]): {
   todaysVisits: number;
   uniqueVisitors: number;
@@ -356,10 +380,10 @@ export const getVisitorMetricsForToday = (visitors: Visitor[]): {
 
   const todayRange = getPeriodRange("today");
   
-  // Filter visitors for today, excluding those with null/empty sessionId
+  // Filter visitors for today, excluding invalid frontend sessions and admin/partner/delivery pages
   const todayVisitors = visitors.filter(v => {
-    if (!v.sessionId || v.sessionId.trim() === '') {
-      return false; // Skip records without valid sessionId
+    if (!isValidFrontendVisitor(v)) {
+      return false;
     }
     const visitDate = new Date(v.createdAt);
     return isWithinInterval(visitDate, todayRange);
@@ -377,9 +401,10 @@ export const getVisitorMetricsForToday = (visitors: Visitor[]): {
   let returningVisitors = 0;
 
   uniqueSessionIds.forEach(sessionId => {
-    // Check if this sessionId has ANY visits before today
+    // Check if this sessionId has ANY valid frontend visits before today
     const previousVisits = visitors.filter(v => 
       v.sessionId === sessionId && 
+      isValidFrontendVisitor(v) &&
       new Date(v.createdAt) < todayRange.start
     );
 
@@ -388,15 +413,6 @@ export const getVisitorMetricsForToday = (visitors: Visitor[]): {
     } else {
       returningVisitors++;
     }
-  });
-
-  console.log('[VISITOR METRICS] Today calculations:', {
-    totalVisitors: visitors.length,
-    todaysVisits,
-    uniqueVisitors,
-    newVisitors,
-    returningVisitors,
-    sessionIdsWithoutValue: visitors.filter(v => !v.sessionId || v.sessionId.trim() === '').length,
   });
 
   return {
@@ -417,6 +433,9 @@ export const getVisitorMetricsForPeriod = (visitors: Visitor[], period: TimePeri
   const periodRange = getPeriodRange(period);
   
   const periodVisitors = visitors.filter(v => {
+    if (!isValidFrontendVisitor(v)) {
+      return false;
+    }
     const visitDate = new Date(v.createdAt);
     return isWithinInterval(visitDate, periodRange);
   });

@@ -18,7 +18,31 @@ import { db, subscriptions, orders, walletSettings, referralRewards, newsletterS
 import { eq } from "drizzle-orm";
 import { ZodError } from "zod";
 import axios from "axios";
-import { getRoadAdjustedDistance } from "@shared/deliveryUtils";
+import { getRoadAdjustedDistance, ROAD_DISTANCE_MULTIPLIER } from "@shared/deliveryUtils";
+
+async function resolveRoadDistanceMultiplier(): Promise<number> {
+  let roadDistanceMultiplier = ROAD_DISTANCE_MULTIPLIER;
+
+  try {
+    const paymentSettingsData = await db.query.paymentSettings.findFirst();
+    if (paymentSettingsData) {
+      const enabled = (paymentSettingsData as any).enableRoadDistanceMultiplier;
+      const dbMultiplier = (paymentSettingsData as any).roadDistanceMultiplier;
+
+      if (enabled === false) {
+        roadDistanceMultiplier = 1.0;
+      } else if (dbMultiplier) {
+        roadDistanceMultiplier = parseFloat(dbMultiplier as any);
+      }
+
+      console.log(`[DISTANCE-MULTIPLIER] Resolved multiplier: ${roadDistanceMultiplier}x, enabled: ${enabled}`);
+    }
+  } catch (err) {
+    console.warn(`[DISTANCE-MULTIPLIER] Could not resolve admin multiplier, using default: ${roadDistanceMultiplier}x`, err);
+  }
+
+  return roadDistanceMultiplier;
+}
 
 // ✅ Constants - Avoid hardcoding enum values
 const DEFAULT_DELIVERY_TIME = "09:00";
@@ -533,15 +557,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return coordinatesMap;
     } catch (err) {
       console.error('[COORDINATES] Error fetching area coordinates from database:', err);
-      // Fallback to defaults if database fetch fails
+      // Fallback used only when DB is unreachable — covers major Mumbai zones so
+      // geocoded pincodes still resolve to a sensible area during outages.
       return {
+        // Central Mumbai
         "kurla": { lat: 19.0686, lon: 72.8817, name: "Kurla" },
         "kurla west": { lat: 19.0728, lon: 72.8826, name: "Kurla West" },
         "kurla east": { lat: 19.0644, lon: 72.8877, name: "Kurla East" },
-        "worli": { lat: 19.0176, lon: 72.8194, name: "Worli" },
+        "dadar": { lat: 19.0176, lon: 72.8388, name: "Dadar" },
+        "sion": { lat: 19.0413, lon: 72.8657, name: "Sion" },
+        "chunabhatti": { lat: 19.0505, lon: 72.8681, name: "Chunabhatti" },
+        "chembur": { lat: 19.0522, lon: 72.9005, name: "Chembur" },
+        "ghatkopar": { lat: 19.0866, lon: 72.9090, name: "Ghatkopar" },
+        "vikhroli": { lat: 19.1009, lon: 72.9265, name: "Vikhroli" },
+        "kanjurmarg": { lat: 19.1048, lon: 72.9416, name: "Kanjurmarg" },
+        "bhandup": { lat: 19.1442, lon: 72.9347, name: "Bhandup" },
+        "mulund": { lat: 19.1726, lon: 72.9566, name: "Mulund" },
+        // Western suburbs
         "bandra": { lat: 19.0596, lon: 72.8295, name: "Bandra" },
         "andheri": { lat: 19.1136, lon: 72.8697, name: "Andheri" },
-        "dadar": { lat: 19.0176, lon: 72.8388, name: "Dadar" },
+        "andheri west": { lat: 19.1248, lon: 72.8340, name: "Andheri West" },
+        "andheri east": { lat: 19.1148, lon: 72.8771, name: "Andheri East" },
+        "jogeshwari": { lat: 19.1417, lon: 72.8494, name: "Jogeshwari" },
+        "goregaon": { lat: 19.1527, lon: 72.8497, name: "Goregaon" },
+        "malad": { lat: 19.1891, lon: 72.8487, name: "Malad" },
+        "kandivali": { lat: 19.2167, lon: 72.8521, name: "Kandivali" },
+        "borivali": { lat: 19.2324, lon: 72.8567, name: "Borivali" },
+        "dahisar": { lat: 19.2636, lon: 72.8560, name: "Dahisar" },
+        // South Mumbai
+        "worli": { lat: 19.0176, lon: 72.8194, name: "Worli" },
+        "colaba": { lat: 18.9067, lon: 72.8147, name: "Colaba" },
+        "fort": { lat: 18.9338, lon: 72.8354, name: "Fort" },
+        "lower parel": { lat: 18.9937, lon: 72.8196, name: "Lower Parel" },
+        "parel": { lat: 18.9955, lon: 72.8384, name: "Parel" },
+        "mahim": { lat: 19.0380, lon: 72.8438, name: "Mahim" },
+        // Eastern suburbs
+        "powai": { lat: 19.1197, lon: 72.9056, name: "Powai" },
+        "chandivali": { lat: 19.1146, lon: 72.8992, name: "Chandivali" },
+        "sakinaka": { lat: 19.1001, lon: 72.8898, name: "Sakinaka" },
       };
     }
   };
@@ -599,17 +652,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/track-visitor", async (req, res) => {
     try {
       const { userId, sessionId, page, userAgent, referrer } = req.body;
+      const trimmedPage = typeof page === "string" && page.trim() ? page.trim() : "/";
+      const normalizedSessionId = typeof sessionId === "string" && sessionId.trim() ? sessionId.trim() : null;
 
       // Skip tracking for admin, partner, and delivery routes
-      if (page && (page.startsWith("/admin") || page.startsWith("/partner") || page.startsWith("/delivery"))) {
+      if (trimmedPage.startsWith("/admin") || trimmedPage.startsWith("/partner") || trimmedPage.startsWith("/delivery")) {
+        res.json({ success: true });
+        return;
+      }
+
+      // Only track real frontend sessions with a valid sessionId
+      if (!normalizedSessionId) {
         res.json({ success: true });
         return;
       }
 
       const visitorData = {
         userId: userId || null,
-        sessionId: sessionId || `session-${Date.now()}`,
-        page: page || "/",
+        sessionId: normalizedSessionId,
+        page: trimmedPage,
         userAgent: userAgent || req.get("user-agent") || "Unknown",
         ipAddress: req.ip || req.connection.remoteAddress || "Unknown",
         referrer: referrer || null,
@@ -1906,52 +1967,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Calculate distance from CHEF'S LOCATION to DELIVERY ADDRESS
       const { calculateDistance } = await import("@shared/deliveryUtils");
 
-      // Get chef's location from database (if no chefId, use Kurla West default)
-      let chefLat = 19.0728;
-      let chefLon = 72.8826;
-      let chefName = "Kurla West Kitchen";
-      let maxDeliveryDistance = 5; // Default fallback
-      let chef: any = null;
-
-      if (sanitized.chefId) {
-        chef = await db.query.chefs.findFirst({
-          where: (c: any, { eq }: any) => eq(c.id, sanitized.chefId)
+      // Get chef's location from database (REQUIRED - no hardcoded defaults)
+      if (!sanitized.chefId) {
+        return res.status(400).json({
+          message: "Chef ID is required to calculate delivery distance"
         });
-        if (chef) {
-          chefLat = chef.latitude ?? 19.0728;
-          chefLon = chef.longitude ?? 72.8826;
-          chefName = chef.name;
-          // Use chef's specific delivery distance limit, not hardcoded 2.5km!
-          maxDeliveryDistance = chef.maxDeliveryDistanceKm ?? 5;
+      }
 
-          // ✅ CRITICAL: Validate restaurant status (MANDATORY FINAL GATE)
-          const config = buildRestaurantConfig(chef);
-          const status = calculateRestaurantStatus(config);
-          
-          console.log(`[ORDER-VALIDATION] Restaurant status check:`, {
-            chefId: sanitized.chefId,
-            chefName: chefName,
-            isCurrentlyOpen: status.isCurrentlyOpen,
-            reason: status.reason,
-            nextOpening: status.nextOpeningTime
-          });
-          
-          if (!status.isCurrentlyOpen) {
-            console.warn(`🚫 Order rejected - restaurant is closed:`, {
-              chefId: sanitized.chefId,
-              chefName: chefName,
-              closedReason: status.reason,
-              nextOpening: status.nextOpeningTime
-            });
-            return res.status(400).json({
-              message: "Restaurant is currently closed. Please try again later.",
-              restaurantClosed: true,
-              reason: status.reason,
-              nextOpening: status.nextOpeningTime,
-              openingTime: chef.openingTime
-            });
-          }
-        }
+      const chef = await db.query.chefs.findFirst({
+        where: (c: any, { eq }: any) => eq(c.id, sanitized.chefId)
+      });
+
+      if (!chef) {
+        return res.status(404).json({
+          message: "Chef not found"
+        });
+      }
+
+      // Verify chef has valid coordinates
+      if (chef.latitude === null || chef.latitude === undefined || chef.longitude === null || chef.longitude === undefined) {
+        return res.status(400).json({
+          message: "Chef location coordinates not configured. Contact support."
+        });
+      }
+
+      let chefLat = chef.latitude;
+      let chefLon = chef.longitude;
+      const chefName = chef.name;
+      // Use chef's specific delivery distance limit
+      const maxDeliveryDistance = chef.maxDeliveryDistanceKm ?? 5;
+
+      // ✅ CRITICAL: Validate restaurant status (MANDATORY FINAL GATE)
+      const config = buildRestaurantConfig(chef);
+      const status = calculateRestaurantStatus(config);
+      
+      console.log(`[ORDER-VALIDATION] Restaurant status check:`, {
+        chefId: sanitized.chefId,
+        chefName: chefName,
+        isCurrentlyOpen: status.isCurrentlyOpen,
+        reason: status.reason,
+        nextOpening: status.nextOpeningTime
+      });
+      
+      if (!status.isCurrentlyOpen) {
+        console.warn(`🚫 Order rejected - restaurant is closed:`, {
+          chefId: sanitized.chefId,
+          chefName: chefName,
+          closedReason: status.reason,
+          nextOpening: status.nextOpeningTime
+        });
+        return res.status(400).json({
+          message: "Restaurant is currently closed. Please try again later.",
+          restaurantClosed: true,
+          reason: status.reason,
+          nextOpening: status.nextOpeningTime,
+          openingTime: chef.openingTime
+        });
       }
 
       const addressDistance = calculateDistance(chefLat, chefLon, customerLatitude, customerLongitude);
@@ -2038,23 +2109,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }));
 
         // 🛣️ Fetch admin-configured distance multiplier and apply it BEFORE fee calculation
-        let roadDistanceMultiplier = 1.5; // Default fallback
-        try {
-          const paymentSettingsData = await db.query.paymentSettings.findFirst();
-          if (paymentSettingsData) {
-            const enabled = (paymentSettingsData as any).enableRoadDistanceMultiplier;
-            const dbMultiplier = (paymentSettingsData as any).roadDistanceMultiplier;
-            if (enabled === false) {
-              roadDistanceMultiplier = 1.0;
-              console.log(`[DISTANCE-MULTIPLIER] Multiplier disabled by admin - using 1.0x`);
-            } else if (dbMultiplier) {
-              roadDistanceMultiplier = parseFloat(dbMultiplier as any);
-              console.log(`[DISTANCE-MULTIPLIER] Using admin-configured multiplier: ${roadDistanceMultiplier}x`);
-            }
-          }
-        } catch (err) {
-          console.warn(`[DISTANCE-MULTIPLIER] Could not fetch admin settings, using default 1.5x:`, err);
-        }
+        const roadDistanceMultiplier = await resolveRoadDistanceMultiplier();
 
         // Use the shared calculateDelivery utility that the frontend uses
         const { calculateDelivery } = await import("@shared/deliveryUtils");
@@ -2085,16 +2140,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // This matches the adjusted distance used in fee calculation
         const { getRoadAdjustedDistance: getAdjustedDist } = await import("@shared/deliveryUtils");
         const adjustedDistance = getAdjustedDist(addressDistance, roadDistanceMultiplier);
-        
-        // Store ADJUSTED distance for delivery partner payout calculation (as string for DECIMAL type)
-        (sanitized as any).distance = adjustedDistance.toFixed(2);
+        const distanceForPayout = roadDistanceMultiplier === 1.0 ? addressDistance : adjustedDistance;
 
-        console.log(`[DISTANCE-ADJUSTED] Raw: ${addressDistance.toFixed(2)}km → Adjusted: ${adjustedDistance.toFixed(2)}km (multiplier: ${roadDistanceMultiplier}x)`);
+        // Store final distance used for payout calculation (as string for DECIMAL type)
+        (sanitized as any).distance = distanceForPayout.toFixed(2);
+
+        console.log(`[DISTANCE-ADJUSTED] Raw Haversine: ${addressDistance}km (exact), Multiplier: ${roadDistanceMultiplier}x, Adjusted: ${adjustedDistance}km (exact)`);
+        console.log(`[DISTANCE-ADJUSTED] Distance used for payout slab matching: ${distanceForPayout}km`);
 
         // Calculate distance-based delivery partner payout (fetches from database)
-        // Use ADJUSTED distance for payout consistency with fee calculation
+        // Use final distance determined by admin configuration
         const deliveryPartnerPayout = await storage.calculateDeliveryPartnerPayout(
-          adjustedDistance,
+          distanceForPayout,
           sanitized.addressPincode  // Pass pincode for regional rate matching
         );
         (sanitized as any).deliveryPartnerPayout = deliveryPartnerPayout;
@@ -3515,6 +3572,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
         items: pendingCheckout.items as any,
       };
 
+      if (typeof orderData.customerLatitude !== "undefined" && typeof orderData.customerLongitude !== "undefined") {
+        try {
+          const { calculateDistance } = await import("@shared/deliveryUtils");
+
+          if (!orderData.chefId) {
+            console.warn(`[PENDING-CHECKOUT] No chefId provided, skipping distance calculation`);
+          } else {
+            const chef = await storage.getChefById(orderData.chefId);
+            if (!chef) {
+              console.warn(`[PENDING-CHECKOUT] Chef not found: ${orderData.chefId}`);
+            } else if (chef.latitude === null || chef.latitude === undefined || chef.longitude === null || chef.longitude === undefined) {
+              console.warn(`[PENDING-CHECKOUT] Chef has no coordinates: ${orderData.chefId}`);
+            } else {
+              const chefLat = chef.latitude;
+              const chefLon = chef.longitude;
+
+              const addressDistance = calculateDistance(
+                chefLat,
+                chefLon,
+                Number(orderData.customerLatitude),
+                Number(orderData.customerLongitude)
+              );
+
+              const roadDistanceMultiplier = await resolveRoadDistanceMultiplier();
+              const adjustedDistance = getRoadAdjustedDistance(addressDistance, roadDistanceMultiplier);
+              const distanceForPayout = roadDistanceMultiplier === 1.0 ? addressDistance : adjustedDistance;
+
+              (orderData as any).distance = distanceForPayout.toFixed(2);
+              (orderData as any).deliveryPartnerPayout = await storage.calculateDeliveryPartnerPayout(
+                distanceForPayout,
+                (orderData as any).addressPincode
+              );
+
+              console.log(`[PENDING-CHECKOUT] Computed order distance: ${(orderData as any).distance}km, payout: ₹${(orderData as any).deliveryPartnerPayout}`);
+            }
+          }
+        } catch (err) {
+          console.warn(`[PENDING-CHECKOUT] Failed to compute payout distance for order confirmation:`, err);
+        }
+      }
+
       const order = await storage.createOrder(orderData);
 
       // Send WebSocket notification
@@ -3886,25 +3984,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const allChefs = await storage.getChefs();
 
-      // Get all unique areas from chefs
-      const areas = new Set<string>();
+      // Build a map of area → averaged center coordinates (from actual chef locations)
+      const areaMap = new Map<string, { totalLat: number; totalLon: number; count: number }>();
+
       allChefs.forEach(chef => {
-        const area = (chef as any).addressArea || (chef as any).address_area;
-        if (area && area.trim()) {
-          areas.add(area.trim());
+        const area = ((chef as any).addressArea || (chef as any).address_area)?.trim();
+        if (!area) return;
+
+        const lat = typeof chef.latitude === 'number' ? chef.latitude : parseFloat(String(chef.latitude));
+        const lon = typeof chef.longitude === 'number' ? chef.longitude : parseFloat(String(chef.longitude));
+
+        // Only accumulate valid coordinates
+        if (!isNaN(lat) && !isNaN(lon) && lat !== 0 && lon !== 0) {
+          const existing = areaMap.get(area) || { totalLat: 0, totalLon: 0, count: 0 };
+          existing.totalLat += lat;
+          existing.totalLon += lon;
+          existing.count++;
+          areaMap.set(area, existing);
+        } else if (!areaMap.has(area)) {
+          // Area exists but chef has no coordinates — add placeholder so area still appears
+          areaMap.set(area, { totalLat: 0, totalLon: 0, count: 0 });
         }
       });
 
-      // Convert to sorted array
-      const areaList = Array.from(areas).sort();
+      // Convert to sorted array with averaged coordinates
+      const areaList = Array.from(areaMap.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([name, data]) => ({
+          name,
+          // Use averaged chef coordinates for this area; 0/0 count means no coordinates available
+          latitude: data.count > 0 ? data.totalLat / data.count : null,
+          longitude: data.count > 0 ? data.totalLon / data.count : null,
+        }));
 
-      console.log(`📍 [AREAS LIST] Returning ${areaList.length} areas: ${areaList.join(", ")}`);
+      console.log(`📍 [AREAS LIST] Returning ${areaList.length} areas: ${areaList.map(a => a.name).join(", ")}`);
 
-      res.json(areaList.map(name => ({
-        name,
-        latitude: 19.0728, // Default to Kurla West as reference
-        longitude: 72.8826,
-      })));
+      res.json(areaList);
     } catch (error) {
       console.error("❌ Error fetching areas:", error);
       res.status(500).json({ error: "Failed to fetch areas" });
@@ -3970,20 +4085,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return;
       }
 
-      // Get chef location or default to Kurla West, Mumbai
-      let chefLat: number = 19.0728;
-      let chefLon: number = 72.8826;
-      let chefForCalc: any = null;
-
-      if (chefId) {
-        const fetchedChef = await storage.getChefById(chefId);
-        chefForCalc = fetchedChef;
-        if (fetchedChef && fetchedChef.latitude !== null && fetchedChef.longitude !== null &&
-          fetchedChef.latitude !== undefined && fetchedChef.longitude !== undefined) {
-          chefLat = fetchedChef.latitude;
-          chefLon = fetchedChef.longitude;
-        }
+      // Get chef location (REQUIRED - no hardcoded defaults)
+      if (!chefId) {
+        res.status(400).json({ message: "Chef ID is required to calculate delivery fee" });
+        return;
       }
+
+      const fetchedChef = await storage.getChefById(chefId);
+      if (!fetchedChef) {
+        res.status(404).json({ message: "Chef not found" });
+        return;
+      }
+
+      if (fetchedChef.latitude === null || fetchedChef.latitude === undefined ||
+          fetchedChef.longitude === null || fetchedChef.longitude === undefined) {
+        res.status(400).json({ message: "Chef location coordinates not configured" });
+        return;
+      }
+
+      const chefLat = fetchedChef.latitude;
+      const chefLon = fetchedChef.longitude;
+      const chefForCalc = fetchedChef;
 
       // Import delivery utilities
       const { calculateDistance, calculateDelivery } = await import("@shared/deliveryUtils");
@@ -5181,7 +5303,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const logs = await storage.getSubscriptionDeliveryLogs(req.params.id);
-      res.json(logs);
+      // Strip internal field chefOverrideId from customer-facing response
+      const safeLogs = logs.map(({ chefOverrideId, ...safeLog }: any) => safeLog);
+      res.json(safeLogs);
     } catch (error: any) {
       console.error("Error fetching delivery logs:", error);
       res.status(500).json({ message: error.message || "Failed to fetch delivery logs" });
@@ -5506,11 +5630,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Ensure dates are properly formatted as ISO strings
       const scheduleItems = sortedLogs.map(log => {
         const logDate = log.date instanceof Date ? log.date : new Date(log.date);
+
+        // Build human-readable skip reason for the user
+        let displayReason: string | undefined;
+        if (log.status === "skipped") {
+          if ((log as any).skipReason === "platform_chef_unavailable") {
+            displayReason = "Skipped — chef unavailable (subscription extended by 1 day)";
+          } else if (log.notes && log.notes.startsWith("Skipped: ")) {
+            displayReason = log.notes.replace(/^Skipped: /, "");
+          } else if (log.notes && log.notes !== "Delivery skipped due to subscription pause period") {
+            displayReason = log.notes;
+          } else if (log.notes === "Delivery skipped due to subscription pause period") {
+            displayReason = "Subscription paused";
+          }
+        }
+
         return {
           date: logDate.toISOString(),
           time: log.time,
           items: plan.items,
-          status: log.status  // Preserve actual status (scheduled, delivered, skipped, etc.)
+          status: log.status,       // Preserve actual status (scheduled, delivered, skipped, etc.)
+          skipReason: displayReason, // Human-readable reason, only set for skipped entries
         };
       });
 
@@ -5528,10 +5668,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         schedule: scheduleItems,
         remainingDeliveries: subscription.remainingDeliveries,
         totalDeliveries: subscription.totalDeliveries,
-        deliveryHistory: sortedLogs.map((log: any) => ({
-          ...log,
-          date: log.date instanceof Date ? log.date.toISOString() : log.date
-        }))
+        deliveryHistory: sortedLogs.map((log: any) => {
+          // Strip internal field chefOverrideId from customer-facing response
+          const { chefOverrideId, ...safeLog } = log;
+          return {
+            ...safeLog,
+            date: log.date instanceof Date ? log.date.toISOString() : log.date
+          };
+        })
       });
     } catch (error: any) {
       console.error("Error fetching subscription schedule:", error);
@@ -6010,6 +6154,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
               deliveryFee: order.deliveryFee,
               discount: order.discount,
               total: order.total,
+              distance: order.distance,
+              deliveryPartnerPayout: (order as any).deliveryPartnerPayout,
               status: "pending",
               deliveryDate: nextDeliveryDate.toISOString().split('T')[0],
               deliveryTime: slot.startTime,
@@ -7026,16 +7172,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Register for push notifications
       app.post("/api/push/subscribe", async (req, res) => {
         try {
+          console.log("[PUSH-SUBSCRIBE] 📥 Incoming request:", {
+            bodyType: typeof req.body,
+            bodyKeys: Object.keys(req.body || {}),
+            hasSubscription: !!req.body?.subscription,
+            subscriptionType: typeof req.body?.subscription,
+            subscriptionKeys: Object.keys(req.body?.subscription || {}),
+            userType: req.body?.userType,
+            userId: req.body?.userId,
+          });
+
           const { subscription, userType, userId } = req.body;
 
           // Validate required fields
           if (!subscription || !subscription.endpoint) {
+            console.warn("[PUSH-SUBSCRIBE] ⚠️ Validation failed: missing subscription or endpoint");
             return res.status(400).json({
               message: "Invalid subscription data - missing endpoint",
             });
           }
 
           if (!userType || !userId) {
+            console.warn("[PUSH-SUBSCRIBE] ⚠️ Validation failed: missing userType or userId");
             return res.status(400).json({
               message: "Missing userType or userId",
             });
@@ -7044,50 +7202,84 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Validate user type
           const validTypes = ["admin", "chef", "delivery", "customer"];
           if (!validTypes.includes(userType)) {
+            console.warn("[PUSH-SUBSCRIBE] ⚠️ Validation failed: invalid userType", userType);
             return res.status(400).json({
               message: `Invalid userType. Must be one of: ${validTypes.join(", ")}`,
             });
           }
+
+          console.log("[PUSH-SUBSCRIBE] ✅ Validation passed, importing db...");
 
           // Import after validation
           const { db } = await import("@shared/db");
           const { pushSubscriptions } = await import("@shared/schema");
           const { eq, and } = await import("drizzle-orm");
 
-          // Check if subscription already exists (same user + endpoint)
-          const existing = await db
-            .select()
-            .from(pushSubscriptions)
-            .where(
-              and(
-                eq(pushSubscriptions.userId, userId),
-                eq(pushSubscriptions.userType, userType)
+          console.log("[PUSH-SUBSCRIBE] ✅ Modules imported, checking for existing subscription...");
+
+          // Check if subscription already exists (same user + userType)
+          let existing;
+          try {
+            existing = await db
+              .select()
+              .from(pushSubscriptions)
+              .where(
+                and(
+                  eq(pushSubscriptions.userId, userId),
+                  eq(pushSubscriptions.userType, userType)
+                )
               )
-            )
-            .limit(1);
+              .limit(1);
+            console.log(`[PUSH-SUBSCRIBE] ✅ DB query for existing subscription completed: ${existing.length} found`);
+          } catch (dbError: any) {
+            console.error("[PUSH-SUBSCRIBE] ❌ DB query failed:", dbError.message, dbError.stack);
+            throw dbError;
+          }
 
           if (existing.length > 0) {
-            // Update existing subscription
-            await db
-              .update(pushSubscriptions)
-              .set({
+            console.log(`[PUSH-SUBSCRIBE] 🔄 Updating existing subscription for ${userType} ${userId}`);
+            try {
+              await db
+                .update(pushSubscriptions)
+                .set({
+                  subscription: subscription as any,
+                  isActive: true,
+                  lastActivatedAt: new Date(),
+                })
+                .where(eq(pushSubscriptions.id, existing[0].id));
+              console.log(`✅ [PUSH-SUBSCRIBE] Push subscription updated for ${userType} ${userId}`);
+            } catch (updateError: any) {
+              console.error("[PUSH-SUBSCRIBE] ❌ Update failed:", updateError.message, updateError.stack);
+              throw updateError;
+            }
+          } else {
+            console.log(`[PUSH-SUBSCRIBE] ➕ Creating new subscription for ${userType} ${userId}`);
+            try {
+              const insertData = {
+                userId,
+                userType: userType as any,
                 subscription: subscription as any,
                 isActive: true,
-                lastActivatedAt: new Date(),
-              })
-              .where(eq(pushSubscriptions.id, existing[0].id));
+              };
+              console.log("[PUSH-SUBSCRIBE] 📝 Insert data:", {
+                userId: insertData.userId,
+                userType: insertData.userType,
+                hasSubscription: !!insertData.subscription,
+                subscriptionKeys: Object.keys(insertData.subscription || {}),
+                isActive: insertData.isActive,
+              });
 
-            console.log(`✅ Push subscription updated for ${userType} ${userId}`);
-          } else {
-            // Create new subscription
-            await db.insert(pushSubscriptions).values({
-              userId,
-              userType: userType as any,
-              subscription: subscription as any,
-              isActive: true,
-            } as any);
-
-            console.log(`✅ Push subscription registered for ${userType} ${userId}`);
+              await db.insert(pushSubscriptions).values(insertData as any);
+              console.log(`✅ [PUSH-SUBSCRIBE] Push subscription registered for ${userType} ${userId}`);
+            } catch (insertError: any) {
+              console.error("[PUSH-SUBSCRIBE] ❌ Insert failed:", insertError.message, insertError.stack);
+              console.error("[PUSH-SUBSCRIBE] ❌ Insert error details:", {
+                code: insertError.code,
+                constraint: insertError.constraint,
+                detail: insertError.detail,
+              });
+              throw insertError;
+            }
           }
 
           res.json({
@@ -7095,7 +7287,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             message: "Successfully registered for push notifications",
           });
         } catch (error: any) {
-          console.error("Error registering for push notifications:", error);
+          console.error("[PUSH-SUBSCRIBE] ❌ Catch-all error:", error.message);
+          console.error("[PUSH-SUBSCRIBE] ❌ Full error:", error);
           res.status(500).json({
             success: false,
             message: "Failed to register for push notifications",

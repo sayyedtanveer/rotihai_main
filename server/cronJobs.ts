@@ -604,15 +604,28 @@ export async function checkAutoScheduleTransitions(): Promise<void> {
       const chefId = chef.id;
 
       if (!lastKnownScheduleState.has(chefId)) {
-        // First run — seed without broadcasting
+        // First run after startup/restart — seed AND broadcast current state so
+        // all connected clients re-sync. Without this, a server restart during an
+        // open window would leave the map seeded as "open", and if a second restart
+        // happened at or after closing time the first tick would seed as "closed"
+        // without ever broadcasting — clients would stay stuck showing "open".
         lastKnownScheduleState.set(chefId, isNowOpen);
+        const seedTransition = isNowOpen ? "OPEN (startup sync)" : "CLOSED (startup sync)";
+        console.log(`[AUTO-SCHEDULE] Chef "${chef.name}" (${chefId}): ${seedTransition}`);
+        broadcastChefStatusUpdate({
+          ...chef,
+          isCurrentlyOpen: isNowOpen,
+          currentScheduleStatus: status.reason,
+          nextOpeningTime: status.nextOpeningTime,
+          currentSchedulePeriodEndsAt: status.currentSchedulePeriodEndsAt,
+        });
         continue;
       }
 
       const wasOpen = lastKnownScheduleState.get(chefId);
 
       if (wasOpen !== isNowOpen) {
-        // State flipped — update cache and broadcast
+        // State flipped — update map and broadcast transition
         lastKnownScheduleState.set(chefId, isNowOpen);
 
         const transition = isNowOpen ? "CLOSED → OPEN" : "OPEN → CLOSED";

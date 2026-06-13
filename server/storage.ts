@@ -6,7 +6,8 @@ import {
   db, users, categories, products, orders, chefs, adminUsers, partnerUsers, subscriptions,
   subscriptionPlans, subscriptionDeliveryLogs, deliverySettings, deliveryPartnerPayouts, cartSettings, deliveryPersonnel, coupons, couponUsages, referrals, walletTransactions, referralRewards, promotionalBanners, deliveryTimeSlots, rotiSettings, visitors, deliveryAreas, adminSettings, payoutTransactions, pendingCheckouts, customSubscriptionRequests
 } from "@shared/db";
-import { getRoadAdjustedDistance } from "@shared/deliveryUtils";
+
+export type CreateSubscriptionDeliveryLogInput = Omit<SubscriptionDeliveryLog, "id" | "createdAt" | "updatedAt" | "skipReason" | "chefOverrideId"> & { skipReason?: string | null; chefOverrideId?: string | null };
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
@@ -78,7 +79,12 @@ export interface IStorage {
     customersGrowth: number;
     customersTrend: "up" | "down" | "flat";
     statusBreakdown: any;
-    revenuePeriods: any;
+    revenuePeriods: {
+      today: { current: number; previous: number; growth: number; trend: "up" | "down" | "flat" };
+      month: { current: number; previous: number; growth: number; trend: "up" | "down" | "flat" };
+      year: { current: number; previous: number; growth: number; trend: "up" | "down" | "flat" };
+      lifetime: { current: number; previous: number; growth: number; trend: "up" | "down" | "flat" };
+    };
     orderPeriods: any;
   }>;
   getDashboardChartsData(): Promise<any>;
@@ -105,7 +111,7 @@ export interface IStorage {
   getSubscriptionDeliveryLogs(subscriptionId: string): Promise<SubscriptionDeliveryLog[]>;
   getSubscriptionDeliveryLogsByDate(date: Date): Promise<SubscriptionDeliveryLog[]>;
   getSubscriptionDeliveryLog(id: string): Promise<SubscriptionDeliveryLog | undefined>;
-  createSubscriptionDeliveryLog(data: Omit<SubscriptionDeliveryLog, "id" | "createdAt" | "updatedAt">): Promise<SubscriptionDeliveryLog>;
+  createSubscriptionDeliveryLog(data: CreateSubscriptionDeliveryLogInput): Promise<SubscriptionDeliveryLog>;
   updateSubscriptionDeliveryLog(id: string, data: Partial<SubscriptionDeliveryLog>): Promise<SubscriptionDeliveryLog | undefined>;
   deleteSubscriptionDeliveryLog(id: string): Promise<void>;
   getDeliveryLogBySubscriptionAndDate(subscriptionId: string, date: Date): Promise<SubscriptionDeliveryLog | undefined>;
@@ -571,6 +577,7 @@ export class MemStorage implements IStorage {
       isVeg: insertProduct.isVeg !== undefined ? insertProduct.isVeg : true,
       isCustomizable: insertProduct.isCustomizable !== undefined ? insertProduct.isCustomizable : false,
       chefId: insertProduct.chefId || null,
+      image: insertProduct.image ?? null,
       stockQuantity: insertProduct.stockQuantity !== undefined ? insertProduct.stockQuantity : 100,
       lowStockThreshold: insertProduct.lowStockThreshold !== undefined ? insertProduct.lowStockThreshold : 20,
       isAvailable: insertProduct.isAvailable !== undefined ? insertProduct.isAvailable : true,
@@ -989,16 +996,18 @@ export class MemStorage implements IStorage {
       getCustomerMetrics,
       getPeriodRange,
       getVisitorMetricsForToday,
+      filterOrdersByCreatedDateRange,
       filterOrdersByDateRange,
       isValidRevenueOrder
     } = await import("./analytics");
 
     const statusBreakdown = getOrderStatusBreakdown(orders);
     
-    // Keep only Today, Month, Lifetime for revenue periods
+    // Build revenue periods for Today, Month, Year, and Lifetime
     const revenuePeriods = {
       today: getPeriodRevenueComparison(orders, "today"),
       month: getPeriodRevenueComparison(orders, "month"),
+      year: getPeriodRevenueComparison(orders, "year"),
       lifetime: getPeriodRevenueComparison(orders, "lifetime"),
     };
 
@@ -1017,8 +1026,23 @@ export class MemStorage implements IStorage {
       : Number((((customerMetrics.newCustomersInPeriod - prevCustomerMetrics.newCustomersInPeriod) / prevCustomerMetrics.newCustomersInPeriod) * 100).toFixed(1));
     const customersTrend = customersGrowth > 0 ? "up" : customersGrowth < 0 ? "down" : "flat";
 
-    // Get visitor metrics for today
-    const visitorMetrics = getVisitorMetricsForToday(visitors);
+    // Get visitor metrics for today and total unique visitors
+    const visitorMetricsToday = getVisitorMetricsForToday(visitors);
+    
+    // ✅ Calculate total unique visitors (all unique frontend sessionIds across all time)
+    const allUniqueSessionIds = new Set(
+      visitors
+        .filter(v => v.sessionId && v.sessionId.trim() !== '')
+        .filter(v => !v.page?.startsWith("/admin") && !v.page?.startsWith("/partner") && !v.page?.startsWith("/delivery"))
+        .map(v => v.sessionId)
+    );
+    const totalUniqueVisitors = allUniqueSessionIds.size;
+
+    // ✅ Simplified visitor metrics - only what matters: today's unique + total unique
+    const visitorMetrics = {
+      todaysUniqueVisitors: visitorMetricsToday.uniqueVisitors,
+      totalUniqueVisitors: totalUniqueVisitors,
+    };
 
     // Get active chefs today (chefs who have delivered/completed orders today)
     const todayRange = getPeriodRange("today");
@@ -1028,8 +1052,8 @@ export class MemStorage implements IStorage {
     // Get active delivery partners today (who have delivered orders today)
     const activeDeliveryPartnersToday = new Set(
       ordersDeliveredToday
-        .filter(o => o.assignedDeliveryPersonnelId)
-        .map(o => o.assignedDeliveryPersonnelId)
+        .filter(o => (o as any).assignedTo)
+        .map(o => (o as any).assignedTo)
     ).size;
 
     // Get cancelled orders today
@@ -1043,7 +1067,7 @@ export class MemStorage implements IStorage {
       : 0;
 
     // Get new customers today
-    const newCustomersToday = filterOrdersByDateRange(orders, todayRange)
+    const newCustomersToday = filterOrdersByCreatedDateRange(orders, todayRange)
       .filter(o => {
         const userOrders = orders.filter(uo => uo.userId === o.userId);
         return userOrders.length === 1; // First order
@@ -1055,43 +1079,61 @@ export class MemStorage implements IStorage {
       .filter(o => o.paymentStatus === "confirmed" && (o.status === "pending" || o.status === "accepted"));
     const monthlyEarlyRevenue = advanceOrders.reduce((sum, o) => sum + (o.total || 0), 0);
 
-    // Debug logging
-    // Debug: Check payment statuses of delivered orders
+    // ✅ CRITICAL: Count only valid revenue orders (paid/confirmed AND delivered/completed)
+    const validRevenueOrders = orders.filter(isValidRevenueOrder);
+    const completedValidOrders = validRevenueOrders.length;
+
+    // ✅ Count unique customers (users who have placed at least one order)
+    const customerIds = new Set(orders.filter(o => o.userId).map(o => o.userId));
+    const totalCustomers = customerIds.size;
+
+    // Debug logging with detailed breakdown
     const deliveredOrders = orders.filter(o => o.status === "delivered" || o.status === "completed");
     const paymentStatusBreakdown = deliveredOrders.reduce((acc, o) => {
       acc[o.paymentStatus || 'undefined'] = (acc[o.paymentStatus || 'undefined'] || 0) + 1;
       return acc;
     }, {} as Record<string, number>);
 
-    console.log('[DASHBOARD METRICS] Database Query Results:', {
-      totalOrders: orders.length,
-      totalUsers: users.length,
-      totalChefs: chefs.length,
-      totalDeliveryPersonnel: deliveryPersonnel.length,
-      totalVisitors: visitors.length,
-      ordersWithPaymentPaid: orders.filter(o => o.paymentStatus === "paid").length,
-      ordersWithStatusDelivered: orders.filter(o => o.status === "delivered").length,
-      ordersWithStatusCompleted: orders.filter(o => o.status === "completed").length,
-      totalDeliveredAndCompleted: deliveredOrders.length,
-      paymentStatusOfDeliveredOrders: paymentStatusBreakdown,
-      validRevenueOrders: orders.filter(isValidRevenueOrder).length,
-      advanceOrders: advanceOrders.length,
-      monthlyEarlyRevenue,
+    // Year period debugging
+    const yearRange = getPeriodRange("year");
+    const yearOrders = filterOrdersByDateRange(orders, yearRange);
+    const yearValidOrders = yearOrders.filter(isValidRevenueOrder);
+
+    console.log('[DASHBOARD METRICS] 📊 ACCURATE CALCULATION:', {
+      // User metrics
+      totalUsersInSystem: users.length,
+      totalCustomers: totalCustomers,
+      // Order metrics
+      totalOrdersInSystem: orders.length,
+      deliveredOrCompletedOrders: deliveredOrders.length,
+      validRevenueOrders: completedValidOrders,
+      // Payment accuracy
+      paidOrders: orders.filter(o => o.paymentStatus === "paid").length,
+      confirmedOrders: orders.filter(o => o.paymentStatus === "confirmed").length,
+      deliveredStatus: orders.filter(o => o.status === "delivered").length,
+      completedStatus: orders.filter(o => o.status === "completed").length,
+      // Year period detail
+      yearPeriodStart: yearRange.start.toISOString(),
+      yearPeriodEnd: yearRange.end.toISOString(),
+      ordersInYearPeriod: yearOrders.length,
+      validRevenueOrdersInYear: yearValidOrders.length,
+      yearRevenue: revenuePeriods?.year?.current ?? 0,
+      paymentStatusBreakdown: paymentStatusBreakdown,
     });
 
     // Ensure safe defaults for all fields
     const safeMetrics = {
-      userCount: users?.length ?? 0,
-      orderCount: orders?.length ?? 0,
+      userCount: totalCustomers,
+      orderCount: completedValidOrders,
       totalRevenue: revenuePeriods?.lifetime?.current ?? 0,
       pendingOrders: statusBreakdown?.pending ?? 0,
-      completedOrders: statusBreakdown?.delivered ?? 0,
+      completedOrders: completedValidOrders,
       revenueGrowth: revenuePeriods?.month?.growth ?? 0,
       revenueTrend: revenuePeriods?.month?.trend ?? 'flat',
       ordersGrowth: orderPeriods?.month?.growth ?? 0,
       ordersTrend: orderPeriods?.month?.trend ?? 'flat',
       customersGrowth: customersGrowth ?? 0,
-      customersTrend: customersTrend ?? 'flat',
+      customersTrend: (customersTrend ?? 'flat') as "up" | "down" | "flat",
       statusBreakdown: statusBreakdown ?? { 
         pending: 0, 
         accepted: 0, 
@@ -1104,6 +1146,7 @@ export class MemStorage implements IStorage {
       revenuePeriods: revenuePeriods ?? {
         today: { current: 0, previous: 0, growth: 0, trend: 'flat' },
         month: { current: 0, previous: 0, growth: 0, trend: 'flat' },
+        year: { current: 0, previous: 0, growth: 0, trend: 'flat' },
         lifetime: { current: 0, previous: 0, growth: 0, trend: 'flat' }
       },
       orderPeriods: orderPeriods ?? {
@@ -1111,10 +1154,8 @@ export class MemStorage implements IStorage {
         month: { current: 0, previous: 0, growth: 0, trend: 'flat' }
       },
       visitorMetrics: visitorMetrics ?? {
-        todaysVisits: 0,
-        uniqueVisitors: 0,
-        newVisitors: 0,
-        returningVisitors: 0
+        todaysUniqueVisitors: 0,
+        totalUniqueVisitors: 0
       },
       activeChefsToday: activeChefsToday ?? 0,
       activeDeliveryPartnersToday: activeDeliveryPartnersToday ?? 0,
@@ -1653,7 +1694,7 @@ export class MemStorage implements IStorage {
     return db.query.subscriptionDeliveryLogs.findFirst({ where: (log, { eq }) => eq(log.id, id) });
   }
 
-  async createSubscriptionDeliveryLog(data: Omit<SubscriptionDeliveryLog, "id" | "createdAt" | "updatedAt">): Promise<SubscriptionDeliveryLog> {
+  async createSubscriptionDeliveryLog(data: CreateSubscriptionDeliveryLogInput): Promise<SubscriptionDeliveryLog> {
     const id = randomUUID();
     const now = new Date();
     const logData = {
@@ -1661,6 +1702,8 @@ export class MemStorage implements IStorage {
       id,
       createdAt: now,
       updatedAt: now,
+      skipReason: data.skipReason ?? null,
+      chefOverrideId: data.chefOverrideId ?? null,
     };
 
     // Convert date field to ISO string if it's a Date object
@@ -1668,6 +1711,8 @@ export class MemStorage implements IStorage {
     insertData.date = convertDateForDB(insertData.date);
     insertData.createdAt = convertDateForDB(insertData.createdAt);
     insertData.updatedAt = convertDateForDB(insertData.updatedAt);
+    insertData.skipReason = insertData.skipReason ?? null;
+    insertData.chefOverrideId = insertData.chefOverrideId ?? null;
 
     await db.insert(subscriptionDeliveryLogs).values(insertData);
     return logData;
@@ -2310,10 +2355,14 @@ export class MemStorage implements IStorage {
   ): Promise<DeliveryPartnerPayout | undefined> {
     const payoutSlabs = await this.getDeliveryPartnerPayoutsByPincode(pincode || '');
 
+    console.log(`[PARTNER-PAYOUT-SLAB-MATCH] Evaluating ${payoutSlabs.length} slabs for distance: ${distance}km, pincode: ${pincode || 'N/A'}`);
+
     for (const slab of payoutSlabs) {
       const minDist = parseFloat(String(slab.minDistance));
       const maxDist = parseFloat(String(slab.maxDistance));
-      if (distance >= minDist && distance <= maxDist) {
+      const matches = distance >= minDist && distance <= maxDist;
+      console.log(`[PARTNER-PAYOUT-SLAB-MATCH] Slab: ${minDist}-${maxDist}km (₹${slab.payoutAmount}) | distance ${distance} >= ${minDist} = ${distance >= minDist}, distance ${distance} <= ${maxDist} = ${distance <= maxDist} | Match: ${matches}`);
+      if (matches) {
         return slab;
       }
     }
@@ -3307,18 +3356,19 @@ export class MemStorage implements IStorage {
     }
 
     try {
-      const adjustedDistance = getRoadAdjustedDistance(distance);
-
-      // Fetch slab from database
+      // Use distance directly — caller already provides correctly-adjusted distance
+      console.log(`[PARTNER-PAYOUT] Input distance: ${distance}km, Pincode: ${pincode || 'N/A'}`);
+      
       const matchingSlab = await this.getDeliveryPartnerPayoutByPincodeAndDistance(
         pincode || null,
-        adjustedDistance
+        distance
       );
 
-      console.log(`[PARTNER-PAYOUT] Adjusted road distance for slabs: ${adjustedDistance}km`);
+      console.log(`[PARTNER-PAYOUT] Distance used for slab matching: ${distance}km`);
+      console.log(`[PARTNER-PAYOUT] Matched slab: ${matchingSlab ? `${matchingSlab.minDistance}-${matchingSlab.maxDistance}km, Payout: ₹${matchingSlab.payoutAmount}` : 'NONE'}`);
 
       if (matchingSlab) {
-        console.log(`[PARTNER-PAYOUT] Distance: ${distance}km, Pincode: ${pincode || 'N/A'}, Payout: ₹${matchingSlab.payoutAmount}`);
+        console.log(`[PARTNER-PAYOUT] RESULT: Distance: ${distance}km, Pincode: ${pincode || 'N/A'}, Payout: ₹${matchingSlab.payoutAmount}`);
         return matchingSlab.payoutAmount;
       }
 
@@ -4390,6 +4440,15 @@ export class MemStorage implements IStorage {
 
   // ==================== VISITOR TRACKING ====================
 
+  private buildFrontendVisitorFilter() {
+    return sql`
+      ${visitors.page} NOT LIKE '/admin%' AND
+      ${visitors.page} NOT LIKE '/partner%' AND
+      ${visitors.page} NOT LIKE '/delivery%' AND
+      ${visitors.sessionId} != ''
+    `;
+  }
+
   async trackVisitor(data: any): Promise<any> {
     try {
       const result = await db.insert(visitors).values(data).returning();
@@ -4404,7 +4463,8 @@ export class MemStorage implements IStorage {
     try {
       const result = await db
         .select({ count: count() })
-        .from(visitors);
+        .from(visitors)
+        .where(this.buildFrontendVisitorFilter());
       return result[0]?.count || 0;
     } catch (error) {
       console.error("Error getting total visitors:", error);
@@ -4415,8 +4475,9 @@ export class MemStorage implements IStorage {
   async getUniqueVisitors(): Promise<number> {
     try {
       const result = await db
-        .selectDistinct({ userId: visitors.userId, sessionId: visitors.sessionId })
-        .from(visitors);
+        .selectDistinct({ sessionId: visitors.sessionId })
+        .from(visitors)
+        .where(this.buildFrontendVisitorFilter());
       return result.length;
     } catch (error) {
       console.error("Error getting unique visitors:", error);
@@ -4436,7 +4497,8 @@ export class MemStorage implements IStorage {
         .from(visitors)
         .where(and(
           gte(visitors.createdAt, today),
-          lt(visitors.createdAt, tomorrow)
+          lt(visitors.createdAt, tomorrow),
+          this.buildFrontendVisitorFilter()
         ));
 
       return result[0]?.count || 0;
@@ -4454,6 +4516,7 @@ export class MemStorage implements IStorage {
           count: count(),
         })
         .from(visitors)
+        .where(this.buildFrontendVisitorFilter())
         .groupBy(visitors.page)
         .orderBy((t) => desc(t.count));
 
@@ -4475,7 +4538,7 @@ export class MemStorage implements IStorage {
           count: count(),
         })
         .from(visitors)
-        .where(gte(visitors.createdAt, startDate))
+        .where(and(gte(visitors.createdAt, startDate), this.buildFrontendVisitorFilter()))
         .groupBy(sql`DATE(${visitors.createdAt})`)
         .orderBy((t) => t.date);
 

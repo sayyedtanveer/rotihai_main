@@ -61,7 +61,7 @@ export function SubscriptionCard({ plan, onSubscribe, isSubscribed }: Subscripti
             ₹{plan.price}
           </span>
           <span className="text-xs text-slate-400 font-medium">
-            /{plan.frequency === "daily" ? "mo" : plan.frequency === "weekly" ? "wk" : "mo"}
+            /{plan.frequency === "daily" ? "day" : plan.frequency === "weekly" ? "wk" : "mo"}
           </span>
         </div>
 

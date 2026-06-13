@@ -48,11 +48,108 @@ export default function AdminSubscriptions() {
   const [subscriptionForChefAssignment, setSubscriptionForChefAssignment] = useState<Subscription | null>(null);
   const [selectedChefId, setSelectedChefId] = useState<string>("");
 
+  // ── Chef Unavailability Actions state ──────────────────────────────────────
+  const [reassignModalOpen, setReassignModalOpen] = useState(false);
+  const [skipConfirmOpen, setSkipConfirmOpen] = useState(false);
+  const [selectedAction, setSelectedAction] = useState<any>(null);
+  const [selectedReplacementChefId, setSelectedReplacementChefId] = useState<string>("");
+
   // Today's deliveries modal
   const [todaysDeliveriesOpen, setTodaysDeliveriesOpen] = useState(false);
   const [deletingSubscription, setDeletingSubscription] = useState<Subscription | null>(null);
 
   const token = localStorage.getItem("adminToken");
+
+  // ── Chef Unavailability Actions ──────────────────────────────────────────
+  const { data: unavailabilityActions = [], refetch: refetchActions } = useQuery<any[]>({
+    queryKey: ["/api/admin/unavailability-actions"],
+    queryFn: async () => {
+      const res = await fetch(getApiUrl("/api/admin/unavailability-actions"), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json();
+    },
+    refetchInterval: 60_000,
+    enabled: !!token,
+  });
+
+  const { data: actionCountData } = useQuery<{ pendingCount: number }>({
+    queryKey: ["/api/admin/unavailability-actions/count"],
+    queryFn: async () => {
+      const res = await fetch(getApiUrl("/api/admin/unavailability-actions/count"), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json();
+    },
+    refetchInterval: 60_000,
+    enabled: !!token,
+  });
+  const pendingActionsCount: number = actionCountData?.pendingCount ?? 0;
+
+  const { data: availableChefs = [] } = useQuery<any[]>({
+    queryKey: ["/api/admin/available-chefs", selectedAction?.originalChefId],
+    queryFn: async () => {
+      const params = selectedAction?.originalChefId ? `?excludeChefId=${selectedAction.originalChefId}` : "";
+      const res = await fetch(getApiUrl(`/api/admin/available-chefs${params}`), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json();
+    },
+    enabled: reassignModalOpen && !!token,
+  });
+
+  const reassignMutation = useMutation({
+    mutationFn: async ({ deliveryLogId, replacementChefId }: { deliveryLogId: string; replacementChefId: string }) => {
+      const res = await fetch(getApiUrl(`/api/admin/delivery-actions/${deliveryLogId}/reassign`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ replacementChefId }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw Object.assign(new Error(err.message ?? "Failed"), { status: res.status });
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Delivery reassigned successfully" });
+      setReassignModalOpen(false);
+      setSelectedAction(null);
+      setSelectedReplacementChefId("");
+      refetchActions();
+    },
+    onError: (err: any) => {
+      if (err.status === 409) toast({ title: "Already actioned", description: err.message, variant: "destructive" });
+      else toast({ title: "Reassignment failed", variant: "destructive" });
+    },
+  });
+
+  const skipMutation = useMutation({
+    mutationFn: async (deliveryLogId: string) => {
+      const res = await fetch(getApiUrl(`/api/admin/delivery-actions/${deliveryLogId}/skip`), {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw Object.assign(new Error(err.message ?? "Failed"), { status: res.status });
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Delivery platform-skipped. Subscription extended by 1 day." });
+      setSkipConfirmOpen(false);
+      setSelectedAction(null);
+      refetchActions();
+    },
+    onError: (err: any) => {
+      if (err.status === 409) toast({ title: "Already actioned", description: err.message, variant: "destructive" });
+      else toast({ title: "Skip failed", variant: "destructive" });
+    },
+  });
 
   const { data: categories } = useQuery<Category[]>({
     queryKey: ["/api/admin", "categories"],
@@ -725,12 +822,18 @@ export default function AdminSubscriptions() {
         </div>
 
         <Tabs defaultValue="plans" className="space-y-4">
-          <TabsList className="grid w-full grid-cols-5">
+          <TabsList className="grid w-full grid-cols-6">
             <TabsTrigger value="plans">Subscription Plans</TabsTrigger>
             <TabsTrigger value="active">Active Subscriptions</TabsTrigger>
             <TabsTrigger value="today">Today Overview</TabsTrigger>
             <TabsTrigger value="missed">Missed Deliveries</TabsTrigger>
             <TabsTrigger value="custom-requests">Custom Requests</TabsTrigger>
+            <TabsTrigger value="unavailability-actions" className="relative">
+              Unavailability Actions
+              {pendingActionsCount > 0 && (
+                <Badge variant="destructive" className="ml-1 text-xs px-1 py-0">{pendingActionsCount}</Badge>
+              )}
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="plans">
@@ -1294,7 +1397,7 @@ export default function AdminSubscriptions() {
                             <div className="flex flex-col items-end gap-2">
                               <div className="text-right">
                                 <p className="font-semibold text-primary">₹{plan?.price}</p>
-                                <p className="text-xs text-slate-500">/{plan?.frequency}</p>
+                                <p className="text-xs text-slate-500">/{plan?.frequency === "daily" ? "day" : plan?.frequency === "weekly" ? "wk" : "mo"}</p>
                               </div>
                               <div className="flex gap-2 flex-wrap">
                                 {/* Quick Status Toggle */}
@@ -1577,6 +1680,68 @@ export default function AdminSubscriptions() {
 
           <TabsContent value="custom-requests" className="space-y-4">
             <AdminCustomSubscriptions />
+          </TabsContent>
+
+          <TabsContent value="unavailability-actions">
+            <Card>
+              <CardHeader>
+                <CardTitle>Unavailability Actions</CardTitle>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Scheduled deliveries affected by chef unavailability. Act on today's deliveries now — upcoming ones are shown in advance so you can plan ahead.
+                </p>
+              </CardHeader>
+              <CardContent>
+                {unavailabilityActions.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-8 text-center">No pending unavailability actions.</p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Chef</TableHead>
+                        <TableHead>Customer</TableHead>
+                        <TableHead>Plan</TableHead>
+                        <TableHead>Subscription</TableHead>
+                        <TableHead>Delivery Date</TableHead>
+                        <TableHead>Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {unavailabilityActions.map((action: any) => {
+                        const deliveryDate = action.deliveryDate ? new Date(action.deliveryDate) : null;
+                        const todayStart = new Date(); todayStart.setHours(0,0,0,0);
+                        const isToday = deliveryDate ? deliveryDate.toDateString() === todayStart.toDateString() : false;
+                        const isUpcoming = deliveryDate ? deliveryDate > todayStart : false;
+                        return (
+                        <TableRow key={action.deliveryLogId} className={isToday ? "bg-amber-50 dark:bg-amber-950/30" : ""}>
+                          <TableCell className="font-medium">{action.originalChefName}</TableCell>
+                          <TableCell>{action.customerName ?? "—"}</TableCell>
+                          <TableCell>{action.planName ?? "—"}</TableCell>
+                          <TableCell className="font-mono text-xs">{action.subscriptionId?.slice(0, 8)}…</TableCell>
+                          <TableCell>
+                            <div className="flex flex-col gap-1">
+                              <span>{deliveryDate ? format(deliveryDate, "dd MMM yyyy") : "—"}</span>
+                              {isToday && <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 uppercase">Today — Act now</span>}
+                              {isUpcoming && !isToday && <span className="text-[10px] font-semibold text-blue-500 dark:text-blue-400 uppercase">Upcoming</span>}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex gap-2">
+                              <Button size="sm" variant="outline" onClick={() => { setSelectedAction(action); setReassignModalOpen(true); }}>
+                                Reassign
+                              </Button>
+                              <Button size="sm" variant="destructive" onClick={() => { setSelectedAction(action); setSkipConfirmOpen(true); }}>
+                                Platform Skip
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
         </Tabs>
       </div>
@@ -1890,6 +2055,66 @@ export default function AdminSubscriptions() {
               }}
             >
               Assign & Activate
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Reassign delivery modal ── */}
+      <Dialog open={reassignModalOpen} onOpenChange={open => { setReassignModalOpen(open); if (!open) { setSelectedAction(null); setSelectedReplacementChefId(""); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reassign Delivery</DialogTitle>
+            <DialogDescription>
+              Select a replacement chef for the delivery on{" "}
+              {selectedAction?.deliveryDate ? format(new Date(selectedAction.deliveryDate), "dd MMM yyyy") : "—"}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 max-h-64 overflow-y-auto">
+            {availableChefs.length === 0 && <p className="text-sm text-muted-foreground">No available chefs.</p>}
+            {availableChefs.map((chef: any) => (
+              <div
+                key={chef.id}
+                className={`p-3 rounded border cursor-pointer ${selectedReplacementChefId === chef.id ? "border-primary bg-primary/5" : "hover:bg-muted/50"}`}
+                onClick={() => setSelectedReplacementChefId(chef.id)}
+              >
+                <p className="font-medium text-sm">{chef.name}</p>
+              </div>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReassignModalOpen(false)}>Cancel</Button>
+            <Button
+              disabled={!selectedReplacementChefId || reassignMutation.isPending}
+              onClick={() => { if (selectedAction) reassignMutation.mutate({ deliveryLogId: selectedAction.deliveryLogId, replacementChefId: selectedReplacementChefId }); }}
+            >
+              {reassignMutation.isPending && <Loader2 className="animate-spin mr-2 h-4 w-4" />}
+              Confirm Reassign
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Platform skip confirmation ── */}
+      <Dialog open={skipConfirmOpen} onOpenChange={open => { setSkipConfirmOpen(open); if (!open) setSelectedAction(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Platform Skip Delivery</DialogTitle>
+            <DialogDescription>
+              This will mark the delivery on{" "}
+              {selectedAction?.deliveryDate ? format(new Date(selectedAction.deliveryDate), "dd MMM yyyy") : "—"}{" "}
+              as skipped by the platform and extend the customer's subscription by 1 day. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSkipConfirmOpen(false)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              disabled={skipMutation.isPending}
+              onClick={() => { if (selectedAction) skipMutation.mutate(selectedAction.deliveryLogId); }}
+            >
+              {skipMutation.isPending && <Loader2 className="animate-spin mr-2 h-4 w-4" />}
+              Confirm Skip
             </Button>
           </DialogFooter>
         </DialogContent>

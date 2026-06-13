@@ -55,6 +55,13 @@ export function getImageUrl(imageUrl: string | null | undefined): string {
 }
 
 /**
+ * Returns true when the image value is a non-empty string.
+ */
+export function hasImage(imageUrl: string | null | undefined): imageUrl is string {
+  return typeof imageUrl === "string" && imageUrl.trim().length > 0;
+}
+
+/**
  * Get placeholder image URL for error fallback
  */
 export function getPlaceholderImageUrl(): string {
@@ -66,6 +73,13 @@ export function getPlaceholderImageUrl(): string {
  */
 export function handleImageError(e: React.SyntheticEvent<HTMLImageElement>) {
   const img = e.currentTarget;
+
+  // For optional product/cart images, collapse the failed image and allow text-first layout.
+  if (img.dataset.hideOnError === "true") {
+    img.style.display = "none";
+    return;
+  }
+
   if (!img.src.includes('placeholder')) {
     img.src = getPlaceholderImageUrl();
   }

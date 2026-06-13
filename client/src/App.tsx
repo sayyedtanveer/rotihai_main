@@ -311,6 +311,16 @@ function AppContent() {
           sessionStorage.setItem("sessionId", sessionId);
         }
 
+        if (import.meta.env.DEV) {
+          console.debug("[VISITOR] Tracking visitor", {
+            userId,
+            sessionId,
+            page: currentPath,
+            userAgent: navigator.userAgent,
+            referrer: document.referrer,
+          });
+        }
+
         await api.post("/api/track-visitor", {
           userId,
           sessionId,
