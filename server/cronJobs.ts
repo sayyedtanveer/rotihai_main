@@ -594,6 +594,10 @@ export async function checkAutoScheduleTransitions(): Promise<void> {
 
     const { broadcastChefStatusUpdate } = await import("./websocket");
 
+    // DEBUG: Log which chefs have auto-schedule enabled
+    const scheduledChefs = allChefs.filter((c: any) => c.autoScheduleEnabled);
+    console.log(`[AUTO-SCHEDULE] Total chefs: ${allChefs.length}, with autoScheduleEnabled=true: ${scheduledChefs.length} [${scheduledChefs.map((c: any) => `${c.name}(open=${c.openingTime},close=${c.closingTime})`).join(', ')}]`);
+
     for (const chef of allChefs) {
       // Only watch chefs that use auto-schedule
       if (!(chef as any).autoScheduleEnabled) continue;
