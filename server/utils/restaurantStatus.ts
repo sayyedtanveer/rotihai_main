@@ -42,20 +42,20 @@ export interface RuntimeStatus {
 }
 
 /**
- * Helper: Validate time format (HH:mm)
+ * Helper: Validate time format (HH:mm or HH:mm:ss)
  */
-function isValidTimeFormat(time?: string): boolean {
+function isValidTimeFormat(time?: string | null): boolean {
   if (!time) return false;
-  const match = /^([0-1][0-9]|2[0-3]):([0-5][0-9])$/.test(time);
-  return match;
+  // Accept both HH:mm and HH:mm:ss formats
+  return /^([0-1][0-9]|2[0-3]):([0-5][0-9])(:[0-5][0-9])?$/.test(time);
 }
 
 /**
- * Helper: Convert HH:mm string to minutes since midnight
+ * Helper: Convert HH:mm or HH:mm:ss string to minutes since midnight
  */
 function timeToMinutes(time: string): number {
-  const [hours, minutes] = time.split(':').map(Number);
-  return hours * 60 + minutes;
+  const parts = time.split(':').map(Number);
+  return parts[0] * 60 + parts[1]; // Only use hours and minutes, ignore seconds
 }
 
 /**
@@ -127,7 +127,7 @@ export function calculateRestaurantStatus(
     return {
       isCurrentlyOpen: false,
       reason: 'manual_closed',
-      nextOpeningTime: config.openingTime || closedUntilTime,
+      nextOpeningTime: config.openingTime ?? closedUntilTime,
       currentSchedulePeriodEndsAt: undefined
     };
   }
@@ -143,21 +143,21 @@ export function calculateRestaurantStatus(
         isCurrentlyOpen: true,
         reason: 'schedule_open',
         nextOpeningTime: undefined,
-        currentSchedulePeriodEndsAt: config.closingTime
+        currentSchedulePeriodEndsAt: config.closingTime ?? undefined
       };
     } else {
       console.log(`[RESTAURANT-STATUS] Closed per auto-schedule (opens at ${config.openingTime})`);
       return {
         isCurrentlyOpen: false,
         reason: 'schedule_closed',
-        nextOpeningTime: config.openingTime,
+        nextOpeningTime: config.openingTime ?? undefined,
         currentSchedulePeriodEndsAt: undefined
       };
     }
   }
 
   // PRIORITY 4: Invalid schedule or disabled auto-schedule → Safe fallback (open)
-  console.log('[RESTAURANT-STATUS] Invalid schedule or auto-schedule disabled - defaulting to open');
+  console.log(`[RESTAURANT-STATUS] Invalid schedule or auto-schedule disabled - defaulting to open | autoScheduleEnabled=${config.autoScheduleEnabled}, openingTime="${config.openingTime}" (valid=${isValidTimeFormat(config.openingTime ?? undefined)}), closingTime="${config.closingTime}" (valid=${isValidTimeFormat(config.closingTime ?? undefined)})`);
   return {
     isCurrentlyOpen: true,
     reason: 'always_open',
@@ -264,13 +264,18 @@ export function buildRestaurantConfig(chefData: {
   openingTime?: string | null;
   closingTime?: string | null;
 }): RestaurantConfig {
-  return {
+  const config = {
     isActive: chefData.isActive,
     autoScheduleEnabled: chefData.autoScheduleEnabled ?? false,
     openingTime: chefData.openingTime,
     closingTime: chefData.closingTime,
     manualOverrideClosed: getManualOverride(chefData.id)
   };
+
+  // DEBUG: Log exact values from DB for each chef (remove after confirming fix)
+  console.log(`[BUILD-CONFIG] Chef ${chefData.id}: isActive=${chefData.isActive}, autoScheduleEnabled=${chefData.autoScheduleEnabled} (type: ${typeof chefData.autoScheduleEnabled}), openingTime="${chefData.openingTime}" (type: ${typeof chefData.openingTime}), closingTime="${chefData.closingTime}" (type: ${typeof chefData.closingTime}), manualOverride=${config.manualOverrideClosed ? 'YES until ' + config.manualOverrideClosed.closedUntil.toISOString() : 'none'}`);
+
+  return config;
 }
 
 /**
