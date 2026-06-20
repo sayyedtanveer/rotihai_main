@@ -49,7 +49,6 @@ function isValidTimeFormat(time?: string | null): boolean {
   // Accept both HH:mm and HH:mm:ss formats
   return /^([0-1][0-9]|2[0-3]):([0-5][0-9])(:[0-5][0-9])?$/.test(time);
 }
-}
 
 /**
  * Helper: Convert HH:mm or HH:mm:ss string to minutes since midnight
@@ -57,7 +56,6 @@ function isValidTimeFormat(time?: string | null): boolean {
 function timeToMinutes(time: string): number {
   const parts = time.split(':').map(Number);
   return parts[0] * 60 + parts[1]; // Only use hours and minutes, ignore seconds
-}
 }
 
 /**
@@ -129,7 +127,7 @@ export function calculateRestaurantStatus(
     return {
       isCurrentlyOpen: false,
       reason: 'manual_closed',
-      nextOpeningTime: config.openingTime || closedUntilTime,
+      nextOpeningTime: config.openingTime ?? closedUntilTime,
       currentSchedulePeriodEndsAt: undefined
     };
   }
@@ -145,14 +143,14 @@ export function calculateRestaurantStatus(
         isCurrentlyOpen: true,
         reason: 'schedule_open',
         nextOpeningTime: undefined,
-        currentSchedulePeriodEndsAt: config.closingTime
+        currentSchedulePeriodEndsAt: config.closingTime ?? undefined
       };
     } else {
       console.log(`[RESTAURANT-STATUS] Closed per auto-schedule (opens at ${config.openingTime})`);
       return {
         isCurrentlyOpen: false,
         reason: 'schedule_closed',
-        nextOpeningTime: config.openingTime,
+        nextOpeningTime: config.openingTime ?? undefined,
         currentSchedulePeriodEndsAt: undefined
       };
     }
