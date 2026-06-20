@@ -68,10 +68,15 @@ function minutesToTime(minutes: number): string {
 }
 
 /**
- * Helper: Get current time in minutes since midnight
+ * Helper: Get current time in minutes since midnight (IST — UTC+5:30)
+ * Server runs in UTC but schedule times are set in IST
  */
 function getCurrentTimeInMinutes(now: Date = new Date()): number {
-  return now.getHours() * 60 + now.getMinutes();
+  // Convert UTC to IST (UTC + 5 hours 30 minutes)
+  const istOffsetMinutes = 5 * 60 + 30;
+  const utcMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const istMinutes = (utcMinutes + istOffsetMinutes) % (24 * 60);
+  return istMinutes;
 }
 
 /**
