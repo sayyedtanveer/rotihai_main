@@ -1,0 +1,10 @@
+# RotiHai - Robots.txt
+User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /api/
+Disallow: /partner/
+Disallow: /delivery/
+
+# Sitemap
+Sitemap: https://rotihai.com/sitemap.xml
