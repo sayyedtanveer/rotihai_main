@@ -53,6 +53,14 @@ export function registerPartnerRoutes(app: Express): void {
     return nextDate;
   }
 
+  // Helper: calculate the partner-facing total based on hotelPrice (admin-set cost) per item
+  const calculatePartnerOrderTotal = (order: any): number => {
+    return (order.items as any[]).reduce((sum, item) => {
+      const itemPrice = item.hotelPrice ?? item.price ?? 0;
+      return sum + itemPrice * (item.quantity ?? 0);
+    }, 0);
+  };
+
   // Get orders assigned to this chef
   app.get("/api/partner/orders", requirePartner(), async (req: AuthenticatedPartnerRequest, res) => {
     try {
@@ -67,7 +75,10 @@ export function registerPartnerRoutes(app: Express): void {
       // Remove sensitive customer information
       const sanitizedOrders = orders.map(order => {
         const { phone, address, email, ...safeOrder } = order;
-        return safeOrder;
+        return {
+          ...safeOrder,
+          partnerTotal: calculatePartnerOrderTotal(order),
+        };
       });
 
       res.json(sanitizedOrders);
@@ -154,7 +165,7 @@ export function registerPartnerRoutes(app: Express): void {
       const completedOrders = allOrders.filter(o => o.status === "delivered" || o.status === "completed").length;
       const totalRevenue = allOrders
         .filter(o => o.paymentStatus === "confirmed")
-        .reduce((sum, order) => sum + order.total, 0);
+        .reduce((sum, order) => sum + calculatePartnerOrderTotal(order), 0);
 
       res.json({
         totalOrders,
