@@ -18,6 +18,10 @@ import PromotionalBannersSection from "@/components/PromotionalBannersSection";
 import ActiveOrderBanner from "@/components/ActiveOrderBanner";
 import { StreetRefinementSheet, getStoredStreetRefinement, saveStreetRefinement } from "@/components/StreetRefinementSheet";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
+import { SEOHead } from "@/components/SEOHead";
+import { generateSeoMetadata } from "@shared/seo/generateSeoMetadata";
+import { buildHomepageSchema, buildWebsiteSchema } from "@shared/seo/structuredData";
+import { generateFaqs, buildFaqSchema } from "@shared/seo/faqGenerator";
 import { DeliveryAddressSelector } from "@/components/DeliveryAddressSelector";
 import { getImageUrl, handleImageError, hasImage } from "@/lib/imageUrl";
 import { Button } from "@/components/ui/button";
@@ -1006,8 +1010,16 @@ export default function Home() {
     );
   };
 
+  const homepageSeo = generateSeoMetadata('homepage', {});
+  homepageSeo.jsonLd = [
+    buildHomepageSchema(),
+    buildWebsiteSchema(),
+    buildFaqSchema(generateFaqs({})),
+  ];
+
   return (
     <div className="min-h-screen flex flex-col bg-background pb-16 md:pb-0">
+      <SEOHead metadata={homepageSeo} />
       <Header
         cartItemCount={totalItems}
         onCartClick={() => setIsCartOpen(true)}

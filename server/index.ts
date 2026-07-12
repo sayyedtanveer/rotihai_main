@@ -551,6 +551,12 @@ app.use((req, res, next) => {
     });
   });
 
+  // SEO routes (sitemap.xml, robots.txt) — must be registered before SPA/static fallback
+  const { registerSitemapRoutes } = await import("./routes/sitemap");
+  const { registerRobotsRoutes } = await import("./routes/robots");
+  registerSitemapRoutes(app);
+  registerRobotsRoutes(app);
+
   const server = await registerRoutes(app);
 
   // Global error handler - MUST set JSON content-type
