@@ -451,7 +451,7 @@ export default function DeliveryDashboard() {
                             <div className="flex-1">
                               <p className="font-medium">Order #{order.id.slice(0, 8)}</p>
                               <p className="text-sm text-muted-foreground">
-                                {order.customerName} • {order.phone}
+                                {order.customerName} <span className="hidden">• {order.phone}</span>
                               </p>
                               <p className="text-sm text-muted-foreground flex items-center gap-1 mt-1">
                                 <MapPin className="h-3 w-3" />
@@ -533,7 +533,7 @@ export default function DeliveryDashboard() {
                             <div className="flex-1">
                               <p className="font-medium">Order #{order.id.slice(0, 8)}</p>
                               <p className="text-sm text-muted-foreground">
-                                {order.customerName} • {order.phone}
+                                {order.customerName} <span className="hidden">• {order.phone}</span>
                               </p>
                               <p className="text-sm text-muted-foreground flex items-center gap-1 mt-1">
                                 <MapPin className="h-3 w-3" />
@@ -638,7 +638,7 @@ export default function DeliveryDashboard() {
                             <div className="flex-1">
                               <p className="font-medium">Order #{order.id.slice(0, 8)}</p>
                               <p className="text-sm text-muted-foreground">
-                                {order.customerName} • {order.phone}
+                                {order.customerName} <span className="hidden">• {order.phone}</span>
                               </p>
                               <p className="text-sm text-muted-foreground flex items-center gap-1 mt-1">
                                 <MapPin className="h-3 w-3" />
@@ -727,7 +727,7 @@ export default function DeliveryDashboard() {
                             <div className="flex-1">
                               <p className="font-medium">Order #{order.id.slice(0, 8)}</p>
                               <p className="text-sm text-muted-foreground">
-                                {order.customerName} • {order.phone}
+                                {order.customerName} <span className="hidden">• {order.phone}</span>
                               </p>
                               <p className="text-sm text-muted-foreground flex items-center gap-1 mt-1">
                                 <MapPin className="h-3 w-3" />

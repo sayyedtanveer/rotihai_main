@@ -160,6 +160,13 @@ export default function PartnerDashboard() {
   });
 
 
+  const getPartnerTotal = (order: any): number => {
+    return (order.items as any[]).reduce((sum, item) => {
+      const itemPrice = item.hotelPrice ?? item.price ?? 0;
+      return sum + itemPrice * (item.quantity ?? 0);
+    }, 0);
+  };
+
   const { data: incomeReport } = useQuery({
     queryKey: ["/api/partner/income-report"],
     queryFn: async () => {
@@ -742,7 +749,7 @@ export default function PartnerDashboard() {
                           )}
                         </div>
                         <div className="flex items-center justify-between md:flex-col md:items-end gap-2 flex-wrap">
-                          <p className="font-bold text-sm md:text-base">₹{order.total}</p>
+                          <p className="font-bold text-sm md:text-base">₹{getPartnerTotal(order)}</p>
 
                           <div className="flex gap-1 flex-wrap">
                             {order.paymentStatus === "confirmed" && order.status === "confirmed" && (
@@ -1072,7 +1079,7 @@ export default function PartnerDashboard() {
                           )}
                         </div>
                         <div className="flex items-center justify-between md:flex-col md:items-end gap-2 flex-wrap">
-                          <p className="font-bold text-sm md:text-base">₹{order.total}</p>
+                          <p className="font-bold text-sm md:text-base">₹{getPartnerTotal(order)}</p>
 
                           <div className="flex gap-1 flex-wrap">
                             {order.paymentStatus === "confirmed" && order.status === "confirmed" && (
@@ -1293,7 +1300,7 @@ export default function PartnerDashboard() {
                             )}
                           </div>
                           <div className="flex items-center justify-between md:flex-col md:items-end gap-2 flex-wrap">
-                            <p className="font-bold text-sm md:text-base">₹{order.total}</p>
+                            <p className="font-bold text-sm md:text-base">₹{getPartnerTotal(order)}</p>
 
                             <div className="flex gap-1 flex-wrap">
                               {order.paymentStatus === "confirmed" && order.status === "confirmed" && (
