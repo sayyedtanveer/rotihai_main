@@ -41,7 +41,7 @@ interface HeaderProps {
 }
 
 export default function Header({ cartItemCount = 0, onCartClick, onMenuClick, searchQuery = "", onSearchChange, onChefListClick, onSubscriptionClick, onLoginClick, onOffersClick, showNotificationBell = false, streetRefinementDone = false }: HeaderProps) {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const isAuthenticated = !!user;
   const { toast } = useToast();
   const [isLocationOpen, setIsLocationOpen] = useState(false);
@@ -164,7 +164,7 @@ export default function Header({ cartItemCount = 0, onCartClick, onMenuClick, se
   };
 
   const handleLogout = () => {
-    window.location.href = "/api/logout";
+    logout();
   };
 
   return (
