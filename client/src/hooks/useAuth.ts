@@ -106,8 +106,7 @@ export function useAuth(): UseAuthReturn {
     retry: 1,  // ✅ Retry once on failure instead of no retries
     staleTime: 1000 * 60 * 5,
     enabled: !!userToken,
-    initialData: storedUserData,
-    keepPreviousData: true,
+    initialData: storedUserData ? storedUserData : undefined,
   });
 
   const isAuthenticated = !!(user || storedUserData) && !!userToken;

@@ -1923,19 +1923,33 @@ export function registerAdminRoutes(app: Express) {
         return;
       }
 
-      // Find Roti category ID
+      // Strategy 2: Use a dedicated "Custom Subscriptions" category
       const categories = await storage.getAllCategories();
-      const rotiCategory = categories.find(c => c.name.toLowerCase().includes('roti'));
-      if (!rotiCategory) {
-        res.status(400).json({ message: "Roti category not found in system" });
-        return;
+      let customCategory = categories.find(c => c.name.toLowerCase() === 'custom subscriptions');
+      
+      if (!customCategory) {
+        console.log("Creating dedicated 'Custom Subscriptions' category...");
+        customCategory = await storage.createCategory({
+          name: "Custom Subscriptions",
+          description: "System category for custom user plans",
+          image: "",
+          iconName: "Star",
+          itemCount: "0",
+          requiresDeliverySlot: false,
+          displayOrder: 999
+        });
+        
+        if (!customCategory) {
+          res.status(500).json({ message: "Failed to create the Custom Subscriptions category" });
+          return;
+        }
       }
 
       // Create a private custom plan for this subscription request
       const customPlan = await storage.createSubscriptionPlan({
         name: `Custom Roti Plan (${request.customerName} - ${request.rotiPerDay} Rotis)`,
         description: `Custom subscription for ${request.customerName} (${request.rotiPerDay} Rotis/day, ${request.daysPerWeek} days/week)`,
-        categoryId: rotiCategory.id,
+        categoryId: customCategory.id,
         frequency: request.duration === "weekly" ? "weekly" : "monthly",
         price: request.calculatedPrice,
         deliveryDays: request.deliveryDays as string[],
