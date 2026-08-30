@@ -1985,6 +1985,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         categoryName: body.categoryName || undefined,
         deliveryTime: body.deliveryTime || undefined,
         deliverySlotId: body.deliverySlotId || undefined,
+        deliveryDate: body.deliveryDate || undefined,
       };
 
       // Roti category validation - strict enforcement
@@ -2294,10 +2295,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         // If slot provided, validate it and enforce next-day logic
-        if (sanitized.deliverySlotId) {
+        // Skip this for pre-orders as they use synthetic slots and have their own validation below
+        if (sanitized.deliverySlotId && req.body.effectiveMode !== 'preorder') {
           const slot = await storage.getDeliveryTimeSlot(sanitized.deliverySlotId);
           if (!slot) {
-            return res.status(400).json({ message: "Selected delivery slot not found" });
+            return res.status(400).json({ 
+              message: "Selected delivery slot not found",
+              debug_line: 2301,
+              debug_effectiveMode: req.body.effectiveMode,
+              debug_type: typeof req.body.effectiveMode,
+              debug_keys: Object.keys(req.body)
+            });
           }
           const cutoffInfo = computeSlotCutoffInfo(slot);
 
@@ -2324,6 +2332,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      // 🛑 Preorder Validation
+      if (req.body.effectiveMode === 'preorder') {
+        if (!sanitized.deliverySlotId || !sanitized.deliveryDate) {
+          return res.status(400).json({ 
+            message: "Pre-order requires both delivery slot and delivery date selection.",
+            debug: {
+              slotId: sanitized.deliverySlotId,
+              date: sanitized.deliveryDate,
+              bodyDate: req.body.deliveryDate
+            }
+          });
+        }
+        
+        // Validate slot exists or is a valid synthetic slot
+        let slotStartTime = "11:00"; // default
+        if (sanitized.deliverySlotId === 'preorder-lunch' || sanitized.deliverySlotId === 'preorder-dinner') {
+           const allSettings = await db.query.adminSettings.findMany();
+           const settingsMap = Object.fromEntries(allSettings.map((s: any) => [s.key, s.value]));
+           slotStartTime = sanitized.deliverySlotId === 'preorder-lunch' 
+              ? (settingsMap.preorder_lunch_start_time || "11:00") 
+              : (settingsMap.preorder_dinner_start_time || "18:00");
+        } else {
+          const slot = await storage.getDeliveryTimeSlot(sanitized.deliverySlotId);
+          if (!slot) {
+            return res.status(400).json({ message: "Selected delivery slot not found for pre-order." });
+          }
+          slotStartTime = slot.startTime;
+        }
+        
+        // Force the deliveryTime to the start time of the slot for the DB
+        sanitized.deliveryTime = slotStartTime;
+      }
+
+      // Remove fields that are not in the database schema
+      if ((sanitized as any).effectiveMode !== undefined) {
+        delete (sanitized as any).effectiveMode;
+      }
+      
       // Remove undefined deliveryTime and deliverySlotId from sanitized object
       // This ensures they're treated as optional and not validated against
       if (sanitized.deliveryTime === undefined) {
@@ -2477,16 +2523,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Calculate and set deliveryDate if deliverySlotId is provided
       let order: any;
+      const { randomUUID } = await import("crypto");
+      orderPayload.id = randomUUID();
 
       if (orderPayload.deliverySlotId) {
         try {
-          const slot = await storage.getDeliveryTimeSlot(orderPayload.deliverySlotId);
-          if (!slot) {
-            return res.status(400).json({ message: "Selected delivery slot not found" });
+          // Only consider it a preorder if explicitly marked as such or using synthetic preorder slots
+          const isPreorder = req.body.effectiveMode === 'preorder' || 
+                             (typeof orderPayload.deliverySlotId === 'string' && 
+                              orderPayload.deliverySlotId.startsWith('preorder-'));
+
+          let slot: any = null;
+          if (isPreorder && (orderPayload.deliverySlotId === 'preorder-lunch' || orderPayload.deliverySlotId === 'preorder-dinner')) {
+             const allSettings = await db.query.adminSettings.findMany();
+             const settingsMap = Object.fromEntries(allSettings.map((s: any) => [s.key, s.value]));
+             const startTime = orderPayload.deliverySlotId === 'preorder-lunch' 
+                ? (settingsMap.preorder_lunch_start_time || "11:00") 
+                : (settingsMap.preorder_dinner_start_time || "18:00");
+             slot = { id: orderPayload.deliverySlotId, startTime };
+          } else {
+             slot = await storage.getDeliveryTimeSlot(orderPayload.deliverySlotId);
           }
 
-          // If client passes deliveryDate in body, it's the new Pre-order flow.
-          const isPreorder = !!req.body.deliveryDate;
+          if (!slot) {
+            return res.status(400).json({ 
+              message: "Selected delivery slot not found",
+              debug_isPreorder: isPreorder,
+              debug_bodyDate: req.body.deliveryDate,
+              debug_slotId: orderPayload.deliverySlotId,
+              debug_effectiveMode: req.body.effectiveMode,
+              debug_allKeys: Object.keys(req.body)
+            });
+          }
 
           if (isPreorder) {
             // === PRE-ORDER LOGIC ===
@@ -2501,11 +2569,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
             } = await import("@shared/deliveryUtils");
             
             const requestedDateStr = req.body.deliveryDate;
-            const businessTomorrowStr = getBusinessTomorrow();
-            
-            if (requestedDateStr !== businessTomorrowStr) {
-              return res.status(400).json({ message: "Pre-orders are currently restricted to Tomorrow only." });
-            }
             
             // Chef leave validation (Date strings compare correctly)
             if (chefFromDb?.leaveStartDate && chefFromDb?.leaveEndDate) {
@@ -2555,34 +2618,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
             orderPayload.deliveryDate = requestedDateStr;
             
             // Lock slot and check capacity inside a transaction
-            await db.transaction(async (tx) => {
-              const { deliveryTimeSlots, orders } = await import("@shared/schema");
-              const { eq, and, not, sql } = await import("drizzle-orm");
-
-              const [lockedSlot] = await tx.select()
-                .from(deliveryTimeSlots)
-                .where(eq(deliveryTimeSlots.id, orderPayload.deliverySlotId))
-                .for('update');
-              
-              if (!lockedSlot || !lockedSlot.isActive) {
-                throw new Error("Invalid or inactive delivery slot.");
-              }
-
-              const [result] = await tx.select({ count: sql<number>`count(*)` })
-                .from(orders)
-                .where(and(
-                  eq(orders.deliveryDate, requestedDateStr),
-                  eq(orders.deliverySlotId, lockedSlot.id),
-                  not(eq(orders.status, 'cancelled'))
-                ));
-              
-              if (result.count >= lockedSlot.capacity) {
-                throw new Error("This delivery slot is fully booked. Please select another slot.");
-              }
-              
-              const [createdOrder] = await tx.insert(orders).values(orderPayload).returning();
+            if (orderPayload.deliverySlotId === 'preorder-lunch' || orderPayload.deliverySlotId === 'preorder-dinner') {
+              const { orders } = await import("@shared/schema");
+              const [createdOrder] = await db.insert(orders).values(orderPayload).returning();
               order = createdOrder;
-            });
+            } else {
+              await db.transaction(async (tx) => {
+                const { deliveryTimeSlots, orders } = await import("@shared/schema");
+                const { eq, and, not, sql } = await import("drizzle-orm");
+  
+                const [lockedSlot] = await tx.select()
+                  .from(deliveryTimeSlots)
+                  .where(eq(deliveryTimeSlots.id, orderPayload.deliverySlotId))
+                  .for('update');
+                
+                if (!lockedSlot || !lockedSlot.isActive) {
+                  throw new Error("Invalid or inactive delivery slot.");
+                }
+  
+                const [result] = await tx.select({ count: sql<number>`count(*)` })
+                  .from(orders)
+                  .where(and(
+                    eq(orders.deliveryDate, requestedDateStr),
+                    eq(orders.deliverySlotId, lockedSlot.id),
+                    not(eq(orders.status, 'cancelled'))
+                  ));
+                
+                if (result.count >= lockedSlot.capacity) {
+                  throw new Error("This delivery slot is fully booked. Please select another slot.");
+                }
+                
+                const [createdOrder] = await tx.insert(orders).values(orderPayload).returning();
+                order = createdOrder;
+              });
+            }
             
           } else {
             // === LEGACY/INSTANT ROTI LOGIC ===

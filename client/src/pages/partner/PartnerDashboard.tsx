@@ -742,8 +742,9 @@ export default function PartnerDashboard() {
                             <p className="text-sm font-bold text-orange-600 bg-orange-50 dark:bg-orange-950 px-2 py-1 rounded inline-block mt-1">
                               🕐 {(() => {
                                 const slotInfo = order.deliverySlotId ? getSlotInfo(order.deliverySlotId, deliverySlots) : null;
-                                const displayText = slotInfo?.label || `${formatTime12Hour(order.deliveryTime)}`;
-                                return displayText;
+                                const timeText = slotInfo?.label || `${formatTime12Hour(order.deliveryTime)}`;
+                                const dateText = order.deliveryDate ? `${format(new Date(order.deliveryDate), "MMM d")}, ` : "";
+                                return dateText + timeText;
                               })()}
                             </p>
                           )}
@@ -1072,8 +1073,9 @@ export default function PartnerDashboard() {
                             <p className="text-sm font-bold text-orange-600 bg-orange-50 dark:bg-orange-950 px-2 py-1 rounded inline-block mt-1">
                               🕐 {(() => {
                                 const slotInfo = order.deliverySlotId ? getSlotInfo(order.deliverySlotId, deliverySlots) : null;
-                                const displayText = slotInfo?.label || `${formatTime12Hour(order.deliveryTime)}`;
-                                return displayText;
+                                const timeText = slotInfo?.label || `${formatTime12Hour(order.deliveryTime)}`;
+                                const dateText = order.deliveryDate ? `${format(new Date(order.deliveryDate), "MMM d")}, ` : "";
+                                return dateText + timeText;
                               })()}
                             </p>
                           )}
@@ -1278,11 +1280,9 @@ export default function PartnerDashboard() {
                                 <p className="text-sm font-bold text-orange-700 dark:text-orange-300 flex items-center gap-1 mt-1">
                                   🕐 {order.deliveryTime && (() => {
                                     const slotInfo = order.deliverySlotId ? getSlotInfo(order.deliverySlotId, deliverySlots) : null;
-                                    if (slotInfo?.label) {
-                                      return slotInfo.label;
-                                    } else {
-                                      return formatTime12Hour(order.deliveryTime);
-                                    }
+                                    const timeText = slotInfo?.label || formatTime12Hour(order.deliveryTime);
+                                    const dateText = order.deliveryDate ? `${format(new Date(order.deliveryDate), "MMM d")}, ` : "";
+                                    return dateText + timeText;
                                   })()}
                                 </p>
                                 {isPrepareEnabled && (

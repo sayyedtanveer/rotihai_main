@@ -20,6 +20,7 @@ interface OrderSummaryCardProps {
   deliveryDistance?: number | null;
   isBelowDeliveryMinimum?: boolean;
   deliveryMinOrderAmount?: number;
+  cartHasPreorder?: boolean;
   platformFeeConfig?: any;
   platformFeeThreshold?: number;
   onEditQuantity?: (itemId: string, quantity: number) => void;
@@ -41,6 +42,7 @@ export default function OrderSummaryCard({
   deliveryDistance = null,
   isBelowDeliveryMinimum = false,
   deliveryMinOrderAmount = 0,
+  cartHasPreorder = false,
   platformFeeConfig = null,
   platformFeeThreshold = 200,
   deliveryTimeLabel,
@@ -54,7 +56,7 @@ export default function OrderSummaryCard({
 
   if (!cart || !cart.items || cart.items.length === 0) return null;
 
-  const itemCount = cart.items.reduce((sum, item) => sum + item.quantity, 0);
+  const itemCount = cart?.items.reduce((acc, item) => acc + item.quantity, 0) || 0;
   // ✅ FIX: Prioritize deliveryDistance (from checkout address validation)
   // Only fall back to cart.distance if deliveryDistance is not available
   const resolvedDistance = deliveryDistance !== null ? deliveryDistance : (cart.distance ?? null);
@@ -81,8 +83,15 @@ export default function OrderSummaryCard({
           <div className="flex items-center gap-2">
             <ChefHat className="w-5 h-5 text-orange-600" />
             <div>
-              <h3 className="font-semibold text-sm">{cart.chefName}</h3>
-              <div className="text-xs text-slate-600">
+              <div className="flex items-center gap-2">
+                <h3 className="font-semibold text-sm">{cart.chefName}</h3>
+                {cartHasPreorder && (
+                  <span className="bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-400 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                    Pre-order
+                  </span>
+                )}
+              </div>
+              <div className="text-xs text-slate-600 mt-0.5">
                 {itemCount} items • ₹{subtotal.toLocaleString("en-IN")}
               </div>
             </div>

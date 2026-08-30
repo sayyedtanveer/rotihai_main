@@ -20,7 +20,7 @@ interface MenuDrawerProps {
 
 export default function MenuDrawer({ isOpen, onClose, categories = [], onCategoryClick, selectedCategoryTab = "all", onCategoryTabChange, onSubscriptionClick, onLoginClick }: MenuDrawerProps) {
   const [, setLocation] = useLocation();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const userToken = localStorage.getItem("userToken");
   const isAuthenticated = !!(user || userToken);
 
@@ -78,8 +78,6 @@ export default function MenuDrawer({ isOpen, onClose, categories = [], onCategor
   // NOTE: The following is a temporary fix for the flickering issue.
   // A more robust solution would involve state management to properly
   // handle authentication state changes before navigation.
-  const { logout } = useAuth();
-  
   const handleLogout = () => {
     logout();
     onClose();
