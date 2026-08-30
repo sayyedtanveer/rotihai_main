@@ -45,8 +45,7 @@ export function CheckoutAddressCard({
           onClick={onChangeAddress}
           variant="ghost"
           size="sm"
-          className="text-blue-600 hover:text-blue-700 hover:bg-blue-200 flex-shrink-0"
-        >
+          className="text-blue-600 hover:text-blue-700 hover:bg-blue-200 flex-shrink-0">
           <Edit2 className="h-4 w-4 mr-1" />
           <span className="text-xs font-medium">Change</span>
         </Button>

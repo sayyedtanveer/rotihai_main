@@ -21,23 +21,23 @@ export default function DeliveryLogin() {
     setIsLoading(true);
 
     try {
-      console.log("[DELIVERY-LOGIN] 🔐 Step 1: Sending login request:", { phone });
+      console.log("[DELIVERY-LOGIN]  Step 1: Sending login request:", { phone });
       const response = await api.post("/api/delivery/login", { phone, password });
 
       const data = response.data;
-      console.log("[DELIVERY-LOGIN] ✅ Step 2: Received response from server");
+      console.log("[DELIVERY-LOGIN] Step 2: Received response from server");
       
-      console.log("[DELIVERY-LOGIN] 💾 Step 3: Storing token in localStorage");
+      console.log("[DELIVERY-LOGIN] Step 3: Storing token in localStorage");
       localStorage.setItem("deliveryToken", data.token);
-      console.log("[DELIVERY-LOGIN] ✅ Token stored");
+      console.log("[DELIVERY-LOGIN]  Token stored");
       
-      console.log("[DELIVERY-LOGIN] 💾 Step 4: Storing personId in localStorage");
+      console.log("[DELIVERY-LOGIN]  Step 4: Storing personId in localStorage");
       localStorage.setItem("deliveryPersonId", data.deliveryPerson.id);
-      console.log("[DELIVERY-LOGIN] ✅ PersonId stored:", data.deliveryPerson.id);
+      console.log("[DELIVERY-LOGIN] PersonId stored:", data.deliveryPerson.id);
       
       console.log("[DELIVERY-LOGIN] 💾 Step 5: Storing personName in localStorage");
       localStorage.setItem("deliveryPersonName", data.deliveryPerson.name);
-      console.log("[DELIVERY-LOGIN] ✅ PersonName stored:", data.deliveryPerson.name);
+      console.log("[DELIVERY-LOGIN]  PersonName stored:", data.deliveryPerson.name);
 
       // Verify all data was stored
       const storedToken = localStorage.getItem("deliveryToken");
