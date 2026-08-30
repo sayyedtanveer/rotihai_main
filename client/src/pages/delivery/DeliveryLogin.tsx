@@ -27,11 +27,11 @@ export default function DeliveryLogin() {
       const data = response.data;
       console.log("[DELIVERY-LOGIN] Step 2: Received response from server");
       
-      console.log("[DELIVERY-LOGIN] 💾 Step 3: Storing token in localStorage");
+      console.log("[DELIVERY-LOGIN] Step 3: Storing token in localStorage");
       localStorage.setItem("deliveryToken", data.token);
       console.log("[DELIVERY-LOGIN]  Token stored");
       
-      console.log("[DELIVERY-LOGIN] 💾 Step 4: Storing personId in localStorage");
+      console.log("[DELIVERY-LOGIN]  Step 4: Storing personId in localStorage");
       localStorage.setItem("deliveryPersonId", data.deliveryPerson.id);
       console.log("[DELIVERY-LOGIN] PersonId stored:", data.deliveryPerson.id);
       
