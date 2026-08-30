@@ -46,6 +46,10 @@ export interface IStorage {
   updateChef(id: string, data: Partial<Chef>): Promise<Chef | undefined>;
   deleteChef(id: string): Promise<boolean>;
 
+  getChefPreorderSettings(chefId: string): Promise<ChefPreorderSettings | null>;
+  createChefPreorderSettings(data: InsertChefPreorderSettings): Promise<ChefPreorderSettings>;
+  updateChefPreorderSettings(chefId: string, data: Partial<InsertChefPreorderSettings>): Promise<ChefPreorderSettings | undefined>;
+
   getAdminByUsername(username: string): Promise<AdminUser | undefined>;
   getAdminById(id: string): Promise<AdminUser | undefined>;
   createAdmin(admin: InsertAdminUser & { passwordHash: string }): Promise<AdminUser>;
@@ -711,7 +715,7 @@ export class MemStorage implements IStorage {
   async getChefById(id: string): Promise<Chef | null> {
     const chef = await db.query.chefs.findFirst({ where: (c, { eq }) => eq(c.id, id) });
     if (!chef) return null;
-    const settings = await db.query.chefPreorderSettings.findFirst({ where: (s, { eq }) => eq(s.chefId, id) });
+    const [settings] = await db.select().from(chefPreorderSettings).where(eq(chefPreorderSettings.chefId, id));
     return { ...chef, preorderSettings: settings || null };
   }
 
@@ -796,14 +800,42 @@ export class MemStorage implements IStorage {
 
     console.log("🔥 updateChef() - Received data:", { id, incomingMaxDeliveryDistanceKm: (data as any).maxDeliveryDistanceKm, servicePincodes: (data as any).servicePincodes, updateData });
 
-    await db.update(chefs).set(updateData).where(eq(chefs.id, id));
-    const chef = await this.getChefById(id);
-    return chef || undefined;
+    const [updated] = await db.update(chefs).set(updateData).where(eq(chefs.id, id)).returning();
+    if (!updated) return undefined;
+    
+    // Also attach preorderSettings since consumers might expect it
+    const [settings] = await db.select().from(chefPreorderSettings).where(eq(chefPreorderSettings.chefId, id));
+    return { ...updated, preorderSettings: settings || null };
   }
 
   async deleteChef(id: string): Promise<boolean> {
-    await db.delete(chefs).where(eq(chefs.id, id));
-    return true;
+    const [deleted] = await db.delete(chefs).where(eq(chefs.id, id)).returning();
+    return !!deleted;
+  }
+
+  async getChefPreorderSettings(chefId: string): Promise<ChefPreorderSettings | null> {
+    const [settings] = await db
+      .select()
+      .from(chefPreorderSettings)
+      .where(eq(chefPreorderSettings.chefId, chefId));
+    return settings || null;
+  }
+
+  async createChefPreorderSettings(data: InsertChefPreorderSettings): Promise<ChefPreorderSettings> {
+    const [settings] = await db.insert(chefPreorderSettings).values({
+      ...data,
+      id: nanoid()
+    }).returning();
+    return settings;
+  }
+
+  async updateChefPreorderSettings(chefId: string, data: Partial<InsertChefPreorderSettings>): Promise<ChefPreorderSettings | undefined> {
+    const [settings] = await db
+      .update(chefPreorderSettings)
+      .set(data)
+      .where(eq(chefPreorderSettings.chefId, chefId))
+      .returning();
+    return settings;
   }
 
   async getAdminByUsername(username: string): Promise<AdminUser | undefined> {

@@ -2344,6 +2344,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           });
         }
+
+        // Validate backend expected date
+        try {
+          const { getBusinessToday, getBusinessTomorrow } = await import("@shared/timeFormatter");
+          let settings = await storage.getChefPreorderSettings(sanitized.chefId);
+          if (!settings) {
+            settings = await storage.createChefPreorderSettings({ chefId: sanitized.chefId });
+          }
+
+          const opensAt = settings.nextDayPreorderOpensAt || "22:00";
+          const [openHour, openMinute] = opensAt.split(":").map(Number);
+          
+          const now = new Date();
+          const businessTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+          
+          let expectedDate = getBusinessToday();
+          if (businessTime.getHours() > openHour || (businessTime.getHours() === openHour && businessTime.getMinutes() >= openMinute)) {
+            expectedDate = getBusinessTomorrow();
+          }
+
+          if (sanitized.deliveryDate !== expectedDate) {
+            console.log(`🚫 Preorder date mismatch. Expected: ${expectedDate}, Got: ${sanitized.deliveryDate}`);
+            return res.status(400).json({
+              message: "Invalid preorder delivery date. The availability window has changed. Please refresh the page.",
+              expectedDate,
+              receivedDate: sanitized.deliveryDate
+            });
+          }
+        } catch (error) {
+          console.error("Error validating preorder date:", error);
+        }
         
         // Validate slot exists or is a valid synthetic slot
         let slotStartTime = "11:00"; // default
