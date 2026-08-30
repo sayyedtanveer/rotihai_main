@@ -335,7 +335,7 @@ export default function CheckoutDialog({
     return true;
   });
 
-  // ✅ HELPER: Check if all 4 required address fields are complete
+  //  HELPER: Check if all 4 required address fields are complete
   const isAddressComplete =
     addressBuilding?.trim() &&
     addressStreet?.trim() &&
@@ -385,7 +385,7 @@ export default function CheckoutDialog({
   // NOTE: Auto-validation removed — validation only occurs via explicit
   // "Validate Address" button click (handleValidateAddressClick)
 
-  // ✅ FIX: Reset referral validation when cart amount changes
+  //  FIX: Reset referral validation when cart amount changes
   useEffect(() => {
     if (referralValidation && referralValidation.validatedAmount !== subtotal) {
       console.log("[REFERRAL] ⚠️ Cart amount changed - resetting validation", {
@@ -399,7 +399,7 @@ export default function CheckoutDialog({
   // Handle smooth scrolling to delivery slots upon validation success
   useEffect(() => {
     if (shouldScrollToSlots && isAddressComplete) {
-      // ✅ FIX: Only scroll if address is complete
+     
       // Timeout to ensure DOM has completely updated and the section is mounted
       const timer = setTimeout(() => {
         const container = document.getElementById("checkout-scroll-container");

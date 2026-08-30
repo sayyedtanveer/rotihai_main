@@ -201,7 +201,7 @@ export default function ActiveOrderBanner({
     };
   }, [isAuthenticated, queryClient]);
 
-  // ✅ IMPORTANT: Hide banner when Payment OR Checkout is open so it doesn't overlap
+  //  IMPORTANT: Hide banner when Payment OR Checkout is open so it doesn't overlap
   if (isPaymentOpen || isCheckoutOpen || isReturningToCheckout) return null;
   // ── STEP 6: Active status guard ──────────────────────────────────────────
   if (!activeOrder) return null;
