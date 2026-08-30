@@ -20,7 +20,7 @@ if (!connectionString) {
 }
 
 // Create a PostgreSQL connection pool
-const pool = new Pool({
+export const pool = new Pool({
   connectionString,
 });
 
@@ -62,7 +62,8 @@ export const {
   paymentVerificationLog,
   paymentSettings,
   customSubscriptionRequests,
-  chefUnavailability
+  chefUnavailability,
+  chefPreorderSettings
 } = schema;
 
 export type { ChefUnavailability, InsertChefUnavailability } from './schema';

@@ -172,6 +172,9 @@ export default function Home() {
   const [resumePaymentData, setResumePaymentData] = useState<any>(null);
   const [isReturningToCheckout, setIsReturningToCheckout] = useState(false);
 
+  // ── Order Mode (All / Instant / Pre-order) ───────────────────────────────
+  const [orderMode, setOrderMode] = useState<"all" | "instant" | "preorder">("all");
+
   const [isPincodeModalOpen, setIsPincodeModalOpen] = useState(false);
   const [isAddressVerificationOpen, setIsAddressVerificationOpen] = useState(false);
   const [verifiedAddressData, setVerifiedAddressData] = useState<{
@@ -513,13 +516,24 @@ export default function Home() {
       chefName: selectedChefForMenu?.name || chef?.name || undefined,
       categoryId: product.categoryId,
       specialInstructions,
+      effectiveMode: (product as any).effectiveMode,
     };
 
     // Allow creating multiple carts per category scoped by chef. Previously we
     // prompted to replace an existing cart — now we silently create a new
     // cart for this (category, chef) pair so users can maintain multiple carts.
     
-    cartAddToCart(cartItem, categoryName, chef?.latitude, chef?.longitude, 
+    const checkResult = canAddItem(cartItem as any);
+    if (!checkResult.canAdd) {
+      toast({
+        title: "Mode Conflict",
+        description: checkResult.conflictReason,
+        variant: "destructive"
+      });
+      return;
+    }
+
+    cartAddToCart(cartItem as any, categoryName, chef?.latitude, chef?.longitude, 
       (chef as any)?.freeDeliveryThreshold ?? 0);
 
   };
@@ -797,6 +811,14 @@ export default function Home() {
     // Apply veg only filter - only when products are loaded
     if (vegOnly && !productsLoading && !chef.hasVegItems) {
       return false;
+    }
+
+    // Filter by Order Mode
+    if (orderMode !== "all") {
+      const chefMode = chef.fulfillmentMode || "both";
+      if (chefMode !== "both" && chefMode !== orderMode) {
+        return false;
+      }
     }
 
     // Apply offers filter - only filter out when products are loaded (avoid race condition)
@@ -1115,6 +1137,39 @@ export default function Home() {
             </section>
           );
         })()}
+
+        {/* ── Order Mode Selector ─────────────────────────────────────── */}
+        <section className="bg-background pt-4 px-4 pb-2 border-b">
+          <div className="max-w-7xl mx-auto flex gap-2">
+            <Button
+              variant={orderMode === "all" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setOrderMode("all")}
+              className="rounded-full"
+              data-testid="mode-selector-all"
+            >
+              All
+            </Button>
+            <Button
+              variant={orderMode === "instant" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setOrderMode("instant")}
+              className="rounded-full"
+              data-testid="mode-selector-instant"
+            >
+              ⚡ Instant
+            </Button>
+            <Button
+              variant={orderMode === "preorder" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setOrderMode("preorder")}
+              className="rounded-full"
+              data-testid="mode-selector-preorder"
+            >
+              🕐 Pre-order
+            </Button>
+          </div>
+        </section>
 
         {/* Zomato-style Category Tabs - Circular Icons */}
         <section className="bg-background py-4 border-b">

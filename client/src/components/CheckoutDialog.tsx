@@ -26,6 +26,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
@@ -34,9 +35,10 @@ import { useAuth } from "@/hooks/useAuth";
 import { useWalletUpdates } from "@/hooks/useWalletUpdates";
 import { useApplyReferral } from "@/hooks/useApplyReferral";
 import { useValidateReferralCode } from "@/hooks/useValidateReferralCode";
-import { Loader2, Clock, MapPin, CheckCircle2 } from "lucide-react";
+import { Loader2, Clock, MapPin, CheckCircle2, CalendarClock } from "lucide-react";
 import { getDeliveryMessage, calculateDistance as calculateDistanceLoc } from "@/lib/locationUtils";
 import { calculateDistance, calculateDelivery } from "@shared/deliveryUtils";
+import { getBusinessTomorrow, getBusinessDateStringFromDate } from "@shared/timeFormatter";
 import api from "@/lib/apiClient";
 import { getApiUrl } from "@/lib/apiBase";
 import { useDeliveryLocation } from "@/contexts/DeliveryLocationContext";
@@ -182,6 +184,7 @@ export default function CheckoutDialog({
   const [selectedDeliveryTime, setSelectedDeliveryTime] = useState(""); // RAW time for API (HH:mm)
   const [deliveryTimeLabel, setDeliveryTimeLabel] = useState(""); // Formatted label for UI display
   const [selectedDeliverySlotId, setSelectedDeliverySlotId] = useState("");
+  const [selectedDeliveryDate, setSelectedDeliveryDate] = useState(""); // RAW date string (YYYY-MM-DD)
   // ✅ DELIVERY LABEL (ASAP vs selected slot)
   const deliveryLabel = deliveryTimeLabel
     ? deliveryTimeLabel
@@ -198,7 +201,9 @@ export default function CheckoutDialog({
     setSelectedDeliveryTime("");
     setDeliveryTimeLabel("");
     setSelectedDeliverySlotId("");
+    setSelectedDeliveryDate("");
   };
+  // activePreorderTab is no longer needed
   // Bonus amount to actually use (respecting limit)
   const [bonusAmountToUse, setBonusAmountToUse] = useState<number>(0);
 
@@ -674,11 +679,33 @@ export default function CheckoutDialog({
     enabled: !!cart?.categoryId && isOpen,
   });
 
-  // Check if delivery slots should be shown:
-  // 1. If category has requiresDeliverySlot flag set (admin configured), OR
-  // 2. If category name contains "roti" (regular roti orders)
-  const requiresDeliverySlot = !!categoryData?.requiresDeliverySlot ||
-    (categoryData?.name?.toLowerCase().includes('roti') ?? false);
+  // Check if delivery slots should be shown based on effective modes:
+  const cartHasInstant  = cart?.items?.some((item: any) => item.effectiveMode === 'instant') ?? false;
+  const cartHasPreorder = cart?.items?.some((item: any) => item.effectiveMode === 'preorder') ?? false;
+
+  const requiresDeliverySlot =
+    cartHasInstant  ? true :   // instant cart → show existing slot picker
+    cartHasPreorder ? true :   // preorder cart → show existing Lunch/Dinner tabs
+    !!categoryData?.requiresDeliverySlot ||
+    (categoryData?.name?.toLowerCase().includes('roti') ?? false);  // 'both' fallback unchanged
+
+  // Fetch admin settings for Pre-order boundaries
+  const { data: adminSettings } = useQuery({
+    queryKey: ["/api/admin-settings"],
+    enabled: requiresDeliverySlot && isOpen,
+  });
+
+  // Fetch chef details to get preorder settings
+  const cartChefId = cart?.items?.[0]?.chefId;
+  const { data: chefData } = useQuery({
+    queryKey: ["/api/chefs", cartChefId],
+    queryFn: async () => {
+      if (!cartChefId) return null;
+      const res = await api.get(`/api/chefs/${cartChefId}`);
+      return res.data;
+    },
+    enabled: !!cartChefId && requiresDeliverySlot && isOpen && cartHasPreorder,
+  });
 
   useEffect(() => {
     if (isOpen) {
@@ -990,6 +1017,97 @@ export default function CheckoutDialog({
     });
     return map;
   }, [deliverySlots]);
+
+  // Compute Pre-order slots using Admin Pre-order Settings (Synthetic Slots)
+  // Evaluate Today and Tomorrow independently.
+  const { preorderSlotsToday, preorderSlotsTomorrow, hasPreorderSlotsToday, hasPreorderSlotsTomorrow } = useMemo(() => {
+    if (!cartHasPreorder || !adminSettings || !chefData) {
+      return { 
+        preorderSlotsToday: { lunch: [], dinner: [] }, 
+        preorderSlotsTomorrow: { lunch: [], dinner: [] },
+        hasPreorderSlotsToday: false,
+        hasPreorderSlotsTomorrow: false
+      };
+    }
+
+    const lunchStartStr  = (adminSettings as any).preorder_lunch_start_time  || "11:00";
+    const lunchEndStr    = (adminSettings as any).preorder_lunch_end_time    || "16:00";
+    const dinnerStartStr = (adminSettings as any).preorder_dinner_start_time || "18:00";
+    const dinnerEndStr   = (adminSettings as any).preorder_dinner_end_time   || "22:00";
+    const globalCutoffHours = (adminSettings as any).preorderGlobalCutoffHours ?? 24;
+
+    const chefPreorder = chefData.preorderSettings || {};
+    const chefLunchEnabled  = chefPreorder.lunchEnabled  ?? true;
+    const chefDinnerEnabled = chefPreorder.dinnerEnabled ?? true;
+    const chefLunchCutoff   = chefPreorder.lunchMinNoticeHours  ?? 24;
+    const chefDinnerCutoff  = chefPreorder.dinnerMinNoticeHours ?? 12;
+
+    // We use the stricter (larger) cutoff time, but legacy used min(). Let's use what legacy had to avoid behavioral changes, or just max if we want stricter.
+    // Wait, earlier legacy had `Math.min(globalCutoff, chefLunchCutoff)`. We will maintain that so it behaves identically to before.
+    const effectiveLunchCutoffHours  = Math.min(globalCutoffHours, chefLunchCutoff);
+    const effectiveDinnerCutoffHours = Math.min(globalCutoffHours, chefDinnerCutoff);
+
+    const now = new Date();
+    const todayStr = getBusinessDateStringFromDate(now);
+    const tomorrowStr = getBusinessTomorrow();
+
+    const todaySlots = { lunch: [] as any[], dinner: [] as any[] };
+    const tomorrowSlots = { lunch: [] as any[], dinner: [] as any[] };
+
+    const makeSyntheticSlot = (id: string, startTime: string, endTime: string, deliveryDate: string) => ({
+      id,
+      startTime,
+      endTime,
+      label: `${startTime} – ${endTime}`,
+      deliveryDate,
+      capacity: 9999,
+      currentOrders: 0,
+      isActive: true,
+    });
+
+    if (chefLunchEnabled) {
+      // Check Today Lunch
+      const todayLunchDateTime = new Date(`${todayStr}T${lunchStartStr}:00+05:30`);
+      const hoursUntilTodayLunch = (todayLunchDateTime.getTime() - now.getTime()) / (1000 * 60 * 60);
+      if (hoursUntilTodayLunch >= effectiveLunchCutoffHours) {
+        todaySlots.lunch.push(makeSyntheticSlot("preorder-lunch", lunchStartStr, lunchEndStr, todayStr));
+      }
+
+      // Check Tomorrow Lunch
+      const tomorrowLunchDateTime = new Date(`${tomorrowStr}T${lunchStartStr}:00+05:30`);
+      const hoursUntilTomorrowLunch = (tomorrowLunchDateTime.getTime() - now.getTime()) / (1000 * 60 * 60);
+      if (hoursUntilTomorrowLunch >= effectiveLunchCutoffHours) {
+        tomorrowSlots.lunch.push(makeSyntheticSlot("preorder-lunch", lunchStartStr, lunchEndStr, tomorrowStr));
+      }
+    }
+
+    if (chefDinnerEnabled) {
+      // Check Today Dinner
+      const todayDinnerDateTime = new Date(`${todayStr}T${dinnerStartStr}:00+05:30`);
+      const hoursUntilTodayDinner = (todayDinnerDateTime.getTime() - now.getTime()) / (1000 * 60 * 60);
+      if (hoursUntilTodayDinner >= effectiveDinnerCutoffHours) {
+        todaySlots.dinner.push(makeSyntheticSlot("preorder-dinner", dinnerStartStr, dinnerEndStr, todayStr));
+      }
+
+      // Check Tomorrow Dinner
+      const tomorrowDinnerDateTime = new Date(`${tomorrowStr}T${dinnerStartStr}:00+05:30`);
+      const hoursUntilTomorrowDinner = (tomorrowDinnerDateTime.getTime() - now.getTime()) / (1000 * 60 * 60);
+      if (hoursUntilTomorrowDinner >= effectiveDinnerCutoffHours) {
+        tomorrowSlots.dinner.push(makeSyntheticSlot("preorder-dinner", dinnerStartStr, dinnerEndStr, tomorrowStr));
+      }
+    }
+
+    return {
+      preorderSlotsToday: todaySlots,
+      preorderSlotsTomorrow: tomorrowSlots,
+      hasPreorderSlotsToday: todaySlots.lunch.length > 0 || todaySlots.dinner.length > 0,
+      hasPreorderSlotsTomorrow: tomorrowSlots.lunch.length > 0 || tomorrowSlots.dinner.length > 0
+    };
+  }, [cartHasPreorder, adminSettings, chefData]);
+
+
+  // No longer using tabs, preorder slots are rendered in a single scrollable dropdown.
+
 
   const [suggestedReschedule, setSuggestedReschedule] = useState<null | {
     slotId: string;
@@ -2895,13 +3013,19 @@ export default function CheckoutDialog({
       setIsLoading(true);
 
       try {
-        // Get delivery date info if slot selected
-        const slotInfo = selectedDeliverySlotId
-          ? slotCutoffMap[selectedDeliverySlotId]
-          : null;
-        const deliveryDateStr = slotInfo
-          ? slotInfo.nextAvailableDate.toISOString().split("T")[0]
-          : undefined;
+        let deliveryDateStr;
+        if (cartHasPreorder) {
+          deliveryDateStr = selectedDeliveryDate || undefined;
+        } else {
+          // Get delivery date info if slot selected
+          const slotInfo = selectedDeliverySlotId
+            ? slotCutoffMap[selectedDeliverySlotId]
+            : null;
+          
+          deliveryDateStr = slotInfo
+            ? getBusinessDateStringFromDate(slotInfo.nextAvailableDate)
+            : undefined;
+        }
 
         // Require validated customer coordinates so checkout and server use the same distance basis.
         if (!hasUsableCoordinates(customerLatitude, customerLongitude)) {
@@ -2918,6 +3042,7 @@ export default function CheckoutDialog({
         const finalLongitude = customerLongitude;
 
         const orderData = {
+          effectiveMode: cartHasPreorder ? 'preorder' : undefined,
           customerName,
           phone,
           email: email || "",
@@ -3206,7 +3331,7 @@ export default function CheckoutDialog({
   };
 
   // Determine if the form is valid for submission
-  const isFormValid = customerName && phone && address;
+  const isFormValid = customerName && phone && address && (!cartHasPreorder || (selectedDeliverySlotId && selectedDeliveryDate));
 
   return (
     <>
@@ -3223,9 +3348,17 @@ export default function CheckoutDialog({
           }}
         >
           <DialogHeader className="flex-shrink-0 px-4 sm:px-6 pt-4 sm:pt-6">
-            <DialogTitle className="text-lg sm:text-xl">Checkout</DialogTitle>
+            <div className="flex items-center justify-between">
+              <DialogTitle className="text-lg sm:text-xl">Checkout</DialogTitle>
+              {cartHasPreorder && (
+                <div className="flex items-center gap-1.5 bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-400 px-2.5 py-1 rounded-full shadow-sm">
+                  <CalendarClock className="h-3.5 w-3.5" />
+                  <span className="text-[10px] font-bold tracking-wide uppercase">Pre-order</span>
+                </div>
+              )}
+            </div>
             <DialogDescription className="text-sm">
-              Complete your order.
+              {cartHasPreorder ? "Schedule your meal in advance." : "Complete your order."}
             </DialogDescription>
           </DialogHeader>
 
@@ -3599,109 +3732,197 @@ export default function CheckoutDialog({
                               className="flex items-center gap-2"
                             >
                               <Clock className="h-4 w-4" />
-                              Select Delivery Time (Optional)
+                              Select Delivery Time {!cartHasPreorder && "(Optional)"}
                             </Label>
 
                             {/* Show time slot picker */}
                             <p className="text-xs text-primary flex items-start gap-1">
                               <span>
-                                Choose a preferred time slot for your fresh rotis
+                                Choose a preferred time slot for your delivery
                               </span>
                             </p>
-                            <Select
-                              value={selectedDeliverySlotId}
-                              onValueChange={(value) => {
-                                setSelectedDeliverySlotId(value);
-                                const slot = deliverySlots.find(
-                                  (s: any) => s.id === value,
-                                );
-                                if (slot) {
-                                  // ✅ Set RAW time for API (HH:mm format)
-                                  setSelectedDeliveryTime(slot.startTime);
-
-                                  // ✅ Format the delivery time with date label for UI
-                                  const cutoffInfo = slotCutoffMap[slot.id];
-                                  const formattedStart = formatTo12Hour(slot.startTime);
-                                  const formattedEnd = formatTo12Hour(slot.endTime);
-                                  const deliveryLabel = cutoffInfo?.deliveryDateLabel || "";
-                                  const formattedDeliveryLabel = `${deliveryLabel} • ${formattedStart} – ${formattedEnd}`;
-                                  setDeliveryTimeLabel(formattedDeliveryLabel);
-                                } else {
-                                  setSelectedDeliveryTime("");
-                                  setDeliveryTimeLabel("");
+                              <Select
+                                value={
+                                  cartHasPreorder && selectedDeliverySlotId && selectedDeliveryDate
+                                    ? `${selectedDeliveryDate}|${selectedDeliverySlotId}`
+                                    : selectedDeliverySlotId
                                 }
-                              }}
-                            >
-                              <SelectTrigger
-                                id="delivery-slot"
-                                data-testid="select-delivery-slot"
-                                className="w-full text-sm"
+                                onValueChange={(value) => {
+                                  if (cartHasPreorder) {
+                                    const [dDate, sId] = value.split("|");
+                                    setSelectedDeliverySlotId(sId);
+                                    setSelectedDeliveryDate(dDate);
+                                    
+                                    const allPreorderSlots = [
+                                      ...preorderSlotsToday.lunch,
+                                      ...preorderSlotsToday.dinner,
+                                      ...preorderSlotsTomorrow.lunch,
+                                      ...preorderSlotsTomorrow.dinner
+                                    ];
+                                    const slot = allPreorderSlots.find((s: any) => s.id === sId && s.deliveryDate === dDate);
+                                    
+                                    if (slot) {
+                                      setSelectedDeliveryTime(slot.startTime);
+                                      const formattedStart = formatTo12Hour(slot.startTime);
+                                      const formattedEnd = formatTo12Hour(slot.endTime);
+                                      
+                                      const now = new Date();
+                                      const todayStr = getBusinessDateStringFromDate(now);
+                                      const isToday = dDate === todayStr;
+                                      const dateLabel = isToday ? `Today (${dDate})` : `Tomorrow (${dDate})`;
+                                      
+                                      setDeliveryTimeLabel(`${dateLabel} • ${formattedStart} – ${formattedEnd}`);
+                                    } else {
+                                      setSelectedDeliveryTime("");
+                                      setDeliveryTimeLabel("");
+                                    }
+                                  } else {
+                                    setSelectedDeliverySlotId(value);
+                                    setSelectedDeliveryDate("");
+                                    
+                                    const slot = deliverySlots.find((s: any) => s.id === value);
+                                    if (slot) {
+                                      setSelectedDeliveryTime(slot.startTime);
+                                      const cutoffInfo = slotCutoffMap[slot.id];
+                                      const formattedStart = formatTo12Hour(slot.startTime);
+                                      const formattedEnd = formatTo12Hour(slot.endTime);
+                                      const deliveryLabel = cutoffInfo?.deliveryDateLabel || "";
+                                      setDeliveryTimeLabel(`${deliveryLabel} • ${formattedStart} – ${formattedEnd}`);
+                                    } else {
+                                      setSelectedDeliveryTime("");
+                                      setDeliveryTimeLabel("");
+                                    }
+                                  }
+                                }}
                               >
-                                <SelectValue placeholder="Choose a time slot" />
-                              </SelectTrigger>
-                              <SelectContent
-                                align="center"
-                                className="max-w-[calc(100vw-2rem)] sm:max-w-[400px]"
-                                position="popper"
-                                sideOffset={5}
-                              >
-                                {deliverySlots
-                                  .filter(
-                                    (slot) =>
-                                      slot.isActive &&
-                                      slot.currentOrders < slot.capacity,
-                                  )
-                                  .map((slot) => {
-                                    const cutoff = slotCutoffMap[slot.id];
-                                    const slotsLeft =
-                                      slot.capacity - slot.currentOrders;
-                                    const now = new Date();
-                                    const currentHour = now.getHours();
-
-                                    // Check if we're in morning restriction period (8 AM - 11 AM)
-                                    const inMorningRestriction =
-                                      currentHour >= 8 && currentHour < 11;
-                                    const isDisabled =
-                                      cutoff?.isMorningSlot &&
-                                      inMorningRestriction;
-
-                                    const formattedStart = formatTo12Hour(slot.startTime);
-                                    const formattedEnd = formatTo12Hour(slot.endTime);
-
-                                    return (
-                                      <SelectItem
-                                        key={slot.id}
-                                        value={slot.id}
-                                        data-testid={`delivery-slot-${slot.id}`}
-                                        className="w-full py-3"
-                                        disabled={isDisabled}
-                                      >
-                                        <div className="flex flex-col w-full gap-0.5">
-                                          <span className="font-medium text-sm">
-                                            {cutoff?.deliveryDateLabel} • {formattedStart} – {formattedEnd}
-                                          </span>
-                                          <span className="text-xs text-muted-foreground">
-                                            {slotsLeft} slots left
-                                            {cutoff?.slotHasPassed &&
-                                              " (Next day)"}
-                                          </span>
-                                          {isDisabled && (
-                                            <span className="text-xs text-red-500 mt-1">
-                                              Not available 8-11 AM
-                                            </span>
+                                <SelectTrigger
+                                  id="delivery-slot"
+                                  data-testid="select-delivery-slot"
+                                  className="w-full text-sm"
+                                >
+                                  <SelectValue placeholder="Choose a time slot" />
+                                </SelectTrigger>
+                                <SelectContent
+                                  align="center"
+                                  className="max-w-[calc(100vw-2rem)] sm:max-w-[400px] max-h-[300px]"
+                                  position="popper"
+                                  sideOffset={5}
+                                >
+                                    {/* Pre-order Slots Rendering */}
+                                    {cartHasPreorder ? (
+                                      <div className="w-full">
+                                        <div className="p-2 border-b">
+                                          <p className="text-sm font-semibold text-primary">Today — {getBusinessDateStringFromDate(new Date())}</p>
+                                          
+                                          <p className="text-xs font-semibold text-muted-foreground mt-2 mb-1">🍱 Lunch</p>
+                                          {preorderSlotsToday.lunch.length === 0 ? (
+                                            <p className="text-xs text-muted-foreground px-2 italic">No slots available</p>
+                                          ) : (
+                                            preorderSlotsToday.lunch.map((slot) => (
+                                              <SelectItem key={`today-lunch-${slot.id}`} value={`${slot.deliveryDate}|${slot.id}`} className="py-2">
+                                                {formatTo12Hour(slot.startTime)} – {formatTo12Hour(slot.endTime)}
+                                              </SelectItem>
+                                            ))
+                                          )}
+                                          
+                                          <p className="text-xs font-semibold text-muted-foreground mt-2 mb-1">🌙 Dinner</p>
+                                          {preorderSlotsToday.dinner.length === 0 ? (
+                                            <p className="text-xs text-muted-foreground px-2 italic">No slots available</p>
+                                          ) : (
+                                            preorderSlotsToday.dinner.map((slot) => (
+                                              <SelectItem key={`today-dinner-${slot.id}`} value={`${slot.deliveryDate}|${slot.id}`} className="py-2">
+                                                {formatTo12Hour(slot.startTime)} – {formatTo12Hour(slot.endTime)}
+                                              </SelectItem>
+                                            ))
                                           )}
                                         </div>
-                                      </SelectItem>
-                                    );
-                                  })}
-                                {deliverySlots.filter(
-                                  (slot) =>
-                                    slot.isActive &&
-                                    slot.currentOrders < slot.capacity,
-                                ).length === 0 && (
-                                    <SelectItem value="none" disabled>
-                                      No delivery slots available
-                                    </SelectItem>
+
+                                        <div className="p-2">
+                                          <p className="text-sm font-semibold text-primary">Tomorrow — {getBusinessTomorrow()}</p>
+                                          
+                                          <p className="text-xs font-semibold text-muted-foreground mt-2 mb-1">🍱 Lunch</p>
+                                          {preorderSlotsTomorrow.lunch.length === 0 ? (
+                                            <p className="text-xs text-muted-foreground px-2 italic">No slots available</p>
+                                          ) : (
+                                            preorderSlotsTomorrow.lunch.map((slot) => (
+                                              <SelectItem key={`tom-lunch-${slot.id}`} value={`${slot.deliveryDate}|${slot.id}`} className="py-2">
+                                                {formatTo12Hour(slot.startTime)} – {formatTo12Hour(slot.endTime)}
+                                              </SelectItem>
+                                            ))
+                                          )}
+                                          
+                                          <p className="text-xs font-semibold text-muted-foreground mt-2 mb-1">🌙 Dinner</p>
+                                          {preorderSlotsTomorrow.dinner.length === 0 ? (
+                                            <p className="text-xs text-muted-foreground px-2 italic">No slots available</p>
+                                          ) : (
+                                            preorderSlotsTomorrow.dinner.map((slot) => (
+                                              <SelectItem key={`tom-dinner-${slot.id}`} value={`${slot.deliveryDate}|${slot.id}`} className="py-2">
+                                                {formatTo12Hour(slot.startTime)} – {formatTo12Hour(slot.endTime)}
+                                              </SelectItem>
+                                            ))
+                                          )}
+                                        </div>
+                                      </div>
+                                    ) : (
+                                    // 🟢 Instant/Roti Standard Slots Rendering
+                                    <>
+                                      {deliverySlots.filter(
+                                        (slot) =>
+                                          slot.isActive &&
+                                          slot.currentOrders < slot.capacity,
+                                      ).map((slot) => {
+                                        const cutoff = slotCutoffMap[slot.id];
+                                        const slotsLeft =
+                                          slot.capacity - slot.currentOrders;
+                                        const now = new Date();
+                                        const currentHour = now.getHours();
+
+                                        // Check if we're in morning restriction period (8 AM - 11 AM)
+                                        const inMorningRestriction =
+                                          currentHour >= 8 && currentHour < 11;
+                                        const isDisabled =
+                                          cutoff?.isMorningSlot &&
+                                          inMorningRestriction;
+
+                                        const formattedStart = formatTo12Hour(slot.startTime);
+                                        const formattedEnd = formatTo12Hour(slot.endTime);
+
+                                        return (
+                                          <SelectItem
+                                            key={slot.id}
+                                            value={slot.id}
+                                            data-testid={`delivery-slot-${slot.id}`}
+                                            className="w-full py-3"
+                                            disabled={isDisabled}
+                                          >
+                                            <div className="flex flex-col w-full gap-0.5">
+                                              <span className="font-medium text-sm">
+                                                {cutoff?.deliveryDateLabel} • {formattedStart} – {formattedEnd}
+                                              </span>
+                                              <span className="text-xs text-muted-foreground">
+                                                {slotsLeft} slots left
+                                                {cutoff?.slotHasPassed &&
+                                                  " (Next day)"}
+                                              </span>
+                                              {isDisabled && (
+                                                <span className="text-xs text-red-500 mt-1">
+                                                  Not available 8-11 AM
+                                                </span>
+                                              )}
+                                            </div>
+                                          </SelectItem>
+                                        );
+                                      })}
+                                      {deliverySlots.filter(
+                                        (slot) =>
+                                          slot.isActive &&
+                                          slot.currentOrders < slot.capacity,
+                                      ).length === 0 && (
+                                        <SelectItem value="none" disabled>
+                                          No delivery slots available
+                                        </SelectItem>
+                                      )}
+                                    </>
                                   )}
                               </SelectContent>
                             </Select>
@@ -3722,9 +3943,9 @@ export default function CheckoutDialog({
                             )}
 
                             {/* Validation message for missing slot */}
-                            {requiresDeliverySlot && !selectedDeliverySlotId && !isRotiOrderBlocked && (
+                            {((requiresDeliverySlot && !selectedDeliverySlotId) || (cartHasPreorder && (!selectedDeliverySlotId || !selectedDeliveryDate))) && !isRotiOrderBlocked && (
                               <p className="text-[11px] text-red-500 font-medium px-4 pb-2 -mt-1 text-center bg-white dark:bg-slate-900">
-                                Prefer a later delivery? Choose a time slot
+                                {cartHasPreorder ? "Please select a delivery time to continue." : "Prefer a later delivery? Choose a time slot"}
                               </p>
                             )}
                             {selectedDeliverySlotId &&
@@ -3732,14 +3953,10 @@ export default function CheckoutDialog({
                                 <div className="mt-1 text-center">
                                   <p className="text-xs text-green-600 dark:text-green-400">
                                     Delivery:{" "}
-                                    {
-                                      slotCutoffMap[selectedDeliverySlotId]
-                                        .deliveryDateLabel
-                                    }{" "}
+                                    {cartHasPreorder ? "Tomorrow" : slotCutoffMap[selectedDeliverySlotId].deliveryDateLabel}{" "}
                                     at {selectedDeliveryTime}
                                   </p>
-                                  {slotCutoffMap[selectedDeliverySlotId]
-                                    .slotHasPassed && (
+                                  {!cartHasPreorder && slotCutoffMap[selectedDeliverySlotId].slotHasPassed && (
                                       <p className="text-xs text-orange-600 dark:text-orange-400 mt-1 font-medium">
                                         This time has passed today - your order
                                         will be delivered tomorrow at this time
@@ -3747,7 +3964,7 @@ export default function CheckoutDialog({
                                     )}
                                 </div>
                               )}
-                            {!selectedDeliveryTime && (
+                            {!cartHasPreorder && !selectedDeliveryTime && (
                               <p className="text-xs text-slate-500 mt-2 text-center leading-relaxed">
                                 <span className="inline-block text-[10px] font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full mr-1">
                                   Optional
@@ -4179,6 +4396,7 @@ export default function CheckoutDialog({
                       deliveryDistance={deliveryDistance}
                       isBelowDeliveryMinimum={isBelowDeliveryMinimum}
                       deliveryMinOrderAmount={deliveryMinOrderAmount}
+                      cartHasPreorder={cartHasPreorder}
                       itemDiscountSavings={itemDiscountSavings}
                       discount={discount}
                       platformFee={platformFee}

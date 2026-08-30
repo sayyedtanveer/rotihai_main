@@ -23,6 +23,7 @@ __export(schema_exports, {
   adminUsers: () => adminUsers,
   cartSettings: () => cartSettings,
   categories: () => categories,
+  chefPreorderSettings: () => chefPreorderSettings,
   chefUnavailability: () => chefUnavailability,
   chefs: () => chefs,
   couponUsages: () => couponUsages,
@@ -37,10 +38,12 @@ __export(schema_exports, {
   deliverySettings: () => deliverySettings,
   deliveryTimeSlots: () => deliveryTimeSlots,
   discountTypeEnum: () => discountTypeEnum,
+  fulfillmentModeEnum: () => fulfillmentModeEnum,
   insertAdminSettingsSchema: () => insertAdminSettingsSchema,
   insertAdminUserSchema: () => insertAdminUserSchema,
   insertCartSettingSchema: () => insertCartSettingSchema,
   insertCategorySchema: () => insertCategorySchema,
+  insertChefPreorderSettingsSchema: () => insertChefPreorderSettingsSchema,
   insertChefSchema: () => insertChefSchema,
   insertCouponSchema: () => insertCouponSchema,
   insertCustomSubscriptionRequestSchema: () => insertCustomSubscriptionRequestSchema,
@@ -75,6 +78,7 @@ __export(schema_exports, {
   payoutTransactions: () => payoutTransactions,
   pendingBroadcasts: () => pendingBroadcasts,
   pendingCheckouts: () => pendingCheckouts,
+  productFulfillmentModeEnum: () => productFulfillmentModeEnum,
   products: () => products,
   promotionalBanners: () => promotionalBanners,
   pushSubscriptions: () => pushSubscriptions,
@@ -98,11 +102,13 @@ import { sql } from "drizzle-orm";
 import { pgTable, text, varchar, integer, decimal, boolean, timestamp, date, jsonb, index, uniqueIndex, pgEnum, real } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
-var adminRoleEnum, sessions, users, adminUsers, partnerUsers, categories, chefs, products, paymentStatusEnum, deliveryPersonnelStatusEnum, deliveryPersonnel, orders, paymentVerificationLog, deliverySettings, deliveryPartnerPayouts, cartSettings, discountTypeEnum, coupons, couponUsages, referrals, transactionTypeEnum, walletTransactions, walletSettings, paymentSettings, payoutTransactions, referralRewards, subscriptionStatusEnum, subscriptionFrequencyEnum, deliveryLogStatusEnum, subscriptionPlans, subscriptions, subscriptionDeliveryLogs, chefUnavailability, insertCategorySchema, insertProductSchema, insertChefSchema, orderItemSchema, insertOrderSchema, insertUserSchema, userLoginSchema, insertAdminUserSchema, adminLoginSchema, insertPartnerUserSchema, partnerLoginSchema, insertSubscriptionPlanSchema, promotionalBanners, insertPromotionalBannerSchema, insertSubscriptionSchema, insertDeliverySettingSchema, insertSubscriptionDeliveryLogSchema, insertDeliveryPartnerPayoutSchema, insertCartSettingSchema, insertDeliveryPersonnelSchema, deliveryPersonnelLoginSchema, insertCouponSchema, insertReferralSchema, insertWalletTransactionSchema, insertReferralRewardSchema, deliveryTimeSlots, insertDeliveryTimeSlotsSchema, rotiSettings, insertRotiSettingsSchema, visitors, insertVisitorSchema, deliveryAreas, insertDeliveryAreasSchema, adminSettings, insertAdminSettingsSchema, pushSubscriptions, insertPushSubscriptionSchema, newsletterSubscribers, pendingBroadcasts, insertPendingBroadcastSchema, pendingCheckouts, insertPendingCheckoutSchema, customSubscriptionRequests, insertCustomSubscriptionRequestSchema;
+var adminRoleEnum, fulfillmentModeEnum, productFulfillmentModeEnum, sessions, users, adminUsers, partnerUsers, categories, chefs, chefPreorderSettings, insertChefPreorderSettingsSchema, products, paymentStatusEnum, deliveryPersonnelStatusEnum, deliveryPersonnel, orders, paymentVerificationLog, deliverySettings, deliveryPartnerPayouts, cartSettings, discountTypeEnum, coupons, couponUsages, referrals, transactionTypeEnum, walletTransactions, walletSettings, paymentSettings, payoutTransactions, referralRewards, subscriptionStatusEnum, subscriptionFrequencyEnum, deliveryLogStatusEnum, subscriptionPlans, subscriptions, subscriptionDeliveryLogs, chefUnavailability, insertCategorySchema, insertProductSchema, insertChefSchema, orderItemSchema, insertOrderSchema, insertUserSchema, userLoginSchema, insertAdminUserSchema, adminLoginSchema, insertPartnerUserSchema, partnerLoginSchema, insertSubscriptionPlanSchema, promotionalBanners, insertPromotionalBannerSchema, insertSubscriptionSchema, insertDeliverySettingSchema, insertSubscriptionDeliveryLogSchema, insertDeliveryPartnerPayoutSchema, insertCartSettingSchema, insertDeliveryPersonnelSchema, deliveryPersonnelLoginSchema, insertCouponSchema, insertReferralSchema, insertWalletTransactionSchema, insertReferralRewardSchema, deliveryTimeSlots, insertDeliveryTimeSlotsSchema, rotiSettings, insertRotiSettingsSchema, visitors, insertVisitorSchema, deliveryAreas, insertDeliveryAreasSchema, adminSettings, insertAdminSettingsSchema, pushSubscriptions, insertPushSubscriptionSchema, newsletterSubscribers, pendingBroadcasts, insertPendingBroadcastSchema, pendingCheckouts, insertPendingCheckoutSchema, customSubscriptionRequests, insertCustomSubscriptionRequestSchema;
 var init_schema = __esm({
   "shared/schema.ts"() {
     "use strict";
     adminRoleEnum = pgEnum("admin_role", ["super_admin", "manager", "viewer"]);
+    fulfillmentModeEnum = pgEnum("fulfillment_mode", ["instant", "preorder", "both"]);
+    productFulfillmentModeEnum = pgEnum("product_fulfillment_mode", ["inherit", "instant", "preorder"]);
     sessions = pgTable(
       "sessions",
       {
@@ -213,8 +219,23 @@ var init_schema = __esm({
       // 'available' | 'unavailable_today' | 'on_leave'
       leaveStartDate: date("leave_start_date"),
       // DATE — chef leave is date-based, no time component
-      leaveEndDate: date("leave_end_date")
+      leaveEndDate: date("leave_end_date"),
       // DATE — chef leave is date-based, no time component
+      fulfillmentMode: fulfillmentModeEnum("fulfillment_mode").notNull().default("both")
+      // 'instant' | 'preorder' | 'both'
+    });
+    chefPreorderSettings = pgTable("chef_preorder_settings", {
+      chefId: text("chef_id").primaryKey().references(() => chefs.id),
+      lunchEnabled: boolean("lunch_enabled").notNull().default(false),
+      lunchMinNoticeHours: integer("lunch_min_notice_hours").notNull().default(24),
+      dinnerEnabled: boolean("dinner_enabled").notNull().default(false),
+      dinnerMinNoticeHours: integer("dinner_min_notice_hours").notNull().default(12),
+      createdAt: timestamp("created_at").notNull().defaultNow(),
+      updatedAt: timestamp("updated_at").notNull().defaultNow()
+    });
+    insertChefPreorderSettingsSchema = createInsertSchema(chefPreorderSettings).omit({
+      createdAt: true,
+      updatedAt: true
     });
     products = pgTable("products", {
       id: text("id").primaryKey(),
@@ -242,8 +263,10 @@ var init_schema = __esm({
       // NEW: Section name (e.g., "Aloo & Noodle Frankies"), NULL for ungrouped
       sectionOrder: integer("section_order").notNull().default(0),
       // NEW: Controls section display order (lower = first)
-      sortOrder: integer("sort_order").notNull().default(0)
+      sortOrder: integer("sort_order").notNull().default(0),
       // NEW: Controls product order within section (lower = first)
+      fulfillmentMode: productFulfillmentModeEnum("fulfillment_mode").notNull().default("inherit")
+      // 'inherit' | 'instant' | 'preorder'
     });
     paymentStatusEnum = pgEnum("payment_status", ["pending", "pending_verification", "paid", "confirmed"]);
     deliveryPersonnelStatusEnum = pgEnum("delivery_personnel_status", ["available", "busy", "offline"]);
@@ -533,7 +556,7 @@ var init_schema = __esm({
     });
     subscriptionStatusEnum = pgEnum("subscription_status", ["pending", "active", "paused", "cancelled", "expired"]);
     subscriptionFrequencyEnum = pgEnum("subscription_frequency", ["daily", "weekly", "monthly"]);
-    deliveryLogStatusEnum = pgEnum("delivery_log_status", ["scheduled", "preparing", "out_for_delivery", "delivered", "missed", "skipped"]);
+    deliveryLogStatusEnum = pgEnum("delivery_log_status", ["scheduled", "preparing", "prepared", "accepted_by_delivery", "out_for_delivery", "delivered", "missed", "skipped"]);
     subscriptionPlans = pgTable("subscription_plans", {
       id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
       name: text("name").notNull(),
@@ -649,6 +672,7 @@ var init_schema = __esm({
       // ← NEW: Auto-calculated margin (handle DECIMAL from DB)
       isCustomizable: z.boolean().default(false).optional(),
       offerPercentage: z.number().min(0).max(100).optional(),
+      fulfillmentMode: z.enum(["inherit", "instant", "preorder"]).optional(),
       createdAt: z.date().or(z.string()).optional(),
       updatedAt: z.date().or(z.string()).optional()
     });
@@ -658,7 +682,8 @@ var init_schema = __esm({
       fssaiNumber: z.string().optional().nullable(),
       fssaiVerified: z.boolean().optional(),
       chefType: z.enum(["home", "restaurant"]).optional().nullable(),
-      complianceStatus: z.enum(["pending", "verified", "rejected"]).optional()
+      complianceStatus: z.enum(["pending", "verified", "rejected"]).optional(),
+      fulfillmentMode: z.enum(["instant", "preorder", "both"]).optional()
     }).omit({
       id: true
     });
@@ -1237,6 +1262,7 @@ __export(db_exports, {
   adminUsers: () => adminUsers2,
   cartSettings: () => cartSettings2,
   categories: () => categories2,
+  chefPreorderSettings: () => chefPreorderSettings2,
   chefUnavailability: () => chefUnavailability2,
   chefs: () => chefs2,
   couponUsages: () => couponUsages2,
@@ -1257,6 +1283,7 @@ __export(db_exports, {
   payoutTransactions: () => payoutTransactions2,
   pendingBroadcasts: () => pendingBroadcasts2,
   pendingCheckouts: () => pendingCheckouts2,
+  pool: () => pool,
   products: () => products2,
   promotionalBanners: () => promotionalBanners2,
   referralRewards: () => referralRewards2,
@@ -1275,7 +1302,7 @@ __export(db_exports, {
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { sql as sql2 } from "drizzle-orm";
-var dbType, connectionString, pool, db, users2, sessions2, categories2, products2, orders2, chefs2, adminUsers2, partnerUsers2, subscriptions2, subscriptionPlans2, subscriptionDeliveryLogs2, deliverySettings2, deliveryPartnerPayouts2, cartSettings2, deliveryPersonnel2, coupons2, couponUsages2, referrals2, walletTransactions2, walletSettings2, referralRewards2, promotionalBanners2, deliveryTimeSlots2, rotiSettings2, visitors2, deliveryAreas2, adminSettings2, newsletterSubscribers2, pendingBroadcasts2, pendingCheckouts2, payoutTransactions2, paymentVerificationLog2, paymentSettings2, customSubscriptionRequests2, chefUnavailability2;
+var dbType, connectionString, pool, db, users2, sessions2, categories2, products2, orders2, chefs2, adminUsers2, partnerUsers2, subscriptions2, subscriptionPlans2, subscriptionDeliveryLogs2, deliverySettings2, deliveryPartnerPayouts2, cartSettings2, deliveryPersonnel2, coupons2, couponUsages2, referrals2, walletTransactions2, walletSettings2, referralRewards2, promotionalBanners2, deliveryTimeSlots2, rotiSettings2, visitors2, deliveryAreas2, adminSettings2, newsletterSubscribers2, pendingBroadcasts2, pendingCheckouts2, payoutTransactions2, paymentVerificationLog2, paymentSettings2, customSubscriptionRequests2, chefUnavailability2, chefPreorderSettings2;
 var init_db = __esm({
   "shared/db.ts"() {
     "use strict";
@@ -1329,129 +1356,9 @@ var init_db = __esm({
       paymentVerificationLog: paymentVerificationLog2,
       paymentSettings: paymentSettings2,
       customSubscriptionRequests: customSubscriptionRequests2,
-      chefUnavailability: chefUnavailability2
+      chefUnavailability: chefUnavailability2,
+      chefPreorderSettings: chefPreorderSettings2
     } = schema_exports);
-  }
-});
-
-// shared/deliveryUtils.ts
-var deliveryUtils_exports = {};
-__export(deliveryUtils_exports, {
-  ROAD_DISTANCE_MULTIPLIER: () => ROAD_DISTANCE_MULTIPLIER,
-  STORE_LOCATION: () => STORE_LOCATION,
-  calculateDelivery: () => calculateDelivery,
-  calculateDistance: () => calculateDistance,
-  calculateFullDelivery: () => calculateFullDelivery,
-  getRoadAdjustedDistance: () => getRoadAdjustedDistance
-});
-function getRoadAdjustedDistance(rawDistance, customMultiplier) {
-  const multiplier = customMultiplier ?? ROAD_DISTANCE_MULTIPLIER;
-  return Number((rawDistance * multiplier).toFixed(2));
-}
-function calculateDistance(lat1, lon1, lat2, lon2) {
-  const R = 6371;
-  const toRad = (deg) => deg * Math.PI / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.asin(Math.sqrt(a));
-  const distance = R * c;
-  return parseFloat(distance.toFixed(2));
-}
-function calculateDelivery(distance, subtotal, deliverySettings3, customMultiplier, chefFreeDeliveryThreshold) {
-  let deliveryFee = 0;
-  let freeDeliveryEligible = false;
-  let amountForFreeDelivery;
-  let deliveryRangeName;
-  if (!deliverySettings3 || deliverySettings3.length === 0) {
-    console.warn("No delivery settings configured by admin");
-    return {
-      deliveryFee: 0,
-      freeDeliveryEligible: false,
-      amountForFreeDelivery: void 0,
-      deliveryRangeName: "No delivery settings configured"
-    };
-  }
-  const activeSettings = deliverySettings3.filter((s) => s.isActive);
-  if (activeSettings.length === 0) {
-    console.warn("No active delivery settings found");
-    return {
-      deliveryFee: 0,
-      freeDeliveryEligible: false,
-      amountForFreeDelivery: void 0,
-      deliveryRangeName: "No active delivery settings"
-    };
-  }
-  const adjustedDistance = getRoadAdjustedDistance(distance, customMultiplier);
-  console.log(`[Delivery Calc] Adjusted road distance for slabs: ${adjustedDistance}km`);
-  console.log(`[Delivery Calc] Distance: ${distance}km, Subtotal: \u20B9${subtotal}`);
-  console.log(`[Delivery Calc] Active settings:`, activeSettings.map(
-    (s) => `${s.name}: ${s.minDistance}-${s.maxDistance}km = \u20B9${s.price}`
-  ));
-  const matchingSetting = activeSettings.find((setting) => {
-    const minDist = parseFloat(setting.minDistance);
-    const maxDist = parseFloat(setting.maxDistance);
-    const matches = adjustedDistance >= minDist && adjustedDistance <= maxDist;
-    console.log(`[Delivery Calc] Checking ${setting.name} (${minDist}-${maxDist}km): ${matches ? "MATCH" : "no match"}`);
-    return matches;
-  });
-  console.log(`[Delivery Calc] Matching setting:`, matchingSetting?.name || "NONE");
-  if (matchingSetting) {
-    deliveryFee = matchingSetting.price;
-    deliveryRangeName = matchingSetting.name;
-    const minOrderForRange = matchingSetting.minOrderAmount || 0;
-    const effectiveThreshold = Math.max(minOrderForRange, chefFreeDeliveryThreshold ?? 0);
-    if (deliveryFee === 0 || effectiveThreshold > 0 && subtotal >= effectiveThreshold) {
-      freeDeliveryEligible = true;
-      deliveryFee = 0;
-    } else {
-      if (effectiveThreshold > 0) {
-        amountForFreeDelivery = effectiveThreshold - subtotal;
-      }
-      freeDeliveryEligible = false;
-    }
-    const result = {
-      deliveryFee,
-      freeDeliveryEligible,
-      amountForFreeDelivery,
-      deliveryRangeName,
-      minOrderAmount: effectiveThreshold
-    };
-    console.log(`[Delivery Calc] Final result:`, result);
-    return result;
-  } else {
-    deliveryFee = 0;
-    deliveryRangeName = "Outside delivery zone";
-    const result = {
-      deliveryFee,
-      freeDeliveryEligible,
-      amountForFreeDelivery,
-      deliveryRangeName,
-      minOrderAmount: 0
-    };
-    console.log(`[Delivery Calc] Final result:`, result);
-    return result;
-  }
-}
-function calculateFullDelivery(userLat, userLon, chefLat, chefLon, subtotal, deliverySettings3, customMultiplier) {
-  const distance = calculateDistance(userLat, userLon, chefLat, chefLon);
-  const delivery = calculateDelivery(distance, subtotal, deliverySettings3, customMultiplier);
-  return {
-    distance,
-    ...delivery
-  };
-}
-var ROAD_DISTANCE_MULTIPLIER, STORE_LOCATION;
-var init_deliveryUtils = __esm({
-  "shared/deliveryUtils.ts"() {
-    "use strict";
-    ROAD_DISTANCE_MULTIPLIER = 1.5;
-    STORE_LOCATION = {
-      latitude: 28.6139,
-      // Example: New Delhi
-      longitude: 77.209,
-      address: "Main Store, Connaught Place, New Delhi"
-    };
   }
 });
 
@@ -1492,7 +1399,7 @@ import {
   format,
   isWithinInterval
 } from "date-fns";
-var isValidRevenueOrder, isCancelledOrder, getPeriodRange, getPreviousPeriodRange, filterOrdersByDateRange, filterOrdersByCreatedDateRange, calculateGrowth, calculateRevenueMetrics, getPeriodRevenueComparison, getPeriodOrderComparison, getOrderStatusBreakdown, getCustomerMetrics, generateRevenueTrendChart, generateTopSellingItems, generateTopAreas, getVisitorMetricsForToday, getVisitorMetricsForPeriod;
+var isValidRevenueOrder, isCancelledOrder, getPeriodRange, getPreviousPeriodRange, filterOrdersByDateRange, filterOrdersByCreatedDateRange, calculateGrowth, calculateRevenueMetrics, getPeriodRevenueComparison, getPeriodOrderComparison, getOrderStatusBreakdown, getCustomerMetrics, generateRevenueTrendChart, generateTopSellingItems, generateTopAreas, isValidFrontendVisitor, getVisitorMetricsForToday, getVisitorMetricsForPeriod;
 var init_analytics = __esm({
   "server/analytics.ts"() {
     "use strict";
@@ -1740,6 +1647,16 @@ var init_analytics = __esm({
       });
       return Array.from(areaStats.values()).sort((a, b) => b.revenue - a.revenue).slice(0, limit);
     };
+    isValidFrontendVisitor = (visitor) => {
+      if (!visitor || !visitor.sessionId || visitor.sessionId.trim() === "") {
+        return false;
+      }
+      const page = typeof visitor.page === "string" ? visitor.page.trim().toLowerCase() : "";
+      if (page && (page.startsWith("/admin") || page.startsWith("/partner") || page.startsWith("/delivery"))) {
+        return false;
+      }
+      return true;
+    };
     getVisitorMetricsForToday = (visitors3) => {
       if (!visitors3 || visitors3.length === 0) {
         return {
@@ -1751,7 +1668,7 @@ var init_analytics = __esm({
       }
       const todayRange = getPeriodRange("today");
       const todayVisitors = visitors3.filter((v) => {
-        if (!v.sessionId || v.sessionId.trim() === "") {
+        if (!isValidFrontendVisitor(v)) {
           return false;
         }
         const visitDate = new Date(v.createdAt);
@@ -1764,21 +1681,13 @@ var init_analytics = __esm({
       let returningVisitors = 0;
       uniqueSessionIds.forEach((sessionId) => {
         const previousVisits = visitors3.filter(
-          (v) => v.sessionId === sessionId && new Date(v.createdAt) < todayRange.start
+          (v) => v.sessionId === sessionId && isValidFrontendVisitor(v) && new Date(v.createdAt) < todayRange.start
         );
         if (previousVisits.length === 0) {
           newVisitors++;
         } else {
           returningVisitors++;
         }
-      });
-      console.log("[VISITOR METRICS] Today calculations:", {
-        totalVisitors: visitors3.length,
-        todaysVisits,
-        uniqueVisitors,
-        newVisitors,
-        returningVisitors,
-        sessionIdsWithoutValue: visitors3.filter((v) => !v.sessionId || v.sessionId.trim() === "").length
       });
       return {
         todaysVisits,
@@ -1790,6 +1699,9 @@ var init_analytics = __esm({
     getVisitorMetricsForPeriod = (visitors3, period) => {
       const periodRange = getPeriodRange(period);
       const periodVisitors = visitors3.filter((v) => {
+        if (!isValidFrontendVisitor(v)) {
+          return false;
+        }
         const visitDate = new Date(v.createdAt);
         return isWithinInterval(visitDate, periodRange);
       });
@@ -1908,7 +1820,6 @@ var init_storage = __esm({
   "server/storage.ts"() {
     "use strict";
     init_db();
-    init_deliveryUtils();
     MemStorage = class {
       users;
       categories = /* @__PURE__ */ new Map();
@@ -2016,6 +1927,8 @@ var init_storage = __esm({
           isVeg: insertProduct.isVeg !== void 0 ? insertProduct.isVeg : true,
           isCustomizable: insertProduct.isCustomizable !== void 0 ? insertProduct.isCustomizable : false,
           chefId: insertProduct.chefId || null,
+          image: insertProduct.image ?? null,
+          fulfillmentMode: insertProduct.fulfillmentMode || "inherit",
           stockQuantity: insertProduct.stockQuantity !== void 0 ? insertProduct.stockQuantity : 100,
           lowStockThreshold: insertProduct.lowStockThreshold !== void 0 ? insertProduct.lowStockThreshold : 20,
           isAvailable: insertProduct.isAvailable !== void 0 ? insertProduct.isAvailable : true,
@@ -2111,15 +2024,20 @@ var init_storage = __esm({
       }
       async getChefs() {
         const result = await db.select().from(chefs2);
+        const settings = await db.select().from(chefPreorderSettings2);
+        const settingsMap = new Map(settings.map((s) => [s.chefId, s]));
         return result.map((chef) => ({
           ...chef,
           latitude: chef.latitude ?? 19.0728,
-          longitude: chef.longitude ?? 72.8826
+          longitude: chef.longitude ?? 72.8826,
+          preorderSettings: settingsMap.get(chef.id) || null
         }));
       }
       async getChefById(id) {
         const chef = await db.query.chefs.findFirst({ where: (c, { eq: eq11 }) => eq11(c.id, id) });
-        return chef || null;
+        if (!chef) return null;
+        const settings = await db.query.chefPreorderSettings.findFirst({ where: (s, { eq: eq11 }) => eq11(s.chefId, id) });
+        return { ...chef, preorderSettings: settings || null };
       }
       async getChefsByCategory(categoryId) {
         return db.query.chefs.findMany({ where: (c, { eq: eq11 }) => eq11(c.categoryId, categoryId) });
@@ -2190,6 +2108,7 @@ var init_storage = __esm({
         if (data.autoScheduleEnabled !== void 0) updateData.autoScheduleEnabled = data.autoScheduleEnabled;
         if (data.openingTime !== void 0) updateData.openingTime = data.openingTime || null;
         if (data.closingTime !== void 0) updateData.closingTime = data.closingTime || null;
+        if (data.fulfillmentMode !== void 0) updateData.fulfillmentMode = data.fulfillmentMode;
         console.log("\u{1F525} updateChef() - Received data:", { id, incomingMaxDeliveryDistanceKm: data.maxDeliveryDistanceKm, servicePincodes: data.servicePincodes, updateData });
         await db.update(chefs2).set(updateData).where(eq(chefs2.id, id));
         const chef = await this.getChefById(id);
@@ -2358,7 +2277,7 @@ var init_storage = __esm({
         const customersTrend = customersGrowth > 0 ? "up" : customersGrowth < 0 ? "down" : "flat";
         const visitorMetricsToday = getVisitorMetricsForToday2(visitors3);
         const allUniqueSessionIds = new Set(
-          visitors3.filter((v) => v.sessionId && v.sessionId.trim() !== "").map((v) => v.sessionId)
+          visitors3.filter((v) => v.sessionId && v.sessionId.trim() !== "").filter((v) => !v.page?.startsWith("/admin") && !v.page?.startsWith("/partner") && !v.page?.startsWith("/delivery")).map((v) => v.sessionId)
         );
         const totalUniqueVisitors = allUniqueSessionIds.size;
         const visitorMetrics = {
@@ -2369,7 +2288,7 @@ var init_storage = __esm({
         const ordersDeliveredToday = filterOrdersByDateRange2(orders3, todayRange).filter(isValidRevenueOrder2);
         const activeChefsToday = new Set(ordersDeliveredToday.map((o) => o.chefId).filter(Boolean)).size;
         const activeDeliveryPartnersToday = new Set(
-          ordersDeliveredToday.filter((o) => o.assignedDeliveryPersonnelId).map((o) => o.assignedDeliveryPersonnelId)
+          ordersDeliveredToday.filter((o) => o.assignedTo).map((o) => o.assignedTo)
         ).size;
         const cancelledOrdersToday = filterOrdersByDateRange2(orders3, todayRange).filter((o) => o.status === "cancelled").length;
         const validOrdersToday = ordersDeliveredToday;
@@ -2867,12 +2786,16 @@ var init_storage = __esm({
           ...data,
           id,
           createdAt: now,
-          updatedAt: now
+          updatedAt: now,
+          skipReason: data.skipReason ?? null,
+          chefOverrideId: data.chefOverrideId ?? null
         };
         const insertData = { ...logData };
         insertData.date = convertDateForDB(insertData.date);
         insertData.createdAt = convertDateForDB(insertData.createdAt);
         insertData.updatedAt = convertDateForDB(insertData.updatedAt);
+        insertData.skipReason = insertData.skipReason ?? null;
+        insertData.chefOverrideId = insertData.chefOverrideId ?? null;
         await db.insert(subscriptionDeliveryLogs2).values(insertData);
         return logData;
       }
@@ -3385,10 +3308,13 @@ var init_storage = __esm({
       }
       async getDeliveryPartnerPayoutByPincodeAndDistance(pincode, distance) {
         const payoutSlabs = await this.getDeliveryPartnerPayoutsByPincode(pincode || "");
+        console.log(`[PARTNER-PAYOUT-SLAB-MATCH] Evaluating ${payoutSlabs.length} slabs for distance: ${distance}km, pincode: ${pincode || "N/A"}`);
         for (const slab of payoutSlabs) {
           const minDist = parseFloat(String(slab.minDistance));
           const maxDist = parseFloat(String(slab.maxDistance));
-          if (distance >= minDist && distance <= maxDist) {
+          const matches = distance >= minDist && distance <= maxDist;
+          console.log(`[PARTNER-PAYOUT-SLAB-MATCH] Slab: ${minDist}-${maxDist}km (\u20B9${slab.payoutAmount}) | distance ${distance} >= ${minDist} = ${distance >= minDist}, distance ${distance} <= ${maxDist} = ${distance <= maxDist} | Match: ${matches}`);
+          if (matches) {
             return slab;
           }
         }
@@ -4080,14 +4006,15 @@ var init_storage = __esm({
           return 10;
         }
         try {
-          const adjustedDistance = getRoadAdjustedDistance(distance);
+          console.log(`[PARTNER-PAYOUT] Input distance: ${distance}km, Pincode: ${pincode || "N/A"}`);
           const matchingSlab = await this.getDeliveryPartnerPayoutByPincodeAndDistance(
             pincode || null,
-            adjustedDistance
+            distance
           );
-          console.log(`[PARTNER-PAYOUT] Adjusted road distance for slabs: ${adjustedDistance}km`);
+          console.log(`[PARTNER-PAYOUT] Distance used for slab matching: ${distance}km`);
+          console.log(`[PARTNER-PAYOUT] Matched slab: ${matchingSlab ? `${matchingSlab.minDistance}-${matchingSlab.maxDistance}km, Payout: \u20B9${matchingSlab.payoutAmount}` : "NONE"}`);
           if (matchingSlab) {
-            console.log(`[PARTNER-PAYOUT] Distance: ${distance}km, Pincode: ${pincode || "N/A"}, Payout: \u20B9${matchingSlab.payoutAmount}`);
+            console.log(`[PARTNER-PAYOUT] RESULT: Distance: ${distance}km, Pincode: ${pincode || "N/A"}, Payout: \u20B9${matchingSlab.payoutAmount}`);
             return matchingSlab.payoutAmount;
           }
           console.warn(`[PARTNER-PAYOUT] No matching slab found for distance ${distance}km, using default \u20B910`);
@@ -4889,6 +4816,14 @@ var init_storage = __esm({
         });
       }
       // ==================== VISITOR TRACKING ====================
+      buildFrontendVisitorFilter() {
+        return sql3`
+      ${visitors2.page} NOT LIKE '/admin%' AND
+      ${visitors2.page} NOT LIKE '/partner%' AND
+      ${visitors2.page} NOT LIKE '/delivery%' AND
+      ${visitors2.sessionId} != ''
+    `;
+      }
       async trackVisitor(data) {
         try {
           const result = await db.insert(visitors2).values(data).returning();
@@ -4900,7 +4835,7 @@ var init_storage = __esm({
       }
       async getTotalVisitors() {
         try {
-          const result = await db.select({ count: count() }).from(visitors2);
+          const result = await db.select({ count: count() }).from(visitors2).where(this.buildFrontendVisitorFilter());
           return result[0]?.count || 0;
         } catch (error) {
           console.error("Error getting total visitors:", error);
@@ -4909,7 +4844,7 @@ var init_storage = __esm({
       }
       async getUniqueVisitors() {
         try {
-          const result = await db.selectDistinct({ userId: visitors2.userId, sessionId: visitors2.sessionId }).from(visitors2);
+          const result = await db.selectDistinct({ sessionId: visitors2.sessionId }).from(visitors2).where(this.buildFrontendVisitorFilter());
           return result.length;
         } catch (error) {
           console.error("Error getting unique visitors:", error);
@@ -4924,7 +4859,8 @@ var init_storage = __esm({
           tomorrow.setDate(tomorrow.getDate() + 1);
           const result = await db.select({ count: count() }).from(visitors2).where(and(
             gte(visitors2.createdAt, today),
-            lt(visitors2.createdAt, tomorrow)
+            lt(visitors2.createdAt, tomorrow),
+            this.buildFrontendVisitorFilter()
           ));
           return result[0]?.count || 0;
         } catch (error) {
@@ -4937,7 +4873,7 @@ var init_storage = __esm({
           const result = await db.select({
             page: visitors2.page,
             count: count()
-          }).from(visitors2).groupBy(visitors2.page).orderBy((t) => desc(t.count));
+          }).from(visitors2).where(this.buildFrontendVisitorFilter()).groupBy(visitors2.page).orderBy((t) => desc(t.count));
           return result;
         } catch (error) {
           console.error("Error getting visitors by page:", error);
@@ -4951,7 +4887,7 @@ var init_storage = __esm({
           const result = await db.select({
             date: sql3`DATE(${visitors2.createdAt})`,
             count: count()
-          }).from(visitors2).where(gte(visitors2.createdAt, startDate)).groupBy(sql3`DATE(${visitors2.createdAt})`).orderBy((t) => t.date);
+          }).from(visitors2).where(and(gte(visitors2.createdAt, startDate), this.buildFrontendVisitorFilter())).groupBy(sql3`DATE(${visitors2.createdAt})`).orderBy((t) => t.date);
           return result;
         } catch (error) {
           console.error("Error getting visitors by date:", error);
@@ -5809,8 +5745,15 @@ async function savePendingBroadcast(recipientId, recipientType, eventType, data)
 }
 function setupWebSocket(server) {
   const wss = new WebSocketServer({
-    server,
-    path: "/ws"
+    noServer: true
+  });
+  server.on("upgrade", (request, socket, head) => {
+    const url = new URL(request.url || "", `http://${request.headers.host}`);
+    if (url.pathname.startsWith("/ws")) {
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        wss.emit("connection", ws, request);
+      });
+    }
   });
   wss.on("connection", (ws, req) => {
     const url = new URL(req.url || "", `http://${req.headers.host}`);
@@ -7278,6 +7221,19 @@ var init_emailService = __esm({
 });
 
 // shared/timeFormatter.ts
+var timeFormatter_exports = {};
+__export(timeFormatter_exports, {
+  BUSINESS_TIMEZONE: () => BUSINESS_TIMEZONE,
+  createBusinessDateTime: () => createBusinessDateTime,
+  formatDateTime12Hour: () => formatDateTime12Hour,
+  formatDeliverySlot: () => formatDeliverySlot,
+  formatDeliveryTime: () => formatDeliveryTime,
+  formatSlotRange: () => formatSlotRange,
+  formatTime12Hour: () => formatTime12Hour,
+  getBusinessDateStringFromDate: () => getBusinessDateStringFromDate,
+  getBusinessToday: () => getBusinessToday,
+  getBusinessTomorrow: () => getBusinessTomorrow
+});
 function formatTime12Hour(timeString) {
   try {
     const [hours, mins] = timeString.split(":").map(Number);
@@ -7294,9 +7250,74 @@ function formatTime12Hour(timeString) {
     return timeString;
   }
 }
+function formatSlotRange(startTime, endTime) {
+  try {
+    const start = formatTime12Hour(startTime);
+    const end = formatTime12Hour(endTime);
+    return `${start} - ${end}`;
+  } catch (error) {
+    console.warn(`Error formatting slot range:`, error);
+    return `${startTime} - ${endTime}`;
+  }
+}
+function formatDeliverySlot(startTime, endTime, label) {
+  if (label) {
+    return label;
+  }
+  return formatSlotRange(startTime, endTime);
+}
+function formatDateTime12Hour(date2, timeString) {
+  try {
+    const dateObj = typeof date2 === "string" ? new Date(date2) : date2;
+    const options = { month: "short", day: "numeric", year: "numeric" };
+    const dateStr = dateObj.toLocaleDateString("en-US", options);
+    const timeStr = formatTime12Hour(timeString);
+    return `${dateStr} at ${timeStr}`;
+  } catch (error) {
+    console.warn(`Error formatting datetime:`, error);
+    return "";
+  }
+}
+function formatDeliveryTime(timeString) {
+  const formatted = formatTime12Hour(timeString);
+  return `\u{1F550} ${formatted}`;
+}
+function getBusinessToday() {
+  const now = /* @__PURE__ */ new Date();
+  const IST_OFFSET_MS = 5.5 * 60 * 60 * 1e3;
+  const todayIST = new Date(now.getTime() + IST_OFFSET_MS);
+  const yyyy = todayIST.getUTCFullYear();
+  const mm = String(todayIST.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(todayIST.getUTCDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+function getBusinessTomorrow() {
+  const now = /* @__PURE__ */ new Date();
+  const IST_OFFSET_MS = 5.5 * 60 * 60 * 1e3;
+  const ONE_DAY_MS = 24 * 60 * 60 * 1e3;
+  const tomorrowIST = new Date(now.getTime() + IST_OFFSET_MS + ONE_DAY_MS);
+  const yyyy = tomorrowIST.getUTCFullYear();
+  const mm = String(tomorrowIST.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(tomorrowIST.getUTCDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+function getBusinessDateStringFromDate(date2) {
+  const d = typeof date2 === "string" ? new Date(date2) : date2;
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: BUSINESS_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(d);
+}
+function createBusinessDateTime(dateStr, timeStr) {
+  return /* @__PURE__ */ new Date(`${dateStr}T${timeStr}:00+05:30`);
+}
+var BUSINESS_TIMEZONE;
 var init_timeFormatter = __esm({
   "shared/timeFormatter.ts"() {
     "use strict";
+    BUSINESS_TIMEZONE = "Asia/Kolkata";
   }
 });
 
@@ -7753,15 +7774,17 @@ var init_whatsappService = __esm({
 // server/utils/restaurantStatus.ts
 function isValidTimeFormat(time) {
   if (!time) return false;
-  const match = /^([0-1][0-9]|2[0-3]):([0-5][0-9])$/.test(time);
-  return match;
+  return /^([0-1][0-9]|2[0-3]):([0-5][0-9])(:[0-5][0-9])?$/.test(time);
 }
 function timeToMinutes(time) {
-  const [hours, minutes] = time.split(":").map(Number);
-  return hours * 60 + minutes;
+  const parts = time.split(":").map(Number);
+  return parts[0] * 60 + parts[1];
 }
 function getCurrentTimeInMinutes(now = /* @__PURE__ */ new Date()) {
-  return now.getHours() * 60 + now.getMinutes();
+  const istOffsetMinutes = 5 * 60 + 30;
+  const utcMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const istMinutes = (utcMinutes + istOffsetMinutes) % (24 * 60);
+  return istMinutes;
 }
 function isOpenInScheduleWindow(openingTime, closingTime, currentTimeInMinutes) {
   const openMins = timeToMinutes(openingTime);
@@ -7791,7 +7814,7 @@ function calculateRestaurantStatus(config, now = /* @__PURE__ */ new Date()) {
     return {
       isCurrentlyOpen: false,
       reason: "manual_closed",
-      nextOpeningTime: config.openingTime || closedUntilTime,
+      nextOpeningTime: config.openingTime ?? closedUntilTime,
       currentSchedulePeriodEndsAt: void 0
     };
   }
@@ -7804,19 +7827,19 @@ function calculateRestaurantStatus(config, now = /* @__PURE__ */ new Date()) {
         isCurrentlyOpen: true,
         reason: "schedule_open",
         nextOpeningTime: void 0,
-        currentSchedulePeriodEndsAt: config.closingTime
+        currentSchedulePeriodEndsAt: config.closingTime ?? void 0
       };
     } else {
       console.log(`[RESTAURANT-STATUS] Closed per auto-schedule (opens at ${config.openingTime})`);
       return {
         isCurrentlyOpen: false,
         reason: "schedule_closed",
-        nextOpeningTime: config.openingTime,
+        nextOpeningTime: config.openingTime ?? void 0,
         currentSchedulePeriodEndsAt: void 0
       };
     }
   }
-  console.log("[RESTAURANT-STATUS] Invalid schedule or auto-schedule disabled - defaulting to open");
+  console.log(`[RESTAURANT-STATUS] Invalid schedule or auto-schedule disabled - defaulting to open | autoScheduleEnabled=${config.autoScheduleEnabled}, openingTime="${config.openingTime}" (valid=${isValidTimeFormat(config.openingTime ?? void 0)}), closingTime="${config.closingTime}" (valid=${isValidTimeFormat(config.closingTime ?? void 0)})`);
   return {
     isCurrentlyOpen: true,
     reason: "always_open",
@@ -7843,13 +7866,15 @@ function getManualOverride(chefId, now = /* @__PURE__ */ new Date()) {
   return override;
 }
 function buildRestaurantConfig(chefData) {
-  return {
+  const config = {
     isActive: chefData.isActive,
     autoScheduleEnabled: chefData.autoScheduleEnabled ?? false,
     openingTime: chefData.openingTime,
     closingTime: chefData.closingTime,
     manualOverrideClosed: getManualOverride(chefData.id)
   };
+  console.log(`[BUILD-CONFIG] Chef ${chefData.id}: isActive=${chefData.isActive}, autoScheduleEnabled=${chefData.autoScheduleEnabled} (type: ${typeof chefData.autoScheduleEnabled}), openingTime="${chefData.openingTime}" (type: ${typeof chefData.openingTime}), closingTime="${chefData.closingTime}" (type: ${typeof chefData.closingTime}), manualOverride=${config.manualOverrideClosed ? "YES until " + config.manualOverrideClosed.closedUntil.toISOString() : "none"}`);
+  return config;
 }
 function validateScheduleConfig(autoScheduleEnabled, openingTime, closingTime) {
   if (!autoScheduleEnabled) {
@@ -9441,10 +9466,18 @@ Please prepare this order.`;
   app2.get("/api/admin/chefs", requireAdmin(), async (req, res) => {
     try {
       const chefs3 = await storage.getChefs();
-      const serializedChefs = chefs3.map((chef) => ({
-        ...chef,
-        isActive: Boolean(chef.isActive)
-      }));
+      const serializedChefs = chefs3.map((chef) => {
+        const config = buildRestaurantConfig(chef);
+        const status = calculateRestaurantStatus(config);
+        return {
+          ...chef,
+          isActive: Boolean(chef.isActive),
+          isCurrentlyOpen: status.isCurrentlyOpen,
+          currentScheduleStatus: status.reason,
+          nextOpeningTime: status.nextOpeningTime,
+          currentSchedulePeriodEndsAt: status.currentSchedulePeriodEndsAt
+        };
+      });
       res.json(serializedChefs);
     } catch (error) {
       console.error("Get chefs error:", error);
@@ -9453,7 +9486,19 @@ Please prepare this order.`;
   });
   app2.post("/api/admin/chefs", requireAdminOrManager(), async (req, res) => {
     try {
-      const { name, description, image, categoryId, address, latitude, longitude } = req.body;
+      const {
+        name,
+        description,
+        image,
+        categoryId,
+        address,
+        latitude,
+        longitude,
+        lunchEnabled,
+        lunchMinNoticeHours,
+        dinnerEnabled,
+        dinnerMinNoticeHours
+      } = req.body;
       if (!name || !description || !image || !categoryId) {
         res.status(400).json({ message: "Name, description, image, and category are required" });
         return;
@@ -9469,6 +9514,15 @@ Please prepare this order.`;
         }
       }
       const chef = await storage.createChef(req.body);
+      if (lunchEnabled !== void 0 || dinnerEnabled !== void 0) {
+        await db.insert(chefPreorderSettings).values({
+          chefId: chef.id,
+          lunchEnabled: lunchEnabled ?? true,
+          lunchMinNoticeHours: lunchMinNoticeHours ?? 24,
+          dinnerEnabled: dinnerEnabled ?? true,
+          dinnerMinNoticeHours: dinnerMinNoticeHours ?? 12
+        });
+      }
       invalidateCache("chefs");
       invalidateCachePrefix("pincode-");
       res.status(201).json(chef);
@@ -9480,7 +9534,18 @@ Please prepare this order.`;
   app2.patch("/api/admin/chefs/:id", requireAdminOrManager(), async (req, res) => {
     try {
       const { id } = req.params;
-      const { address, latitude, longitude, autoScheduleEnabled, openingTime, closingTime } = req.body;
+      const {
+        address,
+        latitude,
+        longitude,
+        autoScheduleEnabled,
+        openingTime,
+        closingTime,
+        lunchEnabled,
+        lunchMinNoticeHours,
+        dinnerEnabled,
+        dinnerMinNoticeHours
+      } = req.body;
       if (address) {
         if (typeof latitude !== "number" || typeof longitude !== "number") {
           res.status(400).json({ message: "Valid coordinates (latitude/longitude) required when address is provided" });
@@ -9510,6 +9575,28 @@ Please prepare this order.`;
       if (!chef) {
         res.status(404).json({ message: "Chef not found" });
         return;
+      }
+      if (lunchEnabled !== void 0 || dinnerEnabled !== void 0) {
+        const existingSettings = await db.query.chefPreorderSettings.findFirst({
+          where: eq4(chefPreorderSettings.chefId, id)
+        });
+        if (existingSettings) {
+          await db.update(chefPreorderSettings).set({
+            lunchEnabled: lunchEnabled ?? existingSettings.lunchEnabled,
+            lunchMinNoticeHours: lunchMinNoticeHours ?? existingSettings.lunchMinNoticeHours,
+            dinnerEnabled: dinnerEnabled ?? existingSettings.dinnerEnabled,
+            dinnerMinNoticeHours: dinnerMinNoticeHours ?? existingSettings.dinnerMinNoticeHours,
+            updatedAt: /* @__PURE__ */ new Date()
+          }).where(eq4(chefPreorderSettings.chefId, id));
+        } else {
+          await db.insert(chefPreorderSettings).values({
+            chefId: id,
+            lunchEnabled: lunchEnabled ?? true,
+            lunchMinNoticeHours: lunchMinNoticeHours ?? 24,
+            dinnerEnabled: dinnerEnabled ?? true,
+            dinnerMinNoticeHours: dinnerMinNoticeHours ?? 12
+          });
+        }
       }
       const config = buildRestaurantConfig(chef);
       const status = calculateRestaurantStatus(config);
@@ -9848,15 +9935,27 @@ Please prepare this order.`;
         return;
       }
       const categories3 = await storage.getAllCategories();
-      const rotiCategory = categories3.find((c) => c.name.toLowerCase().includes("roti"));
-      if (!rotiCategory) {
-        res.status(400).json({ message: "Roti category not found in system" });
-        return;
+      let customCategory = categories3.find((c) => c.name.toLowerCase() === "custom subscriptions");
+      if (!customCategory) {
+        console.log("Creating dedicated 'Custom Subscriptions' category...");
+        customCategory = await storage.createCategory({
+          name: "Custom Subscriptions",
+          description: "System category for custom user plans",
+          image: "",
+          iconName: "Star",
+          itemCount: "0",
+          requiresDeliverySlot: false,
+          displayOrder: 999
+        });
+        if (!customCategory) {
+          res.status(500).json({ message: "Failed to create the Custom Subscriptions category" });
+          return;
+        }
       }
       const customPlan = await storage.createSubscriptionPlan({
         name: `Custom Roti Plan (${request.customerName} - ${request.rotiPerDay} Rotis)`,
         description: `Custom subscription for ${request.customerName} (${request.rotiPerDay} Rotis/day, ${request.daysPerWeek} days/week)`,
-        categoryId: rotiCategory.id,
+        categoryId: customCategory.id,
         frequency: request.duration === "weekly" ? "weekly" : "monthly",
         price: request.calculatedPrice,
         deliveryDays: request.deliveryDays,
@@ -13014,6 +13113,12 @@ function registerPartnerRoutes(app2) {
     }
     return nextDate;
   }
+  const calculatePartnerOrderTotal = (order) => {
+    return order.items.reduce((sum, item) => {
+      const itemPrice = item.hotelPrice ?? item.price ?? 0;
+      return sum + itemPrice * (item.quantity ?? 0);
+    }, 0);
+  };
   app2.get("/api/partner/orders", requirePartner(), async (req, res) => {
     try {
       const chefId = req.partner?.chefId;
@@ -13024,7 +13129,10 @@ function registerPartnerRoutes(app2) {
       const orders3 = await storage.getOrdersByChefId(chefId);
       const sanitizedOrders = orders3.map((order) => {
         const { phone, address, email, ...safeOrder } = order;
-        return safeOrder;
+        return {
+          ...safeOrder,
+          partnerTotal: calculatePartnerOrderTotal(order)
+        };
       });
       res.json(sanitizedOrders);
     } catch (error) {
@@ -13094,7 +13202,7 @@ function registerPartnerRoutes(app2) {
       const totalOrders = allOrders.length;
       const pendingOrders = allOrders.filter((o) => o.status === "pending" && o.paymentStatus === "paid").length;
       const completedOrders = allOrders.filter((o) => o.status === "delivered" || o.status === "completed").length;
-      const totalRevenue = allOrders.filter((o) => o.paymentStatus === "confirmed").reduce((sum, order) => sum + order.total, 0);
+      const totalRevenue = allOrders.filter((o) => o.paymentStatus === "confirmed").reduce((sum, order) => sum + calculatePartnerOrderTotal(order), 0);
       res.json({
         totalOrders,
         pendingOrders,
@@ -13620,8 +13728,8 @@ function registerPartnerRoutes(app2) {
         res.status(401).json({ message: "Unauthorized" });
         return;
       }
-      if (!status || !["preparing", "accepted_by_delivery", "out_for_delivery", "delivered", "missed"].includes(status)) {
-        res.status(400).json({ message: "Invalid status" });
+      if (!status || !["preparing", "prepared"].includes(status)) {
+        res.status(400).json({ message: "Invalid status or transition. Chef can only move to 'preparing' or 'prepared'" });
         return;
       }
       const subscription = await storage.getSubscription(subscriptionId);
@@ -15095,6 +15203,158 @@ var init_gpay_verification = __esm({
   }
 });
 
+// shared/deliveryUtils.ts
+var deliveryUtils_exports = {};
+__export(deliveryUtils_exports, {
+  ROAD_DISTANCE_MULTIPLIER: () => ROAD_DISTANCE_MULTIPLIER,
+  STORE_LOCATION: () => STORE_LOCATION,
+  calculateDelivery: () => calculateDelivery,
+  calculateDistance: () => calculateDistance,
+  calculateEffectiveCutoff: () => calculateEffectiveCutoff,
+  calculateFullDelivery: () => calculateFullDelivery,
+  classifySlotMealPeriod: () => classifySlotMealPeriod,
+  getRoadAdjustedDistance: () => getRoadAdjustedDistance,
+  validateMealPeriodBoundaries: () => validateMealPeriodBoundaries
+});
+function getRoadAdjustedDistance(rawDistance, customMultiplier) {
+  const multiplier = customMultiplier ?? ROAD_DISTANCE_MULTIPLIER;
+  return Number((rawDistance * multiplier).toFixed(2));
+}
+function calculateDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const toRad = (deg) => deg * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.asin(Math.sqrt(a));
+  const distance = R * c;
+  return parseFloat(distance.toFixed(2));
+}
+function calculateDelivery(distance, subtotal, deliverySettings3, customMultiplier, chefFreeDeliveryThreshold) {
+  let deliveryFee = 0;
+  let freeDeliveryEligible = false;
+  let amountForFreeDelivery;
+  let deliveryRangeName;
+  if (!deliverySettings3 || deliverySettings3.length === 0) {
+    console.warn("No delivery settings configured by admin");
+    return {
+      deliveryFee: 0,
+      freeDeliveryEligible: false,
+      amountForFreeDelivery: void 0,
+      deliveryRangeName: "No delivery settings configured"
+    };
+  }
+  const activeSettings = deliverySettings3.filter((s) => s.isActive);
+  if (activeSettings.length === 0) {
+    console.warn("No active delivery settings found");
+    return {
+      deliveryFee: 0,
+      freeDeliveryEligible: false,
+      amountForFreeDelivery: void 0,
+      deliveryRangeName: "No active delivery settings"
+    };
+  }
+  const adjustedDistance = getRoadAdjustedDistance(distance, customMultiplier);
+  const matchingSetting = activeSettings.find((setting) => {
+    const minDist = parseFloat(setting.minDistance);
+    const maxDist = parseFloat(setting.maxDistance);
+    const matches = adjustedDistance >= minDist && adjustedDistance <= maxDist;
+    return matches;
+  });
+  if (matchingSetting) {
+    deliveryFee = matchingSetting.price;
+    deliveryRangeName = matchingSetting.name;
+    const minOrderForRange = matchingSetting.minOrderAmount || 0;
+    const effectiveThreshold = Math.max(minOrderForRange, chefFreeDeliveryThreshold ?? 0);
+    if (deliveryFee === 0 || effectiveThreshold > 0 && subtotal >= effectiveThreshold) {
+      freeDeliveryEligible = true;
+      deliveryFee = 0;
+    } else {
+      if (effectiveThreshold > 0) {
+        amountForFreeDelivery = effectiveThreshold - subtotal;
+      }
+      freeDeliveryEligible = false;
+    }
+    const result = {
+      deliveryFee,
+      freeDeliveryEligible,
+      amountForFreeDelivery,
+      deliveryRangeName,
+      minOrderAmount: effectiveThreshold
+    };
+    return result;
+  } else {
+    deliveryFee = 0;
+    deliveryRangeName = "Outside delivery zone";
+    const result = {
+      deliveryFee,
+      freeDeliveryEligible,
+      amountForFreeDelivery,
+      deliveryRangeName,
+      minOrderAmount: 0
+    };
+    return result;
+  }
+}
+function calculateFullDelivery(userLat, userLon, chefLat, chefLon, subtotal, deliverySettings3, customMultiplier) {
+  const distance = calculateDistance(userLat, userLon, chefLat, chefLon);
+  const delivery = calculateDelivery(distance, subtotal, deliverySettings3, customMultiplier);
+  return {
+    distance,
+    ...delivery
+  };
+}
+function validateMealPeriodBoundaries(boundaries) {
+  const parseTime = (timeStr) => {
+    const [h, m] = timeStr.split(":").map(Number);
+    return h * 60 + (m || 0);
+  };
+  const ls = parseTime(boundaries.lunchStart);
+  const le = parseTime(boundaries.lunchEnd);
+  const ds = parseTime(boundaries.dinnerStart);
+  const de = parseTime(boundaries.dinnerEnd);
+  if (ls >= le) return "Lunch start time must be before lunch end time.";
+  if (ds >= de) return "Dinner start time must be before dinner end time.";
+  if (le > ds) return "Lunch period cannot overlap with or extend into Dinner period.";
+  return null;
+}
+function classifySlotMealPeriod(slotStartTime, boundaries) {
+  const parseTime = (timeStr) => {
+    const [h, m] = timeStr.split(":").map(Number);
+    return h * 60 + (m || 0);
+  };
+  const slotMinutes = parseTime(slotStartTime);
+  const ls = parseTime(boundaries.lunchStart);
+  const le = parseTime(boundaries.lunchEnd);
+  const ds = parseTime(boundaries.dinnerStart);
+  const de = parseTime(boundaries.dinnerEnd);
+  if (slotMinutes >= ls && slotMinutes < le) {
+    return "lunch";
+  }
+  if (slotMinutes >= ds && slotMinutes < de) {
+    return "dinner";
+  }
+  return "none";
+}
+function calculateEffectiveCutoff(deliveryDateTime, globalCutoffHoursBefore, chefMinNoticeHours) {
+  const globalCutoff = new Date(deliveryDateTime.getTime() - globalCutoffHoursBefore * 60 * 60 * 1e3);
+  const chefCutoff = new Date(deliveryDateTime.getTime() - chefMinNoticeHours * 60 * 60 * 1e3);
+  return globalCutoff < chefCutoff ? globalCutoff : chefCutoff;
+}
+var ROAD_DISTANCE_MULTIPLIER, STORE_LOCATION;
+var init_deliveryUtils = __esm({
+  "shared/deliveryUtils.ts"() {
+    "use strict";
+    ROAD_DISTANCE_MULTIPLIER = 1.5;
+    STORE_LOCATION = {
+      latitude: 28.6139,
+      // Example: New Delhi
+      longitude: 77.209,
+      address: "Main Store, Connaught Place, New Delhi"
+    };
+  }
+});
+
 // server/routes.ts
 var routes_exports = {};
 __export(routes_exports, {
@@ -15104,6 +15364,25 @@ __export(routes_exports, {
 import { createServer } from "http";
 import { eq as eq9 } from "drizzle-orm";
 import axios2 from "axios";
+async function resolveRoadDistanceMultiplier() {
+  let roadDistanceMultiplier = ROAD_DISTANCE_MULTIPLIER;
+  try {
+    const paymentSettingsData = await db.query.paymentSettings.findFirst();
+    if (paymentSettingsData) {
+      const enabled = paymentSettingsData.enableRoadDistanceMultiplier;
+      const dbMultiplier = paymentSettingsData.roadDistanceMultiplier;
+      if (enabled === false) {
+        roadDistanceMultiplier = 1;
+      } else if (dbMultiplier) {
+        roadDistanceMultiplier = parseFloat(dbMultiplier);
+      }
+      console.log(`[DISTANCE-MULTIPLIER] Resolved multiplier: ${roadDistanceMultiplier}x, enabled: ${enabled}`);
+    }
+  } catch (err) {
+    console.warn(`[DISTANCE-MULTIPLIER] Could not resolve admin multiplier, using default: ${roadDistanceMultiplier}x`, err);
+  }
+  return roadDistanceMultiplier;
+}
 function shouldSendPaymentInitiatedAdminNotification(id) {
   const now = Date.now();
   const previousSentAt = paymentInitiatedAdminNotifications.get(id);
@@ -15508,14 +15787,20 @@ async function registerRoutes(app2) {
   app2.post("/api/track-visitor", async (req, res) => {
     try {
       const { userId, sessionId, page, userAgent, referrer } = req.body;
-      if (page && (page.startsWith("/admin") || page.startsWith("/partner") || page.startsWith("/delivery"))) {
+      const trimmedPage = typeof page === "string" && page.trim() ? page.trim() : "/";
+      const normalizedSessionId = typeof sessionId === "string" && sessionId.trim() ? sessionId.trim() : null;
+      if (trimmedPage.startsWith("/admin") || trimmedPage.startsWith("/partner") || trimmedPage.startsWith("/delivery")) {
+        res.json({ success: true });
+        return;
+      }
+      if (!normalizedSessionId) {
         res.json({ success: true });
         return;
       }
       const visitorData = {
         userId: userId || null,
-        sessionId: sessionId || `session-${Date.now()}`,
-        page: page || "/",
+        sessionId: normalizedSessionId,
+        page: trimmedPage,
         userAgent: userAgent || req.get("user-agent") || "Unknown",
         ipAddress: req.ip || req.connection.remoteAddress || "Unknown",
         referrer: referrer || null
@@ -16439,15 +16724,34 @@ async function registerRoutes(app2) {
       if (cached) {
         return res.json(cached);
       }
+      let rawProducts = [];
       if (categoryId) {
-        const products3 = await storage.getProductsByCategoryId(categoryId);
-        setCache(key, products3, 5 * 60 * 1e3);
-        res.json(products3);
+        rawProducts = await storage.getProductsByCategoryId(categoryId);
       } else {
-        const products3 = await storage.getAllProducts();
-        setCache(key, products3, 5 * 60 * 1e3);
-        res.json(products3);
+        rawProducts = await storage.getAllProducts();
       }
+      const categories3 = await storage.getAllCategories();
+      const chefs3 = await storage.getChefs();
+      const catMap = new Map(categories3.map((c) => [c.id, c]));
+      const chefMap = new Map(chefs3.map((c) => [c.id, c]));
+      const products3 = rawProducts.map((p) => {
+        const cat = catMap.get(p.categoryId);
+        const chef = p.chefId ? chefMap.get(p.chefId) : null;
+        let effectiveMode = "both";
+        if (p.fulfillmentMode === "instant") effectiveMode = "instant";
+        else if (p.fulfillmentMode === "preorder") effectiveMode = "preorder";
+        else {
+          const chefMode = chef?.fulfillmentMode || "both";
+          if (chefMode === "instant") effectiveMode = "instant";
+          else if (chefMode === "preorder") effectiveMode = "preorder";
+          else {
+            effectiveMode = "both";
+          }
+        }
+        return { ...p, effectiveMode };
+      });
+      setCache(key, products3, 5 * 60 * 1e3);
+      res.json(products3);
     } catch (error) {
       console.error("Error fetching products:", error);
       res.status(500).json({ message: "Failed to fetch products" });
@@ -16460,7 +16764,22 @@ async function registerRoutes(app2) {
         res.status(404).json({ message: "Product not found" });
         return;
       }
-      res.json(product);
+      const categories3 = await storage.getAllCategories();
+      const chefs3 = await storage.getChefs();
+      const cat = categories3.find((c) => c.id === product.categoryId);
+      const chef = product.chefId ? chefs3.find((c) => c.id === product.chefId) : null;
+      let effectiveMode = "both";
+      if (product.fulfillmentMode === "instant") effectiveMode = "instant";
+      else if (product.fulfillmentMode === "preorder") effectiveMode = "preorder";
+      else {
+        const chefMode = chef?.fulfillmentMode || "both";
+        if (chefMode === "instant") effectiveMode = "instant";
+        else if (chefMode === "preorder") effectiveMode = "preorder";
+        else {
+          effectiveMode = "both";
+        }
+      }
+      res.json({ ...product, effectiveMode });
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch product" });
     }
@@ -16527,45 +16846,51 @@ async function registerRoutes(app2) {
         });
       }
       const { calculateDistance: calculateDistance2 } = await Promise.resolve().then(() => (init_deliveryUtils(), deliveryUtils_exports));
-      let chefLat = 19.0728;
-      let chefLon = 72.8826;
-      let chefName = "Kurla West Kitchen";
-      let maxDeliveryDistance = 5;
-      let chef = null;
-      if (sanitized.chefId) {
-        chef = await db.query.chefs.findFirst({
-          where: (c, { eq: eq11 }) => eq11(c.id, sanitized.chefId)
+      if (!sanitized.chefId) {
+        return res.status(400).json({
+          message: "Chef ID is required to calculate delivery distance"
         });
-        if (chef) {
-          chefLat = chef.latitude ?? 19.0728;
-          chefLon = chef.longitude ?? 72.8826;
-          chefName = chef.name;
-          maxDeliveryDistance = chef.maxDeliveryDistanceKm ?? 5;
-          const config = buildRestaurantConfig(chef);
-          const status = calculateRestaurantStatus(config);
-          console.log(`[ORDER-VALIDATION] Restaurant status check:`, {
-            chefId: sanitized.chefId,
-            chefName,
-            isCurrentlyOpen: status.isCurrentlyOpen,
-            reason: status.reason,
-            nextOpening: status.nextOpeningTime
-          });
-          if (!status.isCurrentlyOpen) {
-            console.warn(`\u{1F6AB} Order rejected - restaurant is closed:`, {
-              chefId: sanitized.chefId,
-              chefName,
-              closedReason: status.reason,
-              nextOpening: status.nextOpeningTime
-            });
-            return res.status(400).json({
-              message: "Restaurant is currently closed. Please try again later.",
-              restaurantClosed: true,
-              reason: status.reason,
-              nextOpening: status.nextOpeningTime,
-              openingTime: chef.openingTime
-            });
-          }
-        }
+      }
+      const chef = await db.query.chefs.findFirst({
+        where: (c, { eq: eq11 }) => eq11(c.id, sanitized.chefId)
+      });
+      if (!chef) {
+        return res.status(404).json({
+          message: "Chef not found"
+        });
+      }
+      if (chef.latitude === null || chef.latitude === void 0 || chef.longitude === null || chef.longitude === void 0) {
+        return res.status(400).json({
+          message: "Chef location coordinates not configured. Contact support."
+        });
+      }
+      let chefLat = chef.latitude;
+      let chefLon = chef.longitude;
+      const chefName = chef.name;
+      const maxDeliveryDistance = chef.maxDeliveryDistanceKm ?? 5;
+      const config = buildRestaurantConfig(chef);
+      const status = calculateRestaurantStatus(config);
+      console.log(`[ORDER-VALIDATION] Restaurant status check:`, {
+        chefId: sanitized.chefId,
+        chefName,
+        isCurrentlyOpen: status.isCurrentlyOpen,
+        reason: status.reason,
+        nextOpening: status.nextOpeningTime
+      });
+      if (!status.isCurrentlyOpen) {
+        console.warn(`\u{1F6AB} Order rejected - restaurant is closed:`, {
+          chefId: sanitized.chefId,
+          chefName,
+          closedReason: status.reason,
+          nextOpening: status.nextOpeningTime
+        });
+        return res.status(400).json({
+          message: "Restaurant is currently closed. Please try again later.",
+          restaurantClosed: true,
+          reason: status.reason,
+          nextOpening: status.nextOpeningTime,
+          openingTime: chef.openingTime
+        });
       }
       const addressDistance = calculateDistance2(chefLat, chefLon, customerLatitude, customerLongitude);
       console.log(`[DELIVERY-ZONE] Validating delivery address:`, {
@@ -16636,23 +16961,7 @@ async function registerRoutes(app2) {
           ...s,
           minOrderAmount: s.minOrderAmount === null ? void 0 : s.minOrderAmount
         }));
-        let roadDistanceMultiplier = 1.5;
-        try {
-          const paymentSettingsData = await db.query.paymentSettings.findFirst();
-          if (paymentSettingsData) {
-            const enabled = paymentSettingsData.enableRoadDistanceMultiplier;
-            const dbMultiplier = paymentSettingsData.roadDistanceMultiplier;
-            if (enabled === false) {
-              roadDistanceMultiplier = 1;
-              console.log(`[DISTANCE-MULTIPLIER] Multiplier disabled by admin - using 1.0x`);
-            } else if (dbMultiplier) {
-              roadDistanceMultiplier = parseFloat(dbMultiplier);
-              console.log(`[DISTANCE-MULTIPLIER] Using admin-configured multiplier: ${roadDistanceMultiplier}x`);
-            }
-          }
-        } catch (err) {
-          console.warn(`[DISTANCE-MULTIPLIER] Could not fetch admin settings, using default 1.5x:`, err);
-        }
+        const roadDistanceMultiplier = await resolveRoadDistanceMultiplier();
         const { calculateDelivery: calculateDelivery2 } = await Promise.resolve().then(() => (init_deliveryUtils(), deliveryUtils_exports));
         const chefThreshold = chef?.freeDeliveryThreshold ?? 0;
         const feeResult = calculateDelivery2(addressDistance, sanitized.subtotal || 0, deliverySettings3, roadDistanceMultiplier, chefThreshold);
@@ -16672,10 +16981,12 @@ async function registerRoutes(app2) {
         sanitized.deliveryFee = expectedDeliveryFee;
         const { getRoadAdjustedDistance: getAdjustedDist } = await Promise.resolve().then(() => (init_deliveryUtils(), deliveryUtils_exports));
         const adjustedDistance = getAdjustedDist(addressDistance, roadDistanceMultiplier);
-        sanitized.distance = adjustedDistance.toFixed(2);
-        console.log(`[DISTANCE-ADJUSTED] Raw: ${addressDistance.toFixed(2)}km \u2192 Adjusted: ${adjustedDistance.toFixed(2)}km (multiplier: ${roadDistanceMultiplier}x)`);
+        const distanceForPayout = roadDistanceMultiplier === 1 ? addressDistance : adjustedDistance;
+        sanitized.distance = distanceForPayout.toFixed(2);
+        console.log(`[DISTANCE-ADJUSTED] Raw Haversine: ${addressDistance}km (exact), Multiplier: ${roadDistanceMultiplier}x, Adjusted: ${adjustedDistance}km (exact)`);
+        console.log(`[DISTANCE-ADJUSTED] Distance used for payout slab matching: ${distanceForPayout}km`);
         const deliveryPartnerPayout = await storage.calculateDeliveryPartnerPayout(
-          adjustedDistance,
+          distanceForPayout,
           sanitized.addressPincode
           // Pass pincode for regional rate matching
         );
@@ -16886,30 +17197,95 @@ async function registerRoutes(app2) {
         console.warn("\u{1F6AB} Attempt to create order with items from multiple chefs:", itemChefIds);
         return res.status(400).json({ message: "Order contains items from multiple chefs. Please checkout each chef's cart separately." });
       }
+      let order;
       if (orderPayload.deliverySlotId) {
         try {
           const slot = await storage.getDeliveryTimeSlot(orderPayload.deliverySlotId);
-          if (slot) {
+          if (!slot) {
+            return res.status(400).json({ message: "Selected delivery slot not found" });
+          }
+          const isPreorder = !!req.body.deliveryDate;
+          if (isPreorder) {
+            const {
+              getBusinessTomorrow: getBusinessTomorrow2,
+              createBusinessDateTime: createBusinessDateTime2
+            } = await Promise.resolve().then(() => (init_timeFormatter(), timeFormatter_exports));
+            const {
+              classifySlotMealPeriod: classifySlotMealPeriod2,
+              validateMealPeriodBoundaries: validateMealPeriodBoundaries2,
+              calculateEffectiveCutoff: calculateEffectiveCutoff2
+            } = await Promise.resolve().then(() => (init_deliveryUtils(), deliveryUtils_exports));
+            const requestedDateStr = req.body.deliveryDate;
+            const businessTomorrowStr = getBusinessTomorrow2();
+            if (requestedDateStr !== businessTomorrowStr) {
+              return res.status(400).json({ message: "Pre-orders are currently restricted to Tomorrow only." });
+            }
+            if (chefFromDb?.leaveStartDate && chefFromDb?.leaveEndDate) {
+              if (requestedDateStr >= chefFromDb.leaveStartDate && requestedDateStr <= chefFromDb.leaveEndDate) {
+                return res.status(400).json({ message: "Chef is on leave on the selected date." });
+              }
+            }
+            const allSettings = await db.query.adminSettings.findMany();
+            const settingsMap = Object.fromEntries(allSettings.map((s) => [s.key, s.value]));
+            const lunchStart = settingsMap.preorder_lunch_start_time;
+            const lunchEnd = settingsMap.preorder_lunch_end_time;
+            const dinnerStart = settingsMap.preorder_dinner_start_time;
+            const dinnerEnd = settingsMap.preorder_dinner_end_time;
+            if (!lunchStart || !lunchEnd || !dinnerStart || !dinnerEnd) {
+              return res.status(400).json({ message: "Pre-order meal periods are not fully configured." });
+            }
+            const boundaries = { lunchStart, lunchEnd, dinnerStart, dinnerEnd };
+            const boundariesValid = validateMealPeriodBoundaries2(boundaries);
+            if (boundariesValid !== null) {
+              return res.status(400).json({ message: `Admin configuration error: ${boundariesValid}` });
+            }
+            const period = classifySlotMealPeriod2(slot.startTime, boundaries);
+            const chefNoticeHours = period === "lunch" ? chefFromDb?.preorderSettings?.lunchMinNoticeHours || 0 : period === "dinner" ? chefFromDb?.preorderSettings?.dinnerMinNoticeHours || 0 : 0;
+            const slotDeliveryDateTime = createBusinessDateTime2(requestedDateStr, slot.startTime);
+            const effectiveCutoffDate = calculateEffectiveCutoff2(
+              slotDeliveryDateTime,
+              slot.cutoffHoursBefore || 0,
+              chefNoticeHours
+            );
+            if (/* @__PURE__ */ new Date() > effectiveCutoffDate) {
+              return res.status(400).json({ message: "The cutoff time for this slot has passed." });
+            }
+            orderPayload.deliveryDate = requestedDateStr;
+            await db.transaction(async (tx) => {
+              const { deliveryTimeSlots: deliveryTimeSlots3, orders: orders3 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+              const { eq: eq11, and: and7, not, sql: sql7 } = await import("drizzle-orm");
+              const [lockedSlot] = await tx.select().from(deliveryTimeSlots3).where(eq11(deliveryTimeSlots3.id, orderPayload.deliverySlotId)).for("update");
+              if (!lockedSlot || !lockedSlot.isActive) {
+                throw new Error("Invalid or inactive delivery slot.");
+              }
+              const [result2] = await tx.select({ count: sql7`count(*)` }).from(orders3).where(and7(
+                eq11(orders3.deliveryDate, requestedDateStr),
+                eq11(orders3.deliverySlotId, lockedSlot.id),
+                not(eq11(orders3.status, "cancelled"))
+              ));
+              if (result2.count >= lockedSlot.capacity) {
+                throw new Error("This delivery slot is fully booked. Please select another slot.");
+              }
+              const [createdOrder] = await tx.insert(orders3).values(orderPayload).returning();
+              order = createdOrder;
+            });
+          } else {
             const cutoffInfo = computeSlotCutoffInfo(slot);
             const deliveryDate = cutoffInfo.nextAvailableDate;
             const year = deliveryDate.getFullYear();
             const month = String(deliveryDate.getMonth() + 1).padStart(2, "0");
             const day = String(deliveryDate.getDate()).padStart(2, "0");
             orderPayload.deliveryDate = `${year}-${month}-${day}`;
-            console.log(`\u{1F4C5} Set deliveryDate to: ${orderPayload.deliveryDate}`);
+            console.log(`\u{1F4C5} Set legacy deliveryDate to: ${orderPayload.deliveryDate}`);
+            order = await storage.createOrder(orderPayload);
           }
         } catch (error) {
-          console.warn("Error calculating deliveryDate:", error);
+          console.warn("Error validating/creating scheduled order:", error);
+          return res.status(400).json({ message: error.message || "Failed to process delivery slot" });
         }
+      } else {
+        order = await storage.createOrder(orderPayload);
       }
-      console.log("\u{1F4DD} Order payload before DB insert:", JSON.stringify(orderPayload, null, 2));
-      console.log("[ORDER DEBUG BEFORE SAVE]", {
-        slotId: orderPayload.deliverySlotId,
-        deliveryTime: orderPayload.deliveryTime,
-        deliveryDate: orderPayload.deliveryDate,
-        now: /* @__PURE__ */ new Date()
-      });
-      const order = await storage.createOrder(orderPayload);
       console.log("\u2705 Order created successfully:", order.id);
       console.log(`\u{1F4CB} Order Details: userId=${userId}, walletAmountUsed=${order.walletAmountUsed}`);
       let accessToken;
@@ -17076,8 +17452,13 @@ ${"=".repeat(80)}`);
       }
       const allOrders = await storage.getAllOrders();
       const activeStatuses = ["pending", "confirmed", "accepted_by_chef", "preparing", "prepared", "accepted_by_delivery", "out_for_delivery"];
+      const { getBusinessToday: getBusinessToday2 } = await Promise.resolve().then(() => (init_timeFormatter(), timeFormatter_exports));
+      const todayStr = getBusinessToday2();
       const activeOrders = allOrders.filter((order) => order.userId === userId).filter((order) => {
         if (!activeStatuses.includes(order.status)) return false;
+        if (order.deliveryDate && order.deliveryDate > todayStr) {
+          return false;
+        }
         if (order.status === "pending" && order.paymentStatus === "pending") {
           const expiresAt = order.expiresAt ? new Date(order.expiresAt) : null;
           if (expiresAt && /* @__PURE__ */ new Date() > expiresAt) {
@@ -17742,6 +18123,41 @@ Please accept and start preparation.`;
         // Waiting for chef to accept
         items: pendingCheckout.items
       };
+      if (typeof orderData.customerLatitude !== "undefined" && typeof orderData.customerLongitude !== "undefined") {
+        try {
+          const { calculateDistance: calculateDistance2 } = await Promise.resolve().then(() => (init_deliveryUtils(), deliveryUtils_exports));
+          if (!orderData.chefId) {
+            console.warn(`[PENDING-CHECKOUT] No chefId provided, skipping distance calculation`);
+          } else {
+            const chef = await storage.getChefById(orderData.chefId);
+            if (!chef) {
+              console.warn(`[PENDING-CHECKOUT] Chef not found: ${orderData.chefId}`);
+            } else if (chef.latitude === null || chef.latitude === void 0 || chef.longitude === null || chef.longitude === void 0) {
+              console.warn(`[PENDING-CHECKOUT] Chef has no coordinates: ${orderData.chefId}`);
+            } else {
+              const chefLat = chef.latitude;
+              const chefLon = chef.longitude;
+              const addressDistance = calculateDistance2(
+                chefLat,
+                chefLon,
+                Number(orderData.customerLatitude),
+                Number(orderData.customerLongitude)
+              );
+              const roadDistanceMultiplier = await resolveRoadDistanceMultiplier();
+              const adjustedDistance = getRoadAdjustedDistance(addressDistance, roadDistanceMultiplier);
+              const distanceForPayout = roadDistanceMultiplier === 1 ? addressDistance : adjustedDistance;
+              orderData.distance = distanceForPayout.toFixed(2);
+              orderData.deliveryPartnerPayout = await storage.calculateDeliveryPartnerPayout(
+                distanceForPayout,
+                orderData.addressPincode
+              );
+              console.log(`[PENDING-CHECKOUT] Computed order distance: ${orderData.distance}km, payout: \u20B9${orderData.deliveryPartnerPayout}`);
+            }
+          }
+        } catch (err) {
+          console.warn(`[PENDING-CHECKOUT] Failed to compute payout distance for order confirmation:`, err);
+        }
+      }
       const order = await storage.createOrder(orderData);
       const { broadcastNewOrder: broadcastNewOrder3 } = await Promise.resolve().then(() => (init_websocket(), websocket_exports));
       broadcastNewOrder3(order);
@@ -17789,7 +18205,8 @@ Please accept and start preparation.`;
           isCurrentlyOpen: status.isCurrentlyOpen,
           currentScheduleStatus: status.reason,
           nextOpeningTime: status.nextOpeningTime,
-          currentSchedulePeriodEndsAt: status.currentSchedulePeriodEndsAt
+          currentSchedulePeriodEndsAt: status.currentSchedulePeriodEndsAt,
+          effectiveMode: chef.fulfillmentMode || "both"
         };
       });
       res.json(chefsWithStatus);
@@ -18046,7 +18463,8 @@ Please accept and start preparation.`;
             isCurrentlyOpen: status2.isCurrentlyOpen,
             currentScheduleStatus: status2.reason,
             nextOpeningTime: status2.nextOpeningTime,
-            currentSchedulePeriodEndsAt: status2.currentSchedulePeriodEndsAt
+            currentSchedulePeriodEndsAt: status2.currentSchedulePeriodEndsAt,
+            effectiveMode: chef2.fulfillmentMode || "both"
           };
         });
         return res.json(chefsWithStatus);
@@ -18062,7 +18480,8 @@ Please accept and start preparation.`;
         isCurrentlyOpen: status.isCurrentlyOpen,
         currentScheduleStatus: status.reason,
         nextOpeningTime: status.nextOpeningTime,
-        currentSchedulePeriodEndsAt: status.currentSchedulePeriodEndsAt
+        currentSchedulePeriodEndsAt: status.currentSchedulePeriodEndsAt,
+        effectiveMode: chef.fulfillmentMode || "both"
       };
       res.json(chefWithStatus);
     } catch (error) {
@@ -18076,17 +18495,22 @@ Please accept and start preparation.`;
         res.status(400).json({ message: "Latitude and longitude are required" });
         return;
       }
-      let chefLat = 19.0728;
-      let chefLon = 72.8826;
-      let chefForCalc = null;
-      if (chefId) {
-        const fetchedChef = await storage.getChefById(chefId);
-        chefForCalc = fetchedChef;
-        if (fetchedChef && fetchedChef.latitude !== null && fetchedChef.longitude !== null && fetchedChef.latitude !== void 0 && fetchedChef.longitude !== void 0) {
-          chefLat = fetchedChef.latitude;
-          chefLon = fetchedChef.longitude;
-        }
+      if (!chefId) {
+        res.status(400).json({ message: "Chef ID is required to calculate delivery fee" });
+        return;
       }
+      const fetchedChef = await storage.getChefById(chefId);
+      if (!fetchedChef) {
+        res.status(404).json({ message: "Chef not found" });
+        return;
+      }
+      if (fetchedChef.latitude === null || fetchedChef.latitude === void 0 || fetchedChef.longitude === null || fetchedChef.longitude === void 0) {
+        res.status(400).json({ message: "Chef location coordinates not configured" });
+        return;
+      }
+      const chefLat = fetchedChef.latitude;
+      const chefLon = fetchedChef.longitude;
+      const chefForCalc = fetchedChef;
       const { calculateDistance: calculateDistance2, calculateDelivery: calculateDelivery2 } = await Promise.resolve().then(() => (init_deliveryUtils(), deliveryUtils_exports));
       const distance = calculateDistance2(latitude, longitude, chefLat, chefLon);
       const deliverySettingsRaw = await storage.getDeliverySettings();
@@ -19360,6 +19784,39 @@ Please accept and start preparation.`;
       res.status(500).json({ message: error.message || "Failed to fetch cart setting" });
     }
   });
+  app2.get("/api/admin-settings", async (req, res) => {
+    try {
+      const allSettings = await db.query.adminSettings.findMany();
+      const settingsMap = Object.fromEntries(allSettings.map((s) => [s.key, s.value]));
+      res.json(settingsMap);
+    } catch (error) {
+      console.error("Failed to fetch admin settings:", error);
+      res.status(500).json({ error: "Failed to fetch admin settings" });
+    }
+  });
+  app2.post("/api/admin-settings", async (req, res) => {
+    try {
+      const updates = req.body;
+      const operations = Object.entries(updates).map(async ([key, value]) => {
+        const existing = await db.query.adminSettings.findFirst({
+          where: eq9(adminSettings2.key, key)
+        });
+        if (existing) {
+          await db.update(adminSettings2).set({ value: String(value), updatedAt: /* @__PURE__ */ new Date() }).where(eq9(adminSettings2.key, key));
+        } else {
+          await db.insert(adminSettings2).values({
+            key,
+            value: String(value)
+          });
+        }
+      });
+      await Promise.all(operations);
+      res.json({ message: "Settings updated successfully" });
+    } catch (error) {
+      console.error("Failed to update admin settings:", error);
+      res.status(500).json({ error: "Failed to update admin settings" });
+    }
+  });
   app2.get("/api/roti-settings", async (req, res) => {
     try {
       let settings = await storage.getRotiSettings();
@@ -19682,6 +20139,8 @@ Please accept and start preparation.`;
               deliveryFee: order.deliveryFee,
               discount: order.discount,
               total: order.total,
+              distance: order.distance,
+              deliveryPartnerPayout: order.deliveryPartnerPayout,
               status: "pending",
               deliveryDate: nextDeliveryDate.toISOString().split("T")[0],
               deliveryTime: slot.startTime,
@@ -20497,54 +20956,101 @@ Please accept and start preparation.`;
   });
   app2.post("/api/push/subscribe", async (req, res) => {
     try {
+      console.log("[PUSH-SUBSCRIBE] \u{1F4E5} Incoming request:", {
+        bodyType: typeof req.body,
+        bodyKeys: Object.keys(req.body || {}),
+        hasSubscription: !!req.body?.subscription,
+        subscriptionType: typeof req.body?.subscription,
+        subscriptionKeys: Object.keys(req.body?.subscription || {}),
+        userType: req.body?.userType,
+        userId: req.body?.userId
+      });
       const { subscription, userType, userId } = req.body;
       if (!subscription || !subscription.endpoint) {
+        console.warn("[PUSH-SUBSCRIBE] \u26A0\uFE0F Validation failed: missing subscription or endpoint");
         return res.status(400).json({
           message: "Invalid subscription data - missing endpoint"
         });
       }
       if (!userType || !userId) {
+        console.warn("[PUSH-SUBSCRIBE] \u26A0\uFE0F Validation failed: missing userType or userId");
         return res.status(400).json({
           message: "Missing userType or userId"
         });
       }
       const validTypes = ["admin", "chef", "delivery", "customer"];
       if (!validTypes.includes(userType)) {
+        console.warn("[PUSH-SUBSCRIBE] \u26A0\uFE0F Validation failed: invalid userType", userType);
         return res.status(400).json({
           message: `Invalid userType. Must be one of: ${validTypes.join(", ")}`
         });
       }
+      console.log("[PUSH-SUBSCRIBE] \u2705 Validation passed, importing db...");
       const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { pushSubscriptions: pushSubscriptions2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
       const { eq: eq11, and: and7 } = await import("drizzle-orm");
-      const existing = await db2.select().from(pushSubscriptions2).where(
-        and7(
-          eq11(pushSubscriptions2.userId, userId),
-          eq11(pushSubscriptions2.userType, userType)
-        )
-      ).limit(1);
+      console.log("[PUSH-SUBSCRIBE] \u2705 Modules imported, checking for existing subscription...");
+      let existing;
+      try {
+        existing = await db2.select().from(pushSubscriptions2).where(
+          and7(
+            eq11(pushSubscriptions2.userId, userId),
+            eq11(pushSubscriptions2.userType, userType)
+          )
+        ).limit(1);
+        console.log(`[PUSH-SUBSCRIBE] \u2705 DB query for existing subscription completed: ${existing.length} found`);
+      } catch (dbError) {
+        console.error("[PUSH-SUBSCRIBE] \u274C DB query failed:", dbError.message, dbError.stack);
+        throw dbError;
+      }
       if (existing.length > 0) {
-        await db2.update(pushSubscriptions2).set({
-          subscription,
-          isActive: true,
-          lastActivatedAt: /* @__PURE__ */ new Date()
-        }).where(eq11(pushSubscriptions2.id, existing[0].id));
-        console.log(`\u2705 Push subscription updated for ${userType} ${userId}`);
+        console.log(`[PUSH-SUBSCRIBE] \u{1F504} Updating existing subscription for ${userType} ${userId}`);
+        try {
+          await db2.update(pushSubscriptions2).set({
+            subscription,
+            isActive: true,
+            lastActivatedAt: /* @__PURE__ */ new Date()
+          }).where(eq11(pushSubscriptions2.id, existing[0].id));
+          console.log(`\u2705 [PUSH-SUBSCRIBE] Push subscription updated for ${userType} ${userId}`);
+        } catch (updateError) {
+          console.error("[PUSH-SUBSCRIBE] \u274C Update failed:", updateError.message, updateError.stack);
+          throw updateError;
+        }
       } else {
-        await db2.insert(pushSubscriptions2).values({
-          userId,
-          userType,
-          subscription,
-          isActive: true
-        });
-        console.log(`\u2705 Push subscription registered for ${userType} ${userId}`);
+        console.log(`[PUSH-SUBSCRIBE] \u2795 Creating new subscription for ${userType} ${userId}`);
+        try {
+          const insertData = {
+            userId,
+            userType,
+            subscription,
+            isActive: true
+          };
+          console.log("[PUSH-SUBSCRIBE] \u{1F4DD} Insert data:", {
+            userId: insertData.userId,
+            userType: insertData.userType,
+            hasSubscription: !!insertData.subscription,
+            subscriptionKeys: Object.keys(insertData.subscription || {}),
+            isActive: insertData.isActive
+          });
+          await db2.insert(pushSubscriptions2).values(insertData);
+          console.log(`\u2705 [PUSH-SUBSCRIBE] Push subscription registered for ${userType} ${userId}`);
+        } catch (insertError) {
+          console.error("[PUSH-SUBSCRIBE] \u274C Insert failed:", insertError.message, insertError.stack);
+          console.error("[PUSH-SUBSCRIBE] \u274C Insert error details:", {
+            code: insertError.code,
+            constraint: insertError.constraint,
+            detail: insertError.detail
+          });
+          throw insertError;
+        }
       }
       res.json({
         success: true,
         message: "Successfully registered for push notifications"
       });
     } catch (error) {
-      console.error("Error registering for push notifications:", error);
+      console.error("[PUSH-SUBSCRIBE] \u274C Catch-all error:", error.message);
+      console.error("[PUSH-SUBSCRIBE] \u274C Full error:", error);
       res.status(500).json({
         success: false,
         message: "Failed to register for push notifications",
@@ -20778,6 +21284,7 @@ var init_routes = __esm({
     init_emailService();
     init_whatsappService();
     init_db();
+    init_deliveryUtils();
     DEFAULT_DELIVERY_TIME = "09:00";
     WEEKDAY_NAMES = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
     PAYMENT_INITIATED_ADMIN_NOTIFY_TTL_MS = 5 * 60 * 1e3;
@@ -21492,6 +21999,8 @@ async function checkAutoScheduleTransitions() {
   try {
     const allChefs = await storage.getChefs();
     const { broadcastChefStatusUpdate: broadcastChefStatusUpdate2 } = await Promise.resolve().then(() => (init_websocket(), websocket_exports));
+    const scheduledChefs = allChefs.filter((c) => c.autoScheduleEnabled);
+    console.log(`[AUTO-SCHEDULE] Total chefs: ${allChefs.length}, with autoScheduleEnabled=true: ${scheduledChefs.length} [${scheduledChefs.map((c) => `${c.name}(open=${c.openingTime},close=${c.closingTime})`).join(", ")}]`);
     for (const chef of allChefs) {
       if (!chef.autoScheduleEnabled) continue;
       const config = buildRestaurantConfig(chef);
@@ -22199,6 +22708,22 @@ app.use((req, res, next) => {
     }
   } catch (error) {
     console.error("Failed to initialize push service:", error);
+  }
+  try {
+    const { adminSettings: adminSettings3 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+    const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const defaultPreorderSettings = [
+      { key: "preorder_lunch_start_time", value: "11:00", description: "Pre-order Lunch Start" },
+      { key: "preorder_lunch_end_time", value: "16:00", description: "Pre-order Lunch End" },
+      { key: "preorder_dinner_start_time", value: "18:00", description: "Pre-order Dinner Start" },
+      { key: "preorder_dinner_end_time", value: "22:00", description: "Pre-order Dinner End" }
+    ];
+    for (const setting of defaultPreorderSettings) {
+      await db2.insert(adminSettings3).values(setting).onConflictDoNothing({ target: adminSettings3.key });
+    }
+    console.log("\u2705 Admin settings verified/initialized");
+  } catch (err) {
+    console.warn("\u26A0\uFE0F Failed to initialize admin settings:", err);
   }
   const port = parseInt(process.env.PORT || "5000", 10);
   server.listen({

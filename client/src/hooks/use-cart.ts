@@ -14,6 +14,7 @@ interface CartItem {
   categoryId?: string;
   offerPercentage?: number; // Add offer percentage
   specialInstructions?: string; // Optional cooking instructions
+  effectiveMode?: 'instant' | 'preorder' | 'both';
 }
 
 interface CategoryCart {
@@ -76,9 +77,8 @@ interface CartStore {
   getAllCarts: () => CategoryCart[];
   getAllCartsWithDelivery: () => CategoryCart[];
   canAddItem: (
-    chefId?: string,
-    categoryId?: string
-  ) => { canAdd: boolean; conflictChef?: string };
+    item: Omit<CartItem, "quantity">
+  ) => { canAdd: boolean; conflictReason?: string };
   // New helper: return all carts for a given category
   getCartsByCategory: (categoryId: string) => CategoryCart[];
   updateSpecialInstructions: (categoryId: string, itemId: string, instructions: string, chefId?: string) => void;
@@ -161,11 +161,33 @@ export const useCart = create<CartStore>()(
         }
       },
 
-      // ✅ Check if item can be added. Previously this prevented creating multiple
-      // carts for the same category across different chefs. We now allow multi-chef
-      // carts (one per chef+category) so always permit adding — cart selection
-      // / separation is handled by indexing carts by chefId as well.
-      canAddItem: (chefId?: string, categoryId?: string) => {
+      // ✅ Check if item can be added. We now allow multi-chef carts (one per chef+category),
+      // but we must enforce ONE FULFILLMENT MODE per cart (cannot mix instant and preorder).
+      canAddItem: (item) => {
+        const { carts } = get();
+        
+        // Find the specific cart this item would be added to
+        const chefKey = item.chefId || "";
+        const targetCart = carts.find(
+          (cart) => cart.categoryId === item.categoryId && cart.chefId === chefKey
+        );
+
+        if (!targetCart) return { canAdd: true };
+        
+        // Check mode conflict WITHIN the target cart
+        const itemMode = item.effectiveMode || 'both';
+        if (itemMode !== 'both') {
+          for (const existing of targetCart.items) {
+            const existingMode = existing.effectiveMode || 'both';
+            if (existingMode !== 'both' && existingMode !== itemMode) {
+              return { 
+                canAdd: false, 
+                conflictReason: `This item is strictly ${itemMode}. Your cart for this chef already has ${existingMode} items. Please clear them to switch modes.` 
+              };
+            }
+          }
+        }
+        
         return { canAdd: true };
       },
 
@@ -185,11 +207,9 @@ export const useCart = create<CartStore>()(
           return false;
         }
 
-        const checkResult = canAddItem(item.chefId, item.categoryId);
+        const checkResult = canAddItem(item);
         if (!checkResult.canAdd) {
-          console.warn(
-            `Cannot add item — existing chef in ${item.categoryId} is ${checkResult.conflictChef}`
-          );
+          console.warn(`Cannot add item: ${checkResult.conflictReason}`);
           return false;
         }
 

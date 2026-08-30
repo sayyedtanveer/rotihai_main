@@ -63,6 +63,9 @@ const AdminCartSettings = lazy(() => import("@/pages/admin/AdminCartSettings"));
 // Add AdminRotiSettings import
 const AdminRotiSettings = lazy(() => import("@/pages/admin/AdminRotiSettings"));
 
+// Add AdminSettings import (Pre-order lunch/dinner time configuration)
+const AdminSettings = lazy(() => import("@/pages/admin/AdminSettings"));
+
 // Import AdminPromotionalBanners component
 const AdminPromotionalBanners = lazy(() => import("@/pages/admin/AdminPromotionalBanners"));
 
@@ -98,6 +101,7 @@ function Router() {
   const { admin } = useAdminAuth();
 
   return (
+    <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div></div>}>
     <Switch>
       {/* ---------- ADMINROUTES ---------- */}
       <Route path="/admin/login" component={AdminLogin} />
@@ -130,6 +134,7 @@ function Router() {
       {/* Add cart settings admin route */}
       <Route path="/admin/cart-settings" component={AdminCartSettings} />
       <Route path="/admin/roti-settings" component={AdminRotiSettings} />
+      <Route path="/admin/settings" component={AdminSettings} />
 
 
       {/* ---------- PARTNER / DELIVERY ROUTES ---------- */}
@@ -175,6 +180,7 @@ function Router() {
       <Route path="/track/:orderId" component={OrderTracking} />
       <Route component={NotFound} />
     </Switch>
+    </Suspense>
   );
 }
 

@@ -29,6 +29,7 @@ import {
   MessageSquare, // Import MessageSquare icon for SMS settings
   MapPin, // Import MapPin icon for delivery areas
   TrendingUp, // PHASE 4: Chef Performance icon
+  CalendarClock, // Pre-order Settings icon
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
@@ -221,6 +222,12 @@ export function AdminLayout({ children }: AdminLayoutProps) {
               <div className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-colors cursor-pointer ${location === "/admin/roti-settings" ? "bg-primary text-primary-foreground" : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700"}`}>
                 <Clock className="w-5 h-5" />
                 <span>Roti Settings</span>
+              </div>
+            </Link>
+            <Link href="/admin/settings">
+              <div className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-colors cursor-pointer ${location === "/admin/settings" ? "bg-primary text-primary-foreground" : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700"}`}>
+                <CalendarClock className="w-5 h-5" />
+                <span>Pre-order Settings</span>
               </div>
             </Link>
             <Link href="/admin/delivery-time-slots">

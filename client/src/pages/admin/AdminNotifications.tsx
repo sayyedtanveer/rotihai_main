@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Bell, ShoppingBag, AlertTriangle, Info, CheckCircle, Clock } from "lucide-react";
+import { Bell, ShoppingBag, AlertTriangle, Info, CheckCircle, Clock, Calendar } from "lucide-react";
 import type { Order, Product } from "@shared/schema";
 import { formatDistanceToNow } from "date-fns";
 
@@ -22,6 +22,14 @@ export default function AdminNotifications() {
     queryKey: ["/api/admin", "products"],
     queryFn: async () => {
       const response = await api.get("/api/admin/products");
+      return response.data;
+    },
+  });
+
+  const { data: customSubscriptions = [], isLoading: subsLoading } = useQuery({
+    queryKey: ["/api/admin/custom-subscription-requests"],
+    queryFn: async () => {
+      const response = await api.get("/api/admin/custom-subscription-requests");
       return response.data;
     },
   });
@@ -47,6 +55,11 @@ export default function AdminNotifications() {
 
   // Get pending orders
   const pendingOrders = orders.filter((o) => o.status === "pending");
+
+  // Get pending subscriptions
+  const pendingSubscriptions = customSubscriptions
+    .filter((sub: any) => sub.status === "pending_chef_assignment" || sub.status === "paid")
+    .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   const getOrderStatusIcon = (status: string) => {
     switch (status) {
@@ -84,7 +97,7 @@ export default function AdminNotifications() {
     }
   };
 
-  const totalNotifications = recentOrders.length + lowStockProducts.length;
+  const totalNotifications = recentOrders.length + lowStockProducts.length + pendingSubscriptions.length;
 
   return (
     <AdminLayout>
@@ -170,9 +183,12 @@ export default function AdminNotifications() {
         <Card>
           <CardContent className="pt-6">
             <Tabs defaultValue="orders" className="w-full">
-              <TabsList className="grid w-full grid-cols-3">
+              <TabsList className="grid w-full grid-cols-4">
                 <TabsTrigger value="orders" data-testid="tab-orders">
                   Orders ({recentOrders.length})
+                </TabsTrigger>
+                <TabsTrigger value="subscriptions" data-testid="tab-subscriptions">
+                  Subscriptions ({pendingSubscriptions.length})
                 </TabsTrigger>
                 <TabsTrigger value="stock" data-testid="tab-stock">
                   Stock Alerts ({lowStockProducts.length})
@@ -219,6 +235,55 @@ export default function AdminNotifications() {
                                   </p>
                                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
                                     {formatDistanceToNow(new Date(order.createdAt), { addSuffix: true })}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                  )}
+                </ScrollArea>
+              </TabsContent>
+
+              <TabsContent value="subscriptions" className="mt-4">
+                <ScrollArea className="h-[600px] pr-4">
+                  {subsLoading ? (
+                    <div className="text-center py-8 text-slate-600 dark:text-slate-400">
+                      Loading subscriptions...
+                    </div>
+                  ) : pendingSubscriptions.length === 0 ? (
+                    <div className="text-center py-8 text-slate-600 dark:text-slate-400">
+                      No pending subscriptions
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {pendingSubscriptions.map((sub: any) => (
+                        <Card key={sub.id} className="hover:border-orange-500 transition-colors" data-testid={`notification-subscription-${sub.id}`}>
+                          <CardContent className="p-4">
+                            <div className="flex items-start justify-between">
+                              <div className="flex items-start gap-3 flex-1">
+                                <div className="mt-1">
+                                  <Calendar className="w-5 h-5 text-orange-600" />
+                                </div>
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2 mb-2">
+                                    <h4 className="font-semibold text-slate-900 dark:text-slate-100">
+                                      Subscription Request
+                                    </h4>
+                                    <Badge className="bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200">
+                                      {sub.status === "paid" ? "Paid (Needs Approval)" : "Pending Assignment"}
+                                    </Badge>
+                                  </div>
+                                  <p className="text-sm text-slate-600 dark:text-slate-400">
+                                    Customer: {sub.customerName}
+                                  </p>
+                                  <p className="text-sm text-slate-600 dark:text-slate-400">
+                                    {sub.rotiPerDay} rotis/day for {sub.duration}
+                                  </p>
+                                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
+                                    {formatDistanceToNow(new Date(sub.createdAt), { addSuffix: true })}
                                   </p>
                                 </div>
                               </div>
@@ -298,7 +363,34 @@ export default function AdminNotifications() {
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      {/* Stock Alerts First */}
+                      {/* Subscription Requests First */}
+                      {pendingSubscriptions.map((sub: any) => (
+                        <Card key={`all-sub-${sub.id}`} className="hover:border-orange-500 transition-colors">
+                          <CardContent className="p-4">
+                            <div className="flex items-start gap-3">
+                              <Calendar className="w-5 h-5 text-orange-600 mt-1" />
+                              <div className="flex-1">
+                                <div className="flex items-center justify-between mb-2">
+                                  <h4 className="font-semibold text-slate-900 dark:text-slate-100">
+                                    Subscription Request
+                                  </h4>
+                                  <Badge className="bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200">
+                                    {sub.status === "paid" ? "Paid" : "Pending"}
+                                  </Badge>
+                                </div>
+                                <p className="text-sm text-slate-600 dark:text-slate-400">
+                                  {sub.customerName} • {sub.rotiPerDay} rotis/day
+                                </p>
+                                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                                  {formatDistanceToNow(new Date(sub.createdAt), { addSuffix: true })}
+                                </p>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))}
+
+                      {/* Stock Alerts */}
                       {lowStockProducts.map((product) => (
                         <Card key={`all-stock-${product.id}`} className="hover:border-yellow-500 transition-colors">
                           <CardContent className="p-4">

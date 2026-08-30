@@ -80,6 +80,7 @@ export default function AdminProducts() {
       section: "",
       sectionOrder: 0,
       sortOrder: 0,
+      fulfillmentMode: "inherit",
     },
   });
 
@@ -176,6 +177,7 @@ export default function AdminProducts() {
       section: product.section || "",
       sectionOrder: product.sectionOrder ?? 0,
       sortOrder: product.sortOrder ?? 0,
+      fulfillmentMode: product.fulfillmentMode || "inherit",
     });
     setIsDialogOpen(true);
   };
@@ -398,6 +400,29 @@ export default function AdminProducts() {
                                 ))}
                               </SelectContent>
                             </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="fulfillmentMode"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Fulfillment Mode</FormLabel>
+                            <Select onValueChange={field.onChange} value={field.value || "inherit"}>
+                              <FormControl>
+                                <SelectTrigger data-testid="select-product-fulfillment-mode">
+                                  <SelectValue placeholder="Select mode" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                <SelectItem value="inherit">Inherit from Chef/Category</SelectItem>
+                                <SelectItem value="instant">⚡ Instant Only</SelectItem>
+                                <SelectItem value="preorder">🕐 Pre-order Only</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <p className="text-xs text-gray-500 mt-1">Override chef's capability</p>
                             <FormMessage />
                           </FormItem>
                         )}

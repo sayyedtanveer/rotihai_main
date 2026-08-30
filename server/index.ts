@@ -619,6 +619,26 @@ app.use((req, res, next) => {
 
 
 
+  // Initialize default Admin Settings for Pre-order Meal Periods (idempotent)
+  try {
+    const { adminSettings } = await import("@shared/schema");
+    const { db } = await import("@shared/db");
+    const defaultPreorderSettings = [
+      { key: 'preorder_lunch_start_time', value: '11:00', description: 'Pre-order Lunch Start' },
+      { key: 'preorder_lunch_end_time', value: '16:00', description: 'Pre-order Lunch End' },
+      { key: 'preorder_dinner_start_time', value: '18:00', description: 'Pre-order Dinner Start' },
+      { key: 'preorder_dinner_end_time', value: '22:00', description: 'Pre-order Dinner End' },
+    ];
+    for (const setting of defaultPreorderSettings) {
+      await db.insert(adminSettings)
+        .values(setting)
+        .onConflictDoNothing({ target: adminSettings.key }); 
+    }
+    console.log("✅ Admin settings verified/initialized");
+  } catch (err) {
+    console.warn("⚠️ Failed to initialize admin settings:", err);
+  }
+
   // ALWAYS serve the app on the port specified in the environment variable PORT
   // Other ports are firewalled. Default to 5000 if not specified.
   // this serves both the API and the client.

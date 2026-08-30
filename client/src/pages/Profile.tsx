@@ -1,4 +1,4 @@
-﻿import { useState } from "react";
+import { useState } from "react";
 import { getApiUrl } from "@/lib/apiBase";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
@@ -38,7 +38,7 @@ type FrontendChef = BaseChef & {
 };
 
 export default function Profile() {
-  const { user: authUser, isLoading: authLoading, error: authError } = useAuth();
+  const { user: authUser, isLoading: authLoading, error: authError, logout } = useAuth();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -250,15 +250,7 @@ export default function Profile() {
   }
 
   const handleLogout = () => {
-    if (userToken) {
-      localStorage.removeItem("userToken");
-      localStorage.removeItem("userRefreshToken");
-      localStorage.removeItem("userData");
-      // Force immediate redirect
-      window.location.href = "/";
-    } else {
-      window.location.href = "/api/logout";
-    }
+    logout();
   };
 
   const handleEditProfile = () => {

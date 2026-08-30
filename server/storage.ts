@@ -1,10 +1,10 @@
-import { type Category, type InsertCategory, type Product, type InsertProduct, type Order, type InsertOrder, type User, type UpsertUser, type Chef, type AdminUser, type InsertAdminUser, type PartnerUser, type Subscription, type SubscriptionPlan, type DeliverySetting, type InsertDeliverySetting, type DeliveryPartnerPayout, type InsertDeliveryPartnerPayout, type CartSetting, type InsertCartSetting, type DeliveryPersonnel, type InsertDeliveryPersonnel, type WalletTransaction, type ReferralReward, type PromotionalBanner, type InsertPromotionalBanner, type SubscriptionDeliveryLog, type InsertSubscriptionDeliveryLog, type DeliveryTimeSlot, type InsertDeliveryTimeSlot, type Coupon, type RotiSettings, type InsertRotiSettings, type Visitor, type DeliveryArea, type InsertDeliveryArea, type AdminSettings, type PendingCheckout, type InsertPendingCheckout, type CustomSubscriptionRequest, type InsertCustomSubscriptionRequest } from "@shared/schema";
+import { type Category, type InsertCategory, type Product, type InsertProduct, type Order, type InsertOrder, type User, type UpsertUser, type Chef, type AdminUser, type InsertAdminUser, type PartnerUser, type Subscription, type SubscriptionPlan, type DeliverySetting, type InsertDeliverySetting, type DeliveryPartnerPayout, type InsertDeliveryPartnerPayout, type CartSetting, type InsertCartSetting, type DeliveryPersonnel, type InsertDeliveryPersonnel, type WalletTransaction, type ReferralReward, type PromotionalBanner, type InsertPromotionalBanner, type SubscriptionDeliveryLog, type InsertSubscriptionDeliveryLog, type DeliveryTimeSlot, type InsertDeliveryTimeSlot, type Coupon, type RotiSettings, type InsertRotiSettings, type Visitor, type DeliveryArea, type InsertDeliveryArea, type AdminSettings, type PendingCheckout, type InsertPendingCheckout, type CustomSubscriptionRequest, type InsertCustomSubscriptionRequest, type ChefPreorderSettings, type InsertChefPreorderSettings } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { nanoid } from "nanoid";
 import { eq, and, gte, lte, desc, asc, or, isNull, sql, count, lt, inArray } from "drizzle-orm";
 import {
   db, users, categories, products, orders, chefs, adminUsers, partnerUsers, subscriptions,
-  subscriptionPlans, subscriptionDeliveryLogs, deliverySettings, deliveryPartnerPayouts, cartSettings, deliveryPersonnel, coupons, couponUsages, referrals, walletTransactions, referralRewards, promotionalBanners, deliveryTimeSlots, rotiSettings, visitors, deliveryAreas, adminSettings, payoutTransactions, pendingCheckouts, customSubscriptionRequests
+  subscriptionPlans, subscriptionDeliveryLogs, deliverySettings, deliveryPartnerPayouts, cartSettings, deliveryPersonnel, coupons, couponUsages, referrals, walletTransactions, referralRewards, promotionalBanners, deliveryTimeSlots, rotiSettings, visitors, deliveryAreas, adminSettings, payoutTransactions, pendingCheckouts, customSubscriptionRequests, chefPreorderSettings
 } from "@shared/db";
 
 export type CreateSubscriptionDeliveryLogInput = Omit<SubscriptionDeliveryLog, "id" | "createdAt" | "updatedAt" | "skipReason" | "chefOverrideId"> & { skipReason?: string | null; chefOverrideId?: string | null };
@@ -578,6 +578,7 @@ export class MemStorage implements IStorage {
       isCustomizable: insertProduct.isCustomizable !== undefined ? insertProduct.isCustomizable : false,
       chefId: insertProduct.chefId || null,
       image: insertProduct.image ?? null,
+      fulfillmentMode: insertProduct.fulfillmentMode || "inherit",
       stockQuantity: insertProduct.stockQuantity !== undefined ? insertProduct.stockQuantity : 100,
       lowStockThreshold: insertProduct.lowStockThreshold !== undefined ? insertProduct.lowStockThreshold : 20,
       isAvailable: insertProduct.isAvailable !== undefined ? insertProduct.isAvailable : true,
@@ -694,21 +695,24 @@ export class MemStorage implements IStorage {
   }
 
   async getChefs(): Promise<Chef[]> {
-    // If filtering by category is intended to show partners/restaurants,
-    // this query should select from `partnerUsers` or `chefs` based on context.
-    // For now, returning all chefs as per original implementation.
     const result = await db.select().from(chefs);
+    const settings = await db.select().from(chefPreorderSettings);
+    const settingsMap = new Map(settings.map(s => [s.chefId, s]));
+
     return result.map(chef => ({
       ...chef,
       latitude: (chef as any).latitude ?? 19.0728,
       longitude: (chef as any).longitude ?? 72.8826,
+      preorderSettings: settingsMap.get(chef.id) || null,
     }));
   }
 
 
   async getChefById(id: string): Promise<Chef | null> {
     const chef = await db.query.chefs.findFirst({ where: (c, { eq }) => eq(c.id, id) });
-    return chef || null;
+    if (!chef) return null;
+    const settings = await db.query.chefPreorderSettings.findFirst({ where: (s, { eq }) => eq(s.chefId, id) });
+    return { ...chef, preorderSettings: settings || null };
   }
 
   async getChefsByCategory(categoryId: string): Promise<Chef[]> {
@@ -788,6 +792,7 @@ export class MemStorage implements IStorage {
     if ((data as any).autoScheduleEnabled !== undefined) updateData.autoScheduleEnabled = (data as any).autoScheduleEnabled;
     if ((data as any).openingTime !== undefined) updateData.openingTime = (data as any).openingTime || null;
     if ((data as any).closingTime !== undefined) updateData.closingTime = (data as any).closingTime || null;
+    if ((data as any).fulfillmentMode !== undefined) updateData.fulfillmentMode = (data as any).fulfillmentMode;
 
     console.log("🔥 updateChef() - Received data:", { id, incomingMaxDeliveryDistanceKm: (data as any).maxDeliveryDistanceKm, servicePincodes: (data as any).servicePincodes, updateData });
 

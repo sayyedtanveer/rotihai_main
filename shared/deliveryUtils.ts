@@ -100,21 +100,21 @@ export function calculateDelivery(
   const adjustedDistance = getRoadAdjustedDistance(distance, customMultiplier);
 
   // Find matching delivery range based on adjusted road distance
-  console.log(`[Delivery Calc] Adjusted road distance for slabs: ${adjustedDistance}km`);
-  console.log(`[Delivery Calc] Distance: ${distance}km, Subtotal: ₹${subtotal}`);
-  console.log(`[Delivery Calc] Active settings:`, activeSettings.map(s =>
-    `${s.name}: ${s.minDistance}-${s.maxDistance}km = ₹${s.price}`
-  ));
+  // console.log(`[Delivery Calc] Adjusted road distance for slabs: ${adjustedDistance}km`);
+  // console.log(`[Delivery Calc] Distance: ${distance}km, Subtotal: ₹${subtotal}`);
+  // console.log(`[Delivery Calc] Active settings:`, activeSettings.map(s =>
+  //   `${s.name}: ${s.minDistance}-${s.maxDistance}km = ₹${s.price}`
+  // ));
 
   const matchingSetting = activeSettings.find(setting => {
     const minDist = parseFloat(setting.minDistance);
     const maxDist = parseFloat(setting.maxDistance);
     const matches = adjustedDistance >= minDist && adjustedDistance <= maxDist;
-    console.log(`[Delivery Calc] Checking ${setting.name} (${minDist}-${maxDist}km): ${matches ? 'MATCH' : 'no match'}`);
+    // console.log(`[Delivery Calc] Checking ${setting.name} (${minDist}-${maxDist}km): ${matches ? 'MATCH' : 'no match'}`);
     return matches;
   });
 
-  console.log(`[Delivery Calc] Matching setting:`, matchingSetting?.name || 'NONE');
+  // console.log(`[Delivery Calc] Matching setting:`, matchingSetting?.name || 'NONE');
 
   if (matchingSetting) {
     deliveryFee = matchingSetting.price;
@@ -147,7 +147,7 @@ export function calculateDelivery(
       minOrderAmount: effectiveThreshold,
     };
 
-    console.log(`[Delivery Calc] Final result:`, result);
+    // console.log(`[Delivery Calc] Final result:`, result);
     return result;
   } else {
     // No matching range found - outside delivery zone
@@ -162,7 +162,7 @@ export function calculateDelivery(
       minOrderAmount: 0,
     };
 
-    console.log(`[Delivery Calc] Final result:`, result);
+    // console.log(`[Delivery Calc] Final result:`, result);
     return result;
   }
 }
@@ -194,3 +194,79 @@ export const STORE_LOCATION = {
   longitude: 77.2090,
   address: "Main Store, Connaught Place, New Delhi"
 };
+
+// ── PRE-ORDER CONFIGURATION & CLASSIFICATION ─────────────────────────────────
+
+export interface PreorderBoundaries {
+  lunchStart: string;
+  lunchEnd: string;
+  dinnerStart: string;
+  dinnerEnd: string;
+}
+
+/**
+ * Validates that Admin-configured Lunch/Dinner boundaries are properly ordered and non-overlapping.
+ * @returns An error message if invalid, or null if valid.
+ */
+export function validateMealPeriodBoundaries(boundaries: PreorderBoundaries): string | null {
+  const parseTime = (timeStr: string) => {
+    const [h, m] = timeStr.split(':').map(Number);
+    return h * 60 + (m || 0);
+  };
+
+  const ls = parseTime(boundaries.lunchStart);
+  const le = parseTime(boundaries.lunchEnd);
+  const ds = parseTime(boundaries.dinnerStart);
+  const de = parseTime(boundaries.dinnerEnd);
+
+  if (ls >= le) return "Lunch start time must be before lunch end time.";
+  if (ds >= de) return "Dinner start time must be before dinner end time.";
+  if (le > ds) return "Lunch period cannot overlap with or extend into Dinner period.";
+
+  return null; // Valid
+}
+
+/**
+ * Classifies a slot into 'lunch', 'dinner', or 'none' based on its startTime and the admin boundaries.
+ */
+export function classifySlotMealPeriod(
+  slotStartTime: string,
+  boundaries: PreorderBoundaries
+): 'lunch' | 'dinner' | 'none' {
+  const parseTime = (timeStr: string) => {
+    const [h, m] = timeStr.split(':').map(Number);
+    return h * 60 + (m || 0);
+  };
+
+  const slotMinutes = parseTime(slotStartTime);
+  const ls = parseTime(boundaries.lunchStart);
+  const le = parseTime(boundaries.lunchEnd);
+  const ds = parseTime(boundaries.dinnerStart);
+  const de = parseTime(boundaries.dinnerEnd);
+
+  // A slot must fall STRICTLY within the boundaries
+  if (slotMinutes >= ls && slotMinutes < le) {
+    return 'lunch';
+  }
+  if (slotMinutes >= ds && slotMinutes < de) {
+    return 'dinner';
+  }
+
+  return 'none';
+}
+
+/**
+ * Calculates the effective cutoff Date given the delivery date-time, global rule, and chef rule.
+ * The EARLIER cutoff wins (stricter wins).
+ */
+export function calculateEffectiveCutoff(
+  deliveryDateTime: Date,
+  globalCutoffHoursBefore: number,
+  chefMinNoticeHours: number
+): Date {
+  const globalCutoff = new Date(deliveryDateTime.getTime() - globalCutoffHoursBefore * 60 * 60 * 1000);
+  const chefCutoff = new Date(deliveryDateTime.getTime() - chefMinNoticeHours * 60 * 60 * 1000);
+  
+  return globalCutoff < chefCutoff ? globalCutoff : chefCutoff;
+}
+

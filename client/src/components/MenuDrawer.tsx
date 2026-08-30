@@ -20,7 +20,7 @@ interface MenuDrawerProps {
 
 export default function MenuDrawer({ isOpen, onClose, categories = [], onCategoryClick, selectedCategoryTab = "all", onCategoryTabChange, onSubscriptionClick, onLoginClick }: MenuDrawerProps) {
   const [, setLocation] = useLocation();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const userToken = localStorage.getItem("userToken");
   const isAuthenticated = !!(user || userToken);
 
@@ -79,16 +79,7 @@ export default function MenuDrawer({ isOpen, onClose, categories = [], onCategor
   // A more robust solution would involve state management to properly
   // handle authentication state changes before navigation.
   const handleLogout = () => {
-    const userToken = localStorage.getItem("userToken");
-    if (userToken) {
-      localStorage.removeItem("userToken");
-      localStorage.removeItem("userRefreshToken");
-      localStorage.removeItem("userData");
-      // Force full page reload to clear all state
-      window.location.href = "/";
-    } else {
-      window.location.href = "/api/logout";
-    }
+    logout();
     onClose();
   };
 

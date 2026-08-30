@@ -16,7 +16,7 @@ import { getImageUrl, handleImageError } from "@/lib/imageUrl";
 import { adminApiRequest } from "@/hooks/useAdminAuth";
 import { queryClient } from "@/lib/queryClient";
 import type { Chef, Category } from "@shared/schema";
-import { Star, Pencil, Trash2, Plus, Store, Loader2, MapPin, BadgeCheck, ShieldCheck, ShieldOff, Home, Building2 } from "lucide-react";
+import { Star, Pencil, Trash2, Plus, Store, Loader2, MapPin, BadgeCheck, ShieldCheck, ShieldOff, Home, Building2, Calendar } from "lucide-react";
 import { ImageUploader } from "@/components/ImageUploader";
 import { formatTime12Hour, formatSlotRange } from "@shared/timeFormatter";
 import { getDeliveryAreas } from "@/lib/deliveryAreas";
@@ -55,6 +55,12 @@ export default function AdminChefs() {
     autoScheduleEnabled: false,
     openingTime: "",
     closingTime: "",
+    // ✅ Pre-order Configuration
+    lunchEnabled: true,
+    lunchMinNoticeHours: 24,
+    dinnerEnabled: true,
+    dinnerMinNoticeHours: 12,
+    fulfillmentMode: "both" as "instant" | "preorder" | "both",
   });
 
   // Separate state for servicePincodes input display (allows partial typing)
@@ -219,6 +225,12 @@ export default function AdminChefs() {
       autoScheduleEnabled: false,
       openingTime: "",
       closingTime: "",
+      // ✅ Pre-order Configuration
+      lunchEnabled: true,
+      lunchMinNoticeHours: 24,
+      dinnerEnabled: true,
+      dinnerMinNoticeHours: 12,
+      fulfillmentMode: "both",
     });
     setServicePincodesInput(""); // Reset display input
     setGeocodeError("");
@@ -348,6 +360,12 @@ export default function AdminChefs() {
       autoScheduleEnabled: (chef as any).autoScheduleEnabled === true,
       openingTime: (chef as any).openingTime || "",
       closingTime: (chef as any).closingTime || "",
+      // ✅ Pre-order Configuration
+      lunchEnabled: (chef as any).preorderSettings?.lunchEnabled ?? true,
+      lunchMinNoticeHours: (chef as any).preorderSettings?.lunchMinNoticeHours ?? 24,
+      dinnerEnabled: (chef as any).preorderSettings?.dinnerEnabled ?? true,
+      dinnerMinNoticeHours: (chef as any).preorderSettings?.dinnerMinNoticeHours ?? 12,
+      fulfillmentMode: (chef as any).fulfillmentMode || "both",
     });
     // Initialize servicePincodes input field with comma-separated values
     const servicePincodes = (chef as any).servicePincodes;
@@ -676,6 +694,23 @@ export default function AdminChefs() {
               />
             </div>
 
+            <div className="space-y-2 border-t pt-4">
+              <Label className="font-semibold text-gray-700">Ordering Capability</Label>
+              <Select
+                value={formData.fulfillmentMode || "both"}
+                onValueChange={(v) => setFormData({ ...formData, fulfillmentMode: v as "instant" | "preorder" | "both" })}
+              >
+                <SelectTrigger data-testid="select-chef-fulfillment-mode">
+                  <SelectValue placeholder="Select ordering capability" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="instant">⚡ Instant Only</SelectItem>
+                  <SelectItem value="preorder">🕐 Pre-order Only</SelectItem>
+                  <SelectItem value="both">⚡ Instant &amp; 🕐 Pre-order</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
             {/* ── FSSAI & Compliance Section ─────────────────────────────────── */}
             <div className="space-y-3 border-t pt-4">
               <Label className="flex items-center gap-2 font-semibold text-amber-700 dark:text-amber-400">
@@ -1001,6 +1036,62 @@ export default function AdminChefs() {
                 </div>
               </div>
 
+              {/* Pre-order Configuration Section */}
+              <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-700 rounded-md p-3 space-y-3">
+                <p className="text-xs font-semibold text-purple-900 dark:text-purple-100 flex items-center gap-2">
+                  <Calendar className="w-4 h-4" /> Pre-order Settings
+                </p>
+                <div className="grid grid-cols-2 gap-4">
+                  {/* Lunch Pre-order */}
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        id="lunchEnabled"
+                        checked={(formData as any).lunchEnabled}
+                        onCheckedChange={(checked) => setFormData({ ...formData, lunchEnabled: checked })}
+                      />
+                      <Label htmlFor="lunchEnabled" className="text-sm font-medium">Enable Lunch</Label>
+                    </div>
+                    {(formData as any).lunchEnabled && (
+                      <div>
+                        <Label htmlFor="lunchMinNoticeHours" className="text-xs text-slate-500">Notice Period (Hours)</Label>
+                        <Input
+                          id="lunchMinNoticeHours"
+                          type="number"
+                          min="0"
+                          value={(formData as any).lunchMinNoticeHours}
+                          onChange={(e) => setFormData({ ...formData, lunchMinNoticeHours: parseInt(e.target.value) || 0 })}
+                        />
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Dinner Pre-order */}
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        id="dinnerEnabled"
+                        checked={(formData as any).dinnerEnabled}
+                        onCheckedChange={(checked) => setFormData({ ...formData, dinnerEnabled: checked })}
+                      />
+                      <Label htmlFor="dinnerEnabled" className="text-sm font-medium">Enable Dinner</Label>
+                    </div>
+                    {(formData as any).dinnerEnabled && (
+                      <div>
+                        <Label htmlFor="dinnerMinNoticeHours" className="text-xs text-slate-500">Notice Period (Hours)</Label>
+                        <Input
+                          id="dinnerMinNoticeHours"
+                          type="number"
+                          min="0"
+                          value={(formData as any).dinnerMinNoticeHours}
+                          onChange={(e) => setFormData({ ...formData, dinnerMinNoticeHours: parseInt(e.target.value) || 0 })}
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               {/* Manual Coordinate Validation Section - ALWAYS VISIBLE */}
               <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-md p-3 space-y-3">
                 <div className="flex items-center justify-between">
@@ -1198,6 +1289,23 @@ export default function AdminChefs() {
                 onCheckedChange={(checked) => setFormData({ ...formData, isVerified: checked })}
                 data-testid="switch-edit-chef-verified"
               />
+            </div>
+
+            <div className="space-y-2 border-t pt-4">
+              <Label className="font-semibold text-gray-700">Ordering Capability</Label>
+              <Select
+                value={formData.fulfillmentMode || "both"}
+                onValueChange={(v) => setFormData({ ...formData, fulfillmentMode: v as "instant" | "preorder" | "both" })}
+              >
+                <SelectTrigger data-testid="select-edit-fulfillment-mode">
+                  <SelectValue placeholder="Select ordering capability" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="instant">⚡ Instant Only</SelectItem>
+                  <SelectItem value="preorder">🕐 Pre-order Only</SelectItem>
+                  <SelectItem value="both">⚡ Instant &amp; 🕐 Pre-order</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             {/* ── FSSAI & Compliance Section (Edit) ──────────────────────────── */}
@@ -1518,6 +1626,62 @@ export default function AdminChefs() {
                       </p>
                     </div>
                   )}
+                </div>
+              </div>
+
+              {/* Pre-order Configuration Section (Edit) */}
+              <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-700 rounded-md p-3 space-y-3">
+                <p className="text-xs font-semibold text-purple-900 dark:text-purple-100 flex items-center gap-2">
+                  <Calendar className="w-4 h-4" /> Pre-order Settings
+                </p>
+                <div className="grid grid-cols-2 gap-4">
+                  {/* Lunch Pre-order */}
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        id="edit-lunchEnabled"
+                        checked={(formData as any).lunchEnabled}
+                        onCheckedChange={(checked) => setFormData({ ...formData, lunchEnabled: checked })}
+                      />
+                      <Label htmlFor="edit-lunchEnabled" className="text-sm font-medium">Enable Lunch</Label>
+                    </div>
+                    {(formData as any).lunchEnabled && (
+                      <div>
+                        <Label htmlFor="edit-lunchMinNoticeHours" className="text-xs text-slate-500">Notice Period (Hours)</Label>
+                        <Input
+                          id="edit-lunchMinNoticeHours"
+                          type="number"
+                          min="0"
+                          value={(formData as any).lunchMinNoticeHours}
+                          onChange={(e) => setFormData({ ...formData, lunchMinNoticeHours: parseInt(e.target.value) || 0 })}
+                        />
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Dinner Pre-order */}
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        id="edit-dinnerEnabled"
+                        checked={(formData as any).dinnerEnabled}
+                        onCheckedChange={(checked) => setFormData({ ...formData, dinnerEnabled: checked })}
+                      />
+                      <Label htmlFor="edit-dinnerEnabled" className="text-sm font-medium">Enable Dinner</Label>
+                    </div>
+                    {(formData as any).dinnerEnabled && (
+                      <div>
+                        <Label htmlFor="edit-dinnerMinNoticeHours" className="text-xs text-slate-500">Notice Period (Hours)</Label>
+                        <Input
+                          id="edit-dinnerMinNoticeHours"
+                          type="number"
+                          min="0"
+                          value={(formData as any).dinnerMinNoticeHours}
+                          onChange={(e) => setFormData({ ...formData, dinnerMinNoticeHours: parseInt(e.target.value) || 0 })}
+                        />
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 

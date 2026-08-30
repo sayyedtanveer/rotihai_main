@@ -290,6 +290,12 @@ export default function CategoryMenuDrawer({
                                                   Veg
                                                 </Badge>
                                               )}
+
+                                              {(product as any).effectiveMode === 'preorder' && (
+                                                <Badge variant="secondary" className="bg-blue-100 text-blue-700 hover:bg-blue-100 border-blue-200">
+                                                  🕐 Pre-order
+                                                </Badge>
+                                              )}
                                             </div>
                                             <div className="flex items-center gap-1 mt-1">
                                               <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />

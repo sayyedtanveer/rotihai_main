@@ -4,6 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useLocation } from "wouter";
 import { Truck, ChefHat, Clock, Package, ArrowRight, X, CreditCard } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
+import { getBusinessToday } from "@shared/timeFormatter";
 
 // Active statuses — delivered/cancelled/completed are excluded
 const ACTIVE_STATUSES = new Set([
@@ -204,6 +205,15 @@ export default function ActiveOrderBanner({
   if (isPaymentOpen || isCheckoutOpen || isReturningToCheckout) return null;
   // ── STEP 6: Active status guard ──────────────────────────────────────────
   if (!activeOrder) return null;
+  
+  // Hide active banner for pre-orders UNLESS they are scheduled for today
+  const todayStr = getBusinessToday();
+  const isPreorder = activeOrder.deliverySlotId?.startsWith("preorder-");
+  
+  if (isPreorder && activeOrder.deliveryDate !== todayStr) {
+     return null; // hide banner for preorders unless they are scheduled for today
+  }
+
   const isActiveOrder =
     ACTIVE_STATUSES.has(activeOrder.status) ||
     activeOrder.paymentStatus === "pending" ||

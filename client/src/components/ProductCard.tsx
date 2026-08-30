@@ -22,6 +22,7 @@ interface ProductCardProps {
   isAvailable?: boolean; // Added for availability check
   stock?: number; // Added for stock check
   offerPercentage?: number; // Added for offer percentage
+  effectiveMode?: "inherit" | "instant" | "preorder" | "both";
 }
 
 export default function ProductCard({
@@ -41,6 +42,7 @@ export default function ProductCard({
   isAvailable = true, // Default to available
   stock = 0, // Default to 0 stock
   offerPercentage = 0, // Default to 0 offer
+  effectiveMode = "both",
 }: ProductCardProps) {
   const [quantity, setQuantity] = useState(0);
 
@@ -106,9 +108,19 @@ export default function ProductCard({
 
       <div className="p-4">
         <div className="flex items-start justify-between gap-2 mb-2 flex-wrap">
-          <h3 className="font-semibold text-lg" data-testid={`text-product-name-${id}`}>
-            {name}
-          </h3>
+          <div>
+            <h3 className="font-semibold text-lg" data-testid={`text-product-name-${id}`}>
+              {name}
+            </h3>
+            <div className="flex gap-1 mt-1">
+
+              {effectiveMode === 'preorder' && (
+                <Badge variant="secondary" className="bg-blue-100 text-blue-700 hover:bg-blue-100 border-blue-200 text-[10px] px-1 py-0 h-4">
+                  🕐 Pre-order
+                </Badge>
+              )}
+            </div>
+          </div>
           {offerPercentage > 0 ? (
             <div className="flex flex-col items-end">
               <span className="text-base line-through text-muted-foreground">
