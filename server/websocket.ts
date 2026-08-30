@@ -97,8 +97,16 @@ const PREPARED_ORDER_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
 export function setupWebSocket(server: Server) {
   const wss = new WebSocketServer({
-    server,
-    path: "/ws"
+    noServer: true
+  });
+
+  server.on('upgrade', (request, socket, head) => {
+    const url = new URL(request.url || '', `http://${request.headers.host}`);
+    if (url.pathname.startsWith('/ws')) {
+      wss.handleUpgrade(request, socket as any, head, (ws) => {
+        wss.emit('connection', ws, request);
+      });
+    }
   });
 
   wss.on("connection", (ws, req) => {

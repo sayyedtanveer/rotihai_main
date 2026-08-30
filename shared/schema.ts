@@ -5,6 +5,8 @@ import { z } from "zod";
 import * as crypto from "crypto";
 
 export const adminRoleEnum = pgEnum("admin_role", ["super_admin", "manager", "viewer"]);
+export const fulfillmentModeEnum = pgEnum("fulfillment_mode", ["instant", "preorder", "both"]);
+export const productFulfillmentModeEnum = pgEnum("product_fulfillment_mode", ["inherit", "instant", "preorder"]);
 
 export const sessions = pgTable(
   "sessions",
@@ -106,7 +108,25 @@ export const chefs = pgTable("chefs", {
   subscriptionAvailabilityStatus: text("subscription_availability_status").notNull().default("available"), // 'available' | 'unavailable_today' | 'on_leave'
   leaveStartDate: date("leave_start_date"),                                 // DATE — chef leave is date-based, no time component
   leaveEndDate: date("leave_end_date"),                                     // DATE — chef leave is date-based, no time component
+  fulfillmentMode: fulfillmentModeEnum("fulfillment_mode").notNull().default("both"), // 'instant' | 'preorder' | 'both'
 });
+
+export const chefPreorderSettings = pgTable("chef_preorder_settings", {
+  chefId: text("chef_id").primaryKey().references(() => chefs.id),
+  lunchEnabled: boolean("lunch_enabled").notNull().default(false),
+  lunchMinNoticeHours: integer("lunch_min_notice_hours").notNull().default(24),
+  dinnerEnabled: boolean("dinner_enabled").notNull().default(false),
+  dinnerMinNoticeHours: integer("dinner_min_notice_hours").notNull().default(12),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertChefPreorderSettingsSchema = createInsertSchema(chefPreorderSettings).omit({
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertChefPreorderSettings = z.infer<typeof insertChefPreorderSettingsSchema>;
+export type ChefPreorderSettings = typeof chefPreorderSettings.$inferSelect;
 
 
 export const products = pgTable("products", {
@@ -131,6 +151,7 @@ export const products = pgTable("products", {
   section: text("section"), // NEW: Section name (e.g., "Aloo & Noodle Frankies"), NULL for ungrouped
   sectionOrder: integer("section_order").notNull().default(0), // NEW: Controls section display order (lower = first)
   sortOrder: integer("sort_order").notNull().default(0), // NEW: Controls product order within section (lower = first)
+  fulfillmentMode: productFulfillmentModeEnum("fulfillment_mode").notNull().default("inherit"), // 'inherit' | 'instant' | 'preorder'
 });
 
 export const paymentStatusEnum = pgEnum("payment_status", ["pending", "pending_verification", "paid", "confirmed"]);
@@ -409,7 +430,7 @@ export const referralRewards = pgTable("referral_rewards", {
 
 export const subscriptionStatusEnum = pgEnum("subscription_status", ["pending", "active", "paused", "cancelled", "expired"]);
 export const subscriptionFrequencyEnum = pgEnum("subscription_frequency", ["daily", "weekly", "monthly"]);
-export const deliveryLogStatusEnum = pgEnum("delivery_log_status", ["scheduled", "preparing", "out_for_delivery", "delivered", "missed", "skipped"]);
+export const deliveryLogStatusEnum = pgEnum("delivery_log_status", ["scheduled", "preparing", "prepared", "accepted_by_delivery", "out_for_delivery", "delivered", "missed", "skipped"]);
 
 export const subscriptionPlans = pgTable("subscription_plans", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -509,6 +530,7 @@ export const insertProductSchema = createInsertSchema(products).omit({
   marginPercent: z.union([z.number(), z.string()]).transform(v => typeof v === 'string' ? parseFloat(v) : v).optional(), // ← NEW: Auto-calculated margin (handle DECIMAL from DB)
   isCustomizable: z.boolean().default(false).optional(),
   offerPercentage: z.number().min(0).max(100).optional(),
+  fulfillmentMode: z.enum(["inherit", "instant", "preorder"]).optional(),
   createdAt: z.date().or(z.string()).optional(),
   updatedAt: z.date().or(z.string()).optional(),
 });
@@ -520,6 +542,7 @@ export const insertChefSchema = createInsertSchema(chefs, {
   fssaiVerified: z.boolean().optional(),
   chefType: z.enum(["home", "restaurant"]).optional().nullable(),
   complianceStatus: z.enum(["pending", "verified", "rejected"]).optional(),
+  fulfillmentMode: z.enum(["instant", "preorder", "both"]).optional(),
 }).omit({
   id: true,
 });
@@ -578,7 +601,7 @@ export const insertOrderSchema = createInsertSchema(orders, {
 export type InsertCategory = z.infer<typeof insertCategorySchema>;
 export type Category = typeof categories.$inferSelect;
 export type InsertChef = z.infer<typeof insertChefSchema>;
-export type Chef = typeof chefs.$inferSelect & { distanceFromUser?: number }; // distanceFromUser added by distance-based endpoint
+export type Chef = typeof chefs.$inferSelect & { distanceFromUser?: number, preorderSettings?: ChefPreorderSettings | null }; // distanceFromUser added by distance-based endpoint
 export type InsertProduct = z.infer<typeof insertProductSchema>;
 export type Product = typeof products.$inferSelect;
 

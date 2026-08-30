@@ -10,4 +10,5 @@ export
   categoryId?: string;
   offerPercentage?: number; // Add offer percentage
   specialInstructions?: string; // Optional cooking instructions
+  effectiveMode?: 'instant' | 'preorder' | 'both';
 }

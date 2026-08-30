@@ -78,17 +78,10 @@ export default function MenuDrawer({ isOpen, onClose, categories = [], onCategor
   // NOTE: The following is a temporary fix for the flickering issue.
   // A more robust solution would involve state management to properly
   // handle authentication state changes before navigation.
+  const { logout } = useAuth();
+  
   const handleLogout = () => {
-    const userToken = localStorage.getItem("userToken");
-    if (userToken) {
-      localStorage.removeItem("userToken");
-      localStorage.removeItem("userRefreshToken");
-      localStorage.removeItem("userData");
-      // Force full page reload to clear all state
-      window.location.href = "/";
-    } else {
-      window.location.href = "/api/logout";
-    }
+    logout();
     onClose();
   };
 

@@ -1585,6 +1585,28 @@ export default function PartnerDashboard() {
                             <span className="text-xs text-slate-500 dark:text-slate-400">📊 Progress:</span>
                             <span className="text-sm font-medium text-slate-700 dark:text-slate-300">{delivery.remainingDeliveries} / {delivery.totalDeliveries} remaining</span>
                           </div>
+                          {(delivery.status === "scheduled" || delivery.status === "preparing") && (
+                            <div className="pt-3 border-t border-slate-200 dark:border-slate-700">
+                              {delivery.status === "scheduled" && (
+                                <Button 
+                                  className="w-full bg-yellow-600 hover:bg-yellow-700 text-white" 
+                                  onClick={() => updateSubscriptionStatusMutation.mutate({ subscriptionId: delivery.id, status: "preparing" })}
+                                  disabled={updateSubscriptionStatusMutation.isPending}
+                                >
+                                  Start Preparing
+                                </Button>
+                              )}
+                              {delivery.status === "preparing" && (
+                                <Button 
+                                  className="w-full bg-green-600 hover:bg-green-700 text-white"
+                                  onClick={() => updateSubscriptionStatusMutation.mutate({ subscriptionId: delivery.id, status: "prepared" })}
+                                  disabled={updateSubscriptionStatusMutation.isPending}
+                                >
+                                  Ready for Pickup
+                                </Button>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
                     ))}

@@ -14,7 +14,7 @@ import { requireAdmin } from "./adminAuth";
 import { buildRestaurantConfig, calculateRestaurantStatus } from "./utils/restaurantStatus";
 import { sendEmail, createWelcomeEmail, createPasswordResetEmail, createPasswordChangeConfirmationEmail, sendOrderConfirmationEmail, sendAdminOrderNotification, type AdminOrderNotificationParams } from "./emailService";
 import { sendOrderPlacedAdminNotification, sendPaymentInitiatedAdminNotification } from "./whatsappService";
-import { db, subscriptions, orders, walletSettings, referralRewards, newsletterSubscribers, users, deliveryPersonnel, paymentSettings } from "@shared/db";
+import { db, subscriptions, orders, walletSettings, referralRewards, newsletterSubscribers, users, deliveryPersonnel, paymentSettings, adminSettings } from "@shared/db";
 import { eq } from "drizzle-orm";
 import { ZodError } from "zod";
 import axios from "axios";
@@ -1850,15 +1850,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json(cached);
       }
 
+      let rawProducts = [];
       if (categoryId) {
-        const products = await storage.getProductsByCategoryId(categoryId);
-        setCache(key, products, 5 * 60 * 1000); // 5 min TTL
-        res.json(products);
+        rawProducts = await storage.getProductsByCategoryId(categoryId);
       } else {
-        const products = await storage.getAllProducts();
-        setCache(key, products, 5 * 60 * 1000); // 5 min TTL
-        res.json(products);
+        rawProducts = await storage.getAllProducts();
       }
+
+      // Compute effectiveMode
+      const categories = await storage.getAllCategories();
+      const chefs = await storage.getChefs();
+      const catMap = new Map(categories.map(c => [c.id, c]));
+      const chefMap = new Map(chefs.map(c => [c.id, c]));
+
+      const products = rawProducts.map(p => {
+        const cat = catMap.get(p.categoryId);
+        const chef = p.chefId ? chefMap.get(p.chefId) : null;
+
+        let effectiveMode = 'both';
+        if (p.fulfillmentMode === 'instant') effectiveMode = 'instant';
+        else if (p.fulfillmentMode === 'preorder') effectiveMode = 'preorder';
+        else {
+          const chefMode = chef?.fulfillmentMode || 'both';
+          if (chefMode === 'instant') effectiveMode = 'instant';
+          else if (chefMode === 'preorder') effectiveMode = 'preorder';
+          else {
+            // requiresDeliverySlot on a category is a checkout UI hint (regular slot picker).
+            // It does NOT mean pre-order — keep effectiveMode as 'both'.
+            effectiveMode = 'both';
+          }
+        }
+        return { ...p, effectiveMode };
+      });
+
+      setCache(key, products, 5 * 60 * 1000); // 5 min TTL
+      res.json(products);
     } catch (error) {
       console.error("Error fetching products:", error);
       res.status(500).json({ message: "Failed to fetch products" });
@@ -1873,7 +1899,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.status(404).json({ message: "Product not found" });
         return;
       }
-      res.json(product);
+      const categories = await storage.getAllCategories();
+      const chefs = await storage.getChefs();
+      const cat = categories.find(c => c.id === product.categoryId);
+      const chef = product.chefId ? chefs.find(c => c.id === product.chefId) : null;
+
+      let effectiveMode = 'both';
+      if (product.fulfillmentMode === 'instant') effectiveMode = 'instant';
+      else if (product.fulfillmentMode === 'preorder') effectiveMode = 'preorder';
+      else {
+        const chefMode = chef?.fulfillmentMode || 'both';
+        if (chefMode === 'instant') effectiveMode = 'instant';
+        else if (chefMode === 'preorder') effectiveMode = 'preorder';
+        else {
+          // requiresDeliverySlot on a category is a checkout UI hint (regular slot picker).
+          // It does NOT mean pre-order — keep effectiveMode as 'both'.
+          effectiveMode = 'both';
+        }
+      }
+
+      res.json({ ...product, effectiveMode });
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch product" });
     }
@@ -2431,32 +2476,135 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Calculate and set deliveryDate if deliverySlotId is provided
+      let order: any;
+
       if (orderPayload.deliverySlotId) {
         try {
           const slot = await storage.getDeliveryTimeSlot(orderPayload.deliverySlotId);
-          if (slot) {
+          if (!slot) {
+            return res.status(400).json({ message: "Selected delivery slot not found" });
+          }
+
+          // If client passes deliveryDate in body, it's the new Pre-order flow.
+          const isPreorder = !!req.body.deliveryDate;
+
+          if (isPreorder) {
+            // === PRE-ORDER LOGIC ===
+            const { 
+              getBusinessTomorrow, 
+              createBusinessDateTime, 
+            } = await import("@shared/timeFormatter");
+            const { 
+              classifySlotMealPeriod, 
+              validateMealPeriodBoundaries, 
+              calculateEffectiveCutoff 
+            } = await import("@shared/deliveryUtils");
+            
+            const requestedDateStr = req.body.deliveryDate;
+            const businessTomorrowStr = getBusinessTomorrow();
+            
+            if (requestedDateStr !== businessTomorrowStr) {
+              return res.status(400).json({ message: "Pre-orders are currently restricted to Tomorrow only." });
+            }
+            
+            // Chef leave validation (Date strings compare correctly)
+            if (chefFromDb?.leaveStartDate && chefFromDb?.leaveEndDate) {
+              if (requestedDateStr >= chefFromDb.leaveStartDate && requestedDateStr <= chefFromDb.leaveEndDate) {
+                return res.status(400).json({ message: "Chef is on leave on the selected date." });
+              }
+            }
+
+            // Admin Settings Loading
+            const allSettings = await db.query.adminSettings.findMany();
+            const settingsMap = Object.fromEntries(allSettings.map((s: any) => [s.key, s.value]));
+
+            const lunchStart = settingsMap.preorder_lunch_start_time;
+            const lunchEnd = settingsMap.preorder_lunch_end_time;
+            const dinnerStart = settingsMap.preorder_dinner_start_time;
+            const dinnerEnd = settingsMap.preorder_dinner_end_time;
+
+            if (!lunchStart || !lunchEnd || !dinnerStart || !dinnerEnd) {
+              return res.status(400).json({ message: "Pre-order meal periods are not fully configured." });
+            }
+
+            const boundaries = { lunchStart, lunchEnd, dinnerStart, dinnerEnd };
+            const boundariesValid = validateMealPeriodBoundaries(boundaries);
+            if (boundariesValid !== null) {
+              return res.status(400).json({ message: `Admin configuration error: ${boundariesValid}` });
+            }
+
+            const period = classifySlotMealPeriod(slot.startTime, boundaries);
+            
+            const chefNoticeHours = period === 'lunch' 
+              ? (chefFromDb?.preorderSettings?.lunchMinNoticeHours || 0)
+              : period === 'dinner' 
+                ? (chefFromDb?.preorderSettings?.dinnerMinNoticeHours || 0) 
+                : 0;
+
+            const slotDeliveryDateTime = createBusinessDateTime(requestedDateStr, slot.startTime);
+            const effectiveCutoffDate = calculateEffectiveCutoff(
+              slotDeliveryDateTime, 
+              slot.cutoffHoursBefore || 0, 
+              chefNoticeHours
+            );
+
+            if (new Date() > effectiveCutoffDate) {
+              return res.status(400).json({ message: "The cutoff time for this slot has passed." });
+            }
+            
+            orderPayload.deliveryDate = requestedDateStr;
+            
+            // Lock slot and check capacity inside a transaction
+            await db.transaction(async (tx) => {
+              const { deliveryTimeSlots, orders } = await import("@shared/schema");
+              const { eq, and, not, sql } = await import("drizzle-orm");
+
+              const [lockedSlot] = await tx.select()
+                .from(deliveryTimeSlots)
+                .where(eq(deliveryTimeSlots.id, orderPayload.deliverySlotId))
+                .for('update');
+              
+              if (!lockedSlot || !lockedSlot.isActive) {
+                throw new Error("Invalid or inactive delivery slot.");
+              }
+
+              const [result] = await tx.select({ count: sql<number>`count(*)` })
+                .from(orders)
+                .where(and(
+                  eq(orders.deliveryDate, requestedDateStr),
+                  eq(orders.deliverySlotId, lockedSlot.id),
+                  not(eq(orders.status, 'cancelled'))
+                ));
+              
+              if (result.count >= lockedSlot.capacity) {
+                throw new Error("This delivery slot is fully booked. Please select another slot.");
+              }
+              
+              const [createdOrder] = await tx.insert(orders).values(orderPayload).returning();
+              order = createdOrder;
+            });
+            
+          } else {
+            // === LEGACY/INSTANT ROTI LOGIC ===
             const cutoffInfo = computeSlotCutoffInfo(slot);
-            // Format date as YYYY-MM-DD
             const deliveryDate = cutoffInfo.nextAvailableDate;
             const year = deliveryDate.getFullYear();
             const month = String(deliveryDate.getMonth() + 1).padStart(2, '0');
             const day = String(deliveryDate.getDate()).padStart(2, '0');
             orderPayload.deliveryDate = `${year}-${month}-${day}`;
-            console.log(`📅 Set deliveryDate to: ${orderPayload.deliveryDate}`);
+            console.log(`📅 Set legacy deliveryDate to: ${orderPayload.deliveryDate}`);
+            
+            order = await storage.createOrder(orderPayload);
           }
-        } catch (error) {
-          console.warn("Error calculating deliveryDate:", error);
+        } catch (error: any) {
+          console.warn("Error validating/creating scheduled order:", error);
+          return res.status(400).json({ message: error.message || "Failed to process delivery slot" });
         }
+      } else {
+        // Instant/No slot
+        order = await storage.createOrder(orderPayload);
       }
 
-      console.log("📝 Order payload before DB insert:", JSON.stringify(orderPayload, null, 2));
-      console.log("[ORDER DEBUG BEFORE SAVE]", {
-        slotId: orderPayload.deliverySlotId,
-        deliveryTime: orderPayload.deliveryTime,
-        deliveryDate: orderPayload.deliveryDate,
-        now: new Date(),
-      });
-      const order = await storage.createOrder(orderPayload);
       console.log("✅ Order created successfully:", order.id);
       console.log(`📋 Order Details: userId=${userId}, walletAmountUsed=${order.walletAmountUsed}`);
 
@@ -2669,10 +2817,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const allOrders = await storage.getAllOrders();
       const activeStatuses = ['pending', 'confirmed', 'accepted_by_chef', 'preparing', 'prepared', 'accepted_by_delivery', 'out_for_delivery'];
 
+      const { getBusinessToday } = await import("@shared/timeFormatter");
+      const todayStr = getBusinessToday();
+
       const activeOrders = allOrders
         .filter(order => order.userId === userId)
         .filter(order => {
           if (!activeStatuses.includes(order.status)) return false;
+          
+          // ALWAYS exclude future orders regardless of status
+          if (order.deliveryDate && order.deliveryDate > todayStr) {
+            return false;
+          }
           
           // Ignore expired pending orders (abandoned checkouts)
           if (order.status === 'pending' && order.paymentStatus === 'pending') {
@@ -3677,7 +3833,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           isCurrentlyOpen: status.isCurrentlyOpen,
           currentScheduleStatus: status.reason,
           nextOpeningTime: status.nextOpeningTime,
-          currentSchedulePeriodEndsAt: status.currentSchedulePeriodEndsAt
+          currentSchedulePeriodEndsAt: status.currentSchedulePeriodEndsAt,
+          effectiveMode: chef.fulfillmentMode || 'both'
         };
       });
 
@@ -4047,7 +4204,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             isCurrentlyOpen: status.isCurrentlyOpen,
             currentScheduleStatus: status.reason,
             nextOpeningTime: status.nextOpeningTime,
-            currentSchedulePeriodEndsAt: status.currentSchedulePeriodEndsAt
+            currentSchedulePeriodEndsAt: status.currentSchedulePeriodEndsAt,
+            effectiveMode: chef.fulfillmentMode || 'both'
           };
         });
         return res.json(chefsWithStatus);
@@ -4066,7 +4224,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         isCurrentlyOpen: status.isCurrentlyOpen,
         currentScheduleStatus: status.reason,
         nextOpeningTime: status.nextOpeningTime,
-        currentSchedulePeriodEndsAt: status.currentSchedulePeriodEndsAt
+        currentSchedulePeriodEndsAt: status.currentSchedulePeriodEndsAt,
+        effectiveMode: chef.fulfillmentMode || 'both'
       };
 
       res.json(chefWithStatus);
@@ -5725,6 +5884,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ================== Roti Settings APIs ==================
 
   // Public: Get roti time settings (for checkout blocking logic)
+  // --- ADMIN SETTINGS API ---
+  app.get("/api/admin-settings", async (req, res) => {
+    try {
+      const allSettings = await db.query.adminSettings.findMany();
+      // Convert Array of {key, value} to Object map
+      const settingsMap = Object.fromEntries(allSettings.map(s => [s.key, s.value]));
+      res.json(settingsMap);
+    } catch (error) {
+      console.error("Failed to fetch admin settings:", error);
+      res.status(500).json({ error: "Failed to fetch admin settings" });
+    }
+  });
+
+  app.post("/api/admin-settings", async (req, res) => {
+    try {
+      const updates = req.body; // Expects object: { key1: value1, key2: value2 }
+      
+      const operations = Object.entries(updates).map(async ([key, value]) => {
+        // Upsert setting
+        const existing = await db.query.adminSettings.findFirst({
+          where: eq(adminSettings.key, key)
+        });
+        
+        if (existing) {
+          await db.update(adminSettings)
+            .set({ value: String(value), updatedAt: new Date() })
+            .where(eq(adminSettings.key, key));
+        } else {
+          await db.insert(adminSettings).values({
+            key,
+            value: String(value),
+          });
+        }
+      });
+      
+      await Promise.all(operations);
+      res.json({ message: "Settings updated successfully" });
+    } catch (error) {
+      console.error("Failed to update admin settings:", error);
+      res.status(500).json({ error: "Failed to update admin settings" });
+    }
+  });
+
   app.get("/api/roti-settings", async (req, res) => {
     try {
       let settings = await storage.getRotiSettings();

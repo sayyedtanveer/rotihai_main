@@ -28,12 +28,33 @@ export function useAdminNotifications() {
         throw new Error("Failed to fetch orders");
       }
     },
-    refetchInterval: false, // WebSocket handles live updates — polling removed to reduce DB load
+    refetchInterval: false,
+  });
+
+  const { data: pendingSubscriptions = [] } = useQuery({
+    queryKey: ["/api/admin/custom-subscription-requests", "pending"],
+    queryFn: async () => {
+      const token = localStorage.getItem("adminToken");
+      try {
+        const response = await api.get("/api/admin/custom-subscription-requests", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const allRequests = response.data;
+        // Include pending assignments and pending payments as pending subscriptions
+        return allRequests.filter(
+          (req: any) => req.status === "pending_chef_assignment" || req.status === "paid"
+        );
+      } catch (error) {
+        console.error("Failed to fetch pending custom subscriptions", error);
+        return [];
+      }
+    },
+    refetchInterval: false,
   });
 
   useEffect(() => {
-    setUnreadCount(pendingPayments.length);
-  }, [pendingPayments]);
+    setUnreadCount(pendingPayments.length + pendingSubscriptions.length);
+  }, [pendingPayments, pendingSubscriptions]);
 
   useEffect(() => {
     const token = localStorage.getItem("adminToken");

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,7 +8,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
-import { Settings, DollarSign, Clock, MapPin, Phone, Mail } from "lucide-react";
+import { Settings, DollarSign, Clock, MapPin, Phone, Mail, CalendarClock } from "lucide-react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
 export default function AdminSettings() {
   const { toast } = useToast();
@@ -81,6 +83,54 @@ export default function AdminSettings() {
     });
   };
 
+  // Pre-order Settings
+  const [preorderConfig, setPreorderConfig] = useState({
+    preorder_lunch_start_time: "11:00",
+    preorder_lunch_end_time: "16:00",
+    preorder_dinner_start_time: "18:00",
+    preorder_dinner_end_time: "22:00",
+  });
+
+  const { data: adminSettings } = useQuery({
+    queryKey: ["/api/admin-settings"],
+  });
+
+  useEffect(() => {
+    if (adminSettings) {
+      setPreorderConfig({
+        preorder_lunch_start_time: (adminSettings as any).preorder_lunch_start_time || "11:00",
+        preorder_lunch_end_time: (adminSettings as any).preorder_lunch_end_time || "16:00",
+        preorder_dinner_start_time: (adminSettings as any).preorder_dinner_start_time || "18:00",
+        preorder_dinner_end_time: (adminSettings as any).preorder_dinner_end_time || "22:00",
+      });
+    }
+  }, [adminSettings]);
+
+  const saveSettingsMutation = useMutation({
+    mutationFn: async (updates: any) => {
+      const res = await apiRequest("POST", "/api/admin-settings", updates);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin-settings"] });
+      toast({
+        title: "Settings saved",
+        description: "Pre-order settings have been updated successfully",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to save settings",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  });
+
+  const handleSavePreorderConfig = () => {
+    saveSettingsMutation.mutate(preorderConfig);
+  };
+
   return (
     <AdminLayout>
       <div className="space-y-6">
@@ -134,7 +184,7 @@ export default function AdminSettings() {
         </div>
 
         <Tabs defaultValue="site" className="w-full">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="site" data-testid="tab-site">
               Site Info
             </TabsTrigger>
@@ -146,6 +196,9 @@ export default function AdminSettings() {
             </TabsTrigger>
             <TabsTrigger value="hours" data-testid="tab-hours">
               Business Hours
+            </TabsTrigger>
+            <TabsTrigger value="preorder" data-testid="tab-preorder">
+              Pre-order
             </TabsTrigger>
           </TabsList>
 
@@ -518,6 +571,74 @@ export default function AdminSettings() {
 
                 <Button onClick={handleSaveBusinessHours} data-testid="button-save-hours">
                   Save Business Hours
+                </Button>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Pre-order Configuration */}
+          <TabsContent value="preorder">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <CalendarClock className="w-5 h-5" />
+                  Pre-order Settings
+                </CardTitle>
+                <CardDescription>Configure meal period boundaries for next-day delivery slots</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div>
+                  <h3 className="text-lg font-semibold mb-4">Lunch Boundaries</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      <Label htmlFor="lunchStart">Lunch Start Time</Label>
+                      <Input
+                        id="lunchStart"
+                        type="time"
+                        value={preorderConfig.preorder_lunch_start_time}
+                        onChange={(e) => setPreorderConfig({ ...preorderConfig, preorder_lunch_start_time: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="lunchEnd">Lunch End Time</Label>
+                      <Input
+                        id="lunchEnd"
+                        type="time"
+                        value={preorderConfig.preorder_lunch_end_time}
+                        onChange={(e) => setPreorderConfig({ ...preorderConfig, preorder_lunch_end_time: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <Separator />
+
+                <div>
+                  <h3 className="text-lg font-semibold mb-4">Dinner Boundaries</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      <Label htmlFor="dinnerStart">Dinner Start Time</Label>
+                      <Input
+                        id="dinnerStart"
+                        type="time"
+                        value={preorderConfig.preorder_dinner_start_time}
+                        onChange={(e) => setPreorderConfig({ ...preorderConfig, preorder_dinner_start_time: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="dinnerEnd">Dinner End Time</Label>
+                      <Input
+                        id="dinnerEnd"
+                        type="time"
+                        value={preorderConfig.preorder_dinner_end_time}
+                        onChange={(e) => setPreorderConfig({ ...preorderConfig, preorder_dinner_end_time: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <Button onClick={handleSavePreorderConfig} disabled={saveSettingsMutation.isPending}>
+                  {saveSettingsMutation.isPending ? "Saving..." : "Save Pre-order Settings"}
                 </Button>
               </CardContent>
             </Card>

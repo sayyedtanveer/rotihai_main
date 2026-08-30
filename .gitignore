@@ -5,3 +5,7 @@ dist/
 
 # Keep database backups in git
 !database-backups/
+
+# Backup scripts contain credentials — never commit
+scripts/backup-db.ps1
+scripts/register-backup-task.ps1

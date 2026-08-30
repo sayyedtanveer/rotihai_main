@@ -874,8 +874,8 @@ export function registerPartnerRoutes(app: Express): void {
         return;
       }
 
-      if (!status || !["preparing", "accepted_by_delivery", "out_for_delivery", "delivered", "missed"].includes(status)) {
-        res.status(400).json({ message: "Invalid status" });
+      if (!status || !["preparing", "prepared"].includes(status)) {
+        res.status(400).json({ message: "Invalid status or transition. Chef can only move to 'preparing' or 'prepared'" });
         return;
       }
 

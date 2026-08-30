@@ -89,3 +89,59 @@ export function formatDeliveryTime(timeString: string): string {
   return `🕐 ${formatted}`;
 }
 
+export const BUSINESS_TIMEZONE = 'Asia/Kolkata';
+
+/**
+ * Get current business date in Asia/Kolkata as YYYY-MM-DD
+ */
+export function getBusinessToday(): string {
+  const now = new Date();
+  const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+  const todayIST = new Date(now.getTime() + IST_OFFSET_MS);
+  
+  const yyyy = todayIST.getUTCFullYear();
+  const mm = String(todayIST.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(todayIST.getUTCDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+/**
+ * Get tomorrow's calendar date in Asia/Kolkata as YYYY-MM-DD
+ */
+export function getBusinessTomorrow(): string {
+  const now = new Date();
+  const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+  const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+  
+  // Shift to IST exactly, then push forward 24 hours
+  const tomorrowIST = new Date(now.getTime() + IST_OFFSET_MS + ONE_DAY_MS);
+  
+  // Extract strictly using UTC methods so the server's local TZ is ignored
+  const yyyy = tomorrowIST.getUTCFullYear();
+  const mm = String(tomorrowIST.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(tomorrowIST.getUTCDate()).padStart(2, '0');
+  
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+/** 
+ * Format a Date object strictly to Asia/Kolkata YYYY-MM-DD
+ */
+export function getBusinessDateStringFromDate(date: Date | string): string {
+  const d = typeof date === 'string' ? new Date(date) : date;
+  
+  // Fallback to Intl for formatting an absolute Date into Kolkata timezone
+  return new Intl.DateTimeFormat('en-CA', { 
+    timeZone: BUSINESS_TIMEZONE, 
+    year: 'numeric', 
+    month: '2-digit', 
+    day: '2-digit' 
+  }).format(d);
+}
+
+/** 
+ * Creates an exact UTC Date object for a given YYYY-MM-DD and HH:mm in IST 
+ */
+export function createBusinessDateTime(dateStr: string, timeStr: string): Date {
+  return new Date(`${dateStr}T${timeStr}:00+05:30`);
+}

@@ -20,7 +20,7 @@ import {
   generateRefreshToken as generateUserRefreshToken,
 } from "./userAuth";
 import { db, walletSettings, referralRewards, orders, paymentSettings } from "@shared/db";
-import { adminLoginSchema, insertAdminUserSchema, insertCategorySchema, insertProductSchema, insertDeliveryPersonnelSchema, insertDeliveryTimeSlotsSchema, insertReferralRewardSchema, insertCouponSchema } from "@shared/schema";
+import { adminLoginSchema, insertAdminUserSchema, insertCategorySchema, insertProductSchema, insertDeliveryPersonnelSchema, insertDeliveryTimeSlotsSchema, insertReferralRewardSchema, insertCouponSchema, chefUnavailability, chefPreorderSettings } from "@shared/schema";
 import { fromZodError } from "zod-validation-error";
 import { broadcastOrderUpdate, broadcastNewOrder, notifyDeliveryAssignment, cancelPreparedOrderTimeout, broadcastProductAvailabilityUpdate, broadcastChefStatusUpdate, broadcastSubscriptionAssignmentToPartner, broadcastSubscriptionUpdate, broadcastWalletUpdate, broadcastPreparedOrderToAvailableDelivery } from "./websocket";
 import { hashPassword as hashDeliveryPassword } from "./deliveryAuth";
@@ -1439,7 +1439,8 @@ export function registerAdminRoutes(app: Express) {
 
   app.post("/api/admin/chefs", requireAdminOrManager(), async (req, res) => {
     try {
-      const { name, description, image, categoryId, address, latitude, longitude } = req.body;
+      const { name, description, image, categoryId, address, latitude, longitude,
+              lunchEnabled, lunchMinNoticeHours, dinnerEnabled, dinnerMinNoticeHours } = req.body;
 
       // Validate required fields
       if (!name || !description || !image || !categoryId) {
@@ -1462,6 +1463,18 @@ export function registerAdminRoutes(app: Express) {
       }
 
       const chef = await storage.createChef(req.body);
+
+      // Create preorder settings if provided
+      if (lunchEnabled !== undefined || dinnerEnabled !== undefined) {
+        await db.insert(chefPreorderSettings).values({
+          chefId: chef.id,
+          lunchEnabled: lunchEnabled ?? true,
+          lunchMinNoticeHours: lunchMinNoticeHours ?? 24,
+          dinnerEnabled: dinnerEnabled ?? true,
+          dinnerMinNoticeHours: dinnerMinNoticeHours ?? 12,
+        });
+      }
+
       invalidateCache("chefs");
       invalidateCachePrefix("pincode-");
       res.status(201).json(chef);
@@ -1474,7 +1487,8 @@ export function registerAdminRoutes(app: Express) {
   app.patch("/api/admin/chefs/:id", requireAdminOrManager(), async (req, res) => {
     try {
       const { id } = req.params;
-      const { address, latitude, longitude, autoScheduleEnabled, openingTime, closingTime } = req.body;
+      const { address, latitude, longitude, autoScheduleEnabled, openingTime, closingTime,
+              lunchEnabled, lunchMinNoticeHours, dinnerEnabled, dinnerMinNoticeHours } = req.body;
 
       // Validate coordinates if address was provided in update
       if (address) {
@@ -1513,6 +1527,31 @@ export function registerAdminRoutes(app: Express) {
       if (!chef) {
         res.status(404).json({ message: "Chef not found" });
         return;
+      }
+
+      // Upsert Preorder Settings if provided
+      if (lunchEnabled !== undefined || dinnerEnabled !== undefined) {
+        const existingSettings = await db.query.chefPreorderSettings.findFirst({
+          where: eq(chefPreorderSettings.chefId, id)
+        });
+
+        if (existingSettings) {
+          await db.update(chefPreorderSettings).set({
+            lunchEnabled: lunchEnabled ?? existingSettings.lunchEnabled,
+            lunchMinNoticeHours: lunchMinNoticeHours ?? existingSettings.lunchMinNoticeHours,
+            dinnerEnabled: dinnerEnabled ?? existingSettings.dinnerEnabled,
+            dinnerMinNoticeHours: dinnerMinNoticeHours ?? existingSettings.dinnerMinNoticeHours,
+            updatedAt: new Date(),
+          }).where(eq(chefPreorderSettings.chefId, id));
+        } else {
+          await db.insert(chefPreorderSettings).values({
+            chefId: id,
+            lunchEnabled: lunchEnabled ?? true,
+            lunchMinNoticeHours: lunchMinNoticeHours ?? 24,
+            dinnerEnabled: dinnerEnabled ?? true,
+            dinnerMinNoticeHours: dinnerMinNoticeHours ?? 12,
+          });
+        }
       }
 
       // ✅ Build response with calculated restaurant status

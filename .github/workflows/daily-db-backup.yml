@@ -1,0 +1,96 @@
+name: Daily DB Backup
+
+on:
+  schedule:
+    # Runs every day at 02:00 UTC (7:30 AM IST)
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    # Allow manual trigger from GitHub Actions UI
+
+jobs:
+  backup:
+    name: Backup Supabase Prod DB
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client
+
+      - name: Run pg_dump
+        env:
+          PGPASSWORD: ${{ secrets.DB_PASSWORD }}
+        run: |
+          TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
+          FILENAME="rotihai_prod_${TIMESTAMP}.sql"
+
+          echo "Starting backup: $FILENAME"
+
+          pg_dump \
+            --host=aws-0-ap-northeast-1.pooler.supabase.com \
+            --port=5432 \
+            --username=postgres.akxzabppoqjaxrgbahuc \
+            --dbname=postgres \
+            --format=plain \
+            --no-owner \
+            --no-acl \
+            --file="$FILENAME"
+
+          echo "Dump complete. Compressing..."
+          gzip "$FILENAME"
+          ZIPNAME="${FILENAME}.gz"
+
+          SIZE=$(du -sh "$ZIPNAME" | cut -f1)
+          echo "Compressed size: $SIZE"
+          echo "BACKUP_FILE=$ZIPNAME" >> $GITHUB_ENV
+          echo "BACKUP_TAG=backup-$(date +%Y-%m-%d)" >> $GITHUB_ENV
+
+      - name: Upload backup as GitHub Release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.BACKUP_TAG }}
+          name: "DB Backup ${{ env.BACKUP_TAG }}"
+          body: "Automated daily Supabase prod database backup"
+          files: ${{ env.BACKUP_FILE }}
+          # Keep releases — delete manually or add cleanup step if needed
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cleanup old backup releases (keep last 7)
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const releases = await github.rest.repos.listReleases({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 100
+            });
+
+            // Filter only backup releases
+            const backupReleases = releases.data
+              .filter(r => r.tag_name.startsWith('backup-'))
+              .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+            // Delete releases beyond the 7 most recent
+            const toDelete = backupReleases.slice(7);
+            for (const release of toDelete) {
+              console.log(`Deleting old backup release: ${release.tag_name}`);
+              await github.rest.repos.deleteRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: release.id
+              });
+              // Also delete the tag
+              try {
+                await github.rest.git.deleteRef({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  ref: `tags/${release.tag_name}`
+                });
+              } catch(e) {
+                console.log(`Could not delete tag ${release.tag_name}: ${e.message}`);
+              }
+            }
+            console.log(`Kept ${Math.min(backupReleases.length, 7)} backups, deleted ${toDelete.length} old ones.`);
