@@ -2154,10 +2154,15 @@ export class MemStorage implements IStorage {
       // Build detailed order list with item-wise calculations
       const detailedOrders = await Promise.all(chefOrders.map(async order => {
         let totalChefEarning = 0;
+        let totalRotihaiEarning = 0;
 
         const items = (order.items as any[]).map(item => {
           const itemChefEarning = item.hotelPrice ? Math.round(item.hotelPrice * item.quantity) : 0;
+          const itemPrice = item.price ? Math.round(item.price * item.quantity) : 0;
+          const itemRotihaiEarning = Math.max(0, itemPrice - itemChefEarning);
+          
           totalChefEarning += itemChefEarning;
+          totalRotihaiEarning += itemRotihaiEarning;
 
           return {
             id: item.id,
@@ -2166,6 +2171,7 @@ export class MemStorage implements IStorage {
             hotelPrice: item.hotelPrice || 0,
             quantity: item.quantity,
             chefEarning: itemChefEarning,
+            rotihaiEarning: itemRotihaiEarning,
           };
         });
 
@@ -2202,6 +2208,7 @@ export class MemStorage implements IStorage {
           items,
           subtotal: order.subtotal,
           totalChefEarning,
+          totalRotihaiEarning,
           orderIncome: totalChefEarning,
           payoutId: payout?.id || null,
           paidToChef: payout?.status === "paid",
@@ -2212,10 +2219,12 @@ export class MemStorage implements IStorage {
       // Calculate totals
       const totalOrders = detailedOrders.length;
       const totalChefEarnings = detailedOrders.reduce((sum, o) => sum + o.totalChefEarning, 0);
+      const totalRotihaiEarnings = detailedOrders.reduce((sum, o) => sum + o.totalRotihaiEarning, 0);
 
       return {
         totalOrders,
         totalChefEarnings,
+        totalRotihaiEarnings,
         orders: detailedOrders,
       };
     } catch (error) {
