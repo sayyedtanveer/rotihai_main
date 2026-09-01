@@ -727,7 +727,7 @@ export function registerPartnerRoutes(app: Express): void {
       }
 
       const allOrders = await storage.getOrdersByChefId(chefId);
-      const completedOrders = allOrders.filter(o => o.paymentStatus === "confirmed");
+      const completedOrders = allOrders.filter(o => o.paymentStatus === "confirmed" && o.status !== "cancelled");
 
       // Calculate income based on hotelPrice (partner's price), not selling price
       const totalIncome = completedOrders.reduce((sum, order) => {
