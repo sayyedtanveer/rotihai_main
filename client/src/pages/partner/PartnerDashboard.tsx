@@ -4,9 +4,12 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Package, DollarSign, Clock, CheckCircle, Bell, Wifi, WifiOff, TrendingUp, Calendar, UserCircle, LogOut, Store, UtensilsCrossed, ToggleLeft, ToggleRight, Repeat, Truck, Loader2, Star, MapPin, Phone, AlertCircle, Sun, Moon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 import { format, startOfMonth, endOfMonth, subMonths, parse, isBefore, subHours, isAfter } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
@@ -16,7 +19,7 @@ import PartnerNotificationBell from "@/components/PartnerNotificationBell";
 import { formatTime12Hour, formatDeliveryTime, formatSlotRange } from "@shared/timeFormatter";
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
-import type { Chef, Product, Order } from "@shared/schema"; // Assuming Order type is defined in schema
+import type { Chef, Product, Order, Category } from "@shared/schema"; // Assuming Order type is defined in schema
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 
 const hasImage = (url: string | null | undefined): url is string =>
@@ -56,6 +59,8 @@ export default function PartnerDashboard() {
   
   const [currentTime, setCurrentTime] = useState(new Date());
   const { isSupported: isWakeLockSupported, isAwake, toggleWakeLock } = useWakeLock();
+  
+  const [openCategories, setOpenCategories] = useState<string[]>([]);
 
   const handleLogout = () => {
     // Gracefully disconnect WebSocket
@@ -196,6 +201,14 @@ export default function PartnerDashboard() {
     },
   });
 
+  const { data: categories = [] } = useQuery<Category[]>({
+    queryKey: ["/api/categories"],
+    queryFn: async () => {
+      const response = await api.get("/api/categories");
+      return response.data;
+    },
+  });
+
   const { data: products = [] } = useQuery<Product[]>({
     queryKey: ["/api/partner/products"],
     queryFn: async () => {
@@ -203,6 +216,15 @@ export default function PartnerDashboard() {
       return response.data;
     },
   });
+
+  // Sync openCategories when categories are loaded
+  useEffect(() => {
+    if (categories.length > 0) {
+      setOpenCategories(categories.map((c: any) => `category-${c.id}`));
+    } else if (categories.length === 0 && products.length > 0) {
+      setOpenCategories(["category-all"]);
+    }
+  }, [categories, products.length]);
 
   // Subscription deliveries for the partner
   const { data: subscriptionDeliveries, isLoading: subscriptionDeliveriesLoading } = useQuery({
@@ -232,6 +254,28 @@ export default function PartnerDashboard() {
         title: "Update failed",
         description: "Failed to update delivery status",
         variant: "destructive",
+      });
+    },
+  });
+
+  const { data: preorderSettings } = useQuery({
+    queryKey: ["/api/partner/preorder-settings"],
+    queryFn: async () => {
+      const response = await api.get("/api/partner/preorder-settings");
+      return response.data;
+    },
+  });
+
+  const updatePreorderSettingsMutation = useMutation({
+    mutationFn: async (data: { nextDayPreorderOpensAt: string }) => {
+      const response = await api.patch("/api/partner/preorder-settings", data);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/partner/preorder-settings"] });
+      toast({
+        title: "Settings updated",
+        description: "Pre-order settings saved successfully.",
       });
     },
   });
@@ -301,6 +345,27 @@ export default function PartnerDashboard() {
         description: data.isAvailable
           ? `${data.name} can now be ordered by customers`
           : `${data.name} will appear as unavailable`,
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Failed to update item",
+        description: "Please try again",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const updateProductFulfillmentModeMutation = useMutation({
+    mutationFn: async ({ productId, fulfillmentMode }: { productId: string; fulfillmentMode: string }) => {
+      const response = await api.patch(`/api/partner/products/${productId}/fulfillment-mode`, { fulfillmentMode });
+      return response.data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/partner/products"] });
+      toast({
+        title: "Mode updated",
+        description: `${data.name} fulfillment mode set to ${data.fulfillmentMode}`,
       });
     },
     onError: () => {
@@ -864,25 +929,77 @@ export default function PartnerDashboard() {
           </TabsContent>
 
           <TabsContent value="menu" className="space-y-4">
-            <div className="flex items-center justify-between mb-4">
-              <div>
+            <div className="mb-4">
+              <div className="flex items-center justify-between">
                 <h2 className="text-lg md:text-xl font-bold flex items-center gap-2">
                   <UtensilsCrossed className="h-5 w-5 text-primary" />
                   Menu Items
                 </h2>
-                <p className="text-xs md:text-sm text-muted-foreground mt-1">
-                  Toggle items on/off to control what customers can order
-                </p>
+                <div className="text-xs md:text-sm font-medium bg-primary/10 text-primary px-3 py-1 rounded-full">
+                  {products.filter(p => p.isAvailable).length} / {products.length} available
+                </div>
               </div>
-              <div className="text-xs md:text-sm text-muted-foreground">
-                {products.filter(p => p.isAvailable).length} / {products.length} available
-              </div>
+              
+              {preorderSettings && (
+                <div className="mt-6 mb-6 p-5 border border-primary/20 rounded-xl bg-gradient-to-r from-primary/5 to-transparent flex flex-col sm:flex-row sm:items-center justify-between gap-5 shadow-sm hover:shadow-md transition-shadow duration-300">
+                  <div className="flex items-start gap-3 flex-1">
+                    <div className="p-2.5 bg-primary/10 rounded-lg shrink-0 mt-0.5">
+                      <Calendar className="w-5 h-5 text-primary" />
+                    </div>
+                    <div>
+                      <h4 className="font-semibold text-base text-slate-900">Next-day pre-orders open at</h4>
+                      <p className="text-sm text-slate-500 mt-1 leading-relaxed">
+                        Tomorrow's menu becomes available to customers at this time.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center bg-white rounded-lg border shadow-sm overflow-hidden w-full sm:w-auto focus-within:ring-2 focus-within:ring-primary focus-within:ring-offset-1 transition-all">
+                    <div className="px-3 bg-slate-50 border-r py-2.5 flex items-center justify-center shrink-0">
+                      <Clock className="w-4 h-4 text-slate-500" />
+                    </div>
+                    <Input 
+                      type="time" 
+                      defaultValue={preorderSettings.nextDayPreorderOpensAt || "22:00"}
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          updatePreorderSettingsMutation.mutate({ nextDayPreorderOpensAt: e.target.value });
+                        }
+                      }}
+                      className="w-full sm:w-32 border-0 focus-visible:ring-0 focus-visible:ring-offset-0 shadow-none font-medium text-center sm:text-left text-base bg-transparent py-2.5"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
 
             {products.length > 0 ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
-                {products.map((product) => (
-                  <Card
+              <Accordion type="multiple" value={openCategories} onValueChange={setOpenCategories} className="w-full space-y-4">
+                {(categories.length > 0 
+                  ? categories.filter(c => products.some(p => p.categoryId === c.id))
+                  : [{ id: 'all', name: 'All Items' }] // Fallback if categories not loaded
+                ).map((category) => {
+                  const categoryProducts = categories.length > 0 
+                    ? products.filter(p => p.categoryId === category.id)
+                    : products;
+                    
+                  if (categoryProducts.length === 0) return null;
+                  
+                  return (
+                    <AccordionItem key={category.id} value={`category-${category.id}`} className="border rounded-lg bg-card px-2 md:px-4">
+                      <AccordionTrigger className="hover:no-underline py-3 md:py-4">
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-base md:text-lg font-bold text-slate-800 dark:text-slate-200">
+                            {category.name}
+                          </h3>
+                          <Badge variant="secondary" className="text-xs rounded-full">
+                            {categoryProducts.length}
+                          </Badge>
+                        </div>
+                      </AccordionTrigger>
+                      <AccordionContent className="pt-2 pb-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
+                        {categoryProducts.map((product) => (
+                          <Card
                     key={product.id}
                     className={`overflow-hidden transition-all hover:shadow-lg ${product.isAvailable
                       ? "bg-white dark:bg-slate-800"
@@ -997,15 +1114,43 @@ export default function PartnerDashboard() {
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2 mt-2">
+                      <div className="flex items-center justify-between gap-2 mt-3 pt-3 border-t">
                         <span className="text-xs text-muted-foreground">
                           ({product.reviewCount} reviews)
                         </span>
+                        
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-medium text-muted-foreground">Mode:</span>
+                          <Select
+                            value={(product as any).fulfillmentMode || "inherit"}
+                            onValueChange={(value) => 
+                              updateProductFulfillmentModeMutation.mutate({
+                                productId: product.id,
+                                fulfillmentMode: value
+                              })
+                            }
+                            disabled={updateProductFulfillmentModeMutation.isPending}
+                          >
+                            <SelectTrigger className="h-7 text-xs w-[100px]">
+                              <SelectValue placeholder="Mode" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="inherit">Inherit</SelectItem>
+                              <SelectItem value="instant">Instant</SelectItem>
+                              <SelectItem value="preorder">Pre-order</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
                     </div>
                   </Card>
                 ))}
-              </div>
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  );
+                })}
+              </Accordion>
             ) : (
               <div className="text-center py-12 text-muted-foreground">
                 <UtensilsCrossed className="h-12 w-12 mx-auto mb-4 opacity-50" />

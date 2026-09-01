@@ -430,6 +430,48 @@ export function registerPartnerRoutes(app: Express): void {
     }
   });
 
+  // Update product fulfillment mode
+  app.patch("/api/partner/products/:productId/fulfillment-mode", requirePartner(), async (req: AuthenticatedPartnerRequest, res) => {
+    try {
+      const { productId } = req.params;
+      const { fulfillmentMode } = req.body;
+      const chefId = req.partner?.chefId;
+
+      if (!chefId) {
+        res.status(401).json({ message: "Unauthorized" });
+        return;
+      }
+
+      if (!["inherit", "instant", "preorder"].includes(fulfillmentMode)) {
+        res.status(400).json({ message: "Invalid fulfillment mode" });
+        return;
+      }
+
+      const product = await storage.getProductById(productId);
+      if (!product) {
+        res.status(404).json({ message: "Product not found" });
+        return;
+      }
+
+      if (product.chefId !== chefId) {
+        res.status(403).json({ message: "Unauthorized - Product does not belong to your kitchen" });
+        return;
+      }
+
+      const updatedProduct = await storage.updateProduct(productId, { fulfillmentMode });
+
+      // Broadcast update
+      if (updatedProduct) {
+        broadcastProductAvailabilityUpdate(updatedProduct);
+      }
+
+      res.json(updatedProduct);
+    } catch (error) {
+      console.error("Error updating product fulfillment mode:", error);
+      res.status(500).json({ message: "Failed to update product fulfillment mode" });
+    }
+  });
+
   // Get partner's products
   app.get("/api/partner/products", requirePartner(), async (req: AuthenticatedPartnerRequest, res) => {
     try {
@@ -485,6 +527,42 @@ export function registerPartnerRoutes(app: Express): void {
     } catch (error) {
       console.error("Error fetching chef details:", error);
       res.status(500).json({ message: "Failed to fetch chef details" });
+    }
+  });
+
+  // Get partner's preorder settings
+  app.get("/api/partner/preorder-settings", requirePartner(), async (req: AuthenticatedPartnerRequest, res) => {
+    try {
+      const chefId = req.partner?.chefId;
+      if (!chefId) {
+        res.status(401).json({ message: "Unauthorized" });
+        return;
+      }
+      let settings = await storage.getChefPreorderSettings(chefId);
+      if (!settings) {
+        // If not found, create default settings
+        settings = await storage.createChefPreorderSettings({ chefId });
+      }
+      res.json(settings);
+    } catch (error) {
+      console.error("Error fetching preorder settings:", error);
+      res.status(500).json({ message: "Failed to fetch preorder settings" });
+    }
+  });
+
+  // Update partner's preorder settings
+  app.patch("/api/partner/preorder-settings", requirePartner(), async (req: AuthenticatedPartnerRequest, res) => {
+    try {
+      const chefId = req.partner?.chefId;
+      if (!chefId) {
+        res.status(401).json({ message: "Unauthorized" });
+        return;
+      }
+      const updatedSettings = await storage.updateChefPreorderSettings(chefId, req.body);
+      res.json(updatedSettings);
+    } catch (error) {
+      console.error("Error updating preorder settings:", error);
+      res.status(500).json({ message: "Failed to update preorder settings" });
     }
   });
 
@@ -649,7 +727,7 @@ export function registerPartnerRoutes(app: Express): void {
       }
 
       const allOrders = await storage.getOrdersByChefId(chefId);
-      const completedOrders = allOrders.filter(o => o.paymentStatus === "confirmed");
+      const completedOrders = allOrders.filter(o => o.paymentStatus === "confirmed" && o.status !== "cancelled");
 
       // Calculate income based on hotelPrice (partner's price), not selling price
       const totalIncome = completedOrders.reduce((sum, order) => {

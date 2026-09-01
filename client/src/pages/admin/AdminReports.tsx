@@ -35,8 +35,7 @@ import {
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, AreaChart, Area, PieChart, Pie, Cell
 } from 'recharts';
-
-const formatCurrency = (value: number) => `₹${value.toLocaleString()}`;
+const formatCurrency = (value: number | undefined) => `₹${(value || 0).toLocaleString()}`;
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', '#6366f1', '#06b6d4'];
 
@@ -535,7 +534,7 @@ export default function AdminReports() {
             {chefPayoutLoading ? <Skeleton className="h-96 w-full" /> : (
               <>
                 <div className="flex items-center justify-between gap-4">
-                  <div className="grid gap-4 md:grid-cols-4 w-full">
+                  <div className="grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-5 w-full">
                   <Card>
                     <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Payout Orders</CardTitle></CardHeader>
                     <CardContent><div className="text-2xl font-bold">{chefPayoutData?.totalOrders || 0}</div></CardContent>
@@ -543,6 +542,10 @@ export default function AdminReports() {
                   <Card>
                     <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Total Chef Earnings</CardTitle></CardHeader>
                     <CardContent><div className="text-2xl font-bold text-green-600">{formatCurrency(chefPayoutData?.totalChefEarnings || 0)}</div></CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Total Rotihai Earnings</CardTitle></CardHeader>
+                    <CardContent><div className="text-2xl font-bold text-blue-600">{formatCurrency(chefPayoutData?.totalRotihaiEarnings || 0)}</div></CardContent>
                   </Card>
                   <Card>
                     <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Paid to Chef</CardTitle></CardHeader>
@@ -606,6 +609,7 @@ export default function AdminReports() {
                           <TableHead>Customer</TableHead>
                           <TableHead>Status</TableHead>
                           <TableHead className="text-right">Chef Earning</TableHead>
+                          <TableHead className="text-right">Rotihai Earning</TableHead>
                           <TableHead className="text-right">Payout Status</TableHead>
                           <TableHead className="text-right">Action</TableHead>
                         </TableRow>
@@ -629,6 +633,7 @@ export default function AdminReports() {
                             <TableCell>{order.customerName}</TableCell>
                             <TableCell>{order.status}</TableCell>
                             <TableCell className="text-right font-medium">{formatCurrency(order.totalChefEarning)}</TableCell>
+                            <TableCell className="text-right font-medium text-blue-600">{formatCurrency(order.totalRotihaiEarning)}</TableCell>
                             <TableCell className="text-right">
                               <Badge variant={order.paidToChef ? "default" : "secondary"}>
                                 {order.paidToChef ? "Paid" : "Pending"}

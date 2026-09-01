@@ -108,7 +108,7 @@ export const chefs = pgTable("chefs", {
   subscriptionAvailabilityStatus: text("subscription_availability_status").notNull().default("available"), // 'available' | 'unavailable_today' | 'on_leave'
   leaveStartDate: date("leave_start_date"),                                 // DATE — chef leave is date-based, no time component
   leaveEndDate: date("leave_end_date"),                                     // DATE — chef leave is date-based, no time component
-  fulfillmentMode: fulfillmentModeEnum("fulfillment_mode").notNull().default("both"), // 'instant' | 'preorder' | 'both'
+  fulfillmentMode: fulfillmentModeEnum("fulfillment_mode").notNull().default("instant"), // 'instant' | 'preorder' | 'both'
 });
 
 export const chefPreorderSettings = pgTable("chef_preorder_settings", {
@@ -117,6 +117,7 @@ export const chefPreorderSettings = pgTable("chef_preorder_settings", {
   lunchMinNoticeHours: integer("lunch_min_notice_hours").notNull().default(24),
   dinnerEnabled: boolean("dinner_enabled").notNull().default(false),
   dinnerMinNoticeHours: integer("dinner_min_notice_hours").notNull().default(12),
+  nextDayPreorderOpensAt: varchar("next_day_preorder_opens_at", { length: 5 }).notNull().default("22:00"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

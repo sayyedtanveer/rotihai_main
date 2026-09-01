@@ -46,6 +46,10 @@ export interface IStorage {
   updateChef(id: string, data: Partial<Chef>): Promise<Chef | undefined>;
   deleteChef(id: string): Promise<boolean>;
 
+  getChefPreorderSettings(chefId: string): Promise<ChefPreorderSettings | null>;
+  createChefPreorderSettings(data: InsertChefPreorderSettings): Promise<ChefPreorderSettings>;
+  updateChefPreorderSettings(chefId: string, data: Partial<InsertChefPreorderSettings>): Promise<ChefPreorderSettings | undefined>;
+
   getAdminByUsername(username: string): Promise<AdminUser | undefined>;
   getAdminById(id: string): Promise<AdminUser | undefined>;
   createAdmin(admin: InsertAdminUser & { passwordHash: string }): Promise<AdminUser>;
@@ -711,7 +715,7 @@ export class MemStorage implements IStorage {
   async getChefById(id: string): Promise<Chef | null> {
     const chef = await db.query.chefs.findFirst({ where: (c, { eq }) => eq(c.id, id) });
     if (!chef) return null;
-    const settings = await db.query.chefPreorderSettings.findFirst({ where: (s, { eq }) => eq(s.chefId, id) });
+    const [settings] = await db.select().from(chefPreorderSettings).where(eq(chefPreorderSettings.chefId, id));
     return { ...chef, preorderSettings: settings || null };
   }
 
@@ -796,14 +800,42 @@ export class MemStorage implements IStorage {
 
     console.log("🔥 updateChef() - Received data:", { id, incomingMaxDeliveryDistanceKm: (data as any).maxDeliveryDistanceKm, servicePincodes: (data as any).servicePincodes, updateData });
 
-    await db.update(chefs).set(updateData).where(eq(chefs.id, id));
-    const chef = await this.getChefById(id);
-    return chef || undefined;
+    const [updated] = await db.update(chefs).set(updateData).where(eq(chefs.id, id)).returning();
+    if (!updated) return undefined;
+    
+    // Also attach preorderSettings since consumers might expect it
+    const [settings] = await db.select().from(chefPreorderSettings).where(eq(chefPreorderSettings.chefId, id));
+    return { ...updated, preorderSettings: settings || null };
   }
 
   async deleteChef(id: string): Promise<boolean> {
-    await db.delete(chefs).where(eq(chefs.id, id));
-    return true;
+    const [deleted] = await db.delete(chefs).where(eq(chefs.id, id)).returning();
+    return !!deleted;
+  }
+
+  async getChefPreorderSettings(chefId: string): Promise<ChefPreorderSettings | null> {
+    const [settings] = await db
+      .select()
+      .from(chefPreorderSettings)
+      .where(eq(chefPreorderSettings.chefId, chefId));
+    return settings || null;
+  }
+
+  async createChefPreorderSettings(data: InsertChefPreorderSettings): Promise<ChefPreorderSettings> {
+    const [settings] = await db.insert(chefPreorderSettings).values({
+      ...data,
+      id: nanoid()
+    }).returning();
+    return settings;
+  }
+
+  async updateChefPreorderSettings(chefId: string, data: Partial<InsertChefPreorderSettings>): Promise<ChefPreorderSettings | undefined> {
+    const [settings] = await db
+      .update(chefPreorderSettings)
+      .set(data)
+      .where(eq(chefPreorderSettings.chefId, chefId))
+      .returning();
+    return settings;
   }
 
   async getAdminByUsername(username: string): Promise<AdminUser | undefined> {
@@ -2122,10 +2154,15 @@ export class MemStorage implements IStorage {
       // Build detailed order list with item-wise calculations
       const detailedOrders = await Promise.all(chefOrders.map(async order => {
         let totalChefEarning = 0;
+        let totalRotihaiEarning = 0;
 
         const items = (order.items as any[]).map(item => {
           const itemChefEarning = item.hotelPrice ? Math.round(item.hotelPrice * item.quantity) : 0;
+          const itemPrice = item.price ? Math.round(item.price * item.quantity) : 0;
+          const itemRotihaiEarning = Math.max(0, itemPrice - itemChefEarning);
+          
           totalChefEarning += itemChefEarning;
+          totalRotihaiEarning += itemRotihaiEarning;
 
           return {
             id: item.id,
@@ -2134,6 +2171,7 @@ export class MemStorage implements IStorage {
             hotelPrice: item.hotelPrice || 0,
             quantity: item.quantity,
             chefEarning: itemChefEarning,
+            rotihaiEarning: itemRotihaiEarning,
           };
         });
 
@@ -2170,6 +2208,7 @@ export class MemStorage implements IStorage {
           items,
           subtotal: order.subtotal,
           totalChefEarning,
+          totalRotihaiEarning,
           orderIncome: totalChefEarning,
           payoutId: payout?.id || null,
           paidToChef: payout?.status === "paid",
@@ -2180,10 +2219,12 @@ export class MemStorage implements IStorage {
       // Calculate totals
       const totalOrders = detailedOrders.length;
       const totalChefEarnings = detailedOrders.reduce((sum, o) => sum + o.totalChefEarning, 0);
+      const totalRotihaiEarnings = detailedOrders.reduce((sum, o) => sum + o.totalRotihaiEarning, 0);
 
       return {
         totalOrders,
         totalChefEarnings,
+        totalRotihaiEarnings,
         orders: detailedOrders,
       };
     } catch (error) {
