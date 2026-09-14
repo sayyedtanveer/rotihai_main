@@ -9,6 +9,8 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from "@/components/ui/pagination";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import type { Chef, Order, User } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
@@ -24,6 +26,9 @@ export default function AdminPayments() {
   const [searchQuery, setSearchQuery] = useState("");
   const [paymentStatusFilter, setPaymentStatusFilter] = useState("all");
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+  const [assignChefDialogOpen, setAssignChefDialogOpen] = useState(false);
+  const [selectedOrderForChefAssignment, setSelectedOrderForChefAssignment] = useState<Order | null>(null);
+  const [selectedChefId, setSelectedChefId] = useState("");
   const itemsPerPage = 100;
 
   // 📡 WebSocket listener for real-time order updates (cancel, status changes, etc.)
@@ -180,6 +185,52 @@ export default function AdminPayments() {
       });
     },
   });
+
+  const assignChefMutation = useMutation({
+    mutationFn: async ({ orderId, chefId }: { orderId: string; chefId: string }) => {
+      const response = await api.post(`/api/admin/orders/${orderId}/assign-chef`, { chefId });
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin", "orders", "payments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin", "orders"] });
+      setAssignChefDialogOpen(false);
+      setSelectedOrderForChefAssignment(null);
+      setSelectedChefId("");
+      toast({
+        title: "Chef Reassigned",
+        description: "Order has been reassigned to the selected chef successfully",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Reassignment failed",
+        description: error.response?.data?.message || "Failed to reassign chef",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleOpenAssignChefDialog = (order: Order) => {
+    setSelectedOrderForChefAssignment(order);
+    setSelectedChefId("");
+    setAssignChefDialogOpen(true);
+  };
+
+  const handleAssignChef = () => {
+    if (!selectedOrderForChefAssignment || !selectedChefId) {
+      toast({
+        title: "Validation error",
+        description: "Please select a chef",
+        variant: "destructive",
+      });
+      return;
+    }
+    assignChefMutation.mutate({
+      orderId: selectedOrderForChefAssignment.id,
+      chefId: selectedChefId,
+    });
+  };
 
   const getPaymentStatusColor = (status: string) => {
     switch (status) {
@@ -422,6 +473,7 @@ export default function AdminPayments() {
                     <TableRow>
                       <TableHead>Order ID</TableHead>
                       <TableHead>Customer Name</TableHead>
+                      <TableHead>Chef</TableHead>
                       <TableHead>Address</TableHead>
                       <TableHead>Distance / Map</TableHead>
                       <TableHead>Items</TableHead>
@@ -439,12 +491,24 @@ export default function AdminPayments() {
                       return (
                         <TableRow key={order.id} data-testid={`row-payment-${order.id}`}>
                         <TableCell className="font-medium">
-                          #{order.id.slice(0, 8)}
+                          <div className="flex flex-col gap-1">
+                            <span>#{order.id.slice(0, 8)}</span>
+                            {order.requiresChefConfirmation && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-orange-100 text-orange-800 border border-orange-200 mt-1 whitespace-nowrap">
+                                Late Pre-order
+                              </span>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell>
                           <div>
                             <p className="font-medium">{order.customerName}</p>
                             <p className="text-sm text-slate-600 dark:text-slate-400">{order.phone}</p>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                            {order.chefName || "Unassigned"}
                           </div>
                         </TableCell>
                         <TableCell>
@@ -515,19 +579,30 @@ export default function AdminPayments() {
                           </Badge>
                         </TableCell>
                         <TableCell>
-                          <div className="flex gap-2 flex-wrap">
+                          <div className="flex flex-col gap-2">
                             {order.status === "cancelled" ? (
                               <span className="text-xs font-medium text-red-700 dark:text-red-300">
                                 ⛔ Order Cancelled
                               </span>
                             ) : (
                               <>
+                                {(order.paymentStatus === "pending" || order.paymentStatus === "paid") && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleOpenAssignChefDialog(order)}
+                                    className="w-full text-xs h-8"
+                                  >
+                                    Reassign Chef
+                                  </Button>
+                                )}
                                 {order.paymentStatus === "pending" && (
                                   <Button
                                     size="sm"
                                     variant="outline"
                                     onClick={() => markAsPaidMutation.mutate({ orderId: order.id })}
                                     disabled={markAsPaidMutation.isPending}
+                                    className="w-full text-xs h-8"
                                     data-testid={`button-mark-paid-${order.id}`}
                                   >
                                     ✓ Mark as Paid
@@ -538,9 +613,10 @@ export default function AdminPayments() {
                                     size="sm"
                                     onClick={() => confirmPaymentMutation.mutate({ orderId: order.id, userId: order.userId ?? undefined })}
                                     disabled={confirmPaymentMutation.isPending}
+                                    className="w-full text-xs h-8"
                                     data-testid={`button-confirm-${order.id}`}
                                   >
-                                    <CheckCircle className="w-4 h-4 mr-1" />
+                                    <CheckCircle className="w-3 h-3 mr-1" />
                                     Confirm to Chef
                                   </Button>
                                 )}

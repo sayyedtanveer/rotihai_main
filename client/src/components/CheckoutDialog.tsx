@@ -35,7 +35,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useWalletUpdates } from "@/hooks/useWalletUpdates";
 import { useApplyReferral } from "@/hooks/useApplyReferral";
 import { useValidateReferralCode } from "@/hooks/useValidateReferralCode";
-import { Loader2, Clock, MapPin, CheckCircle2, CalendarClock } from "lucide-react";
+import { Loader2, Clock, MapPin, CheckCircle2, CalendarClock, AlertCircle } from "lucide-react";
 import { getDeliveryMessage, calculateDistance as calculateDistanceLoc } from "@/lib/locationUtils";
 import { calculateDistance, calculateDelivery } from "@shared/deliveryUtils";
 import { getBusinessTomorrow, getBusinessDateStringFromDate } from "@shared/timeFormatter";
@@ -217,6 +217,11 @@ export default function CheckoutDialog({
   const [deliveryMinOrderAmount, setDeliveryMinOrderAmount] = useState<number>(0);
   const [isBelowDeliveryMinimum, setIsBelowDeliveryMinimum] = useState<boolean>(false);
   const [amountNeededForFreeDelivery, setAmountNeededForFreeDelivery] = useState<number>(0);
+
+  // Late Preorder states
+  const [latePreorderWarning, setLatePreorderWarning] = useState<string>("");
+  const [latePreorderRequiresConfirmation, setLatePreorderRequiresConfirmation] = useState<boolean>(false);
+  const [chefConfirmationAccepted, setChefConfirmationAccepted] = useState<boolean>(false);
 
   // Location states
   const [customerLatitude, setCustomerLatitude] = useState<number | null>(null);
@@ -708,6 +713,40 @@ export default function CheckoutDialog({
   });
 
   useEffect(() => {
+    async function validatePreorderSlot() {
+      if (!cartHasPreorder || !selectedDeliverySlotId || !selectedDeliveryDate || !cart?.chefId) {
+        setLatePreorderWarning("");
+        setLatePreorderRequiresConfirmation(false);
+        return;
+      }
+      try {
+        const res = await fetch("/api/orders/validate-preorder", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chefId: cart.chefId,
+            deliverySlotId: selectedDeliverySlotId,
+            deliveryDate: selectedDeliveryDate
+          })
+        });
+        const data = await res.json();
+        if (data.warning) {
+          setLatePreorderWarning(data.warning);
+        } else {
+          setLatePreorderWarning("");
+        }
+        setLatePreorderRequiresConfirmation(data.requiresChefConfirmation);
+        if (!data.requiresChefConfirmation) {
+          setChefConfirmationAccepted(false);
+        }
+      } catch (err) {
+        console.error("Error validating preorder", err);
+      }
+    }
+    validatePreorderSlot();
+  }, [selectedDeliverySlotId, selectedDeliveryDate, cartHasPreorder, cart?.chefId]);
+
+  useEffect(() => {
     if (isOpen) {
       console.log("[DEBUG CheckoutDialog] requiresDeliverySlot evaluates to:", requiresDeliverySlot, "based on categoryData:", categoryData);
     }
@@ -1046,45 +1085,57 @@ export default function CheckoutDialog({
 
     const now = new Date();
     const todayStr = getBusinessDateStringFromDate(now);
+    const tomorrowStr = getBusinessTomorrow();
     
     const opensAt = chefPreorder.nextDayPreorderOpensAt || "22:00";
     const [openHour, openMinute] = opensAt.split(":").map(Number);
     const businessTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
-    let isNextDay = false;
     
+    let isTomorrowOpen = false;
     if (businessTime.getHours() > openHour || (businessTime.getHours() === openHour && businessTime.getMinutes() >= openMinute)) {
-      isNextDay = true;
+      isTomorrowOpen = true;
     }
     
-    const applicableDateStr = isNextDay ? getBusinessTomorrow() : todayStr;
+    const applicableDateStr = isTomorrowOpen ? tomorrowStr : todayStr;
     const slots = { lunch: [] as any[], dinner: [] as any[] };
 
-    const makeSyntheticSlot = (id: string, startTime: string, endTime: string, deliveryDate: string) => ({
+    const makeSyntheticSlot = (id: string, startTime: string, endTime: string, deliveryDate: string, isExpired: boolean, deliveryDateLabel: string) => ({
       id,
       startTime,
       endTime,
-      label: `${startTime} – ${endTime}`,
+      label: `${deliveryDateLabel} ${startTime} – ${endTime}`,
       deliveryDate,
       capacity: 9999,
       currentOrders: 0,
       isActive: true,
+      isExpired,
+      deliveryDateLabel
     });
 
-    if (chefLunchEnabled) {
-      const lunchDateTime = new Date(`${applicableDateStr}T${lunchStartStr}:00+05:30`);
-      const hoursUntilLunch = (lunchDateTime.getTime() - now.getTime()) / (1000 * 60 * 60);
-      if (hoursUntilLunch >= effectiveLunchCutoffHours) {
-        slots.lunch.push(makeSyntheticSlot("preorder-lunch", lunchStartStr, lunchEndStr, applicableDateStr));
-      }
+    const datesToEvaluate = [
+      { dateStr: todayStr, label: "Today" },
+    ];
+    if (isTomorrowOpen) {
+      datesToEvaluate.push({ dateStr: tomorrowStr, label: "Tomorrow" });
     }
-
-    if (chefDinnerEnabled) {
-      const dinnerDateTime = new Date(`${applicableDateStr}T${dinnerStartStr}:00+05:30`);
-      const hoursUntilDinner = (dinnerDateTime.getTime() - now.getTime()) / (1000 * 60 * 60);
-      if (hoursUntilDinner >= effectiveDinnerCutoffHours) {
-        slots.dinner.push(makeSyntheticSlot("preorder-dinner", dinnerStartStr, dinnerEndStr, applicableDateStr));
+    
+    datesToEvaluate.forEach(({ dateStr, label }) => {
+      if (chefLunchEnabled) {
+        const lunchEndDateTime = new Date(`${dateStr}T${lunchEndStr}:00+05:30`);
+        const isExpired = lunchEndDateTime.getTime() <= now.getTime();
+        if (!isExpired || dateStr === todayStr) {
+           slots.lunch.push(makeSyntheticSlot("preorder-lunch", lunchStartStr, lunchEndStr, dateStr, isExpired, label));
+        }
       }
-    }
+      
+      if (chefDinnerEnabled) {
+        const dinnerEndDateTime = new Date(`${dateStr}T${dinnerEndStr}:00+05:30`);
+        const isExpired = dinnerEndDateTime.getTime() <= now.getTime();
+        if (!isExpired || dateStr === todayStr) {
+           slots.dinner.push(makeSyntheticSlot("preorder-dinner", dinnerStartStr, dinnerEndStr, dateStr, isExpired, label));
+        }
+      }
+    });
 
     return {
       applicablePreorderDate: applicableDateStr,
@@ -3798,7 +3849,6 @@ export default function CheckoutDialog({
                                     {cartHasPreorder ? (
                                       <div className="w-full">
                                         <div className="p-2 border-b">
-                                          <p className="text-sm font-semibold text-primary">Delivery on {applicablePreorderDate === getBusinessDateStringFromDate(new Date()) ? "Today" : "Tomorrow"} — {applicablePreorderDate}</p>
                                           
                                           {hasPreorderSlots ? (
                                             <>
@@ -3807,8 +3857,9 @@ export default function CheckoutDialog({
                                                 <p className="text-xs text-muted-foreground px-2 italic">No slots available</p>
                                               ) : (
                                                 preorderSlots.lunch.map((slot) => (
-                                                  <SelectItem key={`lunch-${slot.id}`} value={`${slot.deliveryDate}|${slot.id}`} className="py-2">
-                                                    {formatTo12Hour(slot.startTime)} – {formatTo12Hour(slot.endTime)}
+                                                  <SelectItem key={`lunch-${slot.deliveryDate}-${slot.id}`} value={`${slot.deliveryDate}|${slot.id}`} className="py-2" disabled={slot.isExpired}>
+                                                    {slot.deliveryDateLabel} • {formatTo12Hour(slot.startTime)} – {formatTo12Hour(slot.endTime)}
+                                                    {slot.isExpired && <span className="ml-2 text-red-500 text-[10px] uppercase font-bold tracking-wider">(Ended)</span>}
                                                   </SelectItem>
                                                 ))
                                               )}
@@ -3818,8 +3869,9 @@ export default function CheckoutDialog({
                                                 <p className="text-xs text-muted-foreground px-2 italic">No slots available</p>
                                               ) : (
                                                 preorderSlots.dinner.map((slot) => (
-                                                  <SelectItem key={`dinner-${slot.id}`} value={`${slot.deliveryDate}|${slot.id}`} className="py-2">
-                                                    {formatTo12Hour(slot.startTime)} – {formatTo12Hour(slot.endTime)}
+                                                  <SelectItem key={`dinner-${slot.deliveryDate}-${slot.id}`} value={`${slot.deliveryDate}|${slot.id}`} className="py-2" disabled={slot.isExpired}>
+                                                    {slot.deliveryDateLabel} • {formatTo12Hour(slot.startTime)} – {formatTo12Hour(slot.endTime)}
+                                                    {slot.isExpired && <span className="ml-2 text-red-500 text-[10px] uppercase font-bold tracking-wider">(Ended)</span>}
                                                   </SelectItem>
                                                 ))
                                               )}
@@ -4381,6 +4433,36 @@ export default function CheckoutDialog({
           </div>
 
           {/* Footer - Always at bottom */}
+          {/* Late Preorder Warning Section */}
+          {latePreorderWarning && (
+            <div className="mx-4 sm:mx-6 mb-4 mt-2 p-3 sm:p-4 rounded-lg bg-orange-50 border border-orange-200">
+              <div className="flex gap-2">
+                <AlertCircle className="h-5 w-5 text-orange-600 flex-shrink-0 mt-0.5" />
+                <div className="flex-1 space-y-2">
+                  <p className="text-sm font-bold text-orange-800 leading-tight">
+                    Late Pre-order — Chef Confirmation Required
+                  </p>
+                  {latePreorderRequiresConfirmation && (
+                    <label className="flex items-start gap-2 cursor-pointer mt-2 pt-2 border-t border-orange-200/50">
+                      <div className="flex items-center h-5 mt-0.5">
+                        <input
+                          type="checkbox"
+                          checked={chefConfirmationAccepted}
+                          onChange={(e) => setChefConfirmationAccepted(e.target.checked)}
+                          className="w-4 h-4 rounded border-orange-300 text-orange-600 focus:ring-orange-500"
+                        />
+                      </div>
+                      <span className="text-sm text-orange-700 font-medium leading-relaxed">
+                        <span className="block mb-1">The pre-order time for this delivery slot has passed.</span>
+                        <span className="block">You can still place the order, but the chef must confirm availability.<br/>If the chef cannot fulfil your order, it will be cancelled and your payment will be refunded.</span>
+                      </span>
+                    </label>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Footer - Always at bottom */}
           <DialogFooter className="flex-shrink-0 border-t px-4 sm:px-6 py-4 bg-background">
             <div className="flex gap-2 w-full flex-col-reverse sm:flex-row sm:justify-end">
@@ -4442,7 +4524,8 @@ export default function CheckoutDialog({
                     isRotiOrderBlocked ||
                     !addressZoneValidated ||
                     (addressZoneValidated && !addressInDeliveryZone) ||
-                    !addressConfirmed
+                    !addressConfirmed ||
+                    (latePreorderRequiresConfirmation && !chefConfirmationAccepted)
                   }
                   className="w-full sm:w-auto"
                   data-testid="button-checkout-submit"

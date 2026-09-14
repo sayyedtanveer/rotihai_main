@@ -773,6 +773,11 @@ export default function PartnerDashboard() {
                             <Badge className={`${getStatusColor(order.status)} text-xs`}>
                               {order.status.replace("_", " ").toUpperCase()}
                             </Badge>
+                            {order.requiresChefConfirmation && (
+                              <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200 text-xs">
+                                Late Pre-order
+                              </Badge>
+                            )}
                           </div>
                           <p className="text-xs md:text-sm text-muted-foreground mt-1">
                             {order.customerName}
@@ -1181,6 +1186,11 @@ export default function PartnerDashboard() {
                             <Badge className={`${getStatusColor(order.status)} text-xs`}>
                               {order.status.replace("_", " ").toUpperCase()}
                             </Badge>
+                            {order.requiresChefConfirmation && (
+                              <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200 text-xs">
+                                Late Pre-order
+                              </Badge>
+                            )}
                             <Badge variant={order.paymentStatus === "confirmed" ? "default" : "secondary"} className="text-xs">
                               {order.paymentStatus}
                             </Badge>
@@ -1369,6 +1379,11 @@ export default function PartnerDashboard() {
                               <Badge className={`${getStatusColor(order.status)} text-xs`}>
                                 {order.status.replace("_", " ").toUpperCase()}
                               </Badge>
+                              {order.requiresChefConfirmation && (
+                                <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200 text-xs">
+                                  Late Pre-order
+                                </Badge>
+                              )}
                               <Badge variant={order.paymentStatus === "confirmed" ? "default" : "secondary"} className="text-xs">
                                 {order.paymentStatus}
                               </Badge>

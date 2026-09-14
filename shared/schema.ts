@@ -109,6 +109,7 @@ export const chefs = pgTable("chefs", {
   leaveStartDate: date("leave_start_date"),                                 // DATE — chef leave is date-based, no time component
   leaveEndDate: date("leave_end_date"),                                     // DATE — chef leave is date-based, no time component
   fulfillmentMode: fulfillmentModeEnum("fulfillment_mode").notNull().default("instant"), // 'instant' | 'preorder' | 'both'
+  allowManualOrderAssignment: boolean("allow_manual_order_assignment").notNull().default(false), // Allow admin to reassign orders to this chef manually
 });
 
 export const chefPreorderSettings = pgTable("chef_preorder_settings", {
@@ -196,6 +197,7 @@ export const orders = pgTable("orders", {
   walletAmountUsed: integer("wallet_amount_used").notNull().default(0),
   total: integer("total").notNull(),
   status: text("status").notNull().default("pending"),
+  requiresChefConfirmation: boolean("requires_chef_confirmation").notNull().default(false),
   paymentStatus: paymentStatusEnum("payment_status").notNull().default("pending"),
   paymentQrShown: boolean("payment_qr_shown").notNull().default(false),
   chefId: text("chef_id"),

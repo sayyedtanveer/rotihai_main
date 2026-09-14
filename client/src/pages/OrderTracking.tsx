@@ -315,6 +315,11 @@ export default function OrderTracking() {
                   <Clock className="h-3 w-3 mr-1" />
                   {order.status.toUpperCase().replace("_", " ")}
                 </Badge>
+                {order.requiresChefConfirmation && (
+                  <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200">
+                    Late Pre-order (Pending Chef Confirmation)
+                  </Badge>
+                )}
                 <Badge className={getPaymentStatusColor(order.paymentStatus)} data-testid="badge-payment">
                   <CreditCard className="h-3 w-3 mr-1" />
                   Payment: {order.paymentStatus.toUpperCase()}
