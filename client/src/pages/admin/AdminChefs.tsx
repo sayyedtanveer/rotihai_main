@@ -61,6 +61,7 @@ export default function AdminChefs() {
     dinnerEnabled: true,
     dinnerMinNoticeHours: 12,
     fulfillmentMode: "both" as "instant" | "preorder" | "both",
+    allowManualOrderAssignment: false,
   });
 
   // Separate state for servicePincodes input display (allows partial typing)
@@ -231,6 +232,7 @@ export default function AdminChefs() {
       dinnerEnabled: true,
       dinnerMinNoticeHours: 12,
       fulfillmentMode: "both",
+      allowManualOrderAssignment: false,
     });
     setServicePincodesInput(""); // Reset display input
     setGeocodeError("");
@@ -366,6 +368,7 @@ export default function AdminChefs() {
       dinnerEnabled: (chef as any).preorderSettings?.dinnerEnabled ?? true,
       dinnerMinNoticeHours: (chef as any).preorderSettings?.dinnerMinNoticeHours ?? 12,
       fulfillmentMode: (chef as any).fulfillmentMode || "both",
+      allowManualOrderAssignment: (chef as any).allowManualOrderAssignment === true,
     });
     // Initialize servicePincodes input field with comma-separated values
     const servicePincodes = (chef as any).servicePincodes;
@@ -1555,6 +1558,28 @@ export default function AdminChefs() {
                   {geocodeError}
                 </div>
               )}
+
+              {/* ✅ Manual Assignment Configuration Section - NEW */}
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-md p-4 space-y-4 mb-4">
+                <div>
+                  <p className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-3">
+                    👨‍🍳 Order Reassignment
+                  </p>
+                  <p className="text-xs text-blue-800 dark:text-blue-200 mb-3">
+                    Allow admin to manually reassign orders to this chef (used when another chef rejects an order).
+                  </p>
+                  <div className="flex items-center gap-3">
+                    <Switch
+                      id="edit-allowManualOrderAssignment"
+                      checked={(formData as any).allowManualOrderAssignment || false}
+                      onCheckedChange={(checked) => setFormData({ ...formData, allowManualOrderAssignment: checked })}
+                    />
+                    <Label htmlFor="edit-allowManualOrderAssignment" className="text-sm font-medium">
+                      Allow Manual Order Assignment
+                    </Label>
+                  </div>
+                </div>
+              </div>
 
               {/* ✅ Auto Schedule Configuration Section - NEW */}
               <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-md p-4 space-y-4">

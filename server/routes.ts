@@ -1924,7 +1924,101 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Create an order (no authentication required - supports guest checkout)
+  app.post("/api/orders/validate-preorder", async (req: any, res) => {
+    try {
+      const { chefId, deliverySlotId, deliveryDate } = req.body;
+      if (!chefId || !deliverySlotId || !deliveryDate) {
+        return res.status(400).json({ allowed: false, requiresChefConfirmation: false, warning: "Missing required fields" });
+      }
+
+      const { getBusinessToday, getBusinessTomorrow } = await import("@shared/timeFormatter");
+      let settings = await storage.getChefPreorderSettings(chefId);
+      if (!settings) {
+        settings = await storage.createChefPreorderSettings({ chefId });
+      }
+
+      const opensAt = settings.nextDayPreorderOpensAt || "22:00";
+      const [openHour, openMinute] = opensAt.split(":").map(Number);
+      
+      const now = new Date();
+      const businessTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+      
+      // Expected logic: if nextDayPreorderOpensAt hasn't passed, tomorrow is not normally available yet
+      // However, we just validate if it is expired or late based on the slot's deliveryDate.
+      const isNextDayOpen = businessTime.getHours() > openHour || (businessTime.getHours() === openHour && businessTime.getMinutes() >= openMinute);
+      
+      const todayStr = getBusinessToday();
+      const tomorrowStr = getBusinessTomorrow();
+      
+      if (deliveryDate !== todayStr && deliveryDate !== tomorrowStr) {
+         return res.json({ allowed: false, requiresChefConfirmation: false, warning: "Invalid preorder delivery date. Please refresh." });
+      }
+
+      if (deliveryDate === tomorrowStr && !isNextDayOpen) {
+         // Tomorrow is technically not open for normal preorders, but we treat it as late if it's placed. 
+         // Actually, if we allow them to order, it should just be validated normally based on notice hours.
+      }
+
+      let slotStartTime = "11:00";
+      let slotEndTime = "16:00";
+      if (deliverySlotId === 'preorder-lunch' || deliverySlotId === 'preorder-dinner') {
+         const allSettings = await db.query.adminSettings.findMany();
+         const settingsMap = Object.fromEntries(allSettings.map((s: any) => [s.key, s.value]));
+         slotStartTime = deliverySlotId === 'preorder-lunch' 
+            ? (settingsMap.preorder_lunch_start_time || "11:00") 
+            : (settingsMap.preorder_dinner_start_time || "18:00");
+         slotEndTime = deliverySlotId === 'preorder-lunch' 
+            ? (settingsMap.preorder_lunch_end_time || "16:00") 
+            : (settingsMap.preorder_dinner_end_time || "22:00");
+      } else {
+        const slot = await storage.getDeliveryTimeSlot(deliverySlotId);
+        if (!slot) {
+          return res.json({ allowed: false, requiresChefConfirmation: false, warning: "Selected delivery slot not found." });
+        }
+        slotStartTime = slot.startTime;
+        slotEndTime = slot.endTime;
+      }
+
+      // 1. Check if the slot has EXPIRED
+      const slotEndDateTime = new Date(`${deliveryDate}T${slotEndTime}:00+05:30`);
+      if (slotEndDateTime.getTime() <= now.getTime()) {
+         return res.json({ allowed: false, requiresChefConfirmation: false, warning: "This delivery slot has ended and is no longer available." });
+      }
+
+      // 2. Check if the slot is LATE
+      const slotStartDateTime = new Date(`${deliveryDate}T${slotStartTime}:00+05:30`);
+      const hoursUntilSlot = (slotStartDateTime.getTime() - now.getTime()) / (1000 * 60 * 60);
+
+      const chefLunchCutoff = settings.lunchMinNoticeHours ?? 24;
+      const chefDinnerCutoff = settings.dinnerMinNoticeHours ?? 12;
+
+      let requiredNoticeHours = 24;
+      if (deliverySlotId === 'preorder-lunch') {
+          requiredNoticeHours = chefLunchCutoff;
+      } else if (deliverySlotId === 'preorder-dinner') {
+          requiredNoticeHours = chefDinnerCutoff;
+      }
+
+      // Late preorder if they missed the cutoff (or if they are ordering for tomorrow before opensAt)
+      let isLatePreorder = false;
+      if (hoursUntilSlot < requiredNoticeHours) {
+          isLatePreorder = true;
+      } else if (deliveryDate === tomorrowStr && !isNextDayOpen) {
+          // Fallback just in case they try to bypass the UI opensAt check
+          isLatePreorder = true;
+      }
+
+      if (isLatePreorder) {
+        return res.json({ allowed: true, requiresChefConfirmation: true, warning: "Pre-order time has passed. Chef confirmation is required." });
+      }
+
+      return res.json({ allowed: true, requiresChefConfirmation: false });
+    } catch (error) {
+      console.error("Error validating preorder:", error);
+      return res.status(500).json({ allowed: false, requiresChefConfirmation: false, warning: "Failed to validate preorder." });
+    }
+  });
+
   // Create an order (no authentication required - supports guest checkout)
   app.post("/api/orders", async (req: any, res) => {
     try {
@@ -2346,6 +2440,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         // Validate backend expected date
+        let isLatePreorder = false;
         try {
           const { getBusinessToday, getBusinessTomorrow } = await import("@shared/timeFormatter");
           let settings = await storage.getChefPreorderSettings(sanitized.chefId);
@@ -2360,17 +2455,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const businessTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
           
           let expectedDate = getBusinessToday();
+          let isPastCutoff = false;
           if (businessTime.getHours() > openHour || (businessTime.getHours() === openHour && businessTime.getMinutes() >= openMinute)) {
             expectedDate = getBusinessTomorrow();
+            isPastCutoff = true;
           }
 
           if (sanitized.deliveryDate !== expectedDate) {
-            console.log(`🚫 Preorder date mismatch. Expected: ${expectedDate}, Got: ${sanitized.deliveryDate}`);
-            return res.status(400).json({
-              message: "Invalid preorder delivery date. The availability window has changed. Please refresh the page.",
-              expectedDate,
-              receivedDate: sanitized.deliveryDate
-            });
+            if (sanitized.deliveryDate === getBusinessToday() && isPastCutoff) {
+              isLatePreorder = true;
+            } else {
+              console.log(`🚫 Preorder date mismatch. Expected: ${expectedDate}, Got: ${sanitized.deliveryDate}`);
+              return res.status(400).json({
+                message: "Invalid preorder delivery date. The availability window has changed. Please refresh the page.",
+                expectedDate,
+                receivedDate: sanitized.deliveryDate
+              });
+            }
           }
         } catch (error) {
           console.error("Error validating preorder date:", error);
@@ -2390,6 +2491,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
             return res.status(400).json({ message: "Selected delivery slot not found for pre-order." });
           }
           slotStartTime = slot.startTime;
+        }
+
+        if (isLatePreorder) {
+            const now = new Date();
+            const businessTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+            const currentHour = businessTime.getHours();
+            const currentMinute = businessTime.getMinutes();
+            const currentTimeMinutes = currentHour * 60 + currentMinute;
+            const [startHour, startMinute] = slotStartTime.split(':').map(Number);
+            const slotStartMinutes = startHour * 60 + startMinute;
+            
+            if (currentTimeMinutes >= slotStartMinutes) {
+                console.log(`🚫 Late preorder blocked - delivery slot already passed. currentTime: ${currentHour}:${currentMinute}, slot: ${slotStartTime}`);
+                return res.status(400).json({
+                    message: "This delivery slot is no longer available.",
+                    slotPassed: true
+                });
+            }
+            (sanitized as any).requiresChefConfirmation = true;
+        } else {
+            (sanitized as any).requiresChefConfirmation = false;
         }
         
         // Force the deliveryTime to the start time of the slot for the DB
@@ -2636,16 +2758,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 : 0;
 
             const slotDeliveryDateTime = createBusinessDateTime(requestedDateStr, slot.startTime);
+            const slotEndDateTime = createBusinessDateTime(requestedDateStr, period === 'lunch' ? lunchEnd : dinnerEnd);
+            
             const effectiveCutoffDate = calculateEffectiveCutoff(
               slotDeliveryDateTime, 
               slot.cutoffHoursBefore || 0, 
               chefNoticeHours
             );
 
-            if (new Date() > effectiveCutoffDate) {
-              return res.status(400).json({ message: "The cutoff time for this slot has passed." });
+            // 1. Check if physically expired
+            if (new Date() > slotEndDateTime) {
+              return res.status(400).json({ message: "This delivery slot has ended and is no longer available." });
             }
-            
+
+            // 2. Check if it's a late preorder
+            if (new Date() > effectiveCutoffDate) {
+              orderPayload.requiresChefConfirmation = true;
+            }
             orderPayload.deliveryDate = requestedDateStr;
             
             // Lock slot and check capacity inside a transaction
@@ -2831,17 +2960,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
             console.log(`   ✅ Admin phone retrieved: ${adminPhone}`);
           }
 
-          console.log(`\n3️⃣ Sending WhatsApp notification to admin...`);
-          
-          //  Build complete address
-          const completeAddress = [
-            order.addressBuilding,
-            order.addressStreet,
-            order.addressArea,
-            order.addressCity,
-            order.addressPincode
-          ].filter(Boolean).join(", ");
-          
           // 📝 Ensure items is an array and not a JSON string
           let itemsArray: Array<{ name: string; quantity: number; price: number }> | undefined;
           if (typeof order.items === 'string') {
@@ -2855,17 +2973,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
           } else {
             itemsArray = undefined;
           }
-          
-          const whatsappResult = await sendOrderPlacedAdminNotification(
-            order.id,
-            order.customerName,
-            order.total,
-            adminPhone,
-            itemsArray,
-            completeAddress,
-            order.phone,
-            order.deliveryTime
-          );
+
+          const itemsText = itemsArray 
+            ? itemsArray.map(i => `${i.quantity}x ${i.name} (₹${i.price})`).join("\n")
+            : "Items not available";
+
+          // 👉 EVOLUTION GO LOCAL TESTING INTEGRATION
+          if (process.env.WHATSAPP_PROVIDER === "evolution") {
+            console.log(`\n3️⃣ 🧪 EVOLUTION GO: Sending notifications...`);
+            const { sendEvolutionTextMessage } = await import("./evolutionGoService");
+
+            const deliveryType = order.deliveryDate ? "Pre-order" : "Instant";
+            const deliveryTimeStr = order.deliveryDate 
+              ? `${order.deliveryDate} at ${order.deliveryTime || 'TBD'}`
+              : "As soon as possible";
+
+            // Chef Notification
+            if (order.chefId) {
+              const chef = await storage.getChefById(order.chefId);
+              if (chef && chef.phone) {
+                const chefMessage = `🔔 *New Order Received (Test)* 🔔\n*Order ID:* ${order.id.slice(0, 8)}\n*Customer:* ${order.customerName}\n*Type:* ${deliveryType}\n*Delivery Time:* ${deliveryTimeStr}\n\n*Items:*\n${itemsText}\n\n*Total:* ₹${order.total}`;
+                await sendEvolutionTextMessage(chef.phone, chefMessage);
+              } else {
+                console.warn(`   ❌ EVOLUTION GO: Chef phone missing for chefId ${order.chefId}`);
+              }
+            }
+
+            // Admin Notification
+            if (adminPhone) {
+              const adminMessage = `🚨 *New Order (Admin Test)* 🚨\n*Order ID:* ${order.id.slice(0, 8)}\n*Chef:* ${order.chefName || order.chefId || "Unknown"}\n*Customer:* ${order.customerName}\n*Type:* ${deliveryType}\n*Delivery Time:* ${deliveryTimeStr}\n\n*Items:*\n${itemsText}\n\n*Total:* ₹${order.total}`;
+              await sendEvolutionTextMessage(adminPhone, adminMessage);
+            }
+
+          } else {
+            // 👉 EXISTING META API LOGIC
+            console.log(`\n3️⃣ Sending WhatsApp notification to admin...`);
+            
+            //  Build complete address
+            const completeAddress = [
+              order.addressBuilding,
+              order.addressStreet,
+              order.addressArea,
+              order.addressCity,
+              order.addressPincode
+            ].filter(Boolean).join(", ");
+            
+            const whatsappResult = await sendOrderPlacedAdminNotification(
+              order.id,
+              order.customerName,
+              order.total,
+              adminPhone,
+              itemsArray,
+              completeAddress,
+              order.phone,
+              order.deliveryTime
+            );
+          }
           // Note: Actual WhatsApp send status will be visible in async logs above
           console.log(`${'='.repeat(80)}\n`);
         } catch (err) {

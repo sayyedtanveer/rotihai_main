@@ -1010,6 +1010,56 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
+  app.post("/api/admin/orders/:id/assign-chef", requireAdminOrManager(), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { chefId } = req.body;
+
+      console.log(`👨‍💼 Admin reassigning order ${id} to chef ${chefId}`);
+
+      if (!chefId) {
+        res.status(400).json({ message: "Chef ID is required" });
+        return;
+      }
+
+      const order = await storage.getOrderById(id);
+      if (!order) {
+        res.status(404).json({ message: "Order not found" });
+        return;
+      }
+
+      // Allow reassignment only before chef starts preparing
+      const assignableStatuses = ["pending", "confirmed"];
+      if (!assignableStatuses.includes(order.status)) {
+        return res.status(400).json({ 
+          message: `Order status is "${order.status}". Orders can only be reassigned to a new chef when they are pending or confirmed.`
+        });
+      }
+
+      const chef = await storage.getChefById(chefId);
+      if (!chef) {
+        res.status(404).json({ message: "Chef not found" });
+        return;
+      }
+
+      if (!chef.allowManualOrderAssignment) {
+        res.status(400).json({ message: "Selected chef is not eligible for manual reassignment" });
+        return;
+      }
+
+      const updatedOrder = await storage.updateOrderChef(id, chefId, chef.name);
+      if (updatedOrder) {
+        broadcastOrderUpdate(updatedOrder);
+        res.json(updatedOrder);
+      } else {
+        res.status(500).json({ message: "Failed to update order chef" });
+      }
+    } catch (error) {
+      console.error("Assign chef error:", error);
+      res.status(500).json({ message: "Failed to assign chef" });
+    }
+  });
+
   app.post("/api/admin/orders/:id/assign", requireAdminOrManager(), async (req, res) => {
     try {
       const { id } = req.params;

@@ -36,6 +36,7 @@ export interface IStorage {
   getOrderById(id: string): Promise<Order | undefined>;
   getAllOrders(): Promise<Order[]>;
   updateOrderStatus(id: string, status: string): Promise<Order | undefined>;
+  updateOrderChef(id: string, chefId: string, chefName: string): Promise<Order | undefined>;
   updateOrderPaymentStatus(id: string, paymentStatus: "pending" | "paid" | "confirmed"): Promise<Order | undefined>;
   deleteOrder(id: string): Promise<void>;
 
@@ -698,6 +699,13 @@ export class MemStorage implements IStorage {
     await db.delete(orders).where(eq(orders.id, id));
   }
 
+  async updateOrderChef(id: string, chefId: string, chefName: string): Promise<Order | undefined> {
+    await db.update(orders)
+      .set({ chefId, chefName })
+      .where(eq(orders.id, id));
+    return this.getOrderById(id);
+  }
+
   async getChefs(): Promise<Chef[]> {
     const result = await db.select().from(chefs);
     const settings = await db.select().from(chefPreorderSettings);
@@ -756,6 +764,7 @@ export class MemStorage implements IStorage {
       fssaiVerified: (data as any).fssaiVerified === true,
       chefType: (data as any).chefType || null,
       complianceStatus: (data as any).complianceStatus || "pending",
+      allowManualOrderAssignment: (data as any).allowManualOrderAssignment === true,
     };
 
     await db.insert(chefs).values(chefData as any);
@@ -797,6 +806,7 @@ export class MemStorage implements IStorage {
     if ((data as any).openingTime !== undefined) updateData.openingTime = (data as any).openingTime || null;
     if ((data as any).closingTime !== undefined) updateData.closingTime = (data as any).closingTime || null;
     if ((data as any).fulfillmentMode !== undefined) updateData.fulfillmentMode = (data as any).fulfillmentMode;
+    if ((data as any).allowManualOrderAssignment !== undefined) updateData.allowManualOrderAssignment = (data as any).allowManualOrderAssignment;
 
     console.log("🔥 updateChef() - Received data:", { id, incomingMaxDeliveryDistanceKm: (data as any).maxDeliveryDistanceKm, servicePincodes: (data as any).servicePincodes, updateData });
 
@@ -822,10 +832,7 @@ export class MemStorage implements IStorage {
   }
 
   async createChefPreorderSettings(data: InsertChefPreorderSettings): Promise<ChefPreorderSettings> {
-    const [settings] = await db.insert(chefPreorderSettings).values({
-      ...data,
-      id: nanoid()
-    }).returning();
+    const [settings] = await db.insert(chefPreorderSettings).values(data).returning();
     return settings;
   }
 

@@ -36,6 +36,9 @@ export default function AdminOrders() {
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
   const [selectedOrderForAssignment, setSelectedOrderForAssignment] = useState<Order | null>(null);
   const [selectedDeliveryPersonId, setSelectedDeliveryPersonId] = useState("");
+  const [assignChefDialogOpen, setAssignChefDialogOpen] = useState(false);
+  const [selectedOrderForChefAssignment, setSelectedOrderForChefAssignment] = useState<Order | null>(null);
+  const [selectedChefId, setSelectedChefId] = useState("");
   const [expandedAddresses, setExpandedAddresses] = useState<Set<string>>(new Set());
   const itemsPerPage = 100;
 
@@ -198,10 +201,6 @@ export default function AdminOrders() {
     return `${parsed.toFixed(2)} km`;
   };
 
-  const availableDeliveryPersonnel = deliveryPersonnel?.filter((dp) =>
-    dp.isActive
-  ) || [];
-
   // Listen for WebSocket order updates
   useEffect(() => {
     const token = localStorage.getItem("adminToken");
@@ -233,7 +232,6 @@ export default function AdminOrders() {
   }, []);
 
   // Refetch orders only on genuine network recovery — not tab focus.
-  // WebSocket already delivers live order events; visibilitychange was redundant.
   useEffect(() => {
     const handleOnline = () => {
       console.log("🔄 Admin Orders: Network restored, refetching missed orders...");
@@ -487,13 +485,15 @@ export default function AdminOrders() {
                         </TableCell>
                         <TableCell className="font-semibold">₹{order.total}</TableCell>
                         <TableCell>
-                          {order.chefName ? (
-                            <span className="text-sm font-medium text-primary">
-                              {order.chefName}
-                            </span>
-                          ) : (
-                            <span className="text-sm text-slate-400">-</span>
-                          )}
+                          <div className="flex flex-col gap-2 items-start">
+                            {order.chefName ? (
+                              <span className="text-sm font-medium text-primary">
+                                {order.chefName}
+                              </span>
+                            ) : (
+                              <span className="text-sm text-slate-400">-</span>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell>
                           <div className="flex flex-col gap-2">
@@ -530,6 +530,11 @@ export default function AdminOrders() {
                           <Badge className={getStatusColor(order.status)} data-testid={`badge-status-${order.id}`}>
                             {order.status.replace("_", " ").toUpperCase()}
                           </Badge>
+                          {order.requiresChefConfirmation && (
+                            <Badge variant="outline" className="mt-1 bg-orange-50 text-orange-700 border-orange-200">
+                              Late Pre-order
+                            </Badge>
+                          )}
                         </TableCell>
                         <TableCell>
                           <Select

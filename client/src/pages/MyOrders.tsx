@@ -390,6 +390,11 @@ export default function MyOrders() {
                           <Clock className="h-3 w-3 mr-1" />
                           <span className="text-xs">{activeOrder.status.toUpperCase().replace("_", " ")}</span>
                         </Badge>
+                        {activeOrder.requiresChefConfirmation && (
+                          <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200">
+                            Late Pre-order (Pending Chef Confirmation)
+                          </Badge>
+                        )}
                         <Badge className={getPaymentStatusColor(activeOrder.paymentStatus)}>
                           <CreditCard className="h-3 w-3 mr-1" />
                           <span className="text-xs">Payment: {activeOrder.paymentStatus.toUpperCase()}</span>
@@ -558,6 +563,11 @@ export default function MyOrders() {
                           <Badge className={getStatusColor(order.status)} data-testid={`badge-order-status-${order.id}`}>
                             <span className="text-xs">{order.status.replace("_", " ")}</span>
                           </Badge>
+                          {order.requiresChefConfirmation && (
+                            <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200 mt-1">
+                              Late Pre-order
+                            </Badge>
+                          )}
                         </div>
 
                         {/* Items */}
