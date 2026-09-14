@@ -720,16 +720,12 @@ export default function CheckoutDialog({
         return;
       }
       try {
-        const res = await fetch("/api/orders/validate-preorder", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            chefId: cart.chefId,
-            deliverySlotId: selectedDeliverySlotId,
-            deliveryDate: selectedDeliveryDate
-          })
+        const res = await api.post("/api/orders/validate-preorder", {
+          chefId: cart.chefId,
+          deliverySlotId: selectedDeliverySlotId,
+          deliveryDate: selectedDeliveryDate
         });
-        const data = await res.json();
+        const data = res.data;
         if (data.warning) {
           setLatePreorderWarning(data.warning);
         } else {
