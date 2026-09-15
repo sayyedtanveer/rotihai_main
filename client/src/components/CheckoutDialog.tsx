@@ -1083,14 +1083,8 @@ export default function CheckoutDialog({
     const todayStr = getBusinessDateStringFromDate(now);
     const tomorrowStr = getBusinessTomorrow();
     
-    const opensAt = chefPreorder.nextDayPreorderOpensAt || "22:00";
-    const [openHour, openMinute] = opensAt.split(":").map(Number);
-    const businessTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
-    
-    let isTomorrowOpen = false;
-    if (businessTime.getHours() > openHour || (businessTime.getHours() === openHour && businessTime.getMinutes() >= openMinute)) {
-      isTomorrowOpen = true;
-    }
+    // As per user request, tomorrow is now ALWAYS available
+    const isTomorrowOpen = true;
     
     const applicableDateStr = isTomorrowOpen ? tomorrowStr : todayStr;
     const slots = { lunch: [] as any[], dinner: [] as any[] };
