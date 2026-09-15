@@ -1937,15 +1937,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         settings = await storage.createChefPreorderSettings({ chefId });
       }
 
-      const opensAt = settings.nextDayPreorderOpensAt || "22:00";
-      const [openHour, openMinute] = opensAt.split(":").map(Number);
-      
-      const now = new Date();
-      const businessTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
-      
-      // Expected logic: if nextDayPreorderOpensAt hasn't passed, tomorrow is not normally available yet
-      // However, we just validate if it is expired or late based on the slot's deliveryDate.
-      const isNextDayOpen = businessTime.getHours() > openHour || (businessTime.getHours() === openHour && businessTime.getMinutes() >= openMinute);
+      // As per user request, tomorrow is now ALWAYS available for preorders
+      const isNextDayOpen = true;
       
       const todayStr = getBusinessToday();
       const tomorrowStr = getBusinessTomorrow();
@@ -1980,6 +1973,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // 1. Check if the slot has EXPIRED
+      const now = new Date();
       const slotEndDateTime = new Date(`${deliveryDate}T${slotEndTime}:00+05:30`);
       if (slotEndDateTime.getTime() <= now.getTime()) {
          return res.json({ allowed: false, requiresChefConfirmation: false, warning: "This delivery slot has ended and is no longer available." });
