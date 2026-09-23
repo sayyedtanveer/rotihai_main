@@ -1257,7 +1257,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/user/profile", requireUser(), async (req: AuthenticatedUserRequest, res) => {
     try {
       const userId = req.authenticatedUser!.userId;
-      const { name, email, address, latitude, longitude } = req.body;
+      const { name, email, address, latitude, longitude, defaultDeliveryAddress } = req.body;
 
       // Validate email if provided
       if (email && (typeof email !== 'string' || !email.includes('@'))) {
@@ -1274,7 +1274,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const updateData: any = {};
       if (name && typeof name === 'string') updateData.name = name.trim();
       if (email && typeof email === 'string') updateData.email = email.trim();
-      if (address && typeof address === 'string') updateData.address = address.trim();
+      
+      // Save structured address if provided, fallback to plain string
+      if (defaultDeliveryAddress && typeof defaultDeliveryAddress === 'object') {
+        updateData.address = JSON.stringify(defaultDeliveryAddress);
+      } else if (address && typeof address === 'string') {
+        updateData.address = address.trim();
+      }
+      
       if (latitude !== undefined) updateData.latitude = latitude;
       if (longitude !== undefined) updateData.longitude = longitude;
 

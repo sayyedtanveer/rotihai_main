@@ -692,6 +692,62 @@ export default function AdminPayments() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Assign Chef Dialog */}
+      <Dialog open={assignChefDialogOpen} onOpenChange={setAssignChefDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reassign Chef</DialogTitle>
+            <DialogDescription>
+              {selectedOrderForChefAssignment && (
+                <>
+                  Select a new chef for Order #{selectedOrderForChefAssignment.id.slice(0, 8)}
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            {chefs && chefs.length > 0 ? (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Select Chef</Label>
+                  <select
+                    className="w-full h-10 px-3 py-2 rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={selectedChefId}
+                    onChange={(e) => setSelectedChefId(e.target.value)}
+                  >
+                    <option value="">-- Select a Chef --</option>
+                    {chefs.map((chef: any) => (
+                      <option key={chef.id} value={chef.id}>
+                        {chef.name} {chef.isVerified ? '✓' : ''} {chef.id === selectedOrderForChefAssignment?.chefId ? '(Current)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-4 text-slate-500">
+                No chefs available.
+              </div>
+            )}
+          </div>
+          <div className="flex justify-end gap-2 mt-4">
+            <Button
+              variant="outline"
+              onClick={() => setAssignChefDialogOpen(false)}
+              disabled={assignChefMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleAssignChef}
+              disabled={!selectedChefId || assignChefMutation.isPending}
+            >
+              {assignChefMutation.isPending ? "Assigning..." : "Assign Chef"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </AdminLayout>
   );
 }
