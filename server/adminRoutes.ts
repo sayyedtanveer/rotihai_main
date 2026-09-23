@@ -1041,7 +1041,6 @@ export function registerAdminRoutes(app: Express) {
         res.status(404).json({ message: "Chef not found" });
         return;
       }
-
       if (!chef.allowManualOrderAssignment) {
         res.status(400).json({ message: "Selected chef is not eligible for manual reassignment" });
         return;

@@ -202,6 +202,7 @@ export const orders = pgTable("orders", {
   paymentQrShown: boolean("payment_qr_shown").notNull().default(false),
   chefId: text("chef_id"),
   chefName: text("chef_name"),
+  isReassigned: boolean("is_reassigned").notNull().default(false), // Track if order was reassigned to a different chef
   categoryId: varchar("category_id"), // Category of the order (for Roti validation)
   categoryName: text("category_name"), // Category name for display
   deliveryTime: text("delivery_time"), // Required for Roti orders (HH:mm format)

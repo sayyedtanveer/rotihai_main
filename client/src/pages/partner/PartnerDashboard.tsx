@@ -778,6 +778,11 @@ export default function PartnerDashboard() {
                                 Late Pre-order
                               </Badge>
                             )}
+                            {order.isReassigned && (
+                              <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 text-xs" title="This order was reassigned to you">
+                                Reassigned
+                              </Badge>
+                            )}
                           </div>
                           <p className="text-xs md:text-sm text-muted-foreground mt-1">
                             {order.customerName}
@@ -1191,6 +1196,11 @@ export default function PartnerDashboard() {
                                 Late Pre-order
                               </Badge>
                             )}
+                            {order.isReassigned && (
+                              <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 text-xs" title="This order was reassigned to you">
+                                Reassigned
+                              </Badge>
+                            )}
                             <Badge variant={order.paymentStatus === "confirmed" ? "default" : "secondary"} className="text-xs">
                               {order.paymentStatus}
                             </Badge>
@@ -1382,6 +1392,11 @@ export default function PartnerDashboard() {
                               {order.requiresChefConfirmation && (
                                 <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200 text-xs">
                                   Late Pre-order
+                                </Badge>
+                              )}
+                              {order.isReassigned && (
+                                <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 text-xs" title="This order was reassigned to you">
+                                  Reassigned
                                 </Badge>
                               )}
                               <Badge variant={order.paymentStatus === "confirmed" ? "default" : "secondary"} className="text-xs">

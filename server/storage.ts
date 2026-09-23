@@ -701,7 +701,7 @@ export class MemStorage implements IStorage {
 
   async updateOrderChef(id: string, chefId: string, chefName: string): Promise<Order | undefined> {
     await db.update(orders)
-      .set({ chefId, chefName })
+      .set({ chefId, chefName, isReassigned: true })
       .where(eq(orders.id, id));
     return this.getOrderById(id);
   }
