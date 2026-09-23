@@ -255,10 +255,10 @@ export default function AdminOrders() {
     };
   }, []);
 
-  // Refetch orders only on genuine network recovery â€” not tab focus.
+  // Refetch orders only on genuine network recovery — not tab focus.
   useEffect(() => {
     const handleOnline = () => {
-      console.log("ðŸ”„ Admin Orders: Network restored, refetching missed orders...");
+      console.log("🔄 Admin Orders: Network restored, refetching missed orders...");
       queryClient.invalidateQueries({ queryKey: ["/api/admin", "orders"] });
     };
 
@@ -338,7 +338,7 @@ export default function AdminOrders() {
             Manage customer orders and update their status
           </p>
           <p className="text-xs text-slate-500 dark:text-slate-500 mt-2">
-            Flow: Pending â†’ Confirmed (Admin) â†’ Preparing (Chef) â†’ Out for Delivery (Chef/Delivery) â†’ Delivered (Delivery)
+            Flow: Pending → Confirmed (Admin) → Preparing (Chef) → Out for Delivery (Chef/Delivery) → Delivered (Delivery)
           </p>
         </div>
 
@@ -528,7 +528,7 @@ export default function AdminOrders() {
                             ))}
                           </div>
                         </TableCell>
-                        <TableCell className="font-semibold">â‚¹{order.total}</TableCell>
+                        <TableCell className="font-semibold">₹{order.total}</TableCell>
                         <TableCell>
                           <div className="flex flex-col gap-2 items-start">
                             {order.chefName ? (
@@ -708,7 +708,7 @@ export default function AdminOrders() {
                             <div className="flex items-center gap-2">
                               <User className="h-4 w-4" />
                               <span>{person.name}</span>
-                              <span className="text-xs text-muted-foreground">â€¢ {person.phone}</span>
+                              <span className="text-xs text-muted-foreground">• {person.phone}</span>
                               <Badge
                                 variant={person.status === "available" ? "default" : "secondary"}
                                 className="ml-auto"
@@ -782,7 +782,63 @@ export default function AdminOrders() {
                       <option value="">-- Select a Chef --</option>
                       {chefs.map((chef: any) => (
                         <option key={chef.id} value={chef.id}>
-                          {chef.name} {chef.isVerified ? 'âœ“' : ''} {chef.id === selectedOrderForChefAssignment?.chefId ? '(Current)' : ''}
+                          {chef.name} {chef.isVerified ? '✓' : ''} {chef.id === selectedOrderForChefAssignment?.chefId ? '(Current)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-4 text-slate-500">
+                  No chefs available.
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 mt-4">
+              <Button
+                variant="outline"
+                onClick={() => setAssignChefDialogOpen(false)}
+                disabled={assignChefMutation.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleAssignChef}
+                disabled={!selectedChefId || assignChefMutation.isPending}
+              >
+                {assignChefMutation.isPending ? "Assigning..." : "Assign Chef"}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Assign Chef Dialog */}
+        <Dialog open={assignChefDialogOpen} onOpenChange={setAssignChefDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Reassign Chef</DialogTitle>
+              <DialogDescription>
+                {selectedOrderForChefAssignment && (
+                  <>
+                    Select a new chef for Order #{selectedOrderForChefAssignment.id.slice(0, 8)}
+                  </>
+                )}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              {chefs && chefs.length > 0 ? (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Select Chef</Label>
+                    <select
+                      className="w-full h-10 px-3 py-2 rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      value={selectedChefId}
+                      onChange={(e) => setSelectedChefId(e.target.value)}
+                    >
+                      <option value="">-- Select a Chef --</option>
+                      {chefs.map((chef: any) => (
+                        <option key={chef.id} value={chef.id}>
+                          {chef.name} {chef.isVerified ? '✓' : ''} {chef.id === selectedOrderForChefAssignment?.chefId ? '(Current)' : ''}
                         </option>
                       ))}
                     </select>
