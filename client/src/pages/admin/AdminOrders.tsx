@@ -101,6 +101,30 @@ export default function AdminOrders() {
     },
   });
 
+  const assignChefMutation = useMutation({
+    mutationFn: async ({ orderId, chefId }: { orderId: string; chefId: string }) => {
+      const response = await api.post(`/api/admin/orders/${orderId}/assign-chef`, { chefId });
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin", "orders"] });
+      setAssignChefDialogOpen(false);
+      setSelectedOrderForChefAssignment(null);
+      setSelectedChefId("");
+      toast({
+        title: "Chef Reassigned",
+        description: "Order has been reassigned to the selected chef successfully",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Reassignment failed",
+        description: error.response?.data?.message || "Failed to reassign chef",
+        variant: "destructive",
+      });
+    },
+  });
+
   const assignDeliveryMutation = useMutation({
     mutationFn: async ({ orderId, deliveryPersonId }: { orderId: string; deliveryPersonId: string }) => {
       const response = await api.post(`/api/admin/orders/${orderId}/assign`, { deliveryPersonId });
@@ -231,10 +255,10 @@ export default function AdminOrders() {
     };
   }, []);
 
-  // Refetch orders only on genuine network recovery — not tab focus.
+  // Refetch orders only on genuine network recovery â€” not tab focus.
   useEffect(() => {
     const handleOnline = () => {
-      console.log("🔄 Admin Orders: Network restored, refetching missed orders...");
+      console.log("ðŸ”„ Admin Orders: Network restored, refetching missed orders...");
       queryClient.invalidateQueries({ queryKey: ["/api/admin", "orders"] });
     };
 
@@ -249,6 +273,27 @@ export default function AdminOrders() {
     setSelectedOrderForAssignment(order);
     setSelectedDeliveryPersonId(order.assignedTo || "");
     setAssignDialogOpen(true);
+  };
+
+  const handleOpenAssignChefDialog = (order: Order) => {
+    setSelectedOrderForChefAssignment(order);
+    setSelectedChefId("");
+    setAssignChefDialogOpen(true);
+  };
+
+  const handleAssignChef = () => {
+    if (!selectedOrderForChefAssignment || !selectedChefId) {
+      toast({
+        title: "Validation error",
+        description: "Please select a chef",
+        variant: "destructive",
+      });
+      return;
+    }
+    assignChefMutation.mutate({
+      orderId: selectedOrderForChefAssignment.id,
+      chefId: selectedChefId,
+    });
   };
 
   const handleAssignDelivery = () => {
@@ -293,7 +338,7 @@ export default function AdminOrders() {
             Manage customer orders and update their status
           </p>
           <p className="text-xs text-slate-500 dark:text-slate-500 mt-2">
-            Flow: Pending → Confirmed (Admin) → Preparing (Chef) → Out for Delivery (Chef/Delivery) → Delivered (Delivery)
+            Flow: Pending â†’ Confirmed (Admin) â†’ Preparing (Chef) â†’ Out for Delivery (Chef/Delivery) â†’ Delivered (Delivery)
           </p>
         </div>
 
@@ -396,7 +441,7 @@ export default function AdminOrders() {
                             <p className="text-sm text-slate-600 dark:text-slate-400">{order.phone}</p>
                             {order.deliveryTime && (
                               <p className="text-xs font-semibold text-orange-600 bg-orange-50 dark:bg-orange-900 px-2 py-0.5 rounded mt-1 inline-block">
-                                🕐 {order.deliveryTime}
+                                ðŸ• {order.deliveryTime}
                               </p>
                             )}
                           </div>
@@ -483,13 +528,25 @@ export default function AdminOrders() {
                             ))}
                           </div>
                         </TableCell>
-                        <TableCell className="font-semibold">₹{order.total}</TableCell>
+                        <TableCell className="font-semibold">â‚¹{order.total}</TableCell>
                         <TableCell>
                           <div className="flex flex-col gap-2 items-start">
                             {order.chefName ? (
-                              <span className="text-sm font-medium text-primary">
-                                {order.chefName}
-                              </span>
+                              <>
+                                <span className="text-sm font-medium text-primary">
+                                  {order.chefName}
+                                </span>
+                                {order.status !== "delivered" && order.status !== "cancelled" && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleOpenAssignChefDialog(order)}
+                                    className="w-full text-xs h-6 mt-1 px-2"
+                                  >
+                                    Reassign
+                                  </Button>
+                                )}
+                              </>
                             ) : (
                               <span className="text-sm text-slate-400">-</span>
                             )}
@@ -651,7 +708,7 @@ export default function AdminOrders() {
                             <div className="flex items-center gap-2">
                               <User className="h-4 w-4" />
                               <span>{person.name}</span>
-                              <span className="text-xs text-muted-foreground">• {person.phone}</span>
+                              <span className="text-xs text-muted-foreground">â€¢ {person.phone}</span>
                               <Badge
                                 variant={person.status === "available" ? "default" : "secondary"}
                                 className="ml-auto"
@@ -694,6 +751,62 @@ export default function AdminOrders() {
                 data-testid="button-confirm-assign"
               >
                 {assignDeliveryMutation.isPending ? "Assigning..." : "Assign Delivery"}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Assign Chef Dialog */}
+        <Dialog open={assignChefDialogOpen} onOpenChange={setAssignChefDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Reassign Chef</DialogTitle>
+              <DialogDescription>
+                {selectedOrderForChefAssignment && (
+                  <>
+                    Select a new chef for Order #{selectedOrderForChefAssignment.id.slice(0, 8)}
+                  </>
+                )}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              {chefs && chefs.length > 0 ? (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Select Chef</Label>
+                    <select
+                      className="w-full h-10 px-3 py-2 rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      value={selectedChefId}
+                      onChange={(e) => setSelectedChefId(e.target.value)}
+                    >
+                      <option value="">-- Select a Chef --</option>
+                      {chefs.map((chef: any) => (
+                        <option key={chef.id} value={chef.id}>
+                          {chef.name} {chef.isVerified ? 'âœ“' : ''} {chef.id === selectedOrderForChefAssignment?.chefId ? '(Current)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-4 text-slate-500">
+                  No chefs available.
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 mt-4">
+              <Button
+                variant="outline"
+                onClick={() => setAssignChefDialogOpen(false)}
+                disabled={assignChefMutation.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleAssignChef}
+                disabled={!selectedChefId || assignChefMutation.isPending}
+              >
+                {assignChefMutation.isPending ? "Assigning..." : "Assign Chef"}
               </Button>
             </div>
           </DialogContent>
