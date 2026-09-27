@@ -224,28 +224,32 @@ export default function AdminProducts() {
     return category?.name || "Unknown";
   };
 
-  // Filter and sort products
+  // Pre-calculate filter matches for each product to build dependent dropdowns
+  const productMatches = (products || []).map(product => {
+    const searchLower = searchQuery.toLowerCase();
+    const categoryName = getCategoryName(product.categoryId).toLowerCase();
+    const chefName = getChefName(product.chefId).toLowerCase();
+    const sectionName = (product.section || "Others").toLowerCase();
+
+    const matchesSearch = searchQuery === "" || 
+      product.name.toLowerCase().includes(searchLower) ||
+      product.description.toLowerCase().includes(searchLower) ||
+      categoryName.includes(searchLower) ||
+      chefName.includes(searchLower) ||
+      sectionName.includes(searchLower);
+      
+    const matchesCategory = categoryFilter === "all" || categoryFilter === "" || product.categoryId === categoryFilter;
+    const matchesChef = chefFilter === "all" || chefFilter === "" || product.chefId === chefFilter;
+    const productSection = product.section || "Others";
+    const matchesSection = sectionFilter === "all" || sectionFilter === "" || productSection === sectionFilter;
+
+    return { product, matchesSearch, matchesCategory, matchesChef, matchesSection, productSection };
+  });
+
   const filteredProducts = (() => {
-    if (!products) return [];
-    
-    let filtered = products.filter((product) => {
-      // Search filter - match by name or description
-      const matchesSearch = searchQuery === "" || 
-        product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        product.description.toLowerCase().includes(searchQuery.toLowerCase());
-      
-      // Category filter ("all" means no filter)
-      const matchesCategory = categoryFilter === "all" || categoryFilter === "" || product.categoryId === categoryFilter;
-      
-      // Chef filter ("all" means no filter)
-      const matchesChef = chefFilter === "all" || chefFilter === "" || product.chefId === chefFilter;
-      
-      // Section filter
-      const productSection = product.section || "Others";
-      const matchesSection = sectionFilter === "all" || sectionFilter === "" || productSection === sectionFilter;
-      
-      return matchesSearch && matchesCategory && matchesChef && matchesSection;
-    });
+    let filtered = productMatches
+      .filter(p => p.matchesSearch && p.matchesCategory && p.matchesChef && p.matchesSection)
+      .map(p => p.product);
 
     // Sort
     filtered.sort((a, b) => {
@@ -264,7 +268,17 @@ export default function AdminProducts() {
     return filtered;
   })();
 
-  const uniqueSections = Array.from(new Set(products?.map(p => p.section || "Others") || [])).sort();
+  // Build available options for dependent dropdowns
+  const validForCategory = productMatches.filter(p => p.matchesSearch && p.matchesChef && p.matchesSection);
+  const availableCategoryIds = new Set(validForCategory.map(p => p.product.categoryId));
+  const availableCategories = (categories || []).filter(c => availableCategoryIds.has(c.id));
+
+  const validForChef = productMatches.filter(p => p.matchesSearch && p.matchesCategory && p.matchesSection);
+  const availableChefIds = new Set(validForChef.map(p => p.product.chefId));
+  const availableChefs = (chefs || []).filter(c => availableChefIds.has(c.id));
+
+  const validForSection = productMatches.filter(p => p.matchesSearch && p.matchesCategory && p.matchesChef);
+  const availableSections = Array.from(new Set(validForSection.map(p => p.productSection))).sort();
 
   return (
     <AdminLayout>
@@ -721,7 +735,7 @@ export default function AdminProducts() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Categories</SelectItem>
-                  {categories?.map((cat) => (
+                  {availableCategories.map((cat) => (
                     <SelectItem key={cat.id} value={cat.id}>
                       {cat.name}
                     </SelectItem>
@@ -736,7 +750,7 @@ export default function AdminProducts() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Sections</SelectItem>
-                  {uniqueSections.map((section) => (
+                  {availableSections.map((section) => (
                     <SelectItem key={section} value={section}>
                       {section}
                     </SelectItem>
@@ -751,7 +765,7 @@ export default function AdminProducts() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Chefs</SelectItem>
-                  {chefs?.map((chef) => (
+                  {availableChefs.map((chef) => (
                     <SelectItem key={chef.id} value={chef.id}>
                       {chef.name}
                     </SelectItem>
