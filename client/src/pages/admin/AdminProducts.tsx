@@ -31,6 +31,7 @@ export default function AdminProducts() {
   // Search and filter states
   const [searchQuery, setSearchQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [sectionFilter, setSectionFilter] = useState<string>("all");
   const [chefFilter, setChefFilter] = useState<string>("all");
   const [sortBy, setSortBy] = useState<"name" | "price" | "stock">("name");
 
@@ -239,7 +240,11 @@ export default function AdminProducts() {
       // Chef filter ("all" means no filter)
       const matchesChef = chefFilter === "all" || chefFilter === "" || product.chefId === chefFilter;
       
-      return matchesSearch && matchesCategory && matchesChef;
+      // Section filter
+      const productSection = product.section || "Others";
+      const matchesSection = sectionFilter === "all" || sectionFilter === "" || productSection === sectionFilter;
+      
+      return matchesSearch && matchesCategory && matchesChef && matchesSection;
     });
 
     // Sort
@@ -258,6 +263,8 @@ export default function AdminProducts() {
 
     return filtered;
   })();
+
+  const uniqueSections = Array.from(new Set(products?.map(p => p.section || "Others") || [])).sort();
 
   return (
     <AdminLayout>
@@ -698,7 +705,7 @@ export default function AdminProducts() {
         {/* Search and Filter Controls */}
         <Card>
           <CardContent className="pt-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
               {/* Search Input */}
               <Input
                 placeholder="Search products..."
@@ -717,6 +724,21 @@ export default function AdminProducts() {
                   {categories?.map((cat) => (
                     <SelectItem key={cat.id} value={cat.id}>
                       {cat.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              
+              {/* Section Filter */}
+              <Select value={sectionFilter} onValueChange={setSectionFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Section" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Sections</SelectItem>
+                  {uniqueSections.map((section) => (
+                    <SelectItem key={section} value={section}>
+                      {section}
                     </SelectItem>
                   ))}
                 </SelectContent>
