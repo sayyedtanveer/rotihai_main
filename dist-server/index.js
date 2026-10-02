@@ -221,8 +221,10 @@ var init_schema = __esm({
       // DATE — chef leave is date-based, no time component
       leaveEndDate: date("leave_end_date"),
       // DATE — chef leave is date-based, no time component
-      fulfillmentMode: fulfillmentModeEnum("fulfillment_mode").notNull().default("both")
+      fulfillmentMode: fulfillmentModeEnum("fulfillment_mode").notNull().default("instant"),
       // 'instant' | 'preorder' | 'both'
+      allowManualOrderAssignment: boolean("allow_manual_order_assignment").notNull().default(false)
+      // Allow admin to reassign orders to this chef manually
     });
     chefPreorderSettings = pgTable("chef_preorder_settings", {
       chefId: text("chef_id").primaryKey().references(() => chefs.id),
@@ -230,6 +232,7 @@ var init_schema = __esm({
       lunchMinNoticeHours: integer("lunch_min_notice_hours").notNull().default(24),
       dinnerEnabled: boolean("dinner_enabled").notNull().default(false),
       dinnerMinNoticeHours: integer("dinner_min_notice_hours").notNull().default(12),
+      nextDayPreorderOpensAt: varchar("next_day_preorder_opens_at", { length: 5 }).notNull().default("22:00"),
       createdAt: timestamp("created_at").notNull().defaultNow(),
       updatedAt: timestamp("updated_at").notNull().defaultNow()
     });
@@ -308,10 +311,13 @@ var init_schema = __esm({
       walletAmountUsed: integer("wallet_amount_used").notNull().default(0),
       total: integer("total").notNull(),
       status: text("status").notNull().default("pending"),
+      requiresChefConfirmation: boolean("requires_chef_confirmation").notNull().default(false),
       paymentStatus: paymentStatusEnum("payment_status").notNull().default("pending"),
       paymentQrShown: boolean("payment_qr_shown").notNull().default(false),
       chefId: text("chef_id"),
       chefName: text("chef_name"),
+      isReassigned: boolean("is_reassigned").notNull().default(false),
+      // Track if order was reassigned to a different chef
       categoryId: varchar("category_id"),
       // Category of the order (for Roti validation)
       categoryName: text("category_name"),
@@ -2022,6 +2028,10 @@ var init_storage = __esm({
       async deleteOrder(id) {
         await db.delete(orders2).where(eq(orders2.id, id));
       }
+      async updateOrderChef(id, chefId, chefName) {
+        await db.update(orders2).set({ chefId, chefName, isReassigned: true }).where(eq(orders2.id, id));
+        return this.getOrderById(id);
+      }
       async getChefs() {
         const result = await db.select().from(chefs2);
         const settings = await db.select().from(chefPreorderSettings2);
@@ -2036,7 +2046,7 @@ var init_storage = __esm({
       async getChefById(id) {
         const chef = await db.query.chefs.findFirst({ where: (c, { eq: eq11 }) => eq11(c.id, id) });
         if (!chef) return null;
-        const settings = await db.query.chefPreorderSettings.findFirst({ where: (s, { eq: eq11 }) => eq11(s.chefId, id) });
+        const [settings] = await db.select().from(chefPreorderSettings2).where(eq(chefPreorderSettings2.chefId, id));
         return { ...chef, preorderSettings: settings || null };
       }
       async getChefsByCategory(categoryId) {
@@ -2072,7 +2082,8 @@ var init_storage = __esm({
           fssaiNumber: data.fssaiNumber || null,
           fssaiVerified: data.fssaiVerified === true,
           chefType: data.chefType || null,
-          complianceStatus: data.complianceStatus || "pending"
+          complianceStatus: data.complianceStatus || "pending",
+          allowManualOrderAssignment: data.allowManualOrderAssignment === true
         };
         await db.insert(chefs2).values(chefData);
         const created = await this.getChefById(id);
@@ -2109,14 +2120,28 @@ var init_storage = __esm({
         if (data.openingTime !== void 0) updateData.openingTime = data.openingTime || null;
         if (data.closingTime !== void 0) updateData.closingTime = data.closingTime || null;
         if (data.fulfillmentMode !== void 0) updateData.fulfillmentMode = data.fulfillmentMode;
+        if (data.allowManualOrderAssignment !== void 0) updateData.allowManualOrderAssignment = data.allowManualOrderAssignment;
         console.log("\u{1F525} updateChef() - Received data:", { id, incomingMaxDeliveryDistanceKm: data.maxDeliveryDistanceKm, servicePincodes: data.servicePincodes, updateData });
-        await db.update(chefs2).set(updateData).where(eq(chefs2.id, id));
-        const chef = await this.getChefById(id);
-        return chef || void 0;
+        const [updated] = await db.update(chefs2).set(updateData).where(eq(chefs2.id, id)).returning();
+        if (!updated) return void 0;
+        const [settings] = await db.select().from(chefPreorderSettings2).where(eq(chefPreorderSettings2.chefId, id));
+        return { ...updated, preorderSettings: settings || null };
       }
       async deleteChef(id) {
-        await db.delete(chefs2).where(eq(chefs2.id, id));
-        return true;
+        const [deleted] = await db.delete(chefs2).where(eq(chefs2.id, id)).returning();
+        return !!deleted;
+      }
+      async getChefPreorderSettings(chefId) {
+        const [settings] = await db.select().from(chefPreorderSettings2).where(eq(chefPreorderSettings2.chefId, chefId));
+        return settings || null;
+      }
+      async createChefPreorderSettings(data) {
+        const [settings] = await db.insert(chefPreorderSettings2).values(data).returning();
+        return settings;
+      }
+      async updateChefPreorderSettings(chefId, data) {
+        const [settings] = await db.update(chefPreorderSettings2).set(data).where(eq(chefPreorderSettings2.chefId, chefId)).returning();
+        return settings;
       }
       async getAdminByUsername(username) {
         return db.query.adminUsers.findFirst({ where: (admin, { eq: eq11 }) => eq11(admin.username, username) });
@@ -3118,16 +3143,21 @@ var init_storage = __esm({
           }
           const detailedOrders = await Promise.all(chefOrders.map(async (order) => {
             let totalChefEarning = 0;
+            let totalRotihaiEarning = 0;
             const items = order.items.map((item) => {
               const itemChefEarning = item.hotelPrice ? Math.round(item.hotelPrice * item.quantity) : 0;
+              const itemPrice = item.price ? Math.round(item.price * item.quantity) : 0;
+              const itemRotihaiEarning = Math.max(0, itemPrice - itemChefEarning);
               totalChefEarning += itemChefEarning;
+              totalRotihaiEarning += itemRotihaiEarning;
               return {
                 id: item.id,
                 name: item.name,
                 price: item.price,
                 hotelPrice: item.hotelPrice || 0,
                 quantity: item.quantity,
-                chefEarning: itemChefEarning
+                chefEarning: itemChefEarning,
+                rotihaiEarning: itemRotihaiEarning
               };
             });
             let payout = await db.query.payoutTransactions.findFirst({
@@ -3159,6 +3189,7 @@ var init_storage = __esm({
               items,
               subtotal: order.subtotal,
               totalChefEarning,
+              totalRotihaiEarning,
               orderIncome: totalChefEarning,
               payoutId: payout?.id || null,
               paidToChef: payout?.status === "paid",
@@ -3167,9 +3198,11 @@ var init_storage = __esm({
           }));
           const totalOrders = detailedOrders.length;
           const totalChefEarnings = detailedOrders.reduce((sum, o) => sum + o.totalChefEarning, 0);
+          const totalRotihaiEarnings = detailedOrders.reduce((sum, o) => sum + o.totalRotihaiEarning, 0);
           return {
             totalOrders,
             totalChefEarnings,
+            totalRotihaiEarnings,
             orders: detailedOrders
           };
         } catch (error) {
@@ -9133,6 +9166,47 @@ Please prepare this order.`;
       res.status(500).json({ message: "Failed to reject order" });
     }
   });
+  app2.post("/api/admin/orders/:id/assign-chef", requireAdminOrManager(), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { chefId } = req.body;
+      console.log(`\u{1F468}\u200D\u{1F4BC} Admin reassigning order ${id} to chef ${chefId}`);
+      if (!chefId) {
+        res.status(400).json({ message: "Chef ID is required" });
+        return;
+      }
+      const order = await storage.getOrderById(id);
+      if (!order) {
+        res.status(404).json({ message: "Order not found" });
+        return;
+      }
+      const assignableStatuses = ["pending", "confirmed"];
+      if (!assignableStatuses.includes(order.status)) {
+        return res.status(400).json({
+          message: `Order status is "${order.status}". Orders can only be reassigned to a new chef when they are pending or confirmed.`
+        });
+      }
+      const chef = await storage.getChefById(chefId);
+      if (!chef) {
+        res.status(404).json({ message: "Chef not found" });
+        return;
+      }
+      if (!chef.allowManualOrderAssignment) {
+        res.status(400).json({ message: "Selected chef is not eligible for manual reassignment" });
+        return;
+      }
+      const updatedOrder = await storage.updateOrderChef(id, chefId, chef.name);
+      if (updatedOrder) {
+        broadcastOrderUpdate(updatedOrder);
+        res.json(updatedOrder);
+      } else {
+        res.status(500).json({ message: "Failed to update order chef" });
+      }
+    } catch (error) {
+      console.error("Assign chef error:", error);
+      res.status(500).json({ message: "Failed to assign chef" });
+    }
+  });
   app2.post("/api/admin/orders/:id/assign", requireAdminOrManager(), async (req, res) => {
     try {
       const { id } = req.params;
@@ -13394,6 +13468,38 @@ function registerPartnerRoutes(app2) {
       res.status(500).json({ message: "Failed to update product availability" });
     }
   });
+  app2.patch("/api/partner/products/:productId/fulfillment-mode", requirePartner(), async (req, res) => {
+    try {
+      const { productId } = req.params;
+      const { fulfillmentMode } = req.body;
+      const chefId = req.partner?.chefId;
+      if (!chefId) {
+        res.status(401).json({ message: "Unauthorized" });
+        return;
+      }
+      if (!["inherit", "instant", "preorder"].includes(fulfillmentMode)) {
+        res.status(400).json({ message: "Invalid fulfillment mode" });
+        return;
+      }
+      const product = await storage.getProductById(productId);
+      if (!product) {
+        res.status(404).json({ message: "Product not found" });
+        return;
+      }
+      if (product.chefId !== chefId) {
+        res.status(403).json({ message: "Unauthorized - Product does not belong to your kitchen" });
+        return;
+      }
+      const updatedProduct = await storage.updateProduct(productId, { fulfillmentMode });
+      if (updatedProduct) {
+        broadcastProductAvailabilityUpdate(updatedProduct);
+      }
+      res.json(updatedProduct);
+    } catch (error) {
+      console.error("Error updating product fulfillment mode:", error);
+      res.status(500).json({ message: "Failed to update product fulfillment mode" });
+    }
+  });
   app2.get("/api/partner/products", requirePartner(), async (req, res) => {
     try {
       const chefId = req.partner?.chefId;
@@ -13437,6 +13543,37 @@ function registerPartnerRoutes(app2) {
     } catch (error) {
       console.error("Error fetching chef details:", error);
       res.status(500).json({ message: "Failed to fetch chef details" });
+    }
+  });
+  app2.get("/api/partner/preorder-settings", requirePartner(), async (req, res) => {
+    try {
+      const chefId = req.partner?.chefId;
+      if (!chefId) {
+        res.status(401).json({ message: "Unauthorized" });
+        return;
+      }
+      let settings = await storage.getChefPreorderSettings(chefId);
+      if (!settings) {
+        settings = await storage.createChefPreorderSettings({ chefId });
+      }
+      res.json(settings);
+    } catch (error) {
+      console.error("Error fetching preorder settings:", error);
+      res.status(500).json({ message: "Failed to fetch preorder settings" });
+    }
+  });
+  app2.patch("/api/partner/preorder-settings", requirePartner(), async (req, res) => {
+    try {
+      const chefId = req.partner?.chefId;
+      if (!chefId) {
+        res.status(401).json({ message: "Unauthorized" });
+        return;
+      }
+      const updatedSettings = await storage.updateChefPreorderSettings(chefId, req.body);
+      res.json(updatedSettings);
+    } catch (error) {
+      console.error("Error updating preorder settings:", error);
+      res.status(500).json({ message: "Failed to update preorder settings" });
     }
   });
   app2.patch("/api/partner/chef/status", requirePartner(), async (req, res) => {
@@ -13551,7 +13688,7 @@ function registerPartnerRoutes(app2) {
         return;
       }
       const allOrders = await storage.getOrdersByChefId(chefId);
-      const completedOrders = allOrders.filter((o) => o.paymentStatus === "confirmed");
+      const completedOrders = allOrders.filter((o) => o.paymentStatus === "confirmed" && o.status !== "cancelled");
       const totalIncome = completedOrders.reduce((sum, order) => {
         const orderPartnerIncome = order.items.reduce((itemSum, item) => {
           const itemPrice = item.hotelPrice || item.price;
@@ -15355,6 +15492,60 @@ var init_deliveryUtils = __esm({
   }
 });
 
+// server/evolutionGoService.ts
+var evolutionGoService_exports = {};
+__export(evolutionGoService_exports, {
+  sendEvolutionTextMessage: () => sendEvolutionTextMessage
+});
+import axios2 from "axios";
+async function sendEvolutionTextMessage(phone, text2) {
+  try {
+    const baseUrl = process.env.EVOLUTION_GO_BASE_URL;
+    const apiKey = process.env.EVOLUTION_GO_API_KEY;
+    const instance = process.env.EVOLUTION_GO_INSTANCE;
+    if (!baseUrl || !apiKey || !instance) {
+      console.warn("\u26A0\uFE0F [EVOLUTION-GO] Missing configuration: EVOLUTION_GO_BASE_URL, EVOLUTION_GO_API_KEY, or EVOLUTION_GO_INSTANCE.");
+      return false;
+    }
+    const cleanPhone = phone.replace(/\D/g, "");
+    const url = `${baseUrl.replace(/\/$/, "")}/message/sendText/${instance}`;
+    console.log(`[EVOLUTION-GO] Sending message to ${cleanPhone}...`);
+    const response = await axios2.post(
+      url,
+      {
+        number: cleanPhone,
+        text: text2,
+        delay: 1e3,
+        linkPreview: false
+      },
+      {
+        headers: {
+          "apikey": apiKey,
+          "Content-Type": "application/json"
+        },
+        // Don't throw error on non-200 responses, we'll handle it
+        validateStatus: () => true
+      }
+    );
+    if (response.status >= 200 && response.status < 300) {
+      console.log(`[EVOLUTION-GO] \u2705 Message successfully sent to ${cleanPhone}.`);
+      return true;
+    } else {
+      console.error(`[EVOLUTION-GO] \u274C Failed to send message to ${cleanPhone}. Status: ${response.status}`);
+      console.error(`[EVOLUTION-GO] Response:`, response.data);
+      return false;
+    }
+  } catch (error) {
+    console.error("[EVOLUTION-GO] \u274C Error sending message:", error.message || error);
+    return false;
+  }
+}
+var init_evolutionGoService = __esm({
+  "server/evolutionGoService.ts"() {
+    "use strict";
+  }
+});
+
 // server/routes.ts
 var routes_exports = {};
 __export(routes_exports, {
@@ -15363,7 +15554,7 @@ __export(routes_exports, {
 });
 import { createServer } from "http";
 import { eq as eq9 } from "drizzle-orm";
-import axios2 from "axios";
+import axios3 from "axios";
 async function resolveRoadDistanceMultiplier() {
   let roadDistanceMultiplier = ROAD_DISTANCE_MULTIPLIER;
   try {
@@ -16261,7 +16452,7 @@ async function registerRoutes(app2) {
   app2.put("/api/user/profile", requireUser(), async (req, res) => {
     try {
       const userId = req.authenticatedUser.userId;
-      const { name, email, address, latitude, longitude } = req.body;
+      const { name, email, address, latitude, longitude, defaultDeliveryAddress } = req.body;
       if (email && (typeof email !== "string" || !email.includes("@"))) {
         res.status(400).json({ message: "Valid email is required" });
         return;
@@ -16274,7 +16465,11 @@ async function registerRoutes(app2) {
       const updateData = {};
       if (name && typeof name === "string") updateData.name = name.trim();
       if (email && typeof email === "string") updateData.email = email.trim();
-      if (address && typeof address === "string") updateData.address = address.trim();
+      if (defaultDeliveryAddress && typeof defaultDeliveryAddress === "object") {
+        updateData.address = JSON.stringify(defaultDeliveryAddress);
+      } else if (address && typeof address === "string") {
+        updateData.address = address.trim();
+      }
       if (latitude !== void 0) updateData.latitude = latitude;
       if (longitude !== void 0) updateData.longitude = longitude;
       if (Object.keys(updateData).length === 0) {
@@ -16784,6 +16979,70 @@ async function registerRoutes(app2) {
       res.status(500).json({ message: "Failed to fetch product" });
     }
   });
+  app2.post("/api/orders/validate-preorder", async (req, res) => {
+    try {
+      const { chefId, deliverySlotId, deliveryDate } = req.body;
+      if (!chefId || !deliverySlotId || !deliveryDate) {
+        return res.status(400).json({ allowed: false, requiresChefConfirmation: false, warning: "Missing required fields" });
+      }
+      const { getBusinessToday: getBusinessToday2, getBusinessTomorrow: getBusinessTomorrow2 } = await Promise.resolve().then(() => (init_timeFormatter(), timeFormatter_exports));
+      let settings = await storage.getChefPreorderSettings(chefId);
+      if (!settings) {
+        settings = await storage.createChefPreorderSettings({ chefId });
+      }
+      const isNextDayOpen = true;
+      const todayStr = getBusinessToday2();
+      const tomorrowStr = getBusinessTomorrow2();
+      if (deliveryDate !== todayStr && deliveryDate !== tomorrowStr) {
+        return res.json({ allowed: false, requiresChefConfirmation: false, warning: "Invalid preorder delivery date. Please refresh." });
+      }
+      if (deliveryDate === tomorrowStr && !isNextDayOpen) {
+      }
+      let slotStartTime = "11:00";
+      let slotEndTime = "16:00";
+      if (deliverySlotId === "preorder-lunch" || deliverySlotId === "preorder-dinner") {
+        const allSettings = await db.query.adminSettings.findMany();
+        const settingsMap = Object.fromEntries(allSettings.map((s) => [s.key, s.value]));
+        slotStartTime = deliverySlotId === "preorder-lunch" ? settingsMap.preorder_lunch_start_time || "11:00" : settingsMap.preorder_dinner_start_time || "18:00";
+        slotEndTime = deliverySlotId === "preorder-lunch" ? settingsMap.preorder_lunch_end_time || "16:00" : settingsMap.preorder_dinner_end_time || "22:00";
+      } else {
+        const slot = await storage.getDeliveryTimeSlot(deliverySlotId);
+        if (!slot) {
+          return res.json({ allowed: false, requiresChefConfirmation: false, warning: "Selected delivery slot not found." });
+        }
+        slotStartTime = slot.startTime;
+        slotEndTime = slot.endTime;
+      }
+      const now = /* @__PURE__ */ new Date();
+      const slotEndDateTime = /* @__PURE__ */ new Date(`${deliveryDate}T${slotEndTime}:00+05:30`);
+      if (slotEndDateTime.getTime() <= now.getTime()) {
+        return res.json({ allowed: false, requiresChefConfirmation: false, warning: "This delivery slot has ended and is no longer available." });
+      }
+      const slotStartDateTime = /* @__PURE__ */ new Date(`${deliveryDate}T${slotStartTime}:00+05:30`);
+      const hoursUntilSlot = (slotStartDateTime.getTime() - now.getTime()) / (1e3 * 60 * 60);
+      const chefLunchCutoff = settings.lunchMinNoticeHours ?? 24;
+      const chefDinnerCutoff = settings.dinnerMinNoticeHours ?? 12;
+      let requiredNoticeHours = 24;
+      if (deliverySlotId === "preorder-lunch") {
+        requiredNoticeHours = chefLunchCutoff;
+      } else if (deliverySlotId === "preorder-dinner") {
+        requiredNoticeHours = chefDinnerCutoff;
+      }
+      let isLatePreorder = false;
+      if (hoursUntilSlot < requiredNoticeHours) {
+        isLatePreorder = true;
+      } else if (deliveryDate === tomorrowStr && !isNextDayOpen) {
+        isLatePreorder = true;
+      }
+      if (isLatePreorder) {
+        return res.json({ allowed: true, requiresChefConfirmation: true, warning: "Pre-order time has passed. Chef confirmation is required." });
+      }
+      return res.json({ allowed: true, requiresChefConfirmation: false });
+    } catch (error) {
+      console.error("Error validating preorder:", error);
+      return res.status(500).json({ allowed: false, requiresChefConfirmation: false, warning: "Failed to validate preorder." });
+    }
+  });
   app2.post("/api/orders", async (req, res) => {
     try {
       console.log("\u{1F4E6} Incoming order body:", JSON.stringify(req.body, null, 2));
@@ -16833,7 +17092,8 @@ async function registerRoutes(app2) {
         categoryId: body.categoryId || void 0,
         categoryName: body.categoryName || void 0,
         deliveryTime: body.deliveryTime || void 0,
-        deliverySlotId: body.deliverySlotId || void 0
+        deliverySlotId: body.deliverySlotId || void 0,
+        deliveryDate: body.deliveryDate || void 0
       };
       const isRotiCategory = sanitized.categoryName?.toLowerCase() === "roti" || sanitized.categoryName?.toLowerCase().includes("roti");
       const customerLatitude = sanitizeNumber(body.customerLatitude);
@@ -17063,10 +17323,16 @@ async function registerRoutes(app2) {
             });
           }
         }
-        if (sanitized.deliverySlotId) {
+        if (sanitized.deliverySlotId && req.body.effectiveMode !== "preorder") {
           const slot = await storage.getDeliveryTimeSlot(sanitized.deliverySlotId);
           if (!slot) {
-            return res.status(400).json({ message: "Selected delivery slot not found" });
+            return res.status(400).json({
+              message: "Selected delivery slot not found",
+              debug_line: 2301,
+              debug_effectiveMode: req.body.effectiveMode,
+              debug_type: typeof req.body.effectiveMode,
+              debug_keys: Object.keys(req.body)
+            });
           }
           const cutoffInfo = computeSlotCutoffInfo(slot);
           if (cutoffInfo.inMorningRestriction && cutoffInfo.isMorningSlot) {
@@ -17085,6 +17351,85 @@ async function registerRoutes(app2) {
         } else {
           console.log(`\u23F0 No slot selected: Order will be treated as regular order (not scheduled)`);
         }
+      }
+      if (req.body.effectiveMode === "preorder") {
+        if (!sanitized.deliverySlotId || !sanitized.deliveryDate) {
+          return res.status(400).json({
+            message: "Pre-order requires both delivery slot and delivery date selection.",
+            debug: {
+              slotId: sanitized.deliverySlotId,
+              date: sanitized.deliveryDate,
+              bodyDate: req.body.deliveryDate
+            }
+          });
+        }
+        let isLatePreorder = false;
+        try {
+          const { getBusinessToday: getBusinessToday2, getBusinessTomorrow: getBusinessTomorrow2 } = await Promise.resolve().then(() => (init_timeFormatter(), timeFormatter_exports));
+          let settings = await storage.getChefPreorderSettings(sanitized.chefId);
+          if (!settings) {
+            settings = await storage.createChefPreorderSettings({ chefId: sanitized.chefId });
+          }
+          const opensAt = settings.nextDayPreorderOpensAt || "22:00";
+          const [openHour, openMinute] = opensAt.split(":").map(Number);
+          const now = /* @__PURE__ */ new Date();
+          const businessTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+          let expectedDate = getBusinessToday2();
+          let isPastCutoff = false;
+          if (businessTime.getHours() > openHour || businessTime.getHours() === openHour && businessTime.getMinutes() >= openMinute) {
+            expectedDate = getBusinessTomorrow2();
+            isPastCutoff = true;
+          }
+          if (sanitized.deliveryDate !== expectedDate) {
+            if (sanitized.deliveryDate === getBusinessToday2() && isPastCutoff) {
+              isLatePreorder = true;
+            } else {
+              console.log(`\u{1F6AB} Preorder date mismatch. Expected: ${expectedDate}, Got: ${sanitized.deliveryDate}`);
+              return res.status(400).json({
+                message: "Invalid preorder delivery date. The availability window has changed. Please refresh the page.",
+                expectedDate,
+                receivedDate: sanitized.deliveryDate
+              });
+            }
+          }
+        } catch (error) {
+          console.error("Error validating preorder date:", error);
+        }
+        let slotStartTime = "11:00";
+        if (sanitized.deliverySlotId === "preorder-lunch" || sanitized.deliverySlotId === "preorder-dinner") {
+          const allSettings = await db.query.adminSettings.findMany();
+          const settingsMap = Object.fromEntries(allSettings.map((s) => [s.key, s.value]));
+          slotStartTime = sanitized.deliverySlotId === "preorder-lunch" ? settingsMap.preorder_lunch_start_time || "11:00" : settingsMap.preorder_dinner_start_time || "18:00";
+        } else {
+          const slot = await storage.getDeliveryTimeSlot(sanitized.deliverySlotId);
+          if (!slot) {
+            return res.status(400).json({ message: "Selected delivery slot not found for pre-order." });
+          }
+          slotStartTime = slot.startTime;
+        }
+        if (isLatePreorder) {
+          const now = /* @__PURE__ */ new Date();
+          const businessTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+          const currentHour = businessTime.getHours();
+          const currentMinute = businessTime.getMinutes();
+          const currentTimeMinutes = currentHour * 60 + currentMinute;
+          const [startHour, startMinute] = slotStartTime.split(":").map(Number);
+          const slotStartMinutes = startHour * 60 + startMinute;
+          if (currentTimeMinutes >= slotStartMinutes) {
+            console.log(`\u{1F6AB} Late preorder blocked - delivery slot already passed. currentTime: ${currentHour}:${currentMinute}, slot: ${slotStartTime}`);
+            return res.status(400).json({
+              message: "This delivery slot is no longer available.",
+              slotPassed: true
+            });
+          }
+          sanitized.requiresChefConfirmation = true;
+        } else {
+          sanitized.requiresChefConfirmation = false;
+        }
+        sanitized.deliveryTime = slotStartTime;
+      }
+      if (sanitized.effectiveMode !== void 0) {
+        delete sanitized.effectiveMode;
       }
       if (sanitized.deliveryTime === void 0) {
         delete sanitized.deliveryTime;
@@ -17198,13 +17543,30 @@ async function registerRoutes(app2) {
         return res.status(400).json({ message: "Order contains items from multiple chefs. Please checkout each chef's cart separately." });
       }
       let order;
+      const { randomUUID: randomUUID2 } = await import("crypto");
+      orderPayload.id = randomUUID2();
       if (orderPayload.deliverySlotId) {
         try {
-          const slot = await storage.getDeliveryTimeSlot(orderPayload.deliverySlotId);
-          if (!slot) {
-            return res.status(400).json({ message: "Selected delivery slot not found" });
+          const isPreorder = req.body.effectiveMode === "preorder" || typeof orderPayload.deliverySlotId === "string" && orderPayload.deliverySlotId.startsWith("preorder-");
+          let slot = null;
+          if (isPreorder && (orderPayload.deliverySlotId === "preorder-lunch" || orderPayload.deliverySlotId === "preorder-dinner")) {
+            const allSettings = await db.query.adminSettings.findMany();
+            const settingsMap = Object.fromEntries(allSettings.map((s) => [s.key, s.value]));
+            const startTime = orderPayload.deliverySlotId === "preorder-lunch" ? settingsMap.preorder_lunch_start_time || "11:00" : settingsMap.preorder_dinner_start_time || "18:00";
+            slot = { id: orderPayload.deliverySlotId, startTime };
+          } else {
+            slot = await storage.getDeliveryTimeSlot(orderPayload.deliverySlotId);
           }
-          const isPreorder = !!req.body.deliveryDate;
+          if (!slot) {
+            return res.status(400).json({
+              message: "Selected delivery slot not found",
+              debug_isPreorder: isPreorder,
+              debug_bodyDate: req.body.deliveryDate,
+              debug_slotId: orderPayload.deliverySlotId,
+              debug_effectiveMode: req.body.effectiveMode,
+              debug_allKeys: Object.keys(req.body)
+            });
+          }
           if (isPreorder) {
             const {
               getBusinessTomorrow: getBusinessTomorrow2,
@@ -17216,10 +17578,6 @@ async function registerRoutes(app2) {
               calculateEffectiveCutoff: calculateEffectiveCutoff2
             } = await Promise.resolve().then(() => (init_deliveryUtils(), deliveryUtils_exports));
             const requestedDateStr = req.body.deliveryDate;
-            const businessTomorrowStr = getBusinessTomorrow2();
-            if (requestedDateStr !== businessTomorrowStr) {
-              return res.status(400).json({ message: "Pre-orders are currently restricted to Tomorrow only." });
-            }
             if (chefFromDb?.leaveStartDate && chefFromDb?.leaveEndDate) {
               if (requestedDateStr >= chefFromDb.leaveStartDate && requestedDateStr <= chefFromDb.leaveEndDate) {
                 return res.status(400).json({ message: "Chef is on leave on the selected date." });
@@ -17242,33 +17600,43 @@ async function registerRoutes(app2) {
             const period = classifySlotMealPeriod2(slot.startTime, boundaries);
             const chefNoticeHours = period === "lunch" ? chefFromDb?.preorderSettings?.lunchMinNoticeHours || 0 : period === "dinner" ? chefFromDb?.preorderSettings?.dinnerMinNoticeHours || 0 : 0;
             const slotDeliveryDateTime = createBusinessDateTime2(requestedDateStr, slot.startTime);
+            const slotEndDateTime = createBusinessDateTime2(requestedDateStr, period === "lunch" ? lunchEnd : dinnerEnd);
             const effectiveCutoffDate = calculateEffectiveCutoff2(
               slotDeliveryDateTime,
               slot.cutoffHoursBefore || 0,
               chefNoticeHours
             );
+            if (/* @__PURE__ */ new Date() > slotEndDateTime) {
+              return res.status(400).json({ message: "This delivery slot has ended and is no longer available." });
+            }
             if (/* @__PURE__ */ new Date() > effectiveCutoffDate) {
-              return res.status(400).json({ message: "The cutoff time for this slot has passed." });
+              orderPayload.requiresChefConfirmation = true;
             }
             orderPayload.deliveryDate = requestedDateStr;
-            await db.transaction(async (tx) => {
-              const { deliveryTimeSlots: deliveryTimeSlots3, orders: orders3 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-              const { eq: eq11, and: and7, not, sql: sql7 } = await import("drizzle-orm");
-              const [lockedSlot] = await tx.select().from(deliveryTimeSlots3).where(eq11(deliveryTimeSlots3.id, orderPayload.deliverySlotId)).for("update");
-              if (!lockedSlot || !lockedSlot.isActive) {
-                throw new Error("Invalid or inactive delivery slot.");
-              }
-              const [result2] = await tx.select({ count: sql7`count(*)` }).from(orders3).where(and7(
-                eq11(orders3.deliveryDate, requestedDateStr),
-                eq11(orders3.deliverySlotId, lockedSlot.id),
-                not(eq11(orders3.status, "cancelled"))
-              ));
-              if (result2.count >= lockedSlot.capacity) {
-                throw new Error("This delivery slot is fully booked. Please select another slot.");
-              }
-              const [createdOrder] = await tx.insert(orders3).values(orderPayload).returning();
+            if (orderPayload.deliverySlotId === "preorder-lunch" || orderPayload.deliverySlotId === "preorder-dinner") {
+              const { orders: orders3 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+              const [createdOrder] = await db.insert(orders3).values(orderPayload).returning();
               order = createdOrder;
-            });
+            } else {
+              await db.transaction(async (tx) => {
+                const { deliveryTimeSlots: deliveryTimeSlots3, orders: orders3 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+                const { eq: eq11, and: and7, not, sql: sql7 } = await import("drizzle-orm");
+                const [lockedSlot] = await tx.select().from(deliveryTimeSlots3).where(eq11(deliveryTimeSlots3.id, orderPayload.deliverySlotId)).for("update");
+                if (!lockedSlot || !lockedSlot.isActive) {
+                  throw new Error("Invalid or inactive delivery slot.");
+                }
+                const [result2] = await tx.select({ count: sql7`count(*)` }).from(orders3).where(and7(
+                  eq11(orders3.deliveryDate, requestedDateStr),
+                  eq11(orders3.deliverySlotId, lockedSlot.id),
+                  not(eq11(orders3.status, "cancelled"))
+                ));
+                if (result2.count >= lockedSlot.capacity) {
+                  throw new Error("This delivery slot is fully booked. Please select another slot.");
+                }
+                const [createdOrder] = await tx.insert(orders3).values(orderPayload).returning();
+                order = createdOrder;
+              });
+            }
           } else {
             const cutoffInfo = computeSlotCutoffInfo(slot);
             const deliveryDate = cutoffInfo.nextAvailableDate;
@@ -17383,15 +17751,6 @@ ${"=".repeat(80)}`);
           } else {
             console.log(`   \u2705 Admin phone retrieved: ${adminPhone}`);
           }
-          console.log(`
-3\uFE0F\u20E3 Sending WhatsApp notification to admin...`);
-          const completeAddress = [
-            order.addressBuilding,
-            order.addressStreet,
-            order.addressArea,
-            order.addressCity,
-            order.addressPincode
-          ].filter(Boolean).join(", ");
           let itemsArray;
           if (typeof order.items === "string") {
             try {
@@ -17404,16 +17763,66 @@ ${"=".repeat(80)}`);
           } else {
             itemsArray = void 0;
           }
-          const whatsappResult = await sendOrderPlacedAdminNotification(
-            order.id,
-            order.customerName,
-            order.total,
-            adminPhone,
-            itemsArray,
-            completeAddress,
-            order.phone,
-            order.deliveryTime
-          );
+          const itemsText = itemsArray ? itemsArray.map((i) => `${i.quantity}x ${i.name} (\u20B9${i.price})`).join("\n") : "Items not available";
+          if (process.env.WHATSAPP_PROVIDER === "evolution") {
+            console.log(`
+3\uFE0F\u20E3 \u{1F9EA} EVOLUTION GO: Sending notifications...`);
+            const { sendEvolutionTextMessage: sendEvolutionTextMessage2 } = await Promise.resolve().then(() => (init_evolutionGoService(), evolutionGoService_exports));
+            const deliveryType = order.deliveryDate ? "Pre-order" : "Instant";
+            const deliveryTimeStr = order.deliveryDate ? `${order.deliveryDate} at ${order.deliveryTime || "TBD"}` : "As soon as possible";
+            if (order.chefId) {
+              const chef2 = await storage.getChefById(order.chefId);
+              if (chef2 && chef2.phone) {
+                const chefMessage = `\u{1F514} *New Order Received (Test)* \u{1F514}
+*Order ID:* ${order.id.slice(0, 8)}
+*Customer:* ${order.customerName}
+*Type:* ${deliveryType}
+*Delivery Time:* ${deliveryTimeStr}
+
+*Items:*
+${itemsText}
+
+*Total:* \u20B9${order.total}`;
+                await sendEvolutionTextMessage2(chef2.phone, chefMessage);
+              } else {
+                console.warn(`   \u274C EVOLUTION GO: Chef phone missing for chefId ${order.chefId}`);
+              }
+            }
+            if (adminPhone) {
+              const adminMessage = `\u{1F6A8} *New Order (Admin Test)* \u{1F6A8}
+*Order ID:* ${order.id.slice(0, 8)}
+*Chef:* ${order.chefName || order.chefId || "Unknown"}
+*Customer:* ${order.customerName}
+*Type:* ${deliveryType}
+*Delivery Time:* ${deliveryTimeStr}
+
+*Items:*
+${itemsText}
+
+*Total:* \u20B9${order.total}`;
+              await sendEvolutionTextMessage2(adminPhone, adminMessage);
+            }
+          } else {
+            console.log(`
+3\uFE0F\u20E3 Sending WhatsApp notification to admin...`);
+            const completeAddress = [
+              order.addressBuilding,
+              order.addressStreet,
+              order.addressArea,
+              order.addressCity,
+              order.addressPincode
+            ].filter(Boolean).join(", ");
+            const whatsappResult = await sendOrderPlacedAdminNotification(
+              order.id,
+              order.customerName,
+              order.total,
+              adminPhone,
+              itemsArray,
+              completeAddress,
+              order.phone,
+              order.deliveryTime
+            );
+          }
           console.log(`${"=".repeat(80)}
 `);
         } catch (err) {
@@ -20196,7 +20605,7 @@ Please accept and start preparation.`;
       console.log(`[GEOCODE] Attempting to geocode: "${query}"`);
       const geocodeQuery = async (searchQuery) => {
         try {
-          const response = await axios2.get("https://nominatim.openstreetmap.org/search", {
+          const response = await axios3.get("https://nominatim.openstreetmap.org/search", {
             params: {
               q: searchQuery,
               format: "json",
@@ -20474,7 +20883,7 @@ Please accept and start preparation.`;
       console.log(`[PINCODE-VALIDATION] Pincode ${pincodeStr} not found in admin-configured pincodes, falling back to geocoding...`);
       const query = `${pincodeStr}, Mumbai, India`;
       try {
-        const response = await axios2.get("https://nominatim.openstreetmap.org/search", {
+        const response = await axios3.get("https://nominatim.openstreetmap.org/search", {
           params: {
             q: query,
             format: "json",
@@ -20575,7 +20984,7 @@ Please accept and start preparation.`;
           const addressParts = [building, street, area, pincode, "Mumbai", "India"].filter(Boolean);
           const fullAddress = addressParts.join(", ");
           console.log(`[GEOCODE-FULL] 1. Requesting Google API: "${fullAddress}"`);
-          let response = await axios2.get("https://maps.googleapis.com/maps/api/geocode/json", {
+          let response = await axios3.get("https://maps.googleapis.com/maps/api/geocode/json", {
             params: {
               address: fullAddress,
               key: apiKey
@@ -20588,7 +20997,7 @@ Please accept and start preparation.`;
             const fallbackParts = [street, area, pincode, "Mumbai", "India"].filter(Boolean);
             const fallbackAddress = fallbackParts.join(", ");
             console.log(`\u26A0\uFE0F [GEOCODE-FULL] Google API returned ${status} for full address. Trying fallback without building detail: "${fallbackAddress}"`);
-            response = await axios2.get("https://maps.googleapis.com/maps/api/geocode/json", {
+            response = await axios3.get("https://maps.googleapis.com/maps/api/geocode/json", {
               params: {
                 address: fallbackAddress,
                 key: apiKey
@@ -20639,7 +21048,7 @@ Please accept and start preparation.`;
           const addressParts = [building, street, area, pincode, "Mumbai", "India"].filter(Boolean);
           const textQuery = addressParts.join(", ");
           console.log(`[GEOCODE-FULL] 2. Trying Google Places New API Fallback: "${textQuery}"`);
-          let response = await axios2.post(
+          let response = await axios3.post(
             "https://places.googleapis.com/v1/places:searchText",
             { textQuery },
             {
@@ -20656,7 +21065,7 @@ Please accept and start preparation.`;
             const fallbackParts = [street, area, pincode, "Mumbai", "India"].filter(Boolean);
             const fallbackQuery = fallbackParts.join(", ");
             console.log(`\u26A0\uFE0F [GEOCODE-FULL] Google Places returned no results for textQuery. Trying fallback query without building detail: "${fallbackQuery}"`);
-            response = await axios2.post(
+            response = await axios3.post(
               "https://places.googleapis.com/v1/places:searchText",
               { textQuery: fallbackQuery },
               {
@@ -20693,7 +21102,7 @@ Please accept and start preparation.`;
       };
       const tryGeocode = async (query) => {
         try {
-          const response = await axios2.get("https://nominatim.openstreetmap.org/search", {
+          const response = await axios3.get("https://nominatim.openstreetmap.org/search", {
             params: {
               q: query,
               format: "json",

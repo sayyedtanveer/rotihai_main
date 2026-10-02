@@ -3874,62 +3874,83 @@ export default function CheckoutDialog({
                                     ) : (
                                     // 🟢 Instant/Roti Standard Slots Rendering
                                     <>
-                                      {deliverySlots.filter(
-                                        (slot) =>
-                                          slot.isActive &&
-                                          slot.currentOrders < slot.capacity,
-                                      ).map((slot) => {
-                                        const cutoff = slotCutoffMap[slot.id];
-                                        const slotsLeft =
-                                          slot.capacity - slot.currentOrders;
-                                        const now = new Date();
-                                        const currentHour = now.getHours();
+                                      {(() => {
+                                        const validSlots = deliverySlots.filter(
+                                          (slot) => slot.isActive && slot.currentOrders < slot.capacity
+                                        );
+                                        
+                                        const todaySlots = validSlots
+                                          .filter(slot => !slotCutoffMap[slot.id]?.slotHasPassed)
+                                          .sort((a, b) => a.startTime.localeCompare(b.startTime));
+                                          
+                                        const tomorrowSlots = validSlots
+                                          .filter(slot => slotCutoffMap[slot.id]?.slotHasPassed)
+                                          .sort((a, b) => a.startTime.localeCompare(b.startTime));
+                                          
+                                        const renderSlot = (slot: any) => {
+                                          const cutoff = slotCutoffMap[slot.id];
+                                          const slotsLeft = slot.capacity - slot.currentOrders;
+                                          const now = new Date();
+                                          const currentHour = now.getHours();
 
-                                        // Check if we're in morning restriction period (8 AM - 11 AM)
-                                        const inMorningRestriction =
-                                          currentHour >= 8 && currentHour < 11;
-                                        const isDisabled =
-                                          cutoff?.isMorningSlot &&
-                                          inMorningRestriction;
+                                          const inMorningRestriction = currentHour >= 8 && currentHour < 11;
+                                          const isDisabled = cutoff?.isMorningSlot && inMorningRestriction;
 
-                                        const formattedStart = formatTo12Hour(slot.startTime);
-                                        const formattedEnd = formatTo12Hour(slot.endTime);
+                                          const formattedStart = formatTo12Hour(slot.startTime);
+                                          const formattedEnd = formatTo12Hour(slot.endTime);
 
-                                        return (
-                                          <SelectItem
-                                            key={slot.id}
-                                            value={slot.id}
-                                            data-testid={`delivery-slot-${slot.id}`}
-                                            className="w-full py-3"
-                                            disabled={isDisabled}
-                                          >
-                                            <div className="flex flex-col w-full gap-0.5">
-                                              <span className="font-medium text-sm">
-                                                {cutoff?.deliveryDateLabel} • {formattedStart} – {formattedEnd}
-                                              </span>
-                                              <span className="text-xs text-muted-foreground">
-                                                {slotsLeft} slots left
-                                                {cutoff?.slotHasPassed &&
-                                                  " (Next day)"}
-                                              </span>
-                                              {isDisabled && (
-                                                <span className="text-xs text-red-500 mt-1">
-                                                  Not available 8-11 AM
+                                          return (
+                                            <SelectItem
+                                              key={slot.id}
+                                              value={slot.id}
+                                              data-testid={`delivery-slot-${slot.id}`}
+                                              className="w-full py-3"
+                                              disabled={isDisabled}
+                                            >
+                                              <div className="flex flex-col w-full gap-0.5">
+                                                <span className="font-medium text-sm">
+                                                  {cutoff?.deliveryDateLabel} • {formattedStart} – {formattedEnd}
                                                 </span>
+                                                <span className="text-xs text-muted-foreground">
+                                                  {slotsLeft} slots left
+                                                  {cutoff?.slotHasPassed && " (Next day)"}
+                                                </span>
+                                                {isDisabled && (
+                                                  <span className="text-xs text-red-500 mt-1">
+                                                    Not available 8-11 AM
+                                                  </span>
+                                                )}
+                                              </div>
+                                            </SelectItem>
+                                          );
+                                        };
+                                        
+                                        return (
+                                          <div className="w-full">
+                                            <div className="p-2">
+                                              {todaySlots.length > 0 && (
+                                                <>
+                                                  <p className="text-xs font-semibold text-muted-foreground mt-2 mb-1">📅 Today</p>
+                                                  {todaySlots.map(renderSlot)}
+                                                </>
+                                              )}
+                                              
+                                              {tomorrowSlots.length > 0 && (
+                                                <>
+                                                  <p className="text-xs font-semibold text-muted-foreground mt-2 mb-1">📅 Tomorrow</p>
+                                                  {tomorrowSlots.map(renderSlot)}
+                                                </>
+                                              )}
+                                              
+                                              {validSlots.length === 0 && (
+                                                <SelectItem value="none" disabled>
+                                                  No delivery slots available
+                                                </SelectItem>
                                               )}
                                             </div>
-                                          </SelectItem>
+                                          </div>
                                         );
-                                      })}
-                                      {deliverySlots.filter(
-                                        (slot) =>
-                                          slot.isActive &&
-                                          slot.currentOrders < slot.capacity,
-                                      ).length === 0 && (
-                                        <SelectItem value="none" disabled>
-                                          No delivery slots available
-                                        </SelectItem>
-                                      )}
+                                      })()}
                                     </>
                                   )}
                               </SelectContent>
