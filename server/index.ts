@@ -644,11 +644,12 @@ app.use((req, res, next) => {
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || '5000', 10);
-  server.listen({
-    port,
-    host: "0.0.0.0",
-    reusePort: true,
-  }, () => {
+  // reusePort is Linux/macOS only — omit on Windows to avoid ENOTSUP
+  const listenOptions: Record<string, unknown> = { port, host: "0.0.0.0" };
+  if (process.platform !== "win32") {
+    listenOptions.reusePort = true;
+  }
+  server.listen(listenOptions, () => {
     log(`serving on port ${port}`);
 
     // ✅ Diagnostics: Show JWT configuration on startup

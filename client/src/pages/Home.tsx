@@ -1106,6 +1106,55 @@ export default function Home() {
           onSkip={handleStreetRefinementSkip}
         />
 
+        {/* ── Subscription Promo Card — always visible, opens existing SubscriptionDrawer ── */}
+        <section
+          className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-8 pt-4 pb-1"
+          data-testid="section-subscription-promo"
+        >
+          <div
+            className="relative overflow-hidden rounded-2xl cursor-pointer group"
+            onClick={() => setIsSubscriptionOpen(true)}
+            role="button"
+            aria-label="Explore meal plans"
+            data-testid="button-subscription-promo"
+          >
+            {/* Background gradient */}
+            <div className="absolute inset-0 bg-gradient-to-r from-orange-600 via-amber-500 to-yellow-500" />
+
+            {/* Decorative food emojis */}
+            <div className="absolute inset-0 overflow-hidden pointer-events-none select-none" aria-hidden="true">
+              <span className="absolute top-2 left-3 text-5xl opacity-20">🫓</span>
+              <span className="absolute bottom-1 right-10 text-4xl opacity-20">🍛</span>
+              <span className="absolute top-1/2 right-3 -translate-y-1/2 text-3xl opacity-20">🥘</span>
+            </div>
+
+            {/* Content */}
+            <div className="relative z-10 px-4 py-4 sm:px-6 sm:py-5 flex items-center justify-between gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <CalendarClock className="h-4 w-4 sm:h-5 sm:w-5 text-white flex-shrink-0" />
+                  <span className="text-[11px] sm:text-xs font-semibold text-white/80 uppercase tracking-wide">
+                    Meal Plans
+                  </span>
+                </div>
+                <h3 className="text-base sm:text-xl font-bold text-white leading-tight">
+                  Your Daily Meals, Sorted!
+                </h3>
+                <p className="text-xs sm:text-sm text-white/85 mt-0.5">
+                  Weekly &amp; monthly homemade meal plans — save more, eat better.
+                </p>
+              </div>
+
+              <div className="flex-shrink-0">
+                <span className="inline-flex items-center gap-1.5 bg-white text-orange-600 font-semibold text-xs sm:text-sm px-3 py-2 rounded-full shadow group-hover:bg-orange-50 transition-colors whitespace-nowrap">
+                  Explore Plans
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </span>
+              </div>
+            </div>
+          </div>
+        </section>
+
         {/* 🎁 Referral Bonus Banner */}
         <ReferralBonusBanner />
 

@@ -2,6 +2,11 @@ import { X, Share, Bell, Plus } from "lucide-react";
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 
+// Module-level flag — survives component remounts within the same browser session.
+// Ensures "Got it" truly dismisses the popup even if localStorage is unavailable
+// (iOS private/incognito mode silently blocks localStorage writes).
+let dismissedThisSession = false;
+
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
@@ -26,6 +31,9 @@ export function InstallPrompt({ streetRefinementDone = false }: InstallPromptPro
   // PHASE 1: Detect device type and register event listeners
   // Do NOT schedule Install Prompt display here — only detect and store events
   useEffect(() => {
+    // Already dismissed during this browser session — never show again
+    if (dismissedThisSession) return;
+
     const isStandalone =
       window.matchMedia("(display-mode: standalone)").matches ||
       (window.navigator as any).standalone === true;
@@ -33,7 +41,10 @@ export function InstallPrompt({ streetRefinementDone = false }: InstallPromptPro
     if (isStandalone) return;
 
     const DISMISS_KEY = "pwa-install-dismissed-v2";
-    const dismissedAt = localStorage.getItem(DISMISS_KEY);
+    // Check both localStorage and sessionStorage — iOS private mode blocks localStorage
+    let dismissedAt: string | null = null;
+    try { dismissedAt = localStorage.getItem(DISMISS_KEY); } catch {}
+    if (!dismissedAt) { try { dismissedAt = sessionStorage.getItem(DISMISS_KEY); } catch {} }
     if (dismissedAt) {
       const hoursSinceDismiss = (Date.now() - parseInt(dismissedAt)) / (1000 * 60 * 60);
       if (hoursSinceDismiss < 24) return;
@@ -81,8 +92,12 @@ export function InstallPrompt({ streetRefinementDone = false }: InstallPromptPro
   };
 
   const handleDismiss = () => {
+    dismissedThisSession = true; // session-level guard — survives remounts
     setShowPrompt(false);
-    localStorage.setItem("pwa-install-dismissed-v2", Date.now().toString());
+    const now = Date.now().toString();
+    try { localStorage.setItem("pwa-install-dismissed-v2", now); } catch {}
+    // Fallback for iOS private mode where localStorage is blocked
+    try { sessionStorage.setItem("pwa-install-dismissed-v2", now); } catch {}
   };
 
   if (!showPrompt) return null;
@@ -90,11 +105,15 @@ export function InstallPrompt({ streetRefinementDone = false }: InstallPromptPro
   if (isIOS) {
     return (
       <>
+        {/* Backdrop — role="button" + cursor-pointer required for iOS Safari tap events */}
         <div
-          className="fixed inset-0 bg-black/50 z-[200]"
+          className="fixed inset-0 bg-black/50 z-[200] cursor-pointer"
           onClick={handleDismiss}
+          role="button"
+          aria-label="Close notification prompt"
         />
-        <div className="fixed bottom-0 left-0 right-0 z-[201] bg-white rounded-t-2xl shadow-2xl px-5 pt-5 pb-10" style={{animation: 'slideUp 0.3s ease-out'}}>
+        {/* pb-[env(safe-area-inset-bottom,40px)] prevents iOS Safari bottom chrome from hiding "Got it" */}
+        <div className="fixed bottom-0 left-0 right-0 z-[201] bg-white rounded-t-2xl shadow-2xl px-5 pt-5" style={{paddingBottom: 'max(40px, env(safe-area-inset-bottom, 40px))', animation: 'slideUp 0.3s ease-out'}}>
           <div className="flex items-start justify-between mb-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-orange-100 flex items-center justify-center flex-shrink-0">
