@@ -7,6 +7,7 @@ import { useCustomerNotifications } from "@/hooks/useCustomerNotifications";
 import { getImageUrl, handleImageError } from "@/lib/imageUrl";
 import { groupProductsBySection } from "@/utils/productGrouping";
 import { formatTime12Hour } from "@shared/timeFormatter";
+import { VariantSelectorDialog } from "@/components/VariantSelectorDialog";
 import { useState, useRef } from "react";
 
 const hasImage = (url: string | null | undefined): url is string =>
@@ -41,9 +42,50 @@ export default function CategoryMenuDrawer({
   const [searchQuery, setSearchQuery] = useState("");
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
   const [showSectionNav, setShowSectionNav] = useState(false);
+  const [variantDialogOpen, setVariantDialogOpen] = useState(false);
+  const [selectedProductForVariant, setSelectedProductForVariant] = useState<Product | null>(null);
   const sectionRefsMap = useRef<Record<string, HTMLDivElement | null>>({});
 
   if (!isOpen || !category || !chef) return null;
+
+  // Handler for variant confirmation
+  const handleVariantConfirm = (variantId: string | undefined, quantity: number) => {
+    if (selectedProductForVariant) {
+      // Create a modified product object with variant info for cart
+      const productWithVariant = {
+        ...selectedProductForVariant,
+        selectedVariantId: variantId,
+      };
+      
+      // Call onAddToCart with the product and variant info
+      // Note: The actual variant handling happens in Home.tsx handleAddToCart
+      for (let i = 0; i < quantity; i++) {
+        onAddToCart?.(productWithVariant);
+      }
+      
+      if (autoCloseOnAdd) {
+        onClose();
+      }
+      
+      setVariantDialogOpen(false);
+      setSelectedProductForVariant(null);
+    }
+  };
+
+  // Handler for add to cart button
+  const handleAddToCartClick = (product: Product) => {
+    // If product has variants, open the selector dialog
+    if ((product as any).hasVariants && (product as any).variants && (product as any).variants.length > 0) {
+      setSelectedProductForVariant(product);
+      setVariantDialogOpen(true);
+    } else {
+      // Single price product - add directly
+      onAddToCart?.(product);
+      if (autoCloseOnAdd) {
+        onClose();
+      }
+    }
+  };
 
   // chefStatuses (WebSocket) takes priority — updates instantly on status change.
   // Falls back to chef.isCurrentlyOpen (API data) then chef.isActive (DB field).
@@ -307,7 +349,7 @@ export default function CategoryMenuDrawer({
                                               </span>
                                             </div>
                                           </div>
-                                          <div className="flex flex-col items-end gap-1">
+                                      <div className="flex flex-col items-end gap-1">
                                             {product.offerPercentage && product.offerPercentage > 0 ? (
                                               <>
                                                 <span className="text-xs font-semibold text-red-600 bg-red-100 px-2 py-1 rounded">
@@ -322,7 +364,11 @@ export default function CategoryMenuDrawer({
                                               </>
                                             ) : (
                                               <p className="font-bold text-lg" data-testid={`text-price-${product.id}`}>
-                                                ₹{product.price}
+                                                {/* 🆕 Show "From ₹X" for multi-variant products */}
+                                                {(product as any).hasVariants && (product as any).variants && (product as any).variants.length > 0 
+                                                  ? `From ₹${Math.min(...(product as any).variants.map((v: any) => v.price))}`
+                                                  : `₹${product.price}`
+                                                }
                                               </p>
                                             )}
                                           </div>
@@ -337,12 +383,7 @@ export default function CategoryMenuDrawer({
                                       {currentQuantity === 0 ? (
                                         <Button
                                           size="sm"
-                                          onClick={() => {
-                                            onAddToCart?.(product);
-                                            if (autoCloseOnAdd) {
-                                              onClose();
-                                            }
-                                          }}
+                                          onClick={() => handleAddToCartClick(product)}
                                           disabled={isChefClosed || !isProductAvailable || productStock <= 0}
                                           data-testid={`button-add-${product.id}`}
                                         >
@@ -373,7 +414,7 @@ export default function CategoryMenuDrawer({
                                             size="icon"
                                             variant="outline"
                                             className="h-7 w-7"
-                                            onClick={() => onAddToCart?.(product)}
+                                            onClick={() => handleAddToCartClick(product)}
                                             disabled={isChefClosed}
                                             data-testid={`button-increase-${product.id}`}
                                           >
@@ -478,6 +519,20 @@ export default function CategoryMenuDrawer({
             </div>
           )}
         </>
+      )}
+
+      {/* Variant Selector Dialog */}
+      {selectedProductForVariant && (
+        <VariantSelectorDialog
+          isOpen={variantDialogOpen}
+          onClose={() => {
+            setVariantDialogOpen(false);
+            setSelectedProductForVariant(null);
+          }}
+          product={selectedProductForVariant}
+          onConfirm={handleVariantConfirm}
+          defaultQuantity={1}
+        />
       )}
     </>
   );

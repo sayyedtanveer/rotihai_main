@@ -20,7 +20,7 @@ import {
   generateRefreshToken as generateUserRefreshToken,
 } from "./userAuth";
 import { db, walletSettings, referralRewards, orders, paymentSettings } from "@shared/db";
-import { adminLoginSchema, insertAdminUserSchema, insertCategorySchema, insertProductSchema, insertDeliveryPersonnelSchema, insertDeliveryTimeSlotsSchema, insertReferralRewardSchema, insertCouponSchema, chefUnavailability, chefPreorderSettings } from "@shared/schema";
+import { adminLoginSchema, insertAdminUserSchema, insertCategorySchema, insertProductSchema, insertProductVariantSchema, insertDeliveryPersonnelSchema, insertDeliveryTimeSlotsSchema, insertReferralRewardSchema, insertCouponSchema, chefUnavailability, chefPreorderSettings } from "@shared/schema";
 import { fromZodError } from "zod-validation-error";
 import { broadcastOrderUpdate, broadcastNewOrder, notifyDeliveryAssignment, cancelPreparedOrderTimeout, broadcastProductAvailabilityUpdate, broadcastChefStatusUpdate, broadcastSubscriptionAssignmentToPartner, broadcastSubscriptionUpdate, broadcastWalletUpdate, broadcastPreparedOrderToAvailableDelivery } from "./websocket";
 import { hashPassword as hashDeliveryPassword } from "./deliveryAuth";
@@ -1363,6 +1363,162 @@ export function registerAdminRoutes(app: Express) {
     } catch (error) {
       console.error("Delete product error:", error);
       res.status(500).json({ message: "Failed to delete product" });
+    }
+  });
+
+  // 🆕 VARIANT CRUD ENDPOINTS
+
+  // GET /api/admin/products/:productId/variants — Get all variants for a product
+  app.get("/api/admin/products/:productId/variants", requireAdmin(), async (req, res) => {
+    try {
+      const { productId } = req.params;
+      const product = await storage.getProductById(productId);
+      if (!product) {
+        res.status(404).json({ message: "Product not found" });
+        return;
+      }
+
+      const variants = await storage.getVariantsByProductId(productId);
+      res.json(variants);
+    } catch (error) {
+      console.error("Get variants error:", error);
+      res.status(500).json({ message: "Failed to fetch variants" });
+    }
+  });
+
+  // POST /api/admin/products/:productId/variants — Create a new variant
+  app.post("/api/admin/products/:productId/variants", requireAdminOrManager(), async (req, res) => {
+    try {
+      const { productId } = req.params;
+      
+      // Verify product exists
+      const product = await storage.getProductById(productId);
+      if (!product) {
+        res.status(404).json({ message: "Product not found" });
+        return;
+      }
+
+      // Validate variant data
+      const validation = insertProductVariantSchema.safeParse({
+        ...req.body,
+        productId,
+      });
+      if (!validation.success) {
+        res.status(400).json({ message: fromZodError(validation.error).toString() });
+        return;
+      }
+
+      // Check for duplicate variant name
+      const existingVariants = await storage.getVariantsByProductId(productId);
+      if (existingVariants.some(v => v.name.toLowerCase() === validation.data.name.toLowerCase())) {
+        res.status(409).json({ message: `Variant "${validation.data.name}" already exists for this product` });
+        return;
+      }
+
+      const variant = await storage.createVariant(validation.data);
+      
+      // Update product to set hasVariants = true
+      await storage.updateProduct(productId, { hasVariants: true });
+      
+      invalidateCachePrefix("products");
+      res.status(201).json(variant);
+    } catch (error) {
+      console.error("Create variant error:", error);
+      res.status(500).json({ message: "Failed to create variant" });
+    }
+  });
+
+  // PATCH /api/admin/products/:productId/variants/:variantId — Update a variant
+  app.patch("/api/admin/products/:productId/variants/:variantId", requireAdminOrManager(), async (req, res) => {
+    try {
+      const { productId, variantId } = req.params;
+
+      // Verify product exists
+      const product = await storage.getProductById(productId);
+      if (!product) {
+        res.status(404).json({ message: "Product not found" });
+        return;
+      }
+
+      // Verify variant exists and belongs to product
+      const variant = await storage.getVariantById(variantId);
+      if (!variant || variant.productId !== productId) {
+        res.status(404).json({ message: "Variant not found" });
+        return;
+      }
+
+      // Validate variant data
+      const validation = insertProductVariantSchema.partial().safeParse({
+        ...req.body,
+        productId,
+      });
+      if (!validation.success) {
+        res.status(400).json({ message: fromZodError(validation.error).toString() });
+        return;
+      }
+
+      // Check for duplicate variant name if name is being updated
+      if (req.body.name && req.body.name !== variant.name) {
+        const existingVariants = await storage.getVariantsByProductId(productId);
+        if (existingVariants.some(v => v.id !== variantId && v.name.toLowerCase() === req.body.name.toLowerCase())) {
+          res.status(409).json({ message: `Variant "${req.body.name}" already exists for this product` });
+          return;
+        }
+      }
+
+      const updatedVariant = await storage.updateVariant(variantId, validation.data);
+      
+      // Broadcast availability update if stock/availability changed
+      if (req.body.isAvailable !== undefined || req.body.stockQuantity !== undefined) {
+        broadcastProductAvailabilityUpdate(product);
+      }
+
+      invalidateCachePrefix("products");
+      res.json(updatedVariant);
+    } catch (error) {
+      console.error("Update variant error:", error);
+      res.status(500).json({ message: "Failed to update variant" });
+    }
+  });
+
+  // DELETE /api/admin/products/:productId/variants/:variantId — Delete a variant
+  app.delete("/api/admin/products/:productId/variants/:variantId", requireSuperAdmin(), async (req, res) => {
+    try {
+      const { productId, variantId } = req.params;
+
+      // Verify product exists
+      const product = await storage.getProductById(productId);
+      if (!product) {
+        res.status(404).json({ message: "Product not found" });
+        return;
+      }
+
+      // Verify variant exists and belongs to product
+      const variant = await storage.getVariantById(variantId);
+      if (!variant || variant.productId !== productId) {
+        res.status(404).json({ message: "Variant not found" });
+        return;
+      }
+
+      // Delete the variant
+      const deleted = await storage.deleteVariant(variantId);
+      if (!deleted) {
+        res.status(500).json({ message: "Failed to delete variant" });
+        return;
+      }
+
+      // Check if any variants remain
+      const remainingVariants = await storage.getVariantsByProductId(productId);
+      if (remainingVariants.length === 0) {
+        // If no variants left, update product to set hasVariants = false
+        await storage.updateProduct(productId, { hasVariants: false });
+      }
+
+      invalidateCachePrefix("products");
+      res.json({ message: "Variant deleted successfully" });
+    } catch (error) {
+      console.error("Delete variant error:", error);
+      res.status(500).json({ message: "Failed to delete variant" });
     }
   });
 

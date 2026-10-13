@@ -154,7 +154,44 @@ export const products = pgTable("products", {
   sectionOrder: integer("section_order").notNull().default(0), // NEW: Controls section display order (lower = first)
   sortOrder: integer("sort_order").notNull().default(0), // NEW: Controls product order within section (lower = first)
   fulfillmentMode: productFulfillmentModeEnum("fulfillment_mode").notNull().default("inherit"), // 'inherit' | 'instant' | 'preorder'
+  hasVariants: boolean("has_variants").notNull().default(false), // ← NEW: Whether product uses variants
 });
+
+// 🆕 Product Variants Table - Support for multiple sizes/options per product
+export const productVariants = pgTable("product_variants", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()::text`),
+  productId: text("product_id").notNull(), // Foreign key reference to products.id
+  
+  // Variant Identity
+  name: varchar("name", { length: 100 }).notNull(),              // "Half", "Full", "Regular", "Large", "Family", custom
+  displayName: varchar("display_name", { length: 100 }),         // Optional: Friendly display (e.g., "Half Plate")
+  description: text("description"),                              // Optional: Variant description
+  
+  // Pricing
+  hotelPrice: integer("hotel_price"),                            // Optional: Override parent hotel price (cost)
+  price: integer("price").notNull(),                             // Variant selling price (₹)
+  marginPercent: decimal("margin_percent", { precision: 5, scale: 2 }), // Auto-calculated margin %
+  
+  // Availability
+  isAvailable: boolean("is_available").notNull().default(true),
+  stockQuantity: integer("stock_quantity").notNull().default(100),
+  lowStockThreshold: integer("low_stock_threshold").notNull().default(20),
+  
+  // Ordering & Display
+  sortOrder: integer("sort_order").notNull().default(0),         // Lower = first in variant list
+  
+  // Status
+  isActive: boolean("is_active").notNull().default(true),
+  
+  // Audit
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("unique_variant_name_per_product").on(table.productId, table.name),
+  index("idx_product_variants_product_id").on(table.productId),
+  index("idx_product_variants_active").on(table.productId, table.isActive),
+  index("idx_product_variants_created").on(table.createdAt),
+]);
 
 export const paymentStatusEnum = pgEnum("payment_status", ["pending", "pending_verification", "paid", "confirmed"]);
 export const deliveryPersonnelStatusEnum = pgEnum("delivery_personnel_status", ["available", "busy", "offline"]);
@@ -535,8 +572,38 @@ export const insertProductSchema = createInsertSchema(products).omit({
   isCustomizable: z.boolean().default(false).optional(),
   offerPercentage: z.number().min(0).max(100).optional(),
   fulfillmentMode: z.enum(["inherit", "instant", "preorder"]).optional(),
+  hasVariants: z.boolean().default(false).optional(), // ← NEW: Whether product uses variants
   createdAt: z.date().or(z.string()).optional(),
   updatedAt: z.date().or(z.string()).optional(),
+  // Support creating product with variants in one request
+  variants: z.array(z.object({
+    name: z.string().min(1, "Variant name required"),
+    displayName: z.string().optional(),
+    description: z.string().optional(),
+    hotelPrice: z.number().min(0).optional(),
+    price: z.number().min(1, "Price must be at least ₹1"),
+    stockQuantity: z.number().int().min(0).default(100),
+    lowStockThreshold: z.number().int().min(0).default(20),
+    sortOrder: z.number().int().min(0).default(0),
+  })).optional(),
+});
+
+// 🆕 Product Variant Schema
+export const insertProductVariantSchema = createInsertSchema(productVariants).omit({
+  id: true,
+}).extend({
+  productId: z.string().min(1, "Product ID required"),
+  name: z.string().min(1, "Variant name required").max(100),
+  displayName: z.string().max(100).optional(),
+  description: z.string().optional(),
+  hotelPrice: z.number().min(0).optional(),
+  price: z.number().min(1, "Price must be at least ₹1"),
+  marginPercent: z.union([z.number(), z.string()]).transform(v => typeof v === 'string' ? parseFloat(v) : v).optional(),
+  stockQuantity: z.number().int().min(0).default(100),
+  lowStockThreshold: z.number().int().min(0).default(20),
+  sortOrder: z.number().int().min(0).default(0),
+  isActive: z.boolean().default(true).optional(),
+  isAvailable: z.boolean().default(true).optional(),
 });
 
 export const insertChefSchema = createInsertSchema(chefs, {
@@ -558,6 +625,8 @@ const orderItemSchema = z.object({
   price: z.number(),
   hotelPrice: z.number().optional(), // ← Partner's cost price
   quantity: z.number(),
+  variantId: z.string().optional(), // ← NEW: Variant ID if product has variants
+  variantName: z.string().optional(), // ← NEW: Variant name (e.g., "Half", "Full")
 });
 
 export const insertOrderSchema = createInsertSchema(orders, {
@@ -567,6 +636,8 @@ export const insertOrderSchema = createInsertSchema(orders, {
     price: z.number(),
     hotelPrice: z.number().optional(), // ← Partner's cost price
     quantity: z.number(),
+    variantId: z.string().optional(), // ← NEW: Variant ID if product has variants
+    variantName: z.string().optional(), // ← NEW: Variant name (e.g., "Half", "Full")
     specialInstructions: z.string().optional(), // ← Optional cooking instructions
   })),
   status: z.enum([
@@ -608,6 +679,13 @@ export type InsertChef = z.infer<typeof insertChefSchema>;
 export type Chef = typeof chefs.$inferSelect & { distanceFromUser?: number, preorderSettings?: ChefPreorderSettings | null }; // distanceFromUser added by distance-based endpoint
 export type InsertProduct = z.infer<typeof insertProductSchema>;
 export type Product = typeof products.$inferSelect;
+
+// 🆕 ProductVariant types
+export type InsertProductVariant = z.infer<typeof insertProductVariantSchema>;
+export type ProductVariant = typeof productVariants.$inferSelect;
+
+// Product with variants loaded
+export type ProductWithVariants = Product & { variants: ProductVariant[] };
 
 export type InsertOrder = z.infer<typeof insertOrderSchema>;
 export type Order = typeof orders.$inferSelect;

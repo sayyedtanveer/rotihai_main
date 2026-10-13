@@ -18,6 +18,7 @@ interface CartItem {
   chefId?: string;
   chefName?: string;
   categoryId?: string;
+  variantName?: string;
 }
 
 interface CategoryCart {

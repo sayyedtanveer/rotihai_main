@@ -505,10 +505,19 @@ export default function Home() {
       ? Math.round(product.price * (1 - product.offerPercentage / 100))
       : product.price;
 
+    // Get variant info if it exists (for multi-variant products)
+    const variantId = (product as any).selectedVariantId;
+    const variants = (product as any).variants as any[] | undefined;
+    const selectedVariant = variantId && variants ? variants.find(v => v.id === variantId) : undefined;
+    
+    // Use variant price if available, otherwise use product price
+    const finalPrice = selectedVariant ? selectedVariant.price : discountedPrice;
+    const variantName = selectedVariant?.name || selectedVariant?.displayName;
+
     const cartItem = {
       id: product.id,
       name: product.name,
-      price: discountedPrice,
+      price: finalPrice,
       originalPrice: product.price,
       offerPercentage: product.offerPercentage || 0,
       image: product.image,
@@ -517,6 +526,8 @@ export default function Home() {
       categoryId: product.categoryId,
       specialInstructions,
       effectiveMode: (product as any).effectiveMode,
+      variantId: variantId,
+      variantName: variantName,
     };
 
     // Allow creating multiple carts per category scoped by chef. Previously we

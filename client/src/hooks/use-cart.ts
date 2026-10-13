@@ -15,6 +15,9 @@ interface CartItem {
   offerPercentage?: number; // Add offer percentage
   specialInstructions?: string; // Optional cooking instructions
   effectiveMode?: 'instant' | 'preorder' | 'both';
+  // 🆕 Variant support
+  variantId?: string; // Variant ID if product has variants
+  variantName?: string; // Variant name (e.g., "Half", "Full")
 }
 
 interface CategoryCart {
@@ -239,8 +242,11 @@ export const useCart = create<CartStore>()(
 
         // ✅ Existing cart → update or add item
         const categoryCart = carts[categoryCartIndex];
+        
+        // 🆕 For multi-variant products, match both id AND variantId
+        // For single-price products, just match id
         const existingItemIndex = categoryCart.items.findIndex(
-          (i) => i.id === item.id
+          (i) => i.id === item.id && i.variantId === item.variantId
         );
 
         const updatedCarts = [...carts];
@@ -256,7 +262,7 @@ export const useCart = create<CartStore>()(
             items: updatedItems,
           };
         } else {
-          // Add new item
+          // Add new item (including Half and Full as separate lines)
           updatedCarts[categoryCartIndex] = {
             ...categoryCart,
             items: [...categoryCart.items, { ...item, quantity: 1 }],

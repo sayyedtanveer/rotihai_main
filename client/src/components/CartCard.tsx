@@ -17,6 +17,7 @@ interface CartItem {
   quantity: number;
   image: string | null;
   specialInstructions?: string;
+  variantName?: string;
 }
 
 interface CartCardProps {
@@ -168,6 +169,9 @@ export default function CartCard({
                   <div className="flex-1 min-w-0">
                     <h4 className={`font-medium text-xs sm:text-sm truncate ${isUnavailable ? 'line-through text-muted-foreground' : ''}`} data-testid={`text-item-name-${item.id}`}>
                       {item.name}
+                      {item.variantName && (
+                        <span className="text-muted-foreground ml-1">({item.variantName})</span>
+                      )}
                     </h4>
                     <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
                       <p className={`text-xs font-semibold ${isUnavailable ? 'text-muted-foreground' : 'text-primary'}`} data-testid={`text-item-price-${item.id}`}>
