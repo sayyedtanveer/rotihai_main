@@ -7,7 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useDeliveryLocation } from "@/contexts/DeliveryLocationContext";
 import { useCart } from "@/hooks/use-cart";
 import { getStoredPincodeValidation, getLegacyPincodeCache, storePincodeValidation, clearPincodeValidation } from "@/lib/pincodeUtils";
-import heroImage from '@assets/generated_images/Indian_food_spread_hero_01f8cdab.png';
+import heroImage from '@assets/generated_images/Fresh_tandoori_rotis_stack_1dcda2c7.png';
 
 export default function Hero() {
   // PINCODE-ONLY interface
@@ -194,24 +194,30 @@ export default function Hero() {
   };
 
   return (
-    <section className="relative min-h-[280px] sm:min-h-[350px] lg:min-h-[450px] w-full flex items-center justify-center">
+    <section className="relative min-h-[200px] sm:min-h-[240px] lg:min-h-[300px] w-full flex items-center justify-center overflow-hidden">
+      {/* Image — shifted upward so roti stack is visible */}
       <div
-        className="absolute inset-0 bg-cover bg-center"
+        className="absolute inset-0 bg-cover bg-[center_20%] scale-105"
         style={{ backgroundImage: `url(${heroImage})` }}
       />
-      <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/40 to-black/60" />
+      {/* Stronger overlay so text is always readable over the bright food tones */}
+      <div className="absolute inset-0 bg-gradient-to-b from-black/80 via-black/55 to-black/75" />
 
-      <div className="relative h-full w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col items-center justify-center text-center pt-16 sm:pt-24 lg:pt-32 pb-4 sm:pb-6">
+      <div className="relative h-full w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col items-center justify-center text-center pt-6 sm:pt-10 lg:pt-14 pb-4 sm:pb-6">
+        {/* Apno Ka Swaad — headline over the dark top zone */}
         <h2
-          className="text-3xl sm:text-4xl lg:text-6xl font-bold text-white mb-2 sm:mb-3 drop-shadow-lg"
+          className="text-2xl sm:text-3xl lg:text-5xl font-extrabold text-white mb-0.5 sm:mb-1 tracking-tight"
+          style={{ textShadow: '0 2px 12px rgba(0,0,0,0.9), 0 1px 4px rgba(0,0,0,0.8)' }}
           data-testid="text-hero-title"
         >
-          Fresh Rotis Delivered
-          <br />
-          <span className="text-primary-foreground/90">Ghar Ka Khana, Apno Ka Swaad</span>
+          Apno Ka Swaad
         </h2>
-        <p className="text-xs sm:text-base lg:text-lg text-white/90 mb-4 sm:mb-6 max-w-2xl px-2 drop-shadow" data-testid="text-hero-subtitle">
-          Fresh rotis, homestyle meals, and restaurant specials in 30 minutes
+        <p
+          className="text-sm sm:text-base lg:text-xl font-semibold text-amber-300 mb-3 sm:mb-4"
+          style={{ textShadow: '0 1px 8px rgba(0,0,0,0.95)' }}
+          data-testid="text-hero-subtitle-accent"
+        >
+          Ghar Ka Khana, Delivered Fresh
         </p>
 
         <div className="w-full max-w-xl px-2 sm:px-3">

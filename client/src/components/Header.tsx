@@ -374,12 +374,14 @@ export default function Header({ cartItemCount = 0, onCartClick, onMenuClick, se
             <Button variant="ghost" size="icon" onClick={onChefListClick} data-testid="button-chefs" className="h-8 w-8 sm:h-9 sm:w-9">
               <ChefHat className="h-4 w-4 sm:h-5 sm:w-5" />
             </Button>
-            <Button variant="ghost" size="icon" onClick={onSubscriptionClick} data-testid="button-subscriptions" className="h-8 w-8 sm:h-9 sm:w-9">
-              <Calendar className="h-4 w-4 sm:h-5 sm:w-5" />
+            <Button variant="ghost" onClick={onSubscriptionClick} data-testid="button-subscriptions" className="h-8 sm:h-9 px-2 sm:px-2.5 flex items-center gap-1 text-xs sm:text-sm font-medium">
+              <Calendar className="h-4 w-4 sm:h-5 sm:w-5 flex-shrink-0" />
+              <span className="hidden xs:inline sm:inline">Meal Plans</span>
             </Button>
           </div>
         </div>
 
+        {/* Search bar commented out — pincode input now lives in the Hero banner below
         <div className="md:hidden pb-3">
           <div className="relative w-full">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -393,6 +395,7 @@ export default function Header({ cartItemCount = 0, onCartClick, onMenuClick, se
             />
           </div>
         </div>
+        */}
       </div>
     </header>
     </>
