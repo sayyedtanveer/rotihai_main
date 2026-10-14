@@ -2471,6 +2471,7 @@ var init_storage = __esm({
           return userOrders.length === 1;
         }).length;
         const monthRange = getPeriodRange2("month");
+        const yearRange = getPeriodRange2("year");
         const advanceOrders = filterOrdersByDateRange2(orders3, monthRange).filter((o) => o.paymentStatus === "confirmed" && (o.status === "pending" || o.status === "accepted"));
         const monthlyEarlyRevenue = advanceOrders.reduce((sum, o) => sum + (o.total || 0), 0);
         const validRevenueOrders = orders3.filter(isValidRevenueOrder2);
@@ -2498,7 +2499,6 @@ var init_storage = __esm({
           acc[o.paymentStatus || "undefined"] = (acc[o.paymentStatus || "undefined"] || 0) + 1;
           return acc;
         }, {});
-        const yearRange = getPeriodRange2("year");
         const yearOrders = filterOrdersByDateRange2(orders3, yearRange);
         const yearValidOrders = yearOrders.filter(isValidRevenueOrder2);
         console.log("[DASHBOARD METRICS] \u{1F4CA} ACCURATE CALCULATION:", {
@@ -7190,6 +7190,13 @@ function createOrderConfirmationEmail(params) {
           ${params.estimatedDeliveryTime ? `<p><strong>\u23F1\uFE0F Estimated Delivery:</strong> ${params.estimatedDeliveryTime}</p>` : ""}
         </div>
 
+        ${params.chefName ? `<!-- CHEF DETAILS -->
+        <div class="section">
+          <h3 style="margin-top: 0;">\u{1F468}\u200D\u{1F373} Your Chef</h3>
+          <p><strong>Chef Name:</strong> ${params.chefName}</p>
+          ${params.chefPhone ? `<p><strong>\u{1F4DE} Contact:</strong> <a href="tel:${params.chefPhone}" style="color: #ff6b35; text-decoration: none;">${params.chefPhone}</a></p>` : ""}
+        </div>` : ""}
+
         <!-- FOOTER -->
         <div style="text-align: center; padding: 20px; color: #666; font-size: 12px;">
           <p>Thank you for ordering with RotiHai! \u{1F64F}</p>
@@ -7352,6 +7359,7 @@ function createAdminOrderConfirmationEmail(params) {
         ${params.chefName ? `<div class="section">
           <h3 style="margin-top: 0;">\u{1F468}\u200D\u{1F373} Assigned Chef</h3>
           <p><strong>Chef Name:</strong> ${params.chefName}</p>
+          ${params.chefPhone ? `<p><strong>\u{1F4DE} Contact:</strong> <a href="tel:${params.chefPhone}" style="color: #ff6b35; text-decoration: none;">${params.chefPhone}</a></p>` : ""}
         </div>` : ""}
 
         <!-- PAYMENT STATUS -->
@@ -18505,7 +18513,9 @@ ${itemsText}
               deliveryFee: order.deliveryFee,
               total: order.total,
               deliveryAddress: order.address,
-              estimatedDeliveryTime: "30-45 minutes"
+              estimatedDeliveryTime: "30-45 minutes",
+              chefName: order.chefName || void 0,
+              chefPhone: order.chefName ? (await storage.getChefById(order.chefId || ""))?.phone || void 0 : void 0
             });
             if (emailSent) {
               console.log(`\u2705 Order confirmation email sent to ${order.email}`);
@@ -18723,6 +18733,7 @@ Please accept and start preparation.`;
               customerPhone: updatedOrder?.phone || "",
               customerEmail: updatedOrder?.email || null,
               chefName,
+              chefPhone: chefName ? (await storage.getChefById(updatedOrder?.chefId || ""))?.phone || void 0 : void 0,
               items: itemsArray || [],
               subtotal: updatedOrder?.subtotal || 0,
               deliveryFee: updatedOrder?.deliveryFee || 0,

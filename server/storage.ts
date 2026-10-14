@@ -1216,6 +1216,7 @@ export class MemStorage implements IStorage {
 
     // Get monthly early revenue (advance/prepaid orders)
     const monthRange = getPeriodRange("month");
+    const yearRange = getPeriodRange("year");
     const advanceOrders = filterOrdersByDateRange(orders, monthRange)
       .filter(o => o.paymentStatus === "confirmed" && (o.status === "pending" || o.status === "accepted"));
     const monthlyEarlyRevenue = advanceOrders.reduce((sum, o) => sum + (o.total || 0), 0);
@@ -1258,8 +1259,7 @@ export class MemStorage implements IStorage {
       return acc;
     }, {} as Record<string, number>);
 
-    // Year period debugging
-    const yearRange = getPeriodRange("year");
+    // Year period detail
     const yearOrders = filterOrdersByDateRange(orders, yearRange);
     const yearValidOrders = yearOrders.filter(isValidRevenueOrder);
 
