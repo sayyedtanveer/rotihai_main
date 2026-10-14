@@ -1864,13 +1864,103 @@ export async function registerRoutes(app: Express): Promise<Server> {
         rawProducts = await storage.getAllProducts();
       }
 
+      // 🔍 DEBUG: Log product name patterns to understand naming convention
+      const hasVariantsProducts = rawProducts.filter(p => p.hasVariants);
+      const nonVariantProducts = rawProducts.filter(p => !p.hasVariants);
+      if (hasVariantsProducts.length > 0 || nonVariantProducts.some(p => /\s(half|full|large|medium|small|regular)\s*$/i.test(p.name))) {
+        console.log(`[PRODUCTS] Total: ${rawProducts.length}, hasVariants: ${hasVariantsProducts.length}, non-variants: ${nonVariantProducts.length}`);
+        hasVariantsProducts.slice(0, 3).forEach(p => console.log(`  ✅ Parent: "${p.name}" (has_variants=true)`));
+        nonVariantProducts.filter(p => /\s(half|full|large|medium|small|regular)\s*$/i.test(p.name)).slice(0, 5).forEach(p => console.log(`  ❓ Potential legacy: "${p.name}"`));
+      }
+
+      // 🆕 Filter: Hide legacy Half/Full products that are variants of parent products
+      // Strategy: If a product name contains size keywords like "(Half)", "(Full)", etc AND
+      // there's another product with the same base name but has_variants=true, hide it.
+      // This prevents showing "Fried Rice (Half)" and "Fried Rice (Full)" as separate cards
+      // when "Fried Rice" exists as a parent with variants.
+      
+      const sizePatterns = ['\\(half\\)', '\\(full\\)', '\\(large\\)', '\\(medium\\)', '\\(small\\)', '\\(regular\\)', ' half$', ' full$', ' large$', ' medium$', ' small$', ' regular$'];
+      
+      // Build a map of base product names to parent products for O(1) lookup
+      const parentProductsByBaseName = new Map<string, any>();
+      for (const p of rawProducts) {
+        if (p.hasVariants) {
+          const baseNameLower = p.name.toLowerCase().trim();
+          parentProductsByBaseName.set(baseNameLower, p);
+        }
+      }
+      
+      const filteredProducts = rawProducts.filter((p) => {
+        // 1️⃣ AVAILABILITY CHECK: Hide unavailable products from customer menu
+        if (!p.isAvailable) {
+          console.log(`[FILTERING] Hiding unavailable product "${p.name}"`);
+          return false;
+        }
+        
+        // 2️⃣ VARIANT PARENT PRODUCTS: Always keep products with variants (parent products)
+        if (p.hasVariants) return true;
+        
+        // 3️⃣ LEGACY DUPLICATE CHECK: Hide products that have a variant parent with the same base name
+        // This filters out legacy products like "Fried Rice (Full)" when "Fried Rice" parent exists
+        // But keeps standalone products that don't have a variant parent
+        const nameLower = p.name.toLowerCase().trim();
+        
+        for (const pattern of sizePatterns) {
+          const regex = new RegExp(pattern, 'i');
+          if (regex.test(nameLower)) {
+            // This product name looks like a variant (e.g., "Fried Rice (Full)")
+            // Extract base name by removing the size keyword
+            let baseNameLower = nameLower;
+            for (const pat of sizePatterns) {
+              baseNameLower = baseNameLower.replace(new RegExp(pat, 'i'), '').trim();
+            }
+            
+            // Strategy: Look for ANY product with same base name AND has_variants=true
+            // This handles two scenarios:
+            // 1. Parent is "Fried Rice", legacy is "Fried Rice (Full)" → hide legacy
+            // 2. Parent is "Fried Rice (Half)" with has_variants=true, other is "Fried Rice (Full)" → hide Full
+            let foundParent = null;
+            
+            // First try exact match (e.g., "fried rice (full)" → base "fried rice" → "Fried Rice")
+            if (parentProductsByBaseName.has(baseNameLower)) {
+              foundParent = parentProductsByBaseName.get(baseNameLower);
+            } else {
+              // If no exact match, look for parent with same base name (fuzzy match)
+              // This handles case where parent name itself contains size keywords
+              // e.g., parent="Fried Rice (Half)" (has_variants=true), legacy="Fried Rice (Full)" (no variants)
+              for (const [parentBase, parentProd] of parentProductsByBaseName) {
+                // Check if both products have the same base name
+                let parentBaseClean = parentBase;
+                for (const pat of sizePatterns) {
+                  parentBaseClean = parentBaseClean.replace(new RegExp(pat, 'i'), '').trim();
+                }
+                
+                if (parentBaseClean === baseNameLower) {
+                  foundParent = parentProd;
+                  break;
+                }
+              }
+            }
+            
+            if (foundParent && foundParent.id !== p.id) {
+              // Found a different parent! This is a legacy duplicate - hide it
+              console.log(`[FILTERING] Hiding legacy product "${p.name}" (variant parent: "${foundParent.name}")`);
+              return false;
+            }
+          }
+        }
+        
+        // Keep all other products (standalone products without variant parents)
+        return true;
+      });
+
       // Compute effectiveMode
       const categories = await storage.getAllCategories();
       const chefs = await storage.getChefs();
       const catMap = new Map(categories.map(c => [c.id, c]));
       const chefMap = new Map(chefs.map(c => [c.id, c]));
 
-      const products = rawProducts.map(p => {
+      const products = await Promise.all(filteredProducts.map(async (p) => {
         const cat = catMap.get(p.categoryId);
         const chef = p.chefId ? chefMap.get(p.chefId) : null;
 
@@ -1887,8 +1977,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
             effectiveMode = 'both';
           }
         }
-        return { ...p, effectiveMode };
-      });
+
+        // 🆕 Load variants if product has them
+        let variants = undefined;
+        if (p.hasVariants) {
+          variants = await storage.getVariantsByProductId(p.id);
+        }
+
+        return { ...p, effectiveMode, ...(variants && { variants }) };
+      }));
 
       setCache(key, products, 5 * 60 * 1000); // 5 min TTL
       res.json(products);
@@ -1925,7 +2022,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      res.json({ ...product, effectiveMode });
+      // 🆕 Load variants if product has them
+      let variants = undefined;
+      if (product.hasVariants) {
+        variants = await storage.getVariantsByProductId(product.id);
+      }
+
+      res.json({ ...product, effectiveMode, ...(variants && { variants }) });
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch product" });
     }
@@ -2063,6 +2166,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             quantity: sanitizeNumber(i.quantity),
             categoryId: i.categoryId || undefined,
             chefId: i.chefId || undefined,
+            // 🔹 PRESERVE VARIANT INFO for products with sizes (Half/Full, etc.)
+            variantId: i.variantId || undefined,
+            variantName: i.variantName || undefined,
             // Preserve special cooking instructions — this is saved in JSONB items column
             ...(i.specialInstructions ? { specialInstructions: String(i.specialInstructions).trim() } : {}),
           }))
@@ -2543,6 +2649,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
+      console.log("📦 [DEBUG] Sanitized order data - items:", JSON.stringify(sanitized.items, null, 2));
+      console.log("📦 [DEBUG] Schema result data - items:", JSON.stringify(result.data.items, null, 2));
+
       // Extract authenticated userId (JWT) or auto-register new user
       let userId: string | undefined;
       let accountCreated = false;
@@ -2657,13 +2766,129 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Enrich items with hotelPrice (partner's cost price) from products table
       // Also ensure all items belong to the same chef as determined for the order.
+      // 🆕 Validate variants if provided
       orderPayload.items = await Promise.all(
         orderPayload.items.map(async (item: any) => {
-          const product = await storage.getProductById(item.id);
+          console.log(`[ORDER-VALIDATION] Processing item:`, {
+            id: item.id,
+            name: item.name,
+            variantId: item.variantId,
+            chefId: item.chefId,
+            categoryId: item.categoryId,
+          });
+
+          let product = await storage.getProductById(item.id);
+          console.log(`[ORDER-VALIDATION] Product lookup by id "${item.id}":`, {
+            found: !!product,
+            hasVariants: product?.hasVariants,
+            productId: product?.id,
+            productName: product?.name,
+          });
+          
+          // 🆕 If product not found or doesn't have variants but variantId is provided,
+          // try to find parent product (in case item.id is legacy variant product)
+          if (item.variantId && (!product || !product.hasVariants)) {
+            console.log(`[ORDER-VALIDATION] variantId provided but product missing/not parent. Searching for parent...`);
+            // Try to find parent product by name
+            const allProducts = await storage.getAllProducts();
+            const itemName = item.name || "";
+            
+            console.log(`[ORDER-VALIDATION] Searching parent product with:`, {
+              itemName: itemName,
+              chefId: item.chefId,
+              categoryId: item.categoryId,
+              totalProductsInDb: allProducts.length,
+            });
+
+            // Look for parent product with same base name
+            product = allProducts.find((p: any) => {
+              const match = p.hasVariants && 
+                p.chefId === item.chefId && 
+                p.categoryId === item.categoryId &&
+                p.name.toLowerCase() === itemName.toLowerCase();
+              
+              if (match) {
+                console.log(`[ORDER-VALIDATION] Found parent product match:`, {
+                  productId: p.id,
+                  productName: p.name,
+                  hasVariants: p.hasVariants,
+                });
+              }
+              return match;
+            });
+
+            if (!product) {
+              console.log(`[ORDER-VALIDATION] No parent product found!`);
+            }
+          }
+          
+          // 🆕 Validate variant if provided
+          let variantName: string | undefined = undefined;
+          let variantPrice: number = item.price; // Default to provided price
+          
+          console.log(`[ORDER-VALIDATION] About to check variant validation:`, {
+            hasVariantId: !!item.variantId,
+            productHasVariants: product?.hasVariants,
+            productId: product?.id,
+            productName: product?.name,
+          });
+
+          if (item.variantId) {
+            // Product should have variants
+            if (!product?.hasVariants) {
+              console.log(`[ORDER-VALIDATION] ERROR: variantId provided but product doesn't have variants`);
+              throw new Error(`Variant "${item.variantId}" provided for single-price product "${product?.name || item.name}"`);
+            }
+            
+            // Get and validate variant
+            const variant = await storage.getVariantById(item.variantId);
+            console.log(`[ORDER-VALIDATION] Variant lookup:`, {
+              variantId: item.variantId,
+              found: !!variant,
+              variantProductId: variant?.productId,
+              expectedProductId: product.id,
+            });
+
+            if (!variant) {
+              throw new Error(`Variant not found: ${item.variantId}`);
+            }
+            if (variant.productId !== product.id) {
+              console.log(`[ORDER-VALIDATION] ERROR: Variant belongs to different product:`, {
+                variantProductId: variant.productId,
+                expectedProductId: product.id,
+              });
+              throw new Error(`Variant ${item.variantId} does not belong to product ${product.id}`);
+            }
+            if (!variant.isActive || !variant.isAvailable) {
+              throw new Error(`Variant "${variant.name}" is no longer available for this product`);
+            }
+            
+            // Use variant price and name
+            variantPrice = variant.price;
+            variantName = variant.name;
+            console.log(`[ORDER-VALIDATION] Variant validated successfully:`, {
+              variantName,
+              variantPrice,
+            });
+          } else if (product?.hasVariants) {
+            // Product requires variant selection
+            console.log(`[ORDER-VALIDATION] ERROR: Product has variants but no variantId provided`);
+            throw new Error(`Product "${product.name}" requires a size selection`);
+          }
+          
+          console.log(`[ORDER-VALIDATION] Item validation complete:`, {
+            itemId: item.id,
+            finalPrice: variantPrice,
+            variantName,
+          });
+
           return {
             ...item,
+            price: variantPrice, // Use validated variant price or product price
             hotelPrice: product?.hotelPrice || 0, // Add partner's cost price to order item
             chefId: product?.chefId || item.chefId || undefined,
+            variantId: item.variantId || undefined, // Include variant ID in order snapshot
+            variantName, // Include variant name in order snapshot
           };
         })
       );

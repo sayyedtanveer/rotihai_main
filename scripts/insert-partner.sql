@@ -163,8 +163,132 @@ INSERT INTO products (
 
 
 -- ─────────────────────────────────
+-- 4. UPDATE PRODUCTS FOR VARIANTS
+-- ─────────────────────────────────
+-- Enable variant mode for products that have multiple sizes
+UPDATE products 
+SET has_variants = true 
+WHERE id IN ('prod-spicegarden-001', 'prod-spicegarden-002');
+
+
+-- ─────────────────────────────────
+-- 5. INSERT PRODUCT VARIANTS
+-- ─────────────────────────────────
+-- Example: Butter Chicken with Half/Full/Large servings
+-- Example: Dal Makhani with Half/Full/Large servings
+
+INSERT INTO product_variants (
+  id,
+  product_id,
+  name,
+  display_name,
+  description,
+  price,
+  hotel_price,
+  stock_quantity,
+  low_stock_threshold,
+  sort_order,
+  is_active,
+  is_available
+) VALUES
+-- Butter Chicken variants
+(
+  gen_random_uuid(),
+  'prod-spicegarden-001',
+  'Half',
+  'Half Serving',
+  'Smaller portion, perfect for one',
+  100,                         -- price: ₹100
+  50,                          -- hotel_price (cost): ₹50
+  100,                         -- stock_quantity
+  20,
+  0,                           -- sort_order (appears first)
+  true,
+  true
+),
+(
+  gen_random_uuid(),
+  'prod-spicegarden-001',
+  'Full',
+  'Full Serving',
+  'Standard portion for 2 people',
+  160,                         -- price: ₹160 (default)
+  80,
+  100,
+  20,
+  1,                           -- sort_order (appears second)
+  true,
+  true
+),
+(
+  gen_random_uuid(),
+  'prod-spicegarden-001',
+  'Large',
+  'Large Serving',
+  'Premium portion for 3-4 people',
+  240,                         -- price: ₹240
+  120,
+  80,
+  15,
+  2,                           -- sort_order (appears third)
+  true,
+  true
+),
+-- Dal Makhani variants
+(
+  gen_random_uuid(),
+  'prod-spicegarden-002',
+  'Half',
+  'Half Bowl',
+  'Smaller bowl',
+  60,                          -- price: ₹60
+  30,
+  100,
+  20,
+  0,
+  true,
+  true
+),
+(
+  gen_random_uuid(),
+  'prod-spicegarden-002',
+  'Full',
+  'Full Bowl',
+  'Full serving',
+  100,                         -- price: ₹100 (default)
+  40,
+  100,
+  20,
+  1,
+  true,
+  true
+),
+(
+  gen_random_uuid(),
+  'prod-spicegarden-002',
+  'Large',
+  'Large Bowl',
+  'Family size',
+  150,                         -- price: ₹150
+  70,
+  80,
+  15,
+  2,
+  true,
+  true
+);
+
+
+-- ─────────────────────────────────
 -- VERIFY (run after inserting)
 -- ─────────────────────────────────
 SELECT id, name, is_active, compliance_status FROM chefs WHERE id = 'chef-spicegarden';
 SELECT id, chef_id, username, email FROM partner_users WHERE chef_id = 'chef-spicegarden';
-SELECT id, name, price, image, is_available FROM products WHERE chef_id = 'chef-spicegarden';
+SELECT id, name, price, has_variants, is_available FROM products WHERE chef_id = 'chef-spicegarden';
+
+-- View all variants for the products
+SELECT pv.id, pv.product_id, p.name as product_name, pv.name as variant_name, pv.price, pv.hotel_price, pv.sort_order
+FROM product_variants pv
+JOIN products p ON pv.product_id = p.id
+WHERE p.chef_id = 'chef-spicegarden'
+ORDER BY p.id, pv.sort_order;

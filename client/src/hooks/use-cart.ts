@@ -15,6 +15,9 @@ interface CartItem {
   offerPercentage?: number; // Add offer percentage
   specialInstructions?: string; // Optional cooking instructions
   effectiveMode?: 'instant' | 'preorder' | 'both';
+  // 🆕 Variant support
+  variantId?: string; // Variant ID if product has variants
+  variantName?: string; // Variant name (e.g., "Half", "Full")
 }
 
 interface CategoryCart {
@@ -239,8 +242,11 @@ export const useCart = create<CartStore>()(
 
         // ✅ Existing cart → update or add item
         const categoryCart = carts[categoryCartIndex];
+        
+        // 🆕 For multi-variant products, match both id AND variantId
+        // For single-price products, just match id
         const existingItemIndex = categoryCart.items.findIndex(
-          (i) => i.id === item.id
+          (i) => i.id === item.id && i.variantId === item.variantId
         );
 
         const updatedCarts = [...carts];
@@ -256,7 +262,7 @@ export const useCart = create<CartStore>()(
             items: updatedItems,
           };
         } else {
-          // Add new item
+          // Add new item (including Half and Full as separate lines)
           updatedCarts[categoryCartIndex] = {
             ...categoryCart,
             items: [...categoryCart.items, { ...item, quantity: 1 }],
@@ -436,6 +442,29 @@ export const useCart = create<CartStore>()(
     }),
     {
       name: "cart-storage", // persistent cart in localStorage
+      // 🆕 DATA MIGRATION: Clean up invalid variant items when loading from storage
+      // This removes any cart items that have product.hasVariants but no variantId
+      // (legacy items added before variant validation was implemented)
+      onRehydrateStorage: () => (state) => {
+        if (!state?.carts) return;
+        
+        // Sanitize each cart: remove variant products without variantId
+        state.carts = state.carts.map((cart) => ({
+          ...cart,
+          items: cart.items.filter((item) => {
+            // Keep non-variant products always
+            // Remove variant products without variantId (invalid state)
+            const isVariantProduct = (item as any).hasVariants === true;
+            const hasVariantId = (item as any).variantId !== undefined && (item as any).variantId !== null;
+            
+            if (isVariantProduct && !hasVariantId) {
+              console.warn(`[CART-SANITIZE] Removing invalid variant item: ${item.name} (no variantId)`);
+              return false; // Remove this item
+            }
+            return true; // Keep valid items
+          }),
+        })).filter((cart) => cart.items.length > 0); // Remove empty carts
+      },
     }
   )
 );

@@ -1,9 +1,9 @@
-import { type Category, type InsertCategory, type Product, type InsertProduct, type Order, type InsertOrder, type User, type UpsertUser, type Chef, type AdminUser, type InsertAdminUser, type PartnerUser, type Subscription, type SubscriptionPlan, type DeliverySetting, type InsertDeliverySetting, type DeliveryPartnerPayout, type InsertDeliveryPartnerPayout, type CartSetting, type InsertCartSetting, type DeliveryPersonnel, type InsertDeliveryPersonnel, type WalletTransaction, type ReferralReward, type PromotionalBanner, type InsertPromotionalBanner, type SubscriptionDeliveryLog, type InsertSubscriptionDeliveryLog, type DeliveryTimeSlot, type InsertDeliveryTimeSlot, type Coupon, type RotiSettings, type InsertRotiSettings, type Visitor, type DeliveryArea, type InsertDeliveryArea, type AdminSettings, type PendingCheckout, type InsertPendingCheckout, type CustomSubscriptionRequest, type InsertCustomSubscriptionRequest, type ChefPreorderSettings, type InsertChefPreorderSettings } from "@shared/schema";
+import { type Category, type InsertCategory, type Product, type InsertProduct, type Order, type InsertOrder, type User, type UpsertUser, type Chef, type AdminUser, type InsertAdminUser, type PartnerUser, type Subscription, type SubscriptionPlan, type DeliverySetting, type InsertDeliverySetting, type DeliveryPartnerPayout, type InsertDeliveryPartnerPayout, type CartSetting, type InsertCartSetting, type DeliveryPersonnel, type InsertDeliveryPersonnel, type WalletTransaction, type ReferralReward, type PromotionalBanner, type InsertPromotionalBanner, type SubscriptionDeliveryLog, type InsertSubscriptionDeliveryLog, type DeliveryTimeSlot, type InsertDeliveryTimeSlot, type Coupon, type RotiSettings, type InsertRotiSettings, type Visitor, type DeliveryArea, type InsertDeliveryArea, type AdminSettings, type PendingCheckout, type InsertPendingCheckout, type CustomSubscriptionRequest, type InsertCustomSubscriptionRequest, type ChefPreorderSettings, type InsertChefPreorderSettings, type ProductVariant, type InsertProductVariant, type ProductWithVariants } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { nanoid } from "nanoid";
 import { eq, and, gte, lte, desc, asc, or, isNull, sql, count, lt, inArray } from "drizzle-orm";
 import {
-  db, users, categories, products, orders, chefs, adminUsers, partnerUsers, subscriptions,
+  db, users, categories, products, productVariants, orders, chefs, adminUsers, partnerUsers, subscriptions,
   subscriptionPlans, subscriptionDeliveryLogs, deliverySettings, deliveryPartnerPayouts, cartSettings, deliveryPersonnel, coupons, couponUsages, referrals, walletTransactions, referralRewards, promotionalBanners, deliveryTimeSlots, rotiSettings, visitors, deliveryAreas, adminSettings, payoutTransactions, pendingCheckouts, customSubscriptionRequests, chefPreorderSettings
 } from "@shared/db";
 
@@ -31,6 +31,14 @@ export interface IStorage {
   createProduct(product: InsertProduct): Promise<Product>;
   updateProduct(id: string, product: Partial<InsertProduct>): Promise<Product | undefined>;
   deleteProduct(id: string): Promise<boolean>;
+
+  // 🆕 Product Variant methods
+  getVariantsByProductId(productId: string): Promise<ProductVariant[]>;
+  getVariantById(variantId: string): Promise<ProductVariant | undefined>;
+  createVariant(variant: InsertProductVariant): Promise<ProductVariant>;
+  updateVariant(variantId: string, variant: Partial<InsertProductVariant>): Promise<ProductVariant | undefined>;
+  deleteVariant(variantId: string): Promise<boolean>;
+  getProductWithVariants(productId: string): Promise<ProductWithVariants | undefined>;
 
   createOrder(order: InsertOrder): Promise<Order>;
   getOrderById(id: string): Promise<Order | undefined>;
@@ -574,6 +582,9 @@ export class MemStorage implements IStorage {
         : insertProduct.marginPercent
       : "0";
 
+    // Determine if product has variants
+    const hasVariants = (insertProduct as any).variants && (insertProduct as any).variants.length > 0;
+
     const product: Product = {
       ...insertProduct,
       id,
@@ -590,12 +601,24 @@ export class MemStorage implements IStorage {
       offerPercentage: insertProduct.offerPercentage ?? 0,
       hotelPrice: insertProduct.hotelPrice ?? 0,
       marginPercent,
+      hasVariants,
       // Normalise optional fields to their DB defaults (prevent undefined leaking into Product type)
       section: insertProduct.section ?? null,
       sectionOrder: insertProduct.sectionOrder ?? 0,
       sortOrder: insertProduct.sortOrder ?? 0,
     };
     await db.insert(products).values(product);
+
+    // If variants provided, create them
+    if (hasVariants && (insertProduct as any).variants) {
+      for (const variant of (insertProduct as any).variants) {
+        await this.createVariant({
+          ...variant,
+          productId: id,
+        });
+      }
+    }
+
     return product;
   }
 
@@ -614,6 +637,80 @@ export class MemStorage implements IStorage {
   async deleteProduct(id: string): Promise<boolean> {
     await db.delete(products).where(eq(products.id, id));
     return true;
+  }
+
+  // 🆕 Product Variant Methods
+  async getVariantsByProductId(productId: string): Promise<ProductVariant[]> {
+    return db.query.productVariants.findMany({
+      where: (v, { eq, and }) => and(eq(v.productId, productId), eq(v.isActive, true)),
+      orderBy: (v) => v.sortOrder,
+    });
+  }
+
+  async getVariantById(variantId: string): Promise<ProductVariant | undefined> {
+    return db.query.productVariants.findFirst({
+      where: (v, { eq }) => eq(v.id, variantId),
+    });
+  }
+
+  async createVariant(insertVariant: InsertProductVariant): Promise<ProductVariant> {
+    const id = randomUUID();
+    const marginPercent = insertVariant.marginPercent !== undefined
+      ? typeof insertVariant.marginPercent === 'number'
+        ? insertVariant.marginPercent.toString()
+        : insertVariant.marginPercent
+      : "0";
+
+    const variant: ProductVariant = {
+      id,
+      productId: insertVariant.productId,
+      name: insertVariant.name,
+      displayName: insertVariant.displayName || null,
+      description: insertVariant.description || null,
+      hotelPrice: insertVariant.hotelPrice || null,
+      price: insertVariant.price,
+      marginPercent,
+      isAvailable: insertVariant.isAvailable !== undefined ? insertVariant.isAvailable : true,
+      stockQuantity: insertVariant.stockQuantity || 100,
+      lowStockThreshold: insertVariant.lowStockThreshold || 20,
+      sortOrder: insertVariant.sortOrder || 0,
+      isActive: insertVariant.isActive !== undefined ? insertVariant.isActive : true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    await db.insert(productVariants).values(variant);
+    return variant;
+  }
+
+  async updateVariant(variantId: string, updateData: Partial<InsertProductVariant>): Promise<ProductVariant | undefined> {
+    const sanitizedData: any = {
+      ...updateData,
+      updatedAt: new Date(),
+    };
+
+    // Convert marginPercent to string if it's a number
+    if (sanitizedData.marginPercent !== undefined && typeof sanitizedData.marginPercent === 'number') {
+      sanitizedData.marginPercent = sanitizedData.marginPercent.toString();
+    }
+
+    await db.update(productVariants).set(sanitizedData).where(eq(productVariants.id, variantId));
+    return this.getVariantById(variantId);
+  }
+
+  async deleteVariant(variantId: string): Promise<boolean> {
+    await db.delete(productVariants).where(eq(productVariants.id, variantId));
+    return true;
+  }
+
+  async getProductWithVariants(productId: string): Promise<ProductWithVariants | undefined> {
+    const product = await this.getProductById(productId);
+    if (!product) return undefined;
+
+    const variants = await this.getVariantsByProductId(productId);
+    return {
+      ...product,
+      variants,
+    };
   }
 
   async createOrder(insertOrder: InsertOrder): Promise<Order> {
@@ -1127,6 +1224,29 @@ export class MemStorage implements IStorage {
     const validRevenueOrders = orders.filter(isValidRevenueOrder);
     const completedValidOrders = validRevenueOrders.length;
 
+    // ── Platform Profit ──────────────────────────────────────────────────────
+    // Profit = (selling price − hotel/cost price) × qty for each item in valid orders.
+    // Uses the same formula as getRotihaiReport (the "platform commission" calculation).
+    const calcProfit = (orderSlice: typeof validRevenueOrders): number => {
+      let commission = 0;
+      for (const order of orderSlice) {
+        for (const item of order.items as any[]) {
+          commission += ((item.price || 0) - (item.hotelPrice || 0)) * (item.quantity || 1);
+        }
+      }
+      return Math.round(commission);
+    };
+
+    const profitLifetime = calcProfit(validRevenueOrders);
+
+    const todayValidOrders  = filterOrdersByDateRange(validRevenueOrders, todayRange);
+    const monthValidOrders  = filterOrdersByDateRange(validRevenueOrders, monthRange);
+    const yearValidOrders2  = filterOrdersByDateRange(validRevenueOrders, yearRange);
+
+    const profitToday  = calcProfit(todayValidOrders);
+    const profitMonth  = calcProfit(monthValidOrders);
+    const profitYear   = calcProfit(yearValidOrders2);
+
     // ✅ Count unique customers (users who have placed at least one order)
     const customerIds = new Set(orders.filter(o => o.userId).map(o => o.userId));
     const totalCustomers = customerIds.size;
@@ -1207,6 +1327,10 @@ export class MemStorage implements IStorage {
       averageOrderValueToday: averageOrderValueToday ?? 0,
       newCustomersToday: newCustomersToday ?? 0,
       monthlyEarlyRevenue: monthlyEarlyRevenue ?? 0,
+      profitToday:    profitToday   ?? 0,
+      profitMonth:    profitMonth   ?? 0,
+      profitYear:     profitYear    ?? 0,
+      profitLifetime: profitLifetime ?? 0,
     };
 
     console.log('[DASHBOARD METRICS] Response structure:', {

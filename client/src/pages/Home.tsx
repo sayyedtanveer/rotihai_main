@@ -505,10 +505,29 @@ export default function Home() {
       ? Math.round(product.price * (1 - product.offerPercentage / 100))
       : product.price;
 
+    // Get variant info if it exists (for multi-variant products)
+    const variantId = (product as any).selectedVariantId;
+    const variants = (product as any).variants as any[] | undefined;
+    const selectedVariant = variantId && variants ? variants.find(v => v.id === variantId) : undefined;
+    
+    // 🆕 VALIDATION: If product has variants, a variant MUST be selected
+    if ((product as any).hasVariants && (!variantId || !selectedVariant)) {
+      toast({
+        title: "Selection Required",
+        description: `Please select a size for ${product.name}`,
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    // Use variant price if available, otherwise use product price
+    const finalPrice = selectedVariant ? selectedVariant.price : discountedPrice;
+    const variantName = selectedVariant?.name || selectedVariant?.displayName;
+
     const cartItem = {
       id: product.id,
       name: product.name,
-      price: discountedPrice,
+      price: finalPrice,
       originalPrice: product.price,
       offerPercentage: product.offerPercentage || 0,
       image: product.image,
@@ -517,6 +536,8 @@ export default function Home() {
       categoryId: product.categoryId,
       specialInstructions,
       effectiveMode: (product as any).effectiveMode,
+      variantId: variantId,
+      variantName: variantName,
     };
 
     // Allow creating multiple carts per category scoped by chef. Previously we
@@ -1224,20 +1245,22 @@ export default function Home() {
         <section className="bg-background py-4 border-b">
           <div className="max-w-7xl mx-auto px-3">
             <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-2 -mx-3 px-3">
-              {/* All Category */}
+              {/* All Category - with nice image */}
               <button
                 onClick={() => handleCategoryTabChange("all")}
-                className={`flex flex-col items-center gap-2 min-w-[80px] sm:min-w-[88px] group transition-all justify-start pt-1 ${selectedCategoryTab === "all" ? "scale-105" : ""
+                className={`flex flex-col items-center gap-2 min-w-[80px] sm:min-w-[88px] group transition-all justify-start pt-1 active:scale-95 ${selectedCategoryTab === "all" ? "scale-105" : "hover:scale-110"
                   }`}
                 data-testid="button-category-all"
               >
-                <div className={`relative w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 rounded-full overflow-hidden shadow-md group-hover:shadow-lg transition-all group-hover:scale-105 flex-shrink-0 ${selectedCategoryTab === "all" ? "ring-2 ring-primary ring-offset-2" : ""
+                <div className={`relative w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 rounded-full overflow-hidden transition-all flex-shrink-0 group-hover:shadow-2xl active:shadow-lg active:scale-95 ${selectedCategoryTab === "all" 
+                  ? "ring-2 ring-primary ring-offset-2 shadow-[0_10px_30px_rgba(0,0,0,0.3)] scale-105" 
+                  : "shadow-md group-hover:shadow-xl"
                   }`}>
-                  <div className="w-full h-full bg-gradient-to-br from-orange-100 to-orange-200 dark:from-orange-900 dark:to-orange-800 flex items-center justify-center">
-                    <UtensilsCrossed className="h-7 w-7 text-primary" />
+                  <div className="w-full h-full bg-gradient-to-br from-amber-300 via-amber-400 to-amber-500 flex items-center justify-center text-2xl sm:text-3xl">
+                    🍽️
                   </div>
                 </div>
-                <span className={`text-xs font-medium text-center whitespace-nowrap ${selectedCategoryTab === "all" ? "text-primary font-bold" : "text-muted-foreground"
+                <span className={`text-xs font-bold text-center whitespace-nowrap transition-all duration-300 ${selectedCategoryTab === "all" ? "text-primary" : "bg-gradient-to-r from-amber-600 to-amber-700 bg-clip-text text-transparent"
                   }`}>All</span>
               </button>
 
@@ -1254,10 +1277,12 @@ export default function Home() {
                   <button
                     key={category.id}
                     onClick={() => handleBrowseCategory(category.id)}
-                    className={`flex flex-col items-center gap-2 min-w-[80px] sm:min-w-[88px] md:min-w-[96px] group transition-all ${selectedCategoryTab === category.id ? "scale-105" : ""}`}
+                    className={`flex flex-col items-center gap-2 min-w-[80px] sm:min-w-[88px] md:min-w-[96px] group transition-all active:scale-95 ${selectedCategoryTab === category.id ? "scale-105" : "hover:scale-110"}`}
                     data-testid={`button-category-${category.id}`}
                   >
-                    <div className={`relative w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 rounded-full overflow-hidden shadow-md group-hover:shadow-lg transition-all group-hover:scale-105 flex-shrink-0 ${selectedCategoryTab === category.id ? "ring-2 ring-primary ring-offset-2" : ""
+                    <div className={`relative w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 rounded-full overflow-hidden transition-all flex-shrink-0 group-hover:shadow-2xl active:shadow-lg active:scale-95 ${selectedCategoryTab === category.id 
+                      ? "ring-2 ring-primary ring-offset-2 shadow-[0_10px_30px_rgba(0,0,0,0.3)] scale-105" 
+                      : "shadow-md group-hover:shadow-xl"
                       }`}>
                       {hasImage(category.image) ? (
                         <img
@@ -1274,7 +1299,7 @@ export default function Home() {
                         </div>
                       )}
                     </div>
-                    <span className={`text-xs font-medium text-center leading-tight line-clamp-2 max-w-[88px] sm:max-w-[96px] md:max-w-[112px] ${selectedCategoryTab === category.id ? "text-primary font-bold" : "text-muted-foreground"
+                    <span className={`text-xs font-bold text-center leading-tight line-clamp-2 max-w-[88px] sm:max-w-[96px] md:max-w-[112px] transition-all duration-300 ${selectedCategoryTab === category.id ? "text-primary" : "bg-gradient-to-r from-amber-600 to-amber-700 bg-clip-text text-transparent"
                       }`}>{category.name}</span>
                   </button>
                 ))
@@ -1928,6 +1953,8 @@ export default function Home() {
               id: item.id,
               quantity: item.quantity,
               price: item.price,
+              variantId: (item as any).variantId,  // 🆕 Include variant info
+              variantName: (item as any).variantName,  // 🆕 Include variant info
             })) || []
             : []
         }
@@ -1943,6 +1970,18 @@ export default function Home() {
         isOpen={isCartOpen}
         onClose={() => setIsCartOpen(false)}
         onCheckout={handleCheckout}
+        onContinueShopping={(categoryId, chefId) => {
+          // Close cart sidebar, open category menu for same chef
+          setIsCartOpen(false);
+          // Find the actual category and chef objects
+          const category = categories.find(c => c.id === categoryId);
+          const chef = chefsFilteredByPincode.find(c => c.id === chefId);
+          if (category && chef) {
+            setSelectedCategoryForMenu(category);
+            setSelectedChefForMenu(chef);
+            setIsCategoryMenuOpen(true);
+          }
+        }}
       />
 
       <CheckoutDialog

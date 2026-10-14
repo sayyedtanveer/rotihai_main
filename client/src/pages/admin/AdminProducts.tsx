@@ -17,16 +17,24 @@ import { queryClient } from "@/lib/queryClient";
 import { Plus, Pencil, Trash2, Grid3x3, List, UtensilsCrossed } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertProductSchema } from "@shared/schema";
+import { insertProductSchema, type ProductVariant } from "@shared/schema";
 import { ImageUploader } from "@/components/ImageUploader";
 import { getImageUrl, handleImageError } from "@/lib/imageUrl";
 import { fetchAPI, fetchPost, fetchPatch, fetchDelete } from "@/lib/fetchClient";
+import { VariantManagerDialog } from "@/components/admin/VariantManagerDialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Radio, RadioGroup } from "@radix-ui/react-radio-group";
 
 export default function AdminProducts() {
   const { toast } = useToast();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [viewMode, setViewMode] = useState<"grid" | "table">("table");
+  
+  // 🆕 Variant management state
+  const [isVariantManagerOpen, setIsVariantManagerOpen] = useState(false);
+  const [pendingVariants, setPendingVariants] = useState<any[]>([]);
+  const [productMode, setProductMode] = useState<"single" | "variants">("single");
   
   // Search and filter states
   const [searchQuery, setSearchQuery] = useState("");
@@ -67,7 +75,7 @@ export default function AdminProducts() {
     defaultValues: {
       name: "",
       description: "",
-      hotelPrice: 0, // ← NEW: Cost from hotel/supplier
+      hotelPrice: 0,
       price: 0,
       image: "",
       categoryId: "",
@@ -82,6 +90,7 @@ export default function AdminProducts() {
       sectionOrder: 0,
       sortOrder: 0,
       fulfillmentMode: "inherit",
+      hasVariants: false, // 🆕
     },
   });
 
@@ -168,43 +177,68 @@ export default function AdminProducts() {
 
   const handleEdit = (product: Product) => {
     setEditingProduct(product);
+    setProductMode(product.hasVariants ? "variants" : "single");
+    
+    // 🆕 Load variants if editing a variant product
+    if (product.hasVariants && product.variants) {
+      setPendingVariants(product.variants);
+    } else {
+      setPendingVariants([]);
+    }
+    
     form.reset({
       ...product,
       chefId: product.chefId || "none",
       stockQuantity: product.stockQuantity || 100,
       lowStockThreshold: product.lowStockThreshold || 20,
       offerPercentage: product.offerPercentage || 0,
-      hotelPrice: product.hotelPrice || 0, // ← NEW: Reset hotel price
+      hotelPrice: product.hotelPrice || 0,
       section: product.section || "",
       sectionOrder: product.sectionOrder ?? 0,
       sortOrder: product.sortOrder ?? 0,
       fulfillmentMode: product.fulfillmentMode || "inherit",
+      hasVariants: product.hasVariants || false, // 🆕
     });
     setIsDialogOpen(true);
   };
 
   const handleSubmit = async (data: any) => {
-    console.log("📋 Form submitted with raw data:", data); // ← DEBUG
-    console.log("📋 Form validation errors:", Object.keys(form.formState.errors).length > 0 ? form.formState.errors : "None"); // ← DEBUG
+    console.log("📋 Form submitted with raw data:", data);
+    console.log("📋 Product mode:", productMode);
     
     // Ensure chefId is null if it's "none" before submitting
     // Ensure hotelPrice is a number
     const processedData = {
       ...data,
       chefId: data.chefId === "none" ? null : data.chefId,
-      hotelPrice: parseInt(data.hotelPrice) || 0, // ← ENSURE NUMBER
-      price: parseInt(data.price) || 0, // ← ENSURE NUMBER
+      hotelPrice: parseInt(data.hotelPrice) || 0,
+      price: parseInt(data.price) || 0,
+      hasVariants: productMode === "variants", // 🆕
+      // 🆕 Include variants if in variant mode
+      ...(productMode === "variants" && pendingVariants.length > 0 && {
+        variants: pendingVariants,
+      }),
     };
 
-    console.log("📤 Submitting product data:", processedData); // ← DEBUG LOG
-    console.log("✏️ Editing product?", editingProduct?.id); // ← DEBUG
+    console.log("📤 Submitting product data:", processedData);
+    console.log("✏️ Editing product?", editingProduct?.id);
+    
+    // 🆕 Validate variants
+    if (productMode === "variants" && pendingVariants.length === 0) {
+      toast({
+        title: "Validation error",
+        description: "Please add at least one variant",
+        variant: "destructive",
+      });
+      return;
+    }
 
     try {
       if (editingProduct) {
-        console.log("🔄 Calling UPDATE mutation"); // ← DEBUG
+        console.log("🔄 Calling UPDATE mutation");
         updateMutation.mutate({ id: editingProduct.id, data: processedData });
       } else {
-        console.log("➕ Calling CREATE mutation"); // ← DEBUG
+        console.log("➕ Calling CREATE mutation");
         createMutation.mutate(processedData);
       }
     } catch (err) {
@@ -398,6 +432,66 @@ export default function AdminProducts() {
                             </p>
                           </div>
                         </div>
+                      </div>
+                    )}
+
+                    {/* 🆕 PRICING MODE SELECTOR */}
+                    <div className="border-t pt-4 mt-4">
+                      <h3 className="text-sm font-semibold mb-3 text-slate-700 dark:text-slate-300">Pricing & Sizes</h3>
+                      <div className="flex gap-4">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            checked={productMode === "single"}
+                            onChange={() => {
+                              setProductMode("single");
+                              setPendingVariants([]);
+                            }}
+                            className="w-4 h-4"
+                          />
+                          <span>Single Price (one size)</span>
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            checked={productMode === "variants"}
+                            onChange={() => setProductMode("variants")}
+                            className="w-4 h-4"
+                          />
+                          <span>Multiple Variants (Half/Full/Large)</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* 🆕 VARIANT MODE - Show variant manager button */}
+                    {productMode === "variants" && (
+                      <div className="border rounded-lg p-4 bg-slate-50 dark:bg-slate-900">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="font-semibold text-sm">Product Variants</p>
+                            <p className="text-xs text-gray-500 mt-1">
+                              {pendingVariants.length > 0
+                                ? `${pendingVariants.length} variant(s) added`
+                                : "Add sizes like Half, Full, Regular"}
+                            </p>
+                          </div>
+                          <Button
+                            type="button"
+                            onClick={() => setIsVariantManagerOpen(true)}
+                            variant="outline"
+                          >
+                            {pendingVariants.length > 0 ? "Edit Variants" : "Add Variants"}
+                          </Button>
+                        </div>
+                        {pendingVariants.length > 0 && (
+                          <div className="mt-3 grid grid-cols-2 gap-2">
+                            {pendingVariants.map((v, idx) => (
+                              <Badge key={idx} variant="secondary">
+                                {v.name} - ₹{v.price}
+                              </Badge>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
                     <div className="grid grid-cols-2 gap-4">
@@ -709,6 +803,14 @@ export default function AdminProducts() {
                         {createMutation.isPending || updateMutation.isPending ? "Saving..." : editingProduct ? "Update" : "Create"}
                       </Button>
                     </DialogFooter>
+
+                    {/* 🆕 Variant Manager Dialog */}
+                    <VariantManagerDialog
+                      isOpen={isVariantManagerOpen}
+                      onClose={() => setIsVariantManagerOpen(false)}
+                      variants={pendingVariants}
+                      onVariantsChange={setPendingVariants}
+                    />
                   </form>
                 </Form>
               </DialogContent>

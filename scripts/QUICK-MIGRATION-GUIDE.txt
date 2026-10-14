@@ -1,0 +1,193 @@
+================================================================================
+PRODUCT VARIANTS - PRODUCTION MIGRATION - QUICK REFERENCE
+================================================================================
+
+CREATED SCRIPTS:
+  ✓ prod-migration-variants.sql     - Main migration (creates tables/indexes)
+  ✓ rollback-variants.sql           - Emergency rollback (removes everything)
+  ✓ PROD-DEPLOYMENT-CHECKLIST.md    - Complete safety checklist
+  ✓ QUICK-MIGRATION-GUIDE.txt       - This file
+
+================================================================================
+STEP-BY-STEP: RUN IN PRODUCTION
+================================================================================
+
+STEP 1: BACKUP (CRITICAL - DO NOT SKIP)
+  $ pg_dump rotihai_db > backup_prod_$(date +%Y%m%d_%H%M%S).sql
+  $ ls -lh backup_prod_*.sql    # Verify backup size is reasonable
+
+STEP 2: TEST ON STAGING (if available)
+  $ psql -h staging-db -d rotihai_db -f scripts/prod-migration-variants.sql
+  $ psql -h staging-db -d rotihai_db -c "SELECT COUNT(*) FROM product_variants;"
+
+STEP 3: RUN MIGRATION ON PRODUCTION
+  $ psql -h prod-db -d rotihai_db -f scripts/prod-migration-variants.sql
+  Execution time: ~5 seconds
+  Expected output: Table created, indexes created, migration recorded
+
+STEP 4: VERIFY MIGRATION SUCCESS
+  $ psql -h prod-db -d rotihai_db -c "SELECT COUNT(*) FROM product_variants;"
+  $ psql -h prod-db -d rotihai_db -c "SELECT * FROM schema_migrations WHERE version=15;"
+  $ psql -h prod-db -d rotihai_db -c "SELECT COUNT(DISTINCT tablename) FROM pg_indexes WHERE tablename='product_variants';"
+
+STEP 5: DEPLOY CODE
+  - Backend: server/ with variant API endpoints
+  - Frontend: client/ with VariantSelectorDialog
+  - Clear caches
+
+STEP 6: TEST FEATURES
+  - Admin: Create product → Toggle "Multiple Variants" → Add Half/Full/Large
+  - Customer: Browse menu → Click Add → Select size → Add to cart
+
+STEP 7: MONITOR
+  - Watch logs for errors
+  - Monitor database performance
+  - Check customer orders processing normally
+  - Monitor for 24 hours
+
+================================================================================
+IF SOMETHING GOES WRONG: ROLLBACK
+================================================================================
+
+CRITICAL BUG FOUND (within 1 hour)?
+  $ psql -h prod-db -d rotihai_db -f scripts/rollback-variants.sql
+  Execution time: ~5 seconds
+  Result: Complete revert, all variant data removed, schema restored
+
+VERIFY ROLLBACK:
+  $ psql -h prod-db -d rotihai_db -c "SELECT COUNT(*) FROM product_variants;" 
+  Expected: ERROR (table doesn't exist)
+  $ psql -h prod-db -d rotihai_db -c "SELECT COUNT(*) FROM products WHERE has_variants IS NOT NULL;" 
+  Expected: ERROR (column doesn't exist)
+
+RESTORE BACKUP (if needed):
+  $ psql rotihai_db < backup_prod_20261013_120000.sql
+  
+AFTER ROLLBACK:
+  - Revert code changes
+  - Investigate what went wrong
+  - Fix issues
+  - Try migration again
+
+================================================================================
+KEY DATABASE OBJECTS CREATED
+================================================================================
+
+TABLE: product_variants
+  - Stores product sizes (Half/Full/Large)
+  - Each variant has own price, stock, availability
+  - Linked to products table via product_id
+
+COLUMN: products.has_variants
+  - Boolean flag: true = has variants, false = legacy single-price
+  - Allows backward compatibility
+
+INDEXES (for performance):
+  - idx_product_variants_product_id
+  - idx_product_variants_active
+  - idx_product_variants_created
+  - idx_products_has_variants
+
+MIGRATION TRACKING:
+  - Records version 15 in schema_migrations table
+  - Safe to run migration multiple times
+
+================================================================================
+TESTING COMMANDS
+================================================================================
+
+Check if migration applied:
+  psql -d rotihai_db -c "SELECT version, description FROM schema_migrations WHERE version=15;"
+
+Count variants:
+  psql -d rotihai_db -c "SELECT COUNT(*) FROM product_variants;"
+
+Find products with variants:
+  psql -d rotihai_db -c "SELECT id, name FROM products WHERE has_variants=true LIMIT 5;"
+
+View variant details:
+  psql -d rotihai_db -c "SELECT pv.name, pv.price, p.name as product_name FROM product_variants pv JOIN products p ON pv.product_id=p.id LIMIT 10;"
+
+Check index performance:
+  psql -d rotihai_db -c "SELECT indexname, idx_scan FROM pg_stat_user_indexes WHERE tablename='product_variants';"
+
+================================================================================
+MONITORING: QUERIES TO RUN AFTER DEPLOYMENT
+================================================================================
+
+# Health check (run every hour for 24 hours)
+SELECT 
+  (SELECT COUNT(*) FROM products) as total_products,
+  (SELECT COUNT(*) FROM product_variants) as total_variants,
+  (SELECT COUNT(*) FROM products WHERE has_variants=true) as products_with_variants,
+  NOW() as checked_at;
+
+# Check for issues
+SELECT COUNT(*) FROM product_variants WHERE price IS NULL;        -- Should be 0
+SELECT COUNT(*) FROM products WHERE has_variants IS NULL;         -- Should be 0
+
+# Query performance
+EXPLAIN ANALYZE SELECT * FROM products WHERE has_variants=true;   -- Check query plan
+EXPLAIN ANALYZE SELECT * FROM product_variants WHERE product_id='prod-1';
+
+================================================================================
+ROLLBACK DECISION TREE
+================================================================================
+
+Issue Found?
+  ├─ No → Celebrate! Monitoring continues
+  ├─ Yes, critical (app down, data lost, security issue)
+  │  ├─ < 1 hour since migration? YES → Run rollback-variants.sql
+  │  └─ > 1 hour since migration? → Manual restore from backup
+  └─ Yes, non-critical (feature bug, performance issue)
+     └─ Deploy code fix, keep schema
+
+================================================================================
+IMPORTANT NOTES
+================================================================================
+
+✓ SAFE: Script uses transactions (all-or-nothing)
+✓ SAFE: IF NOT EXISTS prevents errors on retry
+✓ SAFE: Backup available if needed
+✓ SAFE: Rollback option available if critical issue
+
+✗ NOT SAFE: Running without backup
+✗ NOT SAFE: Running without testing on staging
+✗ NOT SAFE: Running during peak traffic
+✗ NOT SAFE: Deploying code before schema migration
+
+================================================================================
+SUCCESS CRITERIA
+================================================================================
+
+✓ Migration completes in < 2 minutes
+✓ product_variants table created with data
+✓ has_variants column added to products
+✓ All 4 indexes created and working
+✓ Zero data loss (product count unchanged)
+✓ Migration 15 recorded in schema_migrations
+✓ Admin can create/edit/delete variants
+✓ Customers see variant selector on multi-variant products
+✓ Cart displays variant names correctly
+✓ Single-price products work unchanged
+✓ No performance degradation
+✓ No errors in logs
+
+================================================================================
+HELP & SUPPORT
+================================================================================
+
+For questions:
+  1. Check PROD-DEPLOYMENT-CHECKLIST.md for detailed steps
+  2. Review prod-migration-variants.sql comments
+  3. Check rollback-variants.sql for emergency procedures
+  4. Contact database admin
+
+Emergency contact (if migration fails):
+  - Stop all deployments
+  - Check database state with verification queries
+  - Review error message in logs
+  - Consult team lead
+  - Run rollback if needed
+
+================================================================================

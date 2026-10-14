@@ -57,6 +57,7 @@ __export(schema_exports, {
   insertPendingBroadcastSchema: () => insertPendingBroadcastSchema,
   insertPendingCheckoutSchema: () => insertPendingCheckoutSchema,
   insertProductSchema: () => insertProductSchema,
+  insertProductVariantSchema: () => insertProductVariantSchema,
   insertPromotionalBannerSchema: () => insertPromotionalBannerSchema,
   insertPushSubscriptionSchema: () => insertPushSubscriptionSchema,
   insertReferralRewardSchema: () => insertReferralRewardSchema,
@@ -79,6 +80,7 @@ __export(schema_exports, {
   pendingBroadcasts: () => pendingBroadcasts,
   pendingCheckouts: () => pendingCheckouts,
   productFulfillmentModeEnum: () => productFulfillmentModeEnum,
+  productVariants: () => productVariants,
   products: () => products,
   promotionalBanners: () => promotionalBanners,
   pushSubscriptions: () => pushSubscriptions,
@@ -102,7 +104,7 @@ import { sql } from "drizzle-orm";
 import { pgTable, text, varchar, integer, decimal, boolean, timestamp, date, jsonb, index, uniqueIndex, pgEnum, real } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
-var adminRoleEnum, fulfillmentModeEnum, productFulfillmentModeEnum, sessions, users, adminUsers, partnerUsers, categories, chefs, chefPreorderSettings, insertChefPreorderSettingsSchema, products, paymentStatusEnum, deliveryPersonnelStatusEnum, deliveryPersonnel, orders, paymentVerificationLog, deliverySettings, deliveryPartnerPayouts, cartSettings, discountTypeEnum, coupons, couponUsages, referrals, transactionTypeEnum, walletTransactions, walletSettings, paymentSettings, payoutTransactions, referralRewards, subscriptionStatusEnum, subscriptionFrequencyEnum, deliveryLogStatusEnum, subscriptionPlans, subscriptions, subscriptionDeliveryLogs, chefUnavailability, insertCategorySchema, insertProductSchema, insertChefSchema, orderItemSchema, insertOrderSchema, insertUserSchema, userLoginSchema, insertAdminUserSchema, adminLoginSchema, insertPartnerUserSchema, partnerLoginSchema, insertSubscriptionPlanSchema, promotionalBanners, insertPromotionalBannerSchema, insertSubscriptionSchema, insertDeliverySettingSchema, insertSubscriptionDeliveryLogSchema, insertDeliveryPartnerPayoutSchema, insertCartSettingSchema, insertDeliveryPersonnelSchema, deliveryPersonnelLoginSchema, insertCouponSchema, insertReferralSchema, insertWalletTransactionSchema, insertReferralRewardSchema, deliveryTimeSlots, insertDeliveryTimeSlotsSchema, rotiSettings, insertRotiSettingsSchema, visitors, insertVisitorSchema, deliveryAreas, insertDeliveryAreasSchema, adminSettings, insertAdminSettingsSchema, pushSubscriptions, insertPushSubscriptionSchema, newsletterSubscribers, pendingBroadcasts, insertPendingBroadcastSchema, pendingCheckouts, insertPendingCheckoutSchema, customSubscriptionRequests, insertCustomSubscriptionRequestSchema;
+var adminRoleEnum, fulfillmentModeEnum, productFulfillmentModeEnum, sessions, users, adminUsers, partnerUsers, categories, chefs, chefPreorderSettings, insertChefPreorderSettingsSchema, products, productVariants, paymentStatusEnum, deliveryPersonnelStatusEnum, deliveryPersonnel, orders, paymentVerificationLog, deliverySettings, deliveryPartnerPayouts, cartSettings, discountTypeEnum, coupons, couponUsages, referrals, transactionTypeEnum, walletTransactions, walletSettings, paymentSettings, payoutTransactions, referralRewards, subscriptionStatusEnum, subscriptionFrequencyEnum, deliveryLogStatusEnum, subscriptionPlans, subscriptions, subscriptionDeliveryLogs, chefUnavailability, insertCategorySchema, insertProductSchema, insertProductVariantSchema, insertChefSchema, orderItemSchema, insertOrderSchema, insertUserSchema, userLoginSchema, insertAdminUserSchema, adminLoginSchema, insertPartnerUserSchema, partnerLoginSchema, insertSubscriptionPlanSchema, promotionalBanners, insertPromotionalBannerSchema, insertSubscriptionSchema, insertDeliverySettingSchema, insertSubscriptionDeliveryLogSchema, insertDeliveryPartnerPayoutSchema, insertCartSettingSchema, insertDeliveryPersonnelSchema, deliveryPersonnelLoginSchema, insertCouponSchema, insertReferralSchema, insertWalletTransactionSchema, insertReferralRewardSchema, deliveryTimeSlots, insertDeliveryTimeSlotsSchema, rotiSettings, insertRotiSettingsSchema, visitors, insertVisitorSchema, deliveryAreas, insertDeliveryAreasSchema, adminSettings, insertAdminSettingsSchema, pushSubscriptions, insertPushSubscriptionSchema, newsletterSubscribers, pendingBroadcasts, insertPendingBroadcastSchema, pendingCheckouts, insertPendingCheckoutSchema, customSubscriptionRequests, insertCustomSubscriptionRequestSchema;
 var init_schema = __esm({
   "shared/schema.ts"() {
     "use strict";
@@ -268,9 +270,47 @@ var init_schema = __esm({
       // NEW: Controls section display order (lower = first)
       sortOrder: integer("sort_order").notNull().default(0),
       // NEW: Controls product order within section (lower = first)
-      fulfillmentMode: productFulfillmentModeEnum("fulfillment_mode").notNull().default("inherit")
+      fulfillmentMode: productFulfillmentModeEnum("fulfillment_mode").notNull().default("inherit"),
       // 'inherit' | 'instant' | 'preorder'
+      hasVariants: boolean("has_variants").notNull().default(false)
+      // ← NEW: Whether product uses variants
     });
+    productVariants = pgTable("product_variants", {
+      id: text("id").primaryKey().default(sql`gen_random_uuid()::text`),
+      productId: text("product_id").notNull(),
+      // Foreign key reference to products.id
+      // Variant Identity
+      name: varchar("name", { length: 100 }).notNull(),
+      // "Half", "Full", "Regular", "Large", "Family", custom
+      displayName: varchar("display_name", { length: 100 }),
+      // Optional: Friendly display (e.g., "Half Plate")
+      description: text("description"),
+      // Optional: Variant description
+      // Pricing
+      hotelPrice: integer("hotel_price"),
+      // Optional: Override parent hotel price (cost)
+      price: integer("price").notNull(),
+      // Variant selling price (₹)
+      marginPercent: decimal("margin_percent", { precision: 5, scale: 2 }),
+      // Auto-calculated margin %
+      // Availability
+      isAvailable: boolean("is_available").notNull().default(true),
+      stockQuantity: integer("stock_quantity").notNull().default(100),
+      lowStockThreshold: integer("low_stock_threshold").notNull().default(20),
+      // Ordering & Display
+      sortOrder: integer("sort_order").notNull().default(0),
+      // Lower = first in variant list
+      // Status
+      isActive: boolean("is_active").notNull().default(true),
+      // Audit
+      createdAt: timestamp("created_at").notNull().defaultNow(),
+      updatedAt: timestamp("updated_at").notNull().defaultNow()
+    }, (table) => [
+      uniqueIndex("unique_variant_name_per_product").on(table.productId, table.name),
+      index("idx_product_variants_product_id").on(table.productId),
+      index("idx_product_variants_active").on(table.productId, table.isActive),
+      index("idx_product_variants_created").on(table.createdAt)
+    ]);
     paymentStatusEnum = pgEnum("payment_status", ["pending", "pending_verification", "paid", "confirmed"]);
     deliveryPersonnelStatusEnum = pgEnum("delivery_personnel_status", ["available", "busy", "offline"]);
     deliveryPersonnel = pgTable("delivery_personnel", {
@@ -679,8 +719,37 @@ var init_schema = __esm({
       isCustomizable: z.boolean().default(false).optional(),
       offerPercentage: z.number().min(0).max(100).optional(),
       fulfillmentMode: z.enum(["inherit", "instant", "preorder"]).optional(),
+      hasVariants: z.boolean().default(false).optional(),
+      // ← NEW: Whether product uses variants
       createdAt: z.date().or(z.string()).optional(),
-      updatedAt: z.date().or(z.string()).optional()
+      updatedAt: z.date().or(z.string()).optional(),
+      // Support creating product with variants in one request
+      variants: z.array(z.object({
+        name: z.string().min(1, "Variant name required"),
+        displayName: z.string().optional(),
+        description: z.string().optional(),
+        hotelPrice: z.number().min(0).optional(),
+        price: z.number().min(1, "Price must be at least \u20B91"),
+        stockQuantity: z.number().int().min(0).default(100),
+        lowStockThreshold: z.number().int().min(0).default(20),
+        sortOrder: z.number().int().min(0).default(0)
+      })).optional()
+    });
+    insertProductVariantSchema = createInsertSchema(productVariants).omit({
+      id: true
+    }).extend({
+      productId: z.string().min(1, "Product ID required"),
+      name: z.string().min(1, "Variant name required").max(100),
+      displayName: z.string().max(100).optional(),
+      description: z.string().optional(),
+      hotelPrice: z.number().min(0).optional(),
+      price: z.number().min(1, "Price must be at least \u20B91"),
+      marginPercent: z.union([z.number(), z.string()]).transform((v) => typeof v === "string" ? parseFloat(v) : v).optional(),
+      stockQuantity: z.number().int().min(0).default(100),
+      lowStockThreshold: z.number().int().min(0).default(20),
+      sortOrder: z.number().int().min(0).default(0),
+      isActive: z.boolean().default(true).optional(),
+      isAvailable: z.boolean().default(true).optional()
     });
     insertChefSchema = createInsertSchema(chefs, {
       servicePincodes: z.array(z.string().regex(/^\d{5,6}$/, "Pincode must be 5-6 digits")).optional().nullable(),
@@ -699,7 +768,11 @@ var init_schema = __esm({
       price: z.number(),
       hotelPrice: z.number().optional(),
       // ← Partner's cost price
-      quantity: z.number()
+      quantity: z.number(),
+      variantId: z.string().optional(),
+      // ← NEW: Variant ID if product has variants
+      variantName: z.string().optional()
+      // ← NEW: Variant name (e.g., "Half", "Full")
     });
     insertOrderSchema = createInsertSchema(orders, {
       items: z.array(z.object({
@@ -709,6 +782,10 @@ var init_schema = __esm({
         hotelPrice: z.number().optional(),
         // ← Partner's cost price
         quantity: z.number(),
+        variantId: z.string().optional(),
+        // ← NEW: Variant ID if product has variants
+        variantName: z.string().optional(),
+        // ← NEW: Variant name (e.g., "Half", "Full")
         specialInstructions: z.string().optional()
         // ← Optional cooking instructions
       })),
@@ -1290,6 +1367,7 @@ __export(db_exports, {
   pendingBroadcasts: () => pendingBroadcasts2,
   pendingCheckouts: () => pendingCheckouts2,
   pool: () => pool,
+  productVariants: () => productVariants2,
   products: () => products2,
   promotionalBanners: () => promotionalBanners2,
   referralRewards: () => referralRewards2,
@@ -1308,7 +1386,7 @@ __export(db_exports, {
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { sql as sql2 } from "drizzle-orm";
-var dbType, connectionString, pool, db, users2, sessions2, categories2, products2, orders2, chefs2, adminUsers2, partnerUsers2, subscriptions2, subscriptionPlans2, subscriptionDeliveryLogs2, deliverySettings2, deliveryPartnerPayouts2, cartSettings2, deliveryPersonnel2, coupons2, couponUsages2, referrals2, walletTransactions2, walletSettings2, referralRewards2, promotionalBanners2, deliveryTimeSlots2, rotiSettings2, visitors2, deliveryAreas2, adminSettings2, newsletterSubscribers2, pendingBroadcasts2, pendingCheckouts2, payoutTransactions2, paymentVerificationLog2, paymentSettings2, customSubscriptionRequests2, chefUnavailability2, chefPreorderSettings2;
+var dbType, connectionString, pool, db, users2, sessions2, categories2, products2, productVariants2, orders2, chefs2, adminUsers2, partnerUsers2, subscriptions2, subscriptionPlans2, subscriptionDeliveryLogs2, deliverySettings2, deliveryPartnerPayouts2, cartSettings2, deliveryPersonnel2, coupons2, couponUsages2, referrals2, walletTransactions2, walletSettings2, referralRewards2, promotionalBanners2, deliveryTimeSlots2, rotiSettings2, visitors2, deliveryAreas2, adminSettings2, newsletterSubscribers2, pendingBroadcasts2, pendingCheckouts2, payoutTransactions2, paymentVerificationLog2, paymentSettings2, customSubscriptionRequests2, chefUnavailability2, chefPreorderSettings2;
 var init_db = __esm({
   "shared/db.ts"() {
     "use strict";
@@ -1332,6 +1410,7 @@ var init_db = __esm({
       sessions: sessions2,
       categories: categories2,
       products: products2,
+      productVariants: productVariants2,
       orders: orders2,
       chefs: chefs2,
       adminUsers: adminUsers2,
@@ -1925,6 +2004,7 @@ var init_storage = __esm({
       async createProduct(insertProduct) {
         const id = randomUUID();
         const marginPercent = insertProduct.marginPercent !== void 0 ? typeof insertProduct.marginPercent === "number" ? insertProduct.marginPercent.toString() : insertProduct.marginPercent : "0";
+        const hasVariants = insertProduct.variants && insertProduct.variants.length > 0;
         const product = {
           ...insertProduct,
           id,
@@ -1941,12 +2021,21 @@ var init_storage = __esm({
           offerPercentage: insertProduct.offerPercentage ?? 0,
           hotelPrice: insertProduct.hotelPrice ?? 0,
           marginPercent,
+          hasVariants,
           // Normalise optional fields to their DB defaults (prevent undefined leaking into Product type)
           section: insertProduct.section ?? null,
           sectionOrder: insertProduct.sectionOrder ?? 0,
           sortOrder: insertProduct.sortOrder ?? 0
         };
         await db.insert(products2).values(product);
+        if (hasVariants && insertProduct.variants) {
+          for (const variant of insertProduct.variants) {
+            await this.createVariant({
+              ...variant,
+              productId: id
+            });
+          }
+        }
         return product;
       }
       async updateProduct(id, updateData) {
@@ -1960,6 +2049,65 @@ var init_storage = __esm({
       async deleteProduct(id) {
         await db.delete(products2).where(eq(products2.id, id));
         return true;
+      }
+      // 🆕 Product Variant Methods
+      async getVariantsByProductId(productId) {
+        return db.query.productVariants.findMany({
+          where: (v, { eq: eq11, and: and7 }) => and7(eq11(v.productId, productId), eq11(v.isActive, true)),
+          orderBy: (v) => v.sortOrder
+        });
+      }
+      async getVariantById(variantId) {
+        return db.query.productVariants.findFirst({
+          where: (v, { eq: eq11 }) => eq11(v.id, variantId)
+        });
+      }
+      async createVariant(insertVariant) {
+        const id = randomUUID();
+        const marginPercent = insertVariant.marginPercent !== void 0 ? typeof insertVariant.marginPercent === "number" ? insertVariant.marginPercent.toString() : insertVariant.marginPercent : "0";
+        const variant = {
+          id,
+          productId: insertVariant.productId,
+          name: insertVariant.name,
+          displayName: insertVariant.displayName || null,
+          description: insertVariant.description || null,
+          hotelPrice: insertVariant.hotelPrice || null,
+          price: insertVariant.price,
+          marginPercent,
+          isAvailable: insertVariant.isAvailable !== void 0 ? insertVariant.isAvailable : true,
+          stockQuantity: insertVariant.stockQuantity || 100,
+          lowStockThreshold: insertVariant.lowStockThreshold || 20,
+          sortOrder: insertVariant.sortOrder || 0,
+          isActive: insertVariant.isActive !== void 0 ? insertVariant.isActive : true,
+          createdAt: /* @__PURE__ */ new Date(),
+          updatedAt: /* @__PURE__ */ new Date()
+        };
+        await db.insert(productVariants2).values(variant);
+        return variant;
+      }
+      async updateVariant(variantId, updateData) {
+        const sanitizedData = {
+          ...updateData,
+          updatedAt: /* @__PURE__ */ new Date()
+        };
+        if (sanitizedData.marginPercent !== void 0 && typeof sanitizedData.marginPercent === "number") {
+          sanitizedData.marginPercent = sanitizedData.marginPercent.toString();
+        }
+        await db.update(productVariants2).set(sanitizedData).where(eq(productVariants2.id, variantId));
+        return this.getVariantById(variantId);
+      }
+      async deleteVariant(variantId) {
+        await db.delete(productVariants2).where(eq(productVariants2.id, variantId));
+        return true;
+      }
+      async getProductWithVariants(productId) {
+        const product = await this.getProductById(productId);
+        if (!product) return void 0;
+        const variants = await this.getVariantsByProductId(productId);
+        return {
+          ...product,
+          variants
+        };
       }
       async createOrder(insertOrder) {
         const id = randomUUID();
@@ -2327,6 +2475,22 @@ var init_storage = __esm({
         const monthlyEarlyRevenue = advanceOrders.reduce((sum, o) => sum + (o.total || 0), 0);
         const validRevenueOrders = orders3.filter(isValidRevenueOrder2);
         const completedValidOrders = validRevenueOrders.length;
+        const calcProfit = (orderSlice) => {
+          let commission = 0;
+          for (const order of orderSlice) {
+            for (const item of order.items) {
+              commission += ((item.price || 0) - (item.hotelPrice || 0)) * (item.quantity || 1);
+            }
+          }
+          return Math.round(commission);
+        };
+        const profitLifetime = calcProfit(validRevenueOrders);
+        const todayValidOrders = filterOrdersByDateRange2(validRevenueOrders, todayRange);
+        const monthValidOrders = filterOrdersByDateRange2(validRevenueOrders, monthRange);
+        const yearValidOrders2 = filterOrdersByDateRange2(validRevenueOrders, yearRange);
+        const profitToday = calcProfit(todayValidOrders);
+        const profitMonth = calcProfit(monthValidOrders);
+        const profitYear = calcProfit(yearValidOrders2);
         const customerIds = new Set(orders3.filter((o) => o.userId).map((o) => o.userId));
         const totalCustomers = customerIds.size;
         const deliveredOrders = orders3.filter((o) => o.status === "delivered" || o.status === "completed");
@@ -2398,7 +2562,11 @@ var init_storage = __esm({
           cancelledOrdersToday: cancelledOrdersToday ?? 0,
           averageOrderValueToday: averageOrderValueToday ?? 0,
           newCustomersToday: newCustomersToday ?? 0,
-          monthlyEarlyRevenue: monthlyEarlyRevenue ?? 0
+          monthlyEarlyRevenue: monthlyEarlyRevenue ?? 0,
+          profitToday: profitToday ?? 0,
+          profitMonth: profitMonth ?? 0,
+          profitYear: profitYear ?? 0,
+          profitLifetime: profitLifetime ?? 0
         };
         console.log("[DASHBOARD METRICS] Response structure:", {
           hasRevenuePeriods: !!safeMetrics.revenuePeriods,
@@ -9451,6 +9619,119 @@ Please prepare this order.`;
     } catch (error) {
       console.error("Delete product error:", error);
       res.status(500).json({ message: "Failed to delete product" });
+    }
+  });
+  app2.get("/api/admin/products/:productId/variants", requireAdmin(), async (req, res) => {
+    try {
+      const { productId } = req.params;
+      const product = await storage.getProductById(productId);
+      if (!product) {
+        res.status(404).json({ message: "Product not found" });
+        return;
+      }
+      const variants = await storage.getVariantsByProductId(productId);
+      res.json(variants);
+    } catch (error) {
+      console.error("Get variants error:", error);
+      res.status(500).json({ message: "Failed to fetch variants" });
+    }
+  });
+  app2.post("/api/admin/products/:productId/variants", requireAdminOrManager(), async (req, res) => {
+    try {
+      const { productId } = req.params;
+      const product = await storage.getProductById(productId);
+      if (!product) {
+        res.status(404).json({ message: "Product not found" });
+        return;
+      }
+      const validation = insertProductVariantSchema.safeParse({
+        ...req.body,
+        productId
+      });
+      if (!validation.success) {
+        res.status(400).json({ message: fromZodError(validation.error).toString() });
+        return;
+      }
+      const existingVariants = await storage.getVariantsByProductId(productId);
+      if (existingVariants.some((v) => v.name.toLowerCase() === validation.data.name.toLowerCase())) {
+        res.status(409).json({ message: `Variant "${validation.data.name}" already exists for this product` });
+        return;
+      }
+      const variant = await storage.createVariant(validation.data);
+      await storage.updateProduct(productId, { hasVariants: true });
+      invalidateCachePrefix("products");
+      res.status(201).json(variant);
+    } catch (error) {
+      console.error("Create variant error:", error);
+      res.status(500).json({ message: "Failed to create variant" });
+    }
+  });
+  app2.patch("/api/admin/products/:productId/variants/:variantId", requireAdminOrManager(), async (req, res) => {
+    try {
+      const { productId, variantId } = req.params;
+      const product = await storage.getProductById(productId);
+      if (!product) {
+        res.status(404).json({ message: "Product not found" });
+        return;
+      }
+      const variant = await storage.getVariantById(variantId);
+      if (!variant || variant.productId !== productId) {
+        res.status(404).json({ message: "Variant not found" });
+        return;
+      }
+      const validation = insertProductVariantSchema.partial().safeParse({
+        ...req.body,
+        productId
+      });
+      if (!validation.success) {
+        res.status(400).json({ message: fromZodError(validation.error).toString() });
+        return;
+      }
+      if (req.body.name && req.body.name !== variant.name) {
+        const existingVariants = await storage.getVariantsByProductId(productId);
+        if (existingVariants.some((v) => v.id !== variantId && v.name.toLowerCase() === req.body.name.toLowerCase())) {
+          res.status(409).json({ message: `Variant "${req.body.name}" already exists for this product` });
+          return;
+        }
+      }
+      const updatedVariant = await storage.updateVariant(variantId, validation.data);
+      if (req.body.isAvailable !== void 0 || req.body.stockQuantity !== void 0) {
+        broadcastProductAvailabilityUpdate(product);
+      }
+      invalidateCachePrefix("products");
+      res.json(updatedVariant);
+    } catch (error) {
+      console.error("Update variant error:", error);
+      res.status(500).json({ message: "Failed to update variant" });
+    }
+  });
+  app2.delete("/api/admin/products/:productId/variants/:variantId", requireSuperAdmin(), async (req, res) => {
+    try {
+      const { productId, variantId } = req.params;
+      const product = await storage.getProductById(productId);
+      if (!product) {
+        res.status(404).json({ message: "Product not found" });
+        return;
+      }
+      const variant = await storage.getVariantById(variantId);
+      if (!variant || variant.productId !== productId) {
+        res.status(404).json({ message: "Variant not found" });
+        return;
+      }
+      const deleted = await storage.deleteVariant(variantId);
+      if (!deleted) {
+        res.status(500).json({ message: "Failed to delete variant" });
+        return;
+      }
+      const remainingVariants = await storage.getVariantsByProductId(productId);
+      if (remainingVariants.length === 0) {
+        await storage.updateProduct(productId, { hasVariants: false });
+      }
+      invalidateCachePrefix("products");
+      res.json({ message: "Variant deleted successfully" });
+    } catch (error) {
+      console.error("Delete variant error:", error);
+      res.status(500).json({ message: "Failed to delete variant" });
     }
   });
   app2.get("/api/admin/users", requireAdmin(), async (req, res) => {
@@ -16925,11 +17206,63 @@ async function registerRoutes(app2) {
       } else {
         rawProducts = await storage.getAllProducts();
       }
+      const hasVariantsProducts = rawProducts.filter((p) => p.hasVariants);
+      const nonVariantProducts = rawProducts.filter((p) => !p.hasVariants);
+      if (hasVariantsProducts.length > 0 || nonVariantProducts.some((p) => /\s(half|full|large|medium|small|regular)\s*$/i.test(p.name))) {
+        console.log(`[PRODUCTS] Total: ${rawProducts.length}, hasVariants: ${hasVariantsProducts.length}, non-variants: ${nonVariantProducts.length}`);
+        hasVariantsProducts.slice(0, 3).forEach((p) => console.log(`  \u2705 Parent: "${p.name}" (has_variants=true)`));
+        nonVariantProducts.filter((p) => /\s(half|full|large|medium|small|regular)\s*$/i.test(p.name)).slice(0, 5).forEach((p) => console.log(`  \u2753 Potential legacy: "${p.name}"`));
+      }
+      const sizePatterns = ["\\(half\\)", "\\(full\\)", "\\(large\\)", "\\(medium\\)", "\\(small\\)", "\\(regular\\)", " half$", " full$", " large$", " medium$", " small$", " regular$"];
+      const parentProductsByBaseName = /* @__PURE__ */ new Map();
+      for (const p of rawProducts) {
+        if (p.hasVariants) {
+          const baseNameLower = p.name.toLowerCase().trim();
+          parentProductsByBaseName.set(baseNameLower, p);
+        }
+      }
+      const filteredProducts = rawProducts.filter((p) => {
+        if (!p.isAvailable) {
+          console.log(`[FILTERING] Hiding unavailable product "${p.name}"`);
+          return false;
+        }
+        if (p.hasVariants) return true;
+        const nameLower = p.name.toLowerCase().trim();
+        for (const pattern of sizePatterns) {
+          const regex = new RegExp(pattern, "i");
+          if (regex.test(nameLower)) {
+            let baseNameLower = nameLower;
+            for (const pat of sizePatterns) {
+              baseNameLower = baseNameLower.replace(new RegExp(pat, "i"), "").trim();
+            }
+            let foundParent = null;
+            if (parentProductsByBaseName.has(baseNameLower)) {
+              foundParent = parentProductsByBaseName.get(baseNameLower);
+            } else {
+              for (const [parentBase, parentProd] of parentProductsByBaseName) {
+                let parentBaseClean = parentBase;
+                for (const pat of sizePatterns) {
+                  parentBaseClean = parentBaseClean.replace(new RegExp(pat, "i"), "").trim();
+                }
+                if (parentBaseClean === baseNameLower) {
+                  foundParent = parentProd;
+                  break;
+                }
+              }
+            }
+            if (foundParent && foundParent.id !== p.id) {
+              console.log(`[FILTERING] Hiding legacy product "${p.name}" (variant parent: "${foundParent.name}")`);
+              return false;
+            }
+          }
+        }
+        return true;
+      });
       const categories3 = await storage.getAllCategories();
       const chefs3 = await storage.getChefs();
       const catMap = new Map(categories3.map((c) => [c.id, c]));
       const chefMap = new Map(chefs3.map((c) => [c.id, c]));
-      const products3 = rawProducts.map((p) => {
+      const products3 = await Promise.all(filteredProducts.map(async (p) => {
         const cat = catMap.get(p.categoryId);
         const chef = p.chefId ? chefMap.get(p.chefId) : null;
         let effectiveMode = "both";
@@ -16943,8 +17276,12 @@ async function registerRoutes(app2) {
             effectiveMode = "both";
           }
         }
-        return { ...p, effectiveMode };
-      });
+        let variants = void 0;
+        if (p.hasVariants) {
+          variants = await storage.getVariantsByProductId(p.id);
+        }
+        return { ...p, effectiveMode, ...variants && { variants } };
+      }));
       setCache(key, products3, 5 * 60 * 1e3);
       res.json(products3);
     } catch (error) {
@@ -16974,7 +17311,11 @@ async function registerRoutes(app2) {
           effectiveMode = "both";
         }
       }
-      res.json({ ...product, effectiveMode });
+      let variants = void 0;
+      if (product.hasVariants) {
+        variants = await storage.getVariantsByProductId(product.id);
+      }
+      res.json({ ...product, effectiveMode, ...variants && { variants } });
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch product" });
     }
@@ -17077,6 +17418,9 @@ async function registerRoutes(app2) {
           quantity: sanitizeNumber(i.quantity),
           categoryId: i.categoryId || void 0,
           chefId: i.chefId || void 0,
+          // 🔹 PRESERVE VARIANT INFO for products with sizes (Half/Full, etc.)
+          variantId: i.variantId || void 0,
+          variantName: i.variantName || void 0,
           // Preserve special cooking instructions — this is saved in JSONB items column
           ...i.specialInstructions ? { specialInstructions: String(i.specialInstructions).trim() } : {}
         })) : [],
@@ -17446,6 +17790,8 @@ async function registerRoutes(app2) {
           received: sanitized
         });
       }
+      console.log("\u{1F4E6} [DEBUG] Sanitized order data - items:", JSON.stringify(sanitized.items, null, 2));
+      console.log("\u{1F4E6} [DEBUG] Schema result data - items:", JSON.stringify(result.data.items, null, 2));
       let userId;
       let accountCreated = false;
       let generatedPassword;
@@ -17528,12 +17874,104 @@ async function registerRoutes(app2) {
       }
       orderPayload.items = await Promise.all(
         orderPayload.items.map(async (item) => {
-          const product = await storage.getProductById(item.id);
+          console.log(`[ORDER-VALIDATION] Processing item:`, {
+            id: item.id,
+            name: item.name,
+            variantId: item.variantId,
+            chefId: item.chefId,
+            categoryId: item.categoryId
+          });
+          let product = await storage.getProductById(item.id);
+          console.log(`[ORDER-VALIDATION] Product lookup by id "${item.id}":`, {
+            found: !!product,
+            hasVariants: product?.hasVariants,
+            productId: product?.id,
+            productName: product?.name
+          });
+          if (item.variantId && (!product || !product.hasVariants)) {
+            console.log(`[ORDER-VALIDATION] variantId provided but product missing/not parent. Searching for parent...`);
+            const allProducts = await storage.getAllProducts();
+            const itemName = item.name || "";
+            console.log(`[ORDER-VALIDATION] Searching parent product with:`, {
+              itemName,
+              chefId: item.chefId,
+              categoryId: item.categoryId,
+              totalProductsInDb: allProducts.length
+            });
+            product = allProducts.find((p) => {
+              const match = p.hasVariants && p.chefId === item.chefId && p.categoryId === item.categoryId && p.name.toLowerCase() === itemName.toLowerCase();
+              if (match) {
+                console.log(`[ORDER-VALIDATION] Found parent product match:`, {
+                  productId: p.id,
+                  productName: p.name,
+                  hasVariants: p.hasVariants
+                });
+              }
+              return match;
+            });
+            if (!product) {
+              console.log(`[ORDER-VALIDATION] No parent product found!`);
+            }
+          }
+          let variantName = void 0;
+          let variantPrice = item.price;
+          console.log(`[ORDER-VALIDATION] About to check variant validation:`, {
+            hasVariantId: !!item.variantId,
+            productHasVariants: product?.hasVariants,
+            productId: product?.id,
+            productName: product?.name
+          });
+          if (item.variantId) {
+            if (!product?.hasVariants) {
+              console.log(`[ORDER-VALIDATION] ERROR: variantId provided but product doesn't have variants`);
+              throw new Error(`Variant "${item.variantId}" provided for single-price product "${product?.name || item.name}"`);
+            }
+            const variant = await storage.getVariantById(item.variantId);
+            console.log(`[ORDER-VALIDATION] Variant lookup:`, {
+              variantId: item.variantId,
+              found: !!variant,
+              variantProductId: variant?.productId,
+              expectedProductId: product.id
+            });
+            if (!variant) {
+              throw new Error(`Variant not found: ${item.variantId}`);
+            }
+            if (variant.productId !== product.id) {
+              console.log(`[ORDER-VALIDATION] ERROR: Variant belongs to different product:`, {
+                variantProductId: variant.productId,
+                expectedProductId: product.id
+              });
+              throw new Error(`Variant ${item.variantId} does not belong to product ${product.id}`);
+            }
+            if (!variant.isActive || !variant.isAvailable) {
+              throw new Error(`Variant "${variant.name}" is no longer available for this product`);
+            }
+            variantPrice = variant.price;
+            variantName = variant.name;
+            console.log(`[ORDER-VALIDATION] Variant validated successfully:`, {
+              variantName,
+              variantPrice
+            });
+          } else if (product?.hasVariants) {
+            console.log(`[ORDER-VALIDATION] ERROR: Product has variants but no variantId provided`);
+            throw new Error(`Product "${product.name}" requires a size selection`);
+          }
+          console.log(`[ORDER-VALIDATION] Item validation complete:`, {
+            itemId: item.id,
+            finalPrice: variantPrice,
+            variantName
+          });
           return {
             ...item,
+            price: variantPrice,
+            // Use validated variant price or product price
             hotelPrice: product?.hotelPrice || 0,
             // Add partner's cost price to order item
-            chefId: product?.chefId || item.chefId || void 0
+            chefId: product?.chefId || item.chefId || void 0,
+            variantId: item.variantId || void 0,
+            // Include variant ID in order snapshot
+            variantName
+            // Include variant name in order snapshot
           };
         })
       );
@@ -23135,11 +23573,11 @@ app.use((req, res, next) => {
     console.warn("\u26A0\uFE0F Failed to initialize admin settings:", err);
   }
   const port = parseInt(process.env.PORT || "5000", 10);
-  server.listen({
-    port,
-    host: "0.0.0.0",
-    reusePort: true
-  }, () => {
+  const listenOptions = { port, host: "0.0.0.0" };
+  if (process.platform !== "win32") {
+    listenOptions.reusePort = true;
+  }
+  server.listen(listenOptions, () => {
     log2(`serving on port ${port}`);
     console.log("\n\u{1F510} ===== JWT CONFIGURATION =====");
     console.log("JWT_SECRET env var is:", process.env.JWT_SECRET ? "SET \u2705" : "NOT SET (using fallback) \u26A0\uFE0F");

@@ -32,6 +32,7 @@ export const {
   sessions,
   categories,
   products,
+  productVariants,
   orders,
   chefs,
   adminUsers,
@@ -66,4 +67,4 @@ export const {
   chefPreorderSettings
 } = schema;
 
-export type { ChefUnavailability, InsertChefUnavailability } from './schema';
+export type { ChefUnavailability, InsertChefUnavailability, ProductVariant, InsertProductVariant, ProductWithVariants } from './schema';

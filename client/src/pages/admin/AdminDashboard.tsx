@@ -68,6 +68,10 @@ interface DashboardMetrics {
   averageOrderValueToday: number;
   newCustomersToday: number;
   monthlyEarlyRevenue: number;
+  profitToday: number;
+  profitMonth: number;
+  profitYear: number;
+  profitLifetime: number;
 }
 
 interface ChartDataPoint {
@@ -297,7 +301,23 @@ export default function AdminDashboard() {
           )}
         </div>
 
-        {/* ROW 2: Today's Unique Visitors, Total Unique Visitors */}
+        {/* ROW 2: Platform Profit — Today, This Month, This Year, Lifetime */}
+        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+          {metricsLoading ? (
+            <>
+              {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-20 w-full rounded-lg" />)}
+            </>
+          ) : (
+            <>
+              {renderKPICard("Profit Today",    formatCurrency(metrics?.profitToday    || 0), 0, 'flat', TrendingUp, "After partner cost")}
+              {renderKPICard("Profit This Month", formatCurrency(metrics?.profitMonth  || 0), 0, 'flat', TrendingUp, "After partner cost")}
+              {renderKPICard("Profit This Year",  formatCurrency(metrics?.profitYear   || 0), 0, 'flat', TrendingUp, "After partner cost")}
+              {renderKPICard("Lifetime Profit",   formatCurrency(metrics?.profitLifetime || 0), 0, 'flat', TrendingUp, "All time")}
+            </>
+          )}
+        </div>
+
+        {/* ROW 3: Today's Unique Visitors, Total Unique Visitors */}
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-2">
           {metricsLoading ? (
             <>
