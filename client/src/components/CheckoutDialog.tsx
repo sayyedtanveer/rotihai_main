@@ -3090,6 +3090,8 @@ export default function CheckoutDialog({
             quantity: item.quantity,
             categoryId: item.categoryId,
             chefId: item.chefId,
+            variantId: item.variantId, // 🆕 Include variant ID
+            variantName: item.variantName, // 🆕 Include variant name
             specialInstructions: item.specialInstructions || undefined,
           })),
           subtotal,

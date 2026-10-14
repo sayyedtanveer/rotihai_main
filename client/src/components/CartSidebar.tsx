@@ -44,12 +44,14 @@ interface CartSidebarProps {
   onClose: () => void;
   // Now returns both categoryId and chefId so the parent can select exact cart
   onCheckout?: (categoryId: string, chefId?: string) => void;
+  onContinueShopping?: (categoryId: string, chefId?: string) => void; // 🆕 Continue shopping
 }
 
 export default function CartSidebar({
   isOpen,
   onClose,
   onCheckout,
+  onContinueShopping,
 }: CartSidebarProps) {
   const { getAllCartsWithDelivery, updateQuantity, fetchDeliverySettings, setUserLocation, fetchChefStatuses, updateChefStatus, updateSpecialInstructions } = useCart();
   const cartsWithDelivery = getAllCartsWithDelivery();
@@ -106,6 +108,12 @@ export default function CartSidebar({
   const handleCheckout = (categoryId: string, chefId?: string) => {
     if (onCheckout) {
       onCheckout(categoryId, chefId);
+    }
+  };
+
+  const handleContinueShopping = (categoryId: string, chefId?: string) => {
+    if (onContinueShopping) {
+      onContinueShopping(categoryId, chefId);
     }
   };
 
@@ -189,6 +197,7 @@ export default function CartSidebar({
                       updateSpecialInstructions(cart.categoryId, itemId, instructions, cart.chefId)
                     }
                     onCheckout={() => handleCheckout(cart.categoryId, cart.chefId)}
+                    onContinueShopping={() => handleContinueShopping(cart.categoryId, cart.chefId)}
                     chefClosed={isChefClosed}
                     productAvailability={productAvailability}
                   />

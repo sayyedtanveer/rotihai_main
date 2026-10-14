@@ -442,6 +442,29 @@ export const useCart = create<CartStore>()(
     }),
     {
       name: "cart-storage", // persistent cart in localStorage
+      // 🆕 DATA MIGRATION: Clean up invalid variant items when loading from storage
+      // This removes any cart items that have product.hasVariants but no variantId
+      // (legacy items added before variant validation was implemented)
+      onRehydrateStorage: () => (state) => {
+        if (!state?.carts) return;
+        
+        // Sanitize each cart: remove variant products without variantId
+        state.carts = state.carts.map((cart) => ({
+          ...cart,
+          items: cart.items.filter((item) => {
+            // Keep non-variant products always
+            // Remove variant products without variantId (invalid state)
+            const isVariantProduct = (item as any).hasVariants === true;
+            const hasVariantId = (item as any).variantId !== undefined && (item as any).variantId !== null;
+            
+            if (isVariantProduct && !hasVariantId) {
+              console.warn(`[CART-SANITIZE] Removing invalid variant item: ${item.name} (no variantId)`);
+              return false; // Remove this item
+            }
+            return true; // Keep valid items
+          }),
+        })).filter((cart) => cart.items.length > 0); // Remove empty carts
+      },
     }
   )
 );

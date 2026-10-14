@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Progress } from "@/components/ui/progress";
-import { MapPin, Package, Plus, Minus, ChevronDown, UtensilsCrossed } from "lucide-react";
+import { MapPin, Package, Plus, Minus, ChevronDown, UtensilsCrossed, ArrowLeft } from "lucide-react";
 import { Card, CardHeader, CardContent, CardFooter } from "@/components/ui/card";
 import { getImageUrl, handleImageError } from "@/lib/imageUrl";
 import { useState } from "react";
@@ -34,6 +34,7 @@ interface CartCardProps {
   onUpdateQuantity?: (itemId: string, quantity: number) => void;
   onUpdateInstructions?: (itemId: string, instructions: string) => void;
   onCheckout?: () => void;
+  onContinueShopping?: () => void; // 🆕 Continue shopping button
   disabled?: boolean;
   chefClosed?: boolean;
   productAvailability?: Record<string, { isAvailable: boolean; stock?: number }>;
@@ -54,6 +55,7 @@ export default function CartCard({
   onUpdateQuantity,
   onUpdateInstructions,
   onCheckout,
+  onContinueShopping,
   disabled = false,
   chefClosed = false,
   productAvailability = {},
@@ -404,9 +406,20 @@ export default function CartCard({
         </div>
       </CardContent>
 
-      <CardFooter className="pt-0">
+      <CardFooter className="pt-0 gap-2">
         <Button
-          className="w-full"
+          variant="outline"
+          size="lg"
+          onClick={onContinueShopping}
+          disabled={disabled || chefClosed}
+          data-testid="button-continue-shopping"
+          title="Back to menu"
+          className="flex-1 flex items-center justify-center gap-2 hover:bg-primary hover:text-primary-foreground transition-all"
+        >
+          <ArrowLeft className="h-5 w-5" />
+        </Button>
+        <Button
+          className="flex-1"
           size="lg"
           onClick={onCheckout}
           disabled={disabled || chefClosed || allItemsUnavailable}

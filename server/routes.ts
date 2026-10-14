@@ -2166,6 +2166,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             quantity: sanitizeNumber(i.quantity),
             categoryId: i.categoryId || undefined,
             chefId: i.chefId || undefined,
+            // 🔹 PRESERVE VARIANT INFO for products with sizes (Half/Full, etc.)
+            variantId: i.variantId || undefined,
+            variantName: i.variantName || undefined,
             // Preserve special cooking instructions — this is saved in JSONB items column
             ...(i.specialInstructions ? { specialInstructions: String(i.specialInstructions).trim() } : {}),
           }))
@@ -2646,6 +2649,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
+      console.log("📦 [DEBUG] Sanitized order data - items:", JSON.stringify(sanitized.items, null, 2));
+      console.log("📦 [DEBUG] Schema result data - items:", JSON.stringify(result.data.items, null, 2));
+
       // Extract authenticated userId (JWT) or auto-register new user
       let userId: string | undefined;
       let accountCreated = false;
@@ -2763,25 +2769,95 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // 🆕 Validate variants if provided
       orderPayload.items = await Promise.all(
         orderPayload.items.map(async (item: any) => {
-          const product = await storage.getProductById(item.id);
+          console.log(`[ORDER-VALIDATION] Processing item:`, {
+            id: item.id,
+            name: item.name,
+            variantId: item.variantId,
+            chefId: item.chefId,
+            categoryId: item.categoryId,
+          });
+
+          let product = await storage.getProductById(item.id);
+          console.log(`[ORDER-VALIDATION] Product lookup by id "${item.id}":`, {
+            found: !!product,
+            hasVariants: product?.hasVariants,
+            productId: product?.id,
+            productName: product?.name,
+          });
+          
+          // 🆕 If product not found or doesn't have variants but variantId is provided,
+          // try to find parent product (in case item.id is legacy variant product)
+          if (item.variantId && (!product || !product.hasVariants)) {
+            console.log(`[ORDER-VALIDATION] variantId provided but product missing/not parent. Searching for parent...`);
+            // Try to find parent product by name
+            const allProducts = await storage.getAllProducts();
+            const itemName = item.name || "";
+            
+            console.log(`[ORDER-VALIDATION] Searching parent product with:`, {
+              itemName: itemName,
+              chefId: item.chefId,
+              categoryId: item.categoryId,
+              totalProductsInDb: allProducts.length,
+            });
+
+            // Look for parent product with same base name
+            product = allProducts.find((p: any) => {
+              const match = p.hasVariants && 
+                p.chefId === item.chefId && 
+                p.categoryId === item.categoryId &&
+                p.name.toLowerCase() === itemName.toLowerCase();
+              
+              if (match) {
+                console.log(`[ORDER-VALIDATION] Found parent product match:`, {
+                  productId: p.id,
+                  productName: p.name,
+                  hasVariants: p.hasVariants,
+                });
+              }
+              return match;
+            });
+
+            if (!product) {
+              console.log(`[ORDER-VALIDATION] No parent product found!`);
+            }
+          }
           
           // 🆕 Validate variant if provided
           let variantName: string | undefined = undefined;
           let variantPrice: number = item.price; // Default to provided price
           
+          console.log(`[ORDER-VALIDATION] About to check variant validation:`, {
+            hasVariantId: !!item.variantId,
+            productHasVariants: product?.hasVariants,
+            productId: product?.id,
+            productName: product?.name,
+          });
+
           if (item.variantId) {
             // Product should have variants
             if (!product?.hasVariants) {
-              throw new Error(`Variant "${item.variantId}" provided for single-price product "${product?.name}"`);
+              console.log(`[ORDER-VALIDATION] ERROR: variantId provided but product doesn't have variants`);
+              throw new Error(`Variant "${item.variantId}" provided for single-price product "${product?.name || item.name}"`);
             }
             
             // Get and validate variant
             const variant = await storage.getVariantById(item.variantId);
+            console.log(`[ORDER-VALIDATION] Variant lookup:`, {
+              variantId: item.variantId,
+              found: !!variant,
+              variantProductId: variant?.productId,
+              expectedProductId: product.id,
+            });
+
             if (!variant) {
               throw new Error(`Variant not found: ${item.variantId}`);
             }
-            if (variant.productId !== item.id) {
-              throw new Error(`Variant ${item.variantId} does not belong to product ${item.id}`);
+            if (variant.productId !== product.id) {
+              console.log(`[ORDER-VALIDATION] ERROR: Variant belongs to different product:`, {
+                variantProductId: variant.productId,
+                expectedProductId: product.id,
+              });
+              throw new Error(`Variant ${item.variantId} does not belong to product ${product.id}`);
             }
             if (!variant.isActive || !variant.isAvailable) {
               throw new Error(`Variant "${variant.name}" is no longer available for this product`);
@@ -2790,11 +2866,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
             // Use variant price and name
             variantPrice = variant.price;
             variantName = variant.name;
+            console.log(`[ORDER-VALIDATION] Variant validated successfully:`, {
+              variantName,
+              variantPrice,
+            });
           } else if (product?.hasVariants) {
             // Product requires variant selection
+            console.log(`[ORDER-VALIDATION] ERROR: Product has variants but no variantId provided`);
             throw new Error(`Product "${product.name}" requires a size selection`);
           }
           
+          console.log(`[ORDER-VALIDATION] Item validation complete:`, {
+            itemId: item.id,
+            finalPrice: variantPrice,
+            variantName,
+          });
+
           return {
             ...item,
             price: variantPrice, // Use validated variant price or product price

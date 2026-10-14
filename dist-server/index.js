@@ -17418,6 +17418,9 @@ async function registerRoutes(app2) {
           quantity: sanitizeNumber(i.quantity),
           categoryId: i.categoryId || void 0,
           chefId: i.chefId || void 0,
+          // 🔹 PRESERVE VARIANT INFO for products with sizes (Half/Full, etc.)
+          variantId: i.variantId || void 0,
+          variantName: i.variantName || void 0,
           // Preserve special cooking instructions — this is saved in JSONB items column
           ...i.specialInstructions ? { specialInstructions: String(i.specialInstructions).trim() } : {}
         })) : [],
@@ -17787,6 +17790,8 @@ async function registerRoutes(app2) {
           received: sanitized
         });
       }
+      console.log("\u{1F4E6} [DEBUG] Sanitized order data - items:", JSON.stringify(sanitized.items, null, 2));
+      console.log("\u{1F4E6} [DEBUG] Schema result data - items:", JSON.stringify(result.data.items, null, 2));
       let userId;
       let accountCreated = false;
       let generatedPassword;
@@ -17869,28 +17874,93 @@ async function registerRoutes(app2) {
       }
       orderPayload.items = await Promise.all(
         orderPayload.items.map(async (item) => {
-          const product = await storage.getProductById(item.id);
+          console.log(`[ORDER-VALIDATION] Processing item:`, {
+            id: item.id,
+            name: item.name,
+            variantId: item.variantId,
+            chefId: item.chefId,
+            categoryId: item.categoryId
+          });
+          let product = await storage.getProductById(item.id);
+          console.log(`[ORDER-VALIDATION] Product lookup by id "${item.id}":`, {
+            found: !!product,
+            hasVariants: product?.hasVariants,
+            productId: product?.id,
+            productName: product?.name
+          });
+          if (item.variantId && (!product || !product.hasVariants)) {
+            console.log(`[ORDER-VALIDATION] variantId provided but product missing/not parent. Searching for parent...`);
+            const allProducts = await storage.getAllProducts();
+            const itemName = item.name || "";
+            console.log(`[ORDER-VALIDATION] Searching parent product with:`, {
+              itemName,
+              chefId: item.chefId,
+              categoryId: item.categoryId,
+              totalProductsInDb: allProducts.length
+            });
+            product = allProducts.find((p) => {
+              const match = p.hasVariants && p.chefId === item.chefId && p.categoryId === item.categoryId && p.name.toLowerCase() === itemName.toLowerCase();
+              if (match) {
+                console.log(`[ORDER-VALIDATION] Found parent product match:`, {
+                  productId: p.id,
+                  productName: p.name,
+                  hasVariants: p.hasVariants
+                });
+              }
+              return match;
+            });
+            if (!product) {
+              console.log(`[ORDER-VALIDATION] No parent product found!`);
+            }
+          }
           let variantName = void 0;
           let variantPrice = item.price;
+          console.log(`[ORDER-VALIDATION] About to check variant validation:`, {
+            hasVariantId: !!item.variantId,
+            productHasVariants: product?.hasVariants,
+            productId: product?.id,
+            productName: product?.name
+          });
           if (item.variantId) {
             if (!product?.hasVariants) {
-              throw new Error(`Variant "${item.variantId}" provided for single-price product "${product?.name}"`);
+              console.log(`[ORDER-VALIDATION] ERROR: variantId provided but product doesn't have variants`);
+              throw new Error(`Variant "${item.variantId}" provided for single-price product "${product?.name || item.name}"`);
             }
             const variant = await storage.getVariantById(item.variantId);
+            console.log(`[ORDER-VALIDATION] Variant lookup:`, {
+              variantId: item.variantId,
+              found: !!variant,
+              variantProductId: variant?.productId,
+              expectedProductId: product.id
+            });
             if (!variant) {
               throw new Error(`Variant not found: ${item.variantId}`);
             }
-            if (variant.productId !== item.id) {
-              throw new Error(`Variant ${item.variantId} does not belong to product ${item.id}`);
+            if (variant.productId !== product.id) {
+              console.log(`[ORDER-VALIDATION] ERROR: Variant belongs to different product:`, {
+                variantProductId: variant.productId,
+                expectedProductId: product.id
+              });
+              throw new Error(`Variant ${item.variantId} does not belong to product ${product.id}`);
             }
             if (!variant.isActive || !variant.isAvailable) {
               throw new Error(`Variant "${variant.name}" is no longer available for this product`);
             }
             variantPrice = variant.price;
             variantName = variant.name;
+            console.log(`[ORDER-VALIDATION] Variant validated successfully:`, {
+              variantName,
+              variantPrice
+            });
           } else if (product?.hasVariants) {
+            console.log(`[ORDER-VALIDATION] ERROR: Product has variants but no variantId provided`);
             throw new Error(`Product "${product.name}" requires a size selection`);
           }
+          console.log(`[ORDER-VALIDATION] Item validation complete:`, {
+            itemId: item.id,
+            finalPrice: variantPrice,
+            variantName
+          });
           return {
             ...item,
             price: variantPrice,

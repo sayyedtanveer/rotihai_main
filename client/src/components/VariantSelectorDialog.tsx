@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { Product, ProductVariant } from "@shared/schema";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ interface VariantSelectorDialogProps {
   product: Product & { variants?: ProductVariant[] };
   onConfirm: (variantId: string | undefined, quantity: number) => void;
   defaultQuantity?: number;
+  initialVariantId?: string;  // 🆕 Pre-select existing variant when increasing quantity
 }
 
 export function VariantSelectorDialog({
@@ -20,14 +21,22 @@ export function VariantSelectorDialog({
   product,
   onConfirm,
   defaultQuantity = 1,
+  initialVariantId,  // 🆕 NEW
 }: VariantSelectorDialogProps) {
   const [selectedVariantId, setSelectedVariantId] = useState<string | undefined>(
-    product.variants?.[0]?.id
+    initialVariantId || product.variants?.[0]?.id  // 🆕 Use initialVariantId if provided
   );
   const [quantity, setQuantity] = useState(defaultQuantity);
 
   const variants = product.variants || [];
   const selectedVariant = variants.find((v) => v.id === selectedVariantId);
+
+  // 🆕 Update selectedVariantId when initialVariantId changes (pre-select existing variant)
+  useEffect(() => {
+    if (initialVariantId) {
+      setSelectedVariantId(initialVariantId);
+    }
+  }, [initialVariantId]);
 
   const handleAddToCart = () => {
     if (!selectedVariantId && product.hasVariants) {

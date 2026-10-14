@@ -532,6 +532,12 @@ export default function CategoryMenuDrawer({
           product={selectedProductForVariant}
           onConfirm={handleVariantConfirm}
           defaultQuantity={1}
+          // 🆕 If product already in cart, pre-select its variant
+          initialVariantId={
+            selectedProductForVariant 
+              ? (cartItems.find(item => item.id === selectedProductForVariant.id) as any)?.variantId
+              : undefined
+          }
         />
       )}
     </>
