@@ -689,8 +689,7 @@ export default function CheckoutDialog({
   const cartHasPreorder = cart?.items?.some((item: any) => item.effectiveMode === 'preorder') ?? false;
 
   const requiresDeliverySlot =
-    cartHasInstant  ? true :   // instant cart → show existing slot picker
-    cartHasPreorder ? true :   // preorder cart → show existing Lunch/Dinner tabs
+    cartHasPreorder ? true :   // preorder cart → show Lunch/Dinner tabs
     !!categoryData?.requiresDeliverySlot ||
     (categoryData?.name?.toLowerCase().includes('roti') ?? false);  // 'both' fallback unchanged
 

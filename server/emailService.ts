@@ -248,6 +248,8 @@ export interface OrderEmailParams {
   total: number;
   deliveryAddress: string;
   estimatedDeliveryTime?: string;
+  chefName?: string | null;
+  chefPhone?: string | null;
 }
 
 export function createOrderConfirmationEmail(params: OrderEmailParams) {
@@ -346,6 +348,21 @@ export function createOrderConfirmationEmail(params: OrderEmailParams) {
               : ""
           }
         </div>
+
+        ${
+          params.chefName
+            ? `<!-- CHEF DETAILS -->
+        <div class="section">
+          <h3 style="margin-top: 0;">👨‍🍳 Your Chef</h3>
+          <p><strong>Chef Name:</strong> ${params.chefName}</p>
+          ${
+            params.chefPhone
+              ? `<p><strong>📞 Contact:</strong> <a href="tel:${params.chefPhone}" style="color: #ff6b35; text-decoration: none;">${params.chefPhone}</a></p>`
+              : ""
+          }
+        </div>`
+            : ""
+        }
 
         <!-- FOOTER -->
         <div style="text-align: center; padding: 20px; color: #666; font-size: 12px;">
@@ -453,6 +470,7 @@ export interface AdminOrderNotificationParams {
   customerPhone: string;
   customerEmail?: string | null;
   chefName?: string | null;
+  chefPhone?: string | null;
   items: Array<{ name: string; quantity: number; price: number }>;
   subtotal: number;
   deliveryFee: number;
@@ -561,6 +579,7 @@ export function createAdminOrderConfirmationEmail(params: AdminOrderNotification
         ${params.chefName ? `<div class="section">
           <h3 style="margin-top: 0;">👨‍🍳 Assigned Chef</h3>
           <p><strong>Chef Name:</strong> ${params.chefName}</p>
+          ${params.chefPhone ? `<p><strong>📞 Contact:</strong> <a href="tel:${params.chefPhone}" style="color: #ff6b35; text-decoration: none;">${params.chefPhone}</a></p>` : ""}
         </div>` : ""}
 
         <!-- PAYMENT STATUS -->

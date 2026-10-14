@@ -3573,6 +3573,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
               total: order.total as number,
               deliveryAddress: order.address as string,
               estimatedDeliveryTime: "30-45 minutes",
+              chefName: order.chefName || undefined,
+              chefPhone: order.chefName ? (await storage.getChefById(order.chefId || ""))?.phone || undefined : undefined,
             });
 
             if (emailSent) {
@@ -3898,6 +3900,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               customerPhone: updatedOrder?.phone || "",
               customerEmail: updatedOrder?.email || null,
               chefName: chefName,
+              chefPhone: chefName ? (await storage.getChefById(updatedOrder?.chefId || ""))?.phone || undefined : undefined,
               items: itemsArray || [],
               subtotal: updatedOrder?.subtotal || 0,
               deliveryFee: updatedOrder?.deliveryFee || 0,

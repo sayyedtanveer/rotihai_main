@@ -186,6 +186,12 @@ export default function AdminOrders() {
     return person ? person.name : "Unknown";
   };
 
+  const getChefPhone = (chefId: string | null) => {
+    if (!chefId || !chefs) return null;
+    const chef = chefs.find((c: any) => c.id === chefId);
+    return chef ? chef.phone : null;
+  };
+
   const getCoordinatePair = (latitude: unknown, longitude: unknown) => {
     const lat = typeof latitude === "number" ? latitude : Number(latitude);
     const lon = typeof longitude === "number" ? longitude : Number(longitude);
@@ -533,9 +539,18 @@ export default function AdminOrders() {
                           <div className="flex flex-col gap-2 items-start">
                             {order.chefName ? (
                               <>
-                                <span className="text-sm font-medium text-primary">
-                                  {order.chefName}
-                                </span>
+                                <div>
+                                  <span className="text-sm font-medium text-primary">
+                                    {order.chefName}
+                                  </span>
+                                  {order.chefId && getChefPhone(order.chefId) && (
+                                    <p className="text-xs text-slate-600 dark:text-slate-400">
+                                      <a href={`tel:${getChefPhone(order.chefId)}`} className="hover:text-primary hover:underline">
+                                        {getChefPhone(order.chefId)}
+                                      </a>
+                                    </p>
+                                  )}
+                                </div>
                                 {order.status !== "delivered" && order.status !== "cancelled" && (
                                   <Button
                                     size="sm"
